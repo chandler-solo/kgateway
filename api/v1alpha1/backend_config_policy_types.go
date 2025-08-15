@@ -86,6 +86,10 @@ type BackendConfigPolicySpec struct {
 	// HealthCheck contains the options necessary to configure the health check.
 	// +optional
 	HealthCheck *HealthCheck `json:"healthCheck,omitempty"`
+
+	// OutlierDetection contains the options necessary to configure passive health checking.
+	// +optional
+	OutlierDetection *OutlierDetection `json:"outlierDetection,omitempty"`
 }
 
 // See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-msg-config-core-v3-http1protocoloptions) for more details.
@@ -495,6 +499,44 @@ type HealthCheckGrpc struct {
 	// with will be used.
 	// +optional
 	Authority *string `json:"authority,omitempty"`
+}
+
+// OutlierDetection contains the options to configure passive health checks.
+// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/outlier#outlier-detection) for more details.
+// +optional
+type OutlierDetection struct {
+	// The number of consecutive server-side error responses (for HTTP traffic,
+	// 5xx responses; for TCP traffic, connection failures; etc.) before an
+	// ejection occurs. Defaults to 5. If this is zero, consecutive 5xx passive
+	// health checks will be disabled. In the future, other types of passive
+	// health checking might be added, but none will be enabled by default.
+	// +optional
+	// +kubebuilder:default=5
+	Consecutive5xx *uint32 `json:"consecutive5xx,omitempty"`
+
+	// The time interval between ejection analysis sweeps. This can result in
+	// both new ejections as well as hosts being returned to service. Defaults
+	// to 10s.
+	// +optional
+	// +kubebuilder:default="10s"
+	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
+	Interval *metav1.Duration `json:"interval,omitempty"`
+
+	// The base time that a host is ejected for. The real time is equal to the
+	// base time multiplied by the number of times the host has been ejected.
+	// Defaults to 30s.
+	// +optional
+	// +kubebuilder:default="30s"
+	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
+	BaseEjectionTime *metav1.Duration `json:"baseEjectionTime,omitempty"`
+
+	// The maximum % of an upstream cluster that can be ejected due to outlier
+	// detection. Defaults to 10%.
+	// +optional
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	MaxEjectionPercent *uint32 `json:"maxEjectionPercent,omitempty"`
 }
 
 // +kubebuilder:validation:ExactlyOneOf=header;cookie;sourceIP
