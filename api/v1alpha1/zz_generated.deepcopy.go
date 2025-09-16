@@ -888,7 +888,7 @@ func (in *BodyTransformation) DeepCopyInto(out *BodyTransformation) {
 	*out = *in
 	if in.Value != nil {
 		in, out := &in.Value, &out.Value
-		*out = new(InjaTemplate)
+		*out = new(Template)
 		**out = **in
 	}
 }

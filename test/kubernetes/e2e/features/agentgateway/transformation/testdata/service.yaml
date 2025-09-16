@@ -10,29 +10,28 @@ spec:
       port: 8080
       targetPort: 3000
   selector:
-    app.kubernetes.io/name: backend-test
+    app.kubernetes.io/name: backend-0
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-test
+  name: backend-0
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: backend-test
+      app.kubernetes.io/name: backend-0
       version: v1
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: backend-test
+        app.kubernetes.io/name: backend-0
         version: v1
     spec:
-      terminationGracePeriodSeconds: 0
       containers:
         - image: gcr.io/k8s-staging-gateway-api/echo-basic:v20231214-v1.0.0-140-gf544a46e
           imagePullPolicy: IfNotPresent
-          name: backend-test
+          name: backend-0
           ports:
             - containerPort: 3000
           env:
