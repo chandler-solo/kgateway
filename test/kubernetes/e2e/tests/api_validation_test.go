@@ -645,6 +645,85 @@ spec:
 			wantErrors: []string{},
 		},
 		{
+			name: "ProxyDeployment: Strategy is fully fleshed out",
+			input: `---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: test-proxy-deployment-empty
+spec:
+  kube:
+    deployment:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 100%
+          maxUnavailable: 1
+`,
+			wantErrors: []string{},
+		},
+		{
+			name: "ProxyDeployment: Strategy sets maxSurge and uses implicit type RollingUpdate",
+			input: `---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: test-proxy-deployment-maxsurge
+spec:
+  kube:
+    deployment:
+      strategy:
+        rollingUpdate:
+          maxSurge: 100%
+`,
+			wantErrors: []string{},
+		},
+		{
+			name: "ProxyDeployment: Strategy has an empty rollingUpdate override",
+			input: `---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: test-proxy-deployment-rollingupdate-empty
+spec:
+  kube:
+    deployment:
+      strategy:
+        rollingUpdate: {}
+`,
+			wantErrors: []string{},
+		},
+		{
+			name: "ProxyDeployment: Strategy Recreate",
+			input: `---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: test-proxy-deployment-recreate
+spec:
+  kube:
+    deployment:
+      strategy:
+        type: Recreate
+`,
+			wantErrors: []string{},
+		},
+		{
+			name: "ProxyDeployment: Strategy has an unknown rollout type and acts in a forwards-compatible fashion",
+			input: `---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: test-proxy-deployment-unknownstrategem
+spec:
+  kube:
+    deployment:
+      strategy:
+        type: SomeStrategemIntroducedInTheFuture
+`,
+			wantErrors: []string{},
+		},
+		{
 			name: "ProxyDeployment: only omitReplicas set (should pass)",
 			input: `---
 apiVersion: gateway.kgateway.dev/v1alpha1

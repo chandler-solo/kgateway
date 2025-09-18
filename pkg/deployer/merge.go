@@ -1,6 +1,7 @@
 package deployer
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -676,6 +677,21 @@ func deepMergeSecurityContext(dst, src *corev1.SecurityContext) *corev1.Security
 	return dst
 }
 
+func deepMergeStrategy(dst, src *appsv1.DeploymentStrategy) *appsv1.DeploymentStrategy {
+	if src == nil {
+		return dst
+	}
+
+	if dst == nil {
+		return src
+	}
+
+	dst.Type = src.Type
+	dst.RollingUpdate = src.RollingUpdate
+
+	return dst
+}
+
 func deepMergeCapabilities(dst, src *corev1.Capabilities) *corev1.Capabilities {
 	// nil src override means just use dst
 	if src == nil {
@@ -714,6 +730,8 @@ func deepMergeDeployment(dst, src *v1alpha1.ProxyDeployment) *v1alpha1.ProxyDepl
 		// src has neither field set, keep dst as is
 		// (dst.Replicas and dst.OmitReplicas remain unchanged)
 	}
+
+	dst.Strategy = deepMergeStrategy(dst.Strategy, src.Strategy)
 
 	return dst
 }
