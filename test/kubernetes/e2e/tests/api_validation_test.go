@@ -628,7 +628,6 @@ spec:
   kube:
     deployment: {}
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: only replicas set (should pass)",
@@ -642,7 +641,6 @@ spec:
     deployment:
       replicas: 3
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: Strategy is fully fleshed out",
@@ -660,7 +658,6 @@ spec:
           maxSurge: 100%
           maxUnavailable: 1
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: Strategy sets maxSurge and uses implicit type RollingUpdate",
@@ -676,7 +673,6 @@ spec:
         rollingUpdate:
           maxSurge: 100%
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: Strategy has an empty rollingUpdate override",
@@ -691,7 +687,6 @@ spec:
       strategy:
         rollingUpdate: {}
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: Strategy Recreate",
@@ -706,7 +701,6 @@ spec:
       strategy:
         type: Recreate
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: Strategy has an unknown rollout type and acts in a forwards-compatible fashion",
@@ -721,7 +715,6 @@ spec:
       strategy:
         type: SomeStrategemIntroducedInTheFuture
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "ProxyDeployment: only omitReplicas set (should pass)",
@@ -735,7 +728,6 @@ spec:
     deployment:
       omitReplicas: true
 `,
-			wantErrors: []string{},
 		},
 		{
 			name: "MCP backend selector requires namespace|service to be set",

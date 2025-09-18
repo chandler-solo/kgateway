@@ -677,21 +677,6 @@ func deepMergeSecurityContext(dst, src *corev1.SecurityContext) *corev1.Security
 	return dst
 }
 
-func deepMergeStrategy(dst, src *appsv1.DeploymentStrategy) *appsv1.DeploymentStrategy {
-	if src == nil {
-		return dst
-	}
-
-	if dst == nil {
-		return src
-	}
-
-	dst.Type = src.Type
-	dst.RollingUpdate = src.RollingUpdate
-
-	return dst
-}
-
 func deepMergeCapabilities(dst, src *corev1.Capabilities) *corev1.Capabilities {
 	// nil src override means just use dst
 	if src == nil {
@@ -731,7 +716,7 @@ func deepMergeDeployment(dst, src *v1alpha1.ProxyDeployment) *v1alpha1.ProxyDepl
 		// (dst.Replicas and dst.OmitReplicas remain unchanged)
 	}
 
-	dst.Strategy = deepMergeStrategy(dst.Strategy, src.Strategy)
+	dst.Strategy = MergePointers(dst.Strategy, src.Strategy)
 
 	return dst
 }
