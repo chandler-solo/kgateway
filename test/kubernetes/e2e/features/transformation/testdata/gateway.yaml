@@ -23,6 +23,9 @@ metadata:
   name: gw-params
 spec:
   kube:
+    deployment:
+      # DLC does this work?
+      omitReplicas: true
     envoyContainer:
       env:
         - name: RUST_BACKTRACE
