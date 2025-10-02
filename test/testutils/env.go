@@ -9,6 +9,19 @@ const (
 	// and teardown of kgateway.
 	SkipInstall = "SKIP_INSTALL"
 
+	// PersistInstall is a convenience flag that combines SKIP_INSTALL_IF_PRESENT and SKIP_TEARDOWN.
+	// It will install if nothing is present, but skip installation if charts are already installed,
+	// and then skip teardown. Useful for local development - "just handle it" mode.
+	PersistInstall = "PERSIST_INSTALL"
+
+	// SkipInstallIfPresent can be used to skip installation if the helm charts appear to already be installed.
+	// This is useful for local development to speed up test runs. The default behavior is to always install.
+	SkipInstallIfPresent = "SKIP_INSTALL_IF_PRESENT"
+
+	// SkipTeardown can be used to prevent test cases from uninstalling resources they install at setup time.
+	// This is useful for local debugging where you want to inspect the state after tests run.
+	SkipTeardown = "SKIP_TEARDOWN"
+
 	// InstallNamespace is the namespace in which kgateway is installed
 	InstallNamespace = "INSTALL_NAMESPACE"
 
@@ -38,6 +51,22 @@ const (
 // ShouldSkipInstall returns true if kgateway installation and teardown should be skipped.
 func ShouldSkipInstall() bool {
 	return envutils.IsEnvTruthy(SkipInstall)
+}
+
+// ShouldPersistInstall returns true if the install should be persisted across test runs.
+// This combines the behavior of SKIP_INSTALL_IF_PRESENT and SKIP_TEARDOWN.
+func ShouldPersistInstall() bool {
+	return envutils.IsEnvTruthy(PersistInstall)
+}
+
+// ShouldSkipInstallIfPresent returns true if installation should be skipped when charts are already installed.
+func ShouldSkipInstallIfPresent() bool {
+	return envutils.IsEnvTruthy(SkipInstallIfPresent) || ShouldPersistInstall()
+}
+
+// ShouldSkipTeardown returns true if teardown should be skipped.
+func ShouldSkipTeardown() bool {
+	return envutils.IsEnvTruthy(SkipTeardown) || ShouldPersistInstall()
 }
 
 // ShouldSkipIstioInstall returns true if istio installation and teardown should be skipped.

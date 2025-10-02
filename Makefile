@@ -32,6 +32,8 @@ export IMAGE_REGISTRY ?= ghcr.io/kgateway-dev
 # Kind of a hack to make sure _output exists
 z := $(shell mkdir -p $(OUTPUT_DIR))
 
+BUILDX_BUILD := docker buildx build -q
+
 # A semver resembling 1.0.1-dev. Most calling GHA jobs customize this. Exported for use in goreleaser.yaml.
 VERSION ?= 1.0.1-dev
 export VERSION
@@ -220,7 +222,15 @@ envtest-path: ## Set the envtest path
 # Go Tests
 #----------------------------------------------------------------------------------
 
+# Fix for macOS linker warning with race detector on arm64
+# See: https://github.com/golang/go/issues/61229
 GO_TEST_ENV ?=
+ifeq ($(GOOS), darwin)
+ifeq ($(GOARCH), arm64)
+	override GO_TEST_ENV := CGO_LDFLAGS="-Wl,-ld_classic"
+endif
+endif
+
 # Testing flags: https://pkg.go.dev/cmd/go#hdr-Testing_flags
 # The default timeout for a suite is 10 minutes, but this can be overridden by setting the -timeout flag. Currently set
 # to 25 minutes based on the time it takes to run the longest test setup (kgateway_test).
@@ -234,13 +244,10 @@ GO_TEST_USER_ARGS ?=
 
 .PHONY: go-test
 go-test: ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
-go-test: clean-bug-report clean-test-logs $(BUG_REPORT_DIR) $(TEST_LOG_DIR) # Ensure the bug_report dir is reset before each invocation
-	@$(GO_TEST_ENV) go test -ldflags='$(LDFLAGS)' \
+go-test: clean-bug-report $(BUG_REPORT_DIR) # Ensure the bug_report dir is reset before each invocation
+	@set -o pipefail && $(GO_TEST_ENV) go test -ldflags='$(LDFLAGS)' \
     $(GO_TEST_ARGS) $(GO_TEST_USER_ARGS) \
-    $(TEST_PKG) > $(TEST_LOG_DIR)/go-test 2>&1; \
-    RESULT=$$?; \
-    cat $(TEST_LOG_DIR)/go-test; \
-    if [ $$RESULT -ne 0 ]; then exit $$RESULT; fi  # ensure non-zero exit code if tests fail
+    $(TEST_PKG)
 
 # https://go.dev/blog/cover#heat-maps
 .PHONY: go-test-with-coverage
@@ -329,13 +336,18 @@ generate-licenses: ## Generate the licenses for the project
 #----------------------------------------------------------------------------------
 
 PYTHON_DIR := $(ROOTDIR)/python
+PYTHON_SOURCES := $(shell find $(PYTHON_DIR) -type f \( -name "*.py" -o -name "Dockerfile" -o -name "requirements*.txt" -o -name "pyproject.toml" \) 2>/dev/null)
 
 export AI_EXTENSION_IMAGE_REPO ?= kgateway-ai-extension
-.PHONY: kgateway-ai-extension-docker
-kgateway-ai-extension-docker:
-	docker buildx build $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(PYTHON_DIR)/Dockerfile $(ROOTDIR) \
+
+$(OUTPUT_DIR)/.docker-stamp-ai-extension-$(VERSION): $(PYTHON_SOURCES)
+	$(BUILDX_BUILD) $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(PYTHON_DIR)/Dockerfile $(ROOTDIR) \
 		--build-arg PYTHON_DIR=python \
 		-t  $(IMAGE_REGISTRY)/kgateway-ai-extension:$(VERSION)
+	@touch $@
+
+.PHONY: kgateway-ai-extension-docker
+kgateway-ai-extension-docker: $(OUTPUT_DIR)/.docker-stamp-ai-extension-$(VERSION)
 
 #----------------------------------------------------------------------------------
 # Controller
@@ -356,12 +368,15 @@ kgateway: $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH)
 $(CONTROLLER_OUTPUT_DIR)/Dockerfile: cmd/kgateway/Dockerfile
 	cp $< $@
 
-.PHONY: kgateway-docker
-kgateway-docker: $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile
-	docker buildx build --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile \
+$(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile
+	$(BUILDX_BUILD) --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION)
+	@touch $@
+
+.PHONY: kgateway-docker
+kgateway-docker: $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
 
 #----------------------------------------------------------------------------------
 # SDS Server - gRPC server for serving Secret Discovery Service config
@@ -381,12 +396,15 @@ sds: $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH)
 $(SDS_OUTPUT_DIR)/Dockerfile.sds: cmd/sds/Dockerfile
 	cp $< $@
 
-.PHONY: sds-docker
-sds-docker: $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH) $(SDS_OUTPUT_DIR)/Dockerfile.sds
-	docker buildx build --load $(PLATFORM) $(SDS_OUTPUT_DIR) -f $(SDS_OUTPUT_DIR)/Dockerfile.sds \
+$(SDS_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH) $(SDS_OUTPUT_DIR)/Dockerfile.sds
+	$(BUILDX_BUILD) --load $(PLATFORM) $(SDS_OUTPUT_DIR) -f $(SDS_OUTPUT_DIR)/Dockerfile.sds \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg BASE_IMAGE=$(ALPINE_BASE_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION)
+	@touch $@
+
+.PHONY: sds-docker
+sds-docker: $(SDS_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
 
 #----------------------------------------------------------------------------------
 # Envoy init (BASE/SIDECAR)
@@ -411,12 +429,15 @@ $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: cmd/envoyinit/Dockerfile
 $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh: cmd/envoyinit/docker-entrypoint.sh
 	cp $< $@
 
-.PHONY: envoy-wrapper-docker
-envoy-wrapper-docker: $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH) $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh
-	docker buildx build --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
+$(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH) $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh
+	$(BUILDX_BUILD) --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
+	@touch $@
+
+.PHONY: envoy-wrapper-docker
+envoy-wrapper-docker: $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
 
 #----------------------------------------------------------------------------------
 # Helm
@@ -586,20 +607,30 @@ kind-load: kind-load-kgateway-ai-extension
 #----------------------------------------------------------------------------------
 
 TEST_A2A_AGENT_SERVER_DIR := $(ROOTDIR)/test/kubernetes/e2e/features/agentgateway/a2a-example
-.PHONY: test-a2a-agent-docker
-test-a2a-agent-docker:
-	docker buildx build $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(TEST_A2A_AGENT_SERVER_DIR)/Dockerfile $(TEST_A2A_AGENT_SERVER_DIR) \
+TEST_A2A_SOURCES := $(shell find $(TEST_A2A_AGENT_SERVER_DIR) -type f 2>/dev/null)
+
+$(OUTPUT_DIR)/.docker-stamp-test-a2a-$(VERSION): $(TEST_A2A_SOURCES)
+	$(BUILDX_BUILD) $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(TEST_A2A_AGENT_SERVER_DIR)/Dockerfile $(TEST_A2A_AGENT_SERVER_DIR) \
 		-t $(IMAGE_REGISTRY)/test-a2a-agent:$(VERSION)
+	@touch $@
+
+.PHONY: test-a2a-agent-docker
+test-a2a-agent-docker: $(OUTPUT_DIR)/.docker-stamp-test-a2a-$(VERSION)
 
 #----------------------------------------------------------------------------------
 # AI Extensions Test Server (for mocking AI Providers in e2e tests)
 #----------------------------------------------------------------------------------
 
 TEST_AI_PROVIDER_SERVER_DIR := $(ROOTDIR)/test/mocks/mock-ai-provider-server
-.PHONY: test-ai-provider-docker
-test-ai-provider-docker:
-	docker buildx build $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(TEST_AI_PROVIDER_SERVER_DIR)/Dockerfile $(TEST_AI_PROVIDER_SERVER_DIR) \
+TEST_AI_PROVIDER_SOURCES := $(shell find $(TEST_AI_PROVIDER_SERVER_DIR) -type f 2>/dev/null)
+
+$(OUTPUT_DIR)/.docker-stamp-test-ai-provider-$(VERSION): $(TEST_AI_PROVIDER_SOURCES)
+	$(BUILDX_BUILD) $(LOAD_OR_PUSH) $(PLATFORM_MULTIARCH) -f $(TEST_AI_PROVIDER_SERVER_DIR)/Dockerfile $(TEST_AI_PROVIDER_SERVER_DIR) \
 		-t $(IMAGE_REGISTRY)/test-ai-provider:$(VERSION)
+	@touch $@
+
+.PHONY: test-ai-provider-docker
+test-ai-provider-docker: $(OUTPUT_DIR)/.docker-stamp-test-ai-provider-$(VERSION)
 
 #----------------------------------------------------------------------------------
 # Load Testing
