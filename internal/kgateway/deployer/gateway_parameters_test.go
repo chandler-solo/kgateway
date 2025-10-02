@@ -444,9 +444,11 @@ func defaultInputs(t *testing.T, objs ...client.Object) *deployer.Inputs {
 			Registry: "foo",
 			Tag:      "bar",
 		},
-		GatewayClassName:         wellknown.DefaultGatewayClassName,
-		WaypointGatewayClassName: wellknown.DefaultWaypointClassName,
-		AgentgatewayClassName:    wellknown.DefaultAgwClassName,
+		GatewayClassName:           wellknown.DefaultGatewayClassName,
+		WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
+		AgentgatewayClassName:      wellknown.DefaultAgwClassName,
+		EnvoyControllerName:        wellknown.DefaultGatewayControllerName,
+		AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 	}
 }
 
