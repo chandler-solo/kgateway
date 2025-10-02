@@ -2,6 +2,51 @@
 
 ## How do I run a test?
 
+### Quick Start (Recommended)
+
+The easiest way to run any test (e2e or unit) is using the `hack/run-test.sh` script:
+
+```shell
+# Run an e2e test suite
+./hack/run-test.sh SessionPersistence
+
+# Run a unit test
+./hack/run-test.sh TestIsSelfManagedOnGateway
+
+# Run all tests in a package
+./hack/run-test.sh --package ./pkg/utils/helmutils
+
+# Skip setup if cluster exists (faster iteration for local development with e2e tests)
+PERSIST_INSTALL=true ./hack/run-test.sh SessionPersistence
+
+# List all available tests
+./hack/run-test.sh --list
+```
+
+For e2e tests specifically, you can also use `hack/run-e2e-test.sh`:
+
+```shell
+# Run an entire test suite
+./hack/run-e2e-test.sh SessionPersistence
+
+# Run a specific test method within a suite
+./hack/run-e2e-test.sh TestCookieSessionPersistence
+
+# Run a top-level test function
+./hack/run-e2e-test.sh TestKgateway
+```
+
+The scripts will automatically:
+- Detect whether it's an e2e or unit test
+- Find the test case using git grep
+- Generate the most specific `go test -run` pattern
+- Run `make setup` if needed for e2e tests (or skip if `PERSIST_INSTALL=true` and cluster exists)
+- Execute the test with proper flags
+
+### Manual Approach
+
+If you prefer to run tests manually:
+
 1. Make sure you have a kind cluster running with the images loaded. You can do this by running `./hack/kind/setup-kind.sh`
 2. The `make unit` command will not run e2e tests; `make e2e-test` does. To run a specific e2e test, you can use `go test -tags=e2e` directly. This is accomplished via go build tags, so when you add a new test, be sure to make the first line of each go source file read `//go:build e2e`.
 
@@ -13,14 +58,13 @@ Here the regex matches any test whose name starts with `TestKgateway` (e.g. `Tes
 
 You can also run a specific match (only run the suite that starts with `TestKgateway`):
 ```shell
-
 go test -tags=e2e -v -timeout 600s ./test/kubernetes/e2e/tests -run ^TestKgateway$
 ```
 
 Here the `$` anchors the regex to the end of the string, so it would only match exactly `TestKgateway`.
 
 To run a specific e2e test, you can use regex to select a specific sub-suite or test:
-```shell 
+```shell
 go test -tags=e2e -v -timeout 600s ./test/kubernetes/e2e/tests -run ^TestKgateway$$/^BasicRouting$$
 ```
 
@@ -84,9 +128,16 @@ The only exception to this is the Upgrade tests that are not run on the main bra
 
 ## Environment Variables
 
-Some tests may require environment variables to be set. Some required env vars are:
+Some tests may require environment variables to be set. Some commonly used env vars are:
 
-- Istio features: Require `ISTIO_VERSION` to be set. The tests running in CI use `ISTIO_VERSION="${ISTIO_VERSION:-1.19.9}"` to default to a specific version of Istio.
+- `ISTIO_VERSION`: Required for Istio features. The tests running in CI use `ISTIO_VERSION="${ISTIO_VERSION:-1.19.9}"` to default to a specific version of Istio.
+
+### Local Development Variables
+
+These variables are useful for speeding up local test development:
+
+- `PERSIST_INSTALL`: Set to `true`/`1`/`yes`/`y` to enable "persist install" mode. This skips installation if charts are already present and skips teardown. Useful for rapid iteration on tests locally.
+- `SKIP_INSTALL`: Set to `true` to skip both installation and teardown completely. Assumes the environment is already set up.
 
 ## Debugging
 

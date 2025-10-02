@@ -168,8 +168,8 @@ GINKGO_USER_FLAGS ?=
 GINKGO ?= go tool ginkgo
 
 .PHONY: test
-test: ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
-	$(GINKGO_ENV) $(GINKGO) -ldflags='$(LDFLAGS)' \
+test: ## Run all tests with ginkgo, or only run the test package at {TEST_PKG} if it is specified
+	$(GO_TEST_ENV) $(GINKGO_ENV) $(GINKGO) -ldflags='$(LDFLAGS)' \
 		$(GINKGO_FLAGS) $(GINKGO_REPORT_FLAGS) $(GINKGO_USER_FLAGS) \
 		$(TEST_PKG)
 
@@ -201,11 +201,6 @@ test-with-coverage: test
 run-tests: GINKGO_FLAGS += -skip-package=e2e,kgateway,test/kubernetes/testutils/helper ## Run all non E2E tests, or only run the test package at {TEST_PKG} if it is specified
 run-tests: GINKGO_FLAGS += --label-filter="!end-to-end && !performance"
 run-tests: test
-
-.PHONY: run-e2e-tests
-run-e2e-tests: TEST_PKG = ./test/e2e/ ## Run all in-memory E2E tests
-run-e2e-tests: GINKGO_FLAGS += --label-filter="end-to-end && !performance"
-run-e2e-tests: test
 
 #----------------------------------------------------------------------------------
 # Env test
