@@ -22,6 +22,10 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway",
 			InputFile: "agentgateway",
 		},
+		{
+			Name:      "agentgateway-controller-but-custom-gatewayclass",
+			InputFile: "agentgateway-controller-but-custom-gatewayclass",
+		},
 	}
 
 	tester := DeployerTester{
