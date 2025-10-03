@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -13,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
+	"sigs.k8s.io/yaml"
 
 	internaldeployer "github.com/kgateway-dev/kgateway/v2/internal/kgateway/deployer"
 	pkgdeployer "github.com/kgateway-dev/kgateway/v2/pkg/deployer"
@@ -36,23 +38,9 @@ type DeployerTester struct {
 	WaypointClassName string
 }
 
-func (dt DeployerTester) RunHelmChartTest(
-	t *testing.T,
-	tt HelmTestCase,
-	scheme *runtime.Scheme,
-	dir string,
-	extraParamsFunc func(cli client.Client, inputs *pkgdeployer.Inputs) []pkgdeployer.ExtraGatewayParameters,
-) {
-	filePath := filepath.Join(dir, "testdata/", tt.InputFile)
-	inputFile := filePath + ".yaml"
-	outputFile := filePath + "-out.yaml"
-
-	objs, err := testutils.LoadFromFiles(inputFile, scheme, nil)
-	assert.NoError(t, err, "error loading files from input file")
-
-	ctx := context.TODO()
-	// contains objects necessary for commonCollections, don't add extra stuff here
-	// to avoid logging from krttest package re: objects not consumed
+// ExtractCommonObjs will return a collection containing only objects necessary for collections.CommonCollections,
+// so we don't add unknown objects to avoid logging from krttest package re: objects not consumed
+func ExtractCommonObjs(t *testing.T, objs []client.Object) ([]client.Object, *gwv1.Gateway) {
 	var commonObjs []client.Object
 	var gtw *gwv1.Gateway
 	for i := range objs {
@@ -70,12 +58,30 @@ func (dt DeployerTester) RunHelmChartTest(
 			commonObjs = append(commonObjs, obj)
 		}
 	}
+	return commonObjs, gtw
+}
+
+func (dt DeployerTester) RunHelmChartTest(
+	t *testing.T,
+	tt HelmTestCase,
+	scheme *runtime.Scheme,
+	dir string,
+	extraParamsFunc func(cli client.Client, inputs *pkgdeployer.Inputs) []pkgdeployer.ExtraGatewayParameters,
+) {
+	filePath := filepath.Join(dir, "testdata/", tt.InputFile)
+	inputFile := filePath + ".yaml"
+	outputFile := filePath + "-out.yaml"
+
+	objs, err := testutils.LoadFromFiles(inputFile, scheme, nil)
+	assert.NoError(t, err, "error loading files from input file")
+
+	commonObjs, gtw := ExtractCommonObjs(t, objs)
 	if gtw == nil {
 		t.Log("No Gateway found in test files, failing...")
 		t.FailNow()
 	}
 	commonCols := NewCommonCols(t, commonObjs...)
-	inputs := dt.defaultDeployerInputs(commonCols)
+	inputs := DefaultDeployerInputs(dt, commonCols)
 	if tt.Inputs != nil {
 		inputs = tt.Inputs
 	}
@@ -101,6 +107,7 @@ func (dt DeployerTester) RunHelmChartTest(
 		internaldeployer.GatewayReleaseNameAndNamespace,
 	)
 
+	ctx := context.TODO()
 	vals, err := gwParams.GetValues(ctx, gtw)
 	assert.NoError(t, err, "error getting values for GwParams")
 
@@ -126,11 +133,14 @@ func (dt DeployerTester) RunHelmChartTest(
 		}
 	}
 
+	// Validate the output YAML
+	validateYAML(t, outputFile, data)
+
 	diff := cmp.Diff(data, got)
-	assert.Empty(t, diff, diff)
+	assert.Empty(t, diff, diff, tt)
 }
 
-func (dt DeployerTester) defaultDeployerInputs(commonCols *collections.CommonCollections) *pkgdeployer.Inputs {
+func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonCollections) *pkgdeployer.Inputs {
 	return &pkgdeployer.Inputs{
 		Dev:               false,
 		CommonCollections: commonCols,
@@ -146,5 +156,33 @@ func (dt DeployerTester) defaultDeployerInputs(commonCols *collections.CommonCol
 		GatewayClassName:         dt.ClassName,
 		WaypointGatewayClassName: dt.WaypointClassName,
 		AgentgatewayClassName:    dt.AgwClassName,
+	}
+}
+
+// validateYAML checks that the YAML file is valid:
+// 1. No lines should end with ': ' (colon-space)
+// 2. Each YAML document should be unmarshalable
+func validateYAML(t *testing.T, filename string, data []byte) {
+	t.Helper()
+
+	// Check for lines ending with ': '
+	lines := strings.Split(string(data), "\n")
+	for i, line := range lines {
+		if strings.HasSuffix(line, ": ") {
+			t.Errorf("helm chart produced invalid yaml: line %d in %s ends with ': ' (colon-space): %q", i+1, filename, line)
+		}
+	}
+
+	// Split into YAML documents and unmarshal each one
+	documents := strings.Split(string(data), "\n---\n")
+	for i, doc := range documents {
+		doc = strings.TrimSpace(doc)
+		if doc == "" || doc == "---" {
+			continue
+		}
+		var obj interface{}
+		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
+			t.Errorf("helm chart produced invalid yaml: failed to unmarshal document %d in %s: %v", i+1, filename, err)
+		}
 	}
 }
