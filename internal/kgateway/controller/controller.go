@@ -194,6 +194,8 @@ func (c *controllerBuilder) watchGw(ctx context.Context) error {
 		GatewayClassName:         c.cfg.GatewayClassName,
 		WaypointGatewayClassName: c.cfg.WaypointGatewayClassName,
 		AgentgatewayClassName:    c.cfg.AgentgatewayClassName,
+		GatewayControllerName:    c.cfg.ControllerName,
+		AgwControllerName:        c.cfg.AgwControllerName,
 	}
 
 	gwParams := internaldeployer.NewGatewayParameters(c.cfg.Mgr.GetClient(), inputs)

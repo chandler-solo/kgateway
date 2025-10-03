@@ -146,5 +146,7 @@ func (dt DeployerTester) defaultDeployerInputs(commonCols *collections.CommonCol
 		GatewayClassName:         dt.ClassName,
 		WaypointGatewayClassName: dt.WaypointClassName,
 		AgentgatewayClassName:    dt.AgwClassName,
+		GatewayControllerName:    dt.ControllerName,
+		AgwControllerName:        dt.AgwControllerName,
 	}
 }

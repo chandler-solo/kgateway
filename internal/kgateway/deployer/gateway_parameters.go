@@ -276,7 +276,7 @@ func (k *kGatewayParameters) getDefaultGatewayParameters(ctx context.Context, gw
 func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Context, gwc *api.GatewayClass) (*v1alpha1.GatewayParameters, error) {
 	// Our defaults depend on OmitDefaultSecurityContext, but these are the defaults
 	// when not OmitDefaultSecurityContext:
-	defaultGwp := deployer.GetInMemoryGatewayParameters(gwc.GetName(), k.inputs.ImageInfo, k.inputs.GatewayClassName, k.inputs.WaypointGatewayClassName, k.inputs.AgentgatewayClassName, false)
+	defaultGwp := deployer.GetInMemoryGatewayParameters(string(gwc.Spec.ControllerName), gwc.GetName(), k.inputs.ImageInfo, k.inputs.GatewayControllerName, k.inputs.AgwControllerName, k.inputs.WaypointGatewayClassName, false)
 
 	paramRef := gwc.Spec.ParametersRef
 	if paramRef == nil {
@@ -315,7 +315,7 @@ func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Con
 	// correctly set when they aren't overridden by the GatewayParameters.
 	mergedGwp := defaultGwp
 	if ptr.Deref(gwp.Spec.Kube.GetOmitDefaultSecurityContext(), false) {
-		mergedGwp = deployer.GetInMemoryGatewayParameters(gwc.GetName(), k.inputs.ImageInfo, k.inputs.GatewayClassName, k.inputs.WaypointGatewayClassName, k.inputs.AgentgatewayClassName, true)
+		mergedGwp = deployer.GetInMemoryGatewayParameters(string(gwc.Spec.ControllerName), gwc.GetName(), k.inputs.ImageInfo, k.inputs.GatewayControllerName, k.inputs.AgwControllerName, k.inputs.WaypointGatewayClassName, true)
 	}
 	deployer.DeepMergeGatewayParameters(mergedGwp, gwp)
 	return mergedGwp, nil

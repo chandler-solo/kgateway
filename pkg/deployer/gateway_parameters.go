@@ -25,6 +25,8 @@ type Inputs struct {
 	GatewayClassName         string
 	WaypointGatewayClassName string
 	AgentgatewayClassName    string
+	GatewayControllerName    string
+	AgwControllerName        string
 }
 
 type ExtraGatewayParameters struct {
@@ -115,18 +117,22 @@ func applyFloatingUserId(dstKube *v1alpha1.KubernetesProxyConfig) {
 	}
 }
 
-// GetInMemoryGatewayParameters returns an in-memory GatewayParameters based on the name of the gateway class.
-func GetInMemoryGatewayParameters(name string, imageInfo *ImageInfo, gatewayClassName, waypointClassName, agentgatewayClassName string, omitDefaultSecurityContext bool) *v1alpha1.GatewayParameters {
-	switch name {
-	case waypointClassName:
-		return defaultWaypointGatewayParameters(imageInfo, omitDefaultSecurityContext)
-	case gatewayClassName:
-		return defaultGatewayParameters(imageInfo, omitDefaultSecurityContext)
-	case agentgatewayClassName:
+// GetInMemoryGatewayParameters returns an in-memory GatewayParameters.
+// It prioritizes the controller name over the gateway class name.
+// First checks if the controller name matches the agentgateway controller, then checks if the class name is waypoint.
+func GetInMemoryGatewayParameters(controllerName, className string, imageInfo *ImageInfo, gatewayControllerName, agwControllerName, waypointClassName string, omitDefaultSecurityContext bool) *v1alpha1.GatewayParameters {
+	// Controller name takes priority
+	if controllerName == agwControllerName {
 		return defaultAgentgatewayParameters(imageInfo, omitDefaultSecurityContext)
-	default:
-		return defaultGatewayParameters(imageInfo, omitDefaultSecurityContext)
 	}
+
+	// Then check class name for waypoint
+	if className == waypointClassName {
+		return defaultWaypointGatewayParameters(imageInfo, omitDefaultSecurityContext)
+	}
+
+	// Default gateway parameters
+	return defaultGatewayParameters(imageInfo, omitDefaultSecurityContext)
 }
 
 // defaultAgentgatewayParameters returns an in-memory GatewayParameters with default values
