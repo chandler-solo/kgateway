@@ -2,6 +2,7 @@
 
 # https://www.gnu.org/software/make/manual/html_node/Special-Variables.html#Special-Variables
 .DEFAULT_GOAL := help
+SHELL := /bin/bash
 
 #----------------------------------------------------------------------------------
 # Help
@@ -148,17 +149,6 @@ ANALYZE_ARGS ?= --fix --verbose
 analyze:  ## Run golangci-lint. Override options with ANALYZE_ARGS.
 	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run $(ANALYZE_ARGS) ./...
 
-#----------------------------------------------------------------------------
-# Info
-#----------------------------------------------------------------------------
-
-.PHONY: envoyversion
-envoyversion: ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
-envoyversion:
-	echo "Version is $(ENVOY_VERSION_TAG)"
-	echo "Commit for envoyproxy is $(shell curl -s https://raw.githubusercontent.com/solo-io/envoy-gloo/refs/tags/v$(ENVOY_VERSION_TAG)/bazel/repository_locations.bzl | grep "envoy =" -A 4 | grep commit | cut -d'"' -f2)"
-	echo "Current ABI in envoyinit can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
-
 #----------------------------------------------------------------------------------
 # Ginkgo Tests
 #----------------------------------------------------------------------------------
@@ -201,11 +191,6 @@ run-tests: test
 run-performance-tests: GINKGO_FLAGS += -skip-package=kgateway,kubernetes/e2e
 run-performance-tests: GINKGO_FLAGS += --label-filter="performance" ## Run only tests with the Performance label
 run-performance-tests: test
-
-.PHONY: run-e2e-tests
-run-e2e-tests: TEST_PKG = ./test/e2e/ ## Run all in-memory E2E tests
-run-e2e-tests: GINKGO_FLAGS += --label-filter="end-to-end && !performance"
-run-e2e-tests: test
 
 #----------------------------------------------------------------------------------
 # Env test
@@ -253,6 +238,11 @@ go-test: clean-bug-report $(BUG_REPORT_DIR) # Ensure the bug_report dir is reset
 .PHONY: go-test-with-coverage
 go-test-with-coverage: GO_TEST_ARGS += $(GO_TEST_COVERAGE_ARGS)
 go-test-with-coverage: go-test
+
+.PHONY: unit
+unit: ## Run all unit tests (excludes e2e tests)
+	@echo "Running unit tests (excluding e2e)..."
+	@$(MAKE) go-test TEST_PKG="./internal/... ./pkg/..."
 
 .PHONY: validate-test-coverage
 validate-test-coverage: ## Validate the test coverage
@@ -776,6 +766,17 @@ bump-gie: ## Bump Gateway API Inference Extension to $DEP_REF (or $DEP_VERSION).
 	$(SHELL) hack/bump_deps.sh gie "$$DEP_REF"; \
 	echo "Updating licensing..."; \
 	$(MAKE) generate-licenses
+
+#----------------------------------------------------------------------------
+# Info
+#----------------------------------------------------------------------------
+
+.PHONY: envoyversion
+envoyversion: ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
+envoyversion:
+	echo "Version is $(ENVOY_VERSION_TAG)"
+	echo "Commit for envoyproxy is $(shell curl -s https://raw.githubusercontent.com/solo-io/envoy-gloo/refs/tags/v$(ENVOY_VERSION_TAG)/bazel/repository_locations.bzl | grep "envoy =" -A 4 | grep commit | cut -d'"' -f2)"
+	echo "Current ABI in envoyinit can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
 
 #----------------------------------------------------------------------------------
 # Printing makefile variables utility
