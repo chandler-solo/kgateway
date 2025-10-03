@@ -19,15 +19,15 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "omit-default-security-context",
 		},
 		{
-			Name:      "agw (as the data plane but not in waypoint mode)",
+			Name:      "agentgateway",
 			InputFile: "agentgateway",
 		},
 		{
-			Name:      "agw OmitDefaultSecurityContext=true GWP via GWC",
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext",
 		},
 		{
-			Name:      "agw OmitDefaultSecurityContext=true GWP via GW",
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
 	}
