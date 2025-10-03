@@ -136,9 +136,7 @@ Some tests may require environment variables to be set. Some commonly used env v
 
 These variables are useful for speeding up local test development:
 
-- `PERSIST_INSTALL`: Set to `true`/`1`/`yes`/`y` to enable "persist install" mode. This combines the behavior of skipping installation if charts are already present and skipping teardown. Useful for rapid iteration on tests locally.
-- `SKIP_INSTALL_IF_PRESENT`: Set to `true` to skip installation if helm charts are already installed. Checks for existing helm releases before installing.
-- `SKIP_TEARDOWN`: Set to `true` to prevent tests from uninstalling resources at teardown. Useful for inspecting cluster state after test runs.
+- `PERSIST_INSTALL`: Set to `true`/`1`/`yes`/`y` to enable "persist install" mode. This skips installation if charts are already present and skips teardown. Useful for rapid iteration on tests locally.
 - `SKIP_INSTALL`: Set to `true` to skip both installation and teardown completely. Assumes the environment is already set up.
 
 ## Debugging
