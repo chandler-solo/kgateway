@@ -2,6 +2,7 @@ package tests_test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,6 +14,9 @@ import (
 )
 
 func TestMultipleInstalls(t *testing.T) {
+	if e2e := os.Getenv("E2E"); e2e != "true" && e2e != "1" {
+		t.Skip("Skipping e2e test: E2E environment variable not set")
+	}
 	ctx := t.Context()
 
 	installs := []struct {

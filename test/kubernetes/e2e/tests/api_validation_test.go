@@ -3,6 +3,7 @@ package tests
 import (
 	"bytes"
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,9 @@ import (
 )
 
 func TestAPIValidation(t *testing.T) {
+	if e2e := os.Getenv("E2E"); e2e != "true" && e2e != "1" {
+		t.Skip("Skipping e2e test: E2E environment variable not set")
+	}
 	ctx := t.Context()
 	ti := e2e.CreateTestInstallation(t, &install.Context{
 		ValuesManifestFile:        e2e.EmptyValuesManifestPath,

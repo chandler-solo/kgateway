@@ -14,6 +14,9 @@ import (
 
 // TestKgatewayIstioAutoMtls is the function which executes a series of tests against a given installation
 func TestKgatewayIstioAutoMtls(t *testing.T) {
+	if e2e := os.Getenv("E2E"); e2e != "true" && e2e != "1" {
+		t.Skip("Skipping e2e test: E2E environment variable not set")
+	}
 	ctx := context.Background()
 
 	// Set Istio version if not already set

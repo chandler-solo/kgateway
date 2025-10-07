@@ -14,6 +14,9 @@ import (
 )
 
 func TestListenerSet(t *testing.T) {
+	if e2e := os.Getenv("E2E"); e2e != "true" && e2e != "1" {
+		t.Skip("Skipping e2e test: E2E environment variable not set")
+	}
 	ctx := context.Background()
 	installNs, nsEnvPredefined := envutils.LookupOrDefault(testutils.InstallNamespace, "ls-test")
 	testInstallation := e2e.CreateTestInstallation(
