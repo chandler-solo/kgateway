@@ -3,6 +3,7 @@ package deployer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -137,7 +138,10 @@ func (dt DeployerTester) RunHelmChartTest(
 	validateYAML(t, outputFile, data)
 
 	diff := cmp.Diff(data, got)
-	assert.Empty(t, diff, diff, tt)
+	help := fmt.Sprintf(
+		"the golden file, which can be refreshed via `REFRESH_GOLDEN=true go test ./test/deployer', is test/deployer/testdata/%s-out.yaml",
+		tt.InputFile)
+	assert.Empty(t, diff, diff, help)
 }
 
 func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonCollections) *pkgdeployer.Inputs {
