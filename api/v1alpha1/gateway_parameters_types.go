@@ -1,9 +1,13 @@
 package v1alpha1
 
 import (
+	"encoding/json"
+	"fmt"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -262,6 +266,15 @@ type ProxyDeployment struct {
 	//
 	// +optional
 	Strategy *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
+
+	// PodDisruptionBudget configuration for the deployment.  This is the heart
+	// of a 'spec' of a k8s.io/api/policy/v1
+	// PodDisruptionBudget. 'spec.selector.matchLabels' is handled for you
+	// automatically.
+	// +optional
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	PodDisruptionBudget *runtime.RawExtension `json:"podDisruptionBudget,omitempty"`
 }
 
 func (in *ProxyDeployment) GetReplicas() *int32 {
@@ -276,6 +289,19 @@ func (in *ProxyDeployment) GetStrategy() *appsv1.DeploymentStrategy {
 		return nil
 	}
 	return in.Strategy
+}
+
+func (in *ProxyDeployment) GetPodDisruptionBudget() (map[string]any, error) {
+	if in == nil || in.PodDisruptionBudget == nil || len(in.PodDisruptionBudget.Raw) == 0 {
+		return nil, nil
+	}
+	var pdbMap map[string]any
+	raw := in.PodDisruptionBudget.Raw
+
+	if err := json.Unmarshal(raw, &pdbMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal PodDisruptionBudget into an object: %w", err)
+	}
+	return pdbMap, nil
 }
 
 // EnvoyContainer configures the container running Envoy.

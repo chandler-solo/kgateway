@@ -263,5 +263,20 @@ data:
   ca.crt: |
 {{ $gateway.agwXds.tls.caCert | indent 4 }}
 {{- end }}
+---
+{{- if $gateway.podDisruptionBudget }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kgateway.gateway.fullname" . }}
+  labels:
+    {{- include "kgateway.gateway.constLabels" . | nindent 4 }}
+    {{- include "kgateway.gateway.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kgateway.gateway.selectorLabels" . | nindent 6 }}
+  {{- toYaml $gateway.podDisruptionBudget | nindent 2 }}
+{{- end }}{{/* if $gateway.podDisruptionBudget */}}
 
 {{- end }}{{/* if $gateway.agentgateway.enabled */}}

@@ -2,6 +2,8 @@ package deployer
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,6 +14,7 @@ import (
 	pkgdeployer "github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
+	"github.com/kgateway-dev/kgateway/v2/internal/version"
 )
 
 func mockVersion(t *testing.T) {
@@ -25,10 +28,9 @@ func mockVersion(t *testing.T) {
 	})
 }
 
-func TestRenderHelmChart(t *testing.T) {
-	mockVersion(t)
-
-	tests := []HelmTestCase{
+// helmChartTests returns the test cases for non-TLS Helm chart tests
+func helmChartTests() []HelmTestCase {
+	return []HelmTestCase{
 		{
 			Name:      "basic gateway with default gatewayclass and no gwparams",
 			InputFile: "base-gateway",
@@ -46,6 +48,10 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "omit-default-security-context-via-gw",
 		},
 		{
+			Name:      "gwparams with PDB via GW",
+			InputFile: "pdb-via-gw",
+		},
+		{
 			Name:      "agentgateway",
 			InputFile: "agentgateway",
 		},
@@ -58,6 +64,54 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
 	}
+}
+
+// helmChartTestsWithTLS returns the test cases for TLS Helm chart tests
+func helmChartTestsWithTLS() []HelmTestCase {
+	return []HelmTestCase{
+		{
+			Name:      "basic gateway with TLS enabled",
+			InputFile: "base-gateway-tls",
+		},
+		{
+			Name:      "agentgateway with TLS enabled",
+			InputFile: "agentgateway-tls",
+		},
+	}
+}
+
+// verifyAllYAMLFilesReferenced ensures every YAML file in testDataDir has a corresponding test case
+func verifyAllYAMLFilesReferenced(t *testing.T, testDataDir string, testCases []HelmTestCase) {
+	t.Helper()
+
+	yamlFiles, err := filepath.Glob(filepath.Join(testDataDir, "*.yaml"))
+	require.NoError(t, err, "failed to list YAML files in %s", testDataDir)
+
+	referencedFiles := make(map[string]bool)
+	for _, tc := range testCases {
+		referencedFiles[tc.InputFile] = true
+	}
+
+	var unreferenced []string
+	for _, yamlFile := range yamlFiles {
+		baseName := filepath.Base(yamlFile)
+		// Skip golden files
+		if strings.HasSuffix(baseName, "-out.yaml") {
+			continue
+		}
+		inputName := strings.TrimSuffix(baseName, ".yaml")
+		if !referencedFiles[inputName] {
+			unreferenced = append(unreferenced, baseName)
+		}
+	}
+
+	require.Empty(t, unreferenced, "Found YAML files in %s without corresponding test cases: %v", testDataDir, unreferenced)
+}
+
+// runHelmChartTests is a helper function that runs a set of Helm chart tests.
+// It handles the common setup and iteration logic for both TLS and non-TLS tests.
+func runHelmChartTests(t *testing.T, tests []HelmTestCase, extraParams func(client.Client, *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator) {
+	mockVersion(t)
 
 	tester := DeployerTester{
 		ControllerName:    wellknown.DefaultGatewayControllerName,
@@ -69,11 +123,26 @@ func TestRenderHelmChart(t *testing.T) {
 
 	dir := fsutils.MustGetThisDir()
 	scheme := schemes.GatewayScheme()
+
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			tester.RunHelmChartTest(t, tt, scheme, dir, nil)
+			tester.RunHelmChartTest(t, tt, scheme, dir, extraParams)
 		})
 	}
+}
+
+// TestAllYAMLFilesReferenced verifies that all YAML files in testdata have corresponding test cases.
+// This test runs first (alphabetically) to catch unreferenced files before running actual tests.
+func TestAllYAMLFilesReferenced(t *testing.T) {
+	// Collect all test cases from both test functions
+	allTests := append(helmChartTests(), helmChartTestsWithTLS()...)
+
+	dir := fsutils.MustGetThisDir()
+	verifyAllYAMLFilesReferenced(t, filepath.Join(dir, "testdata"), allTests)
+}
+
+func TestRenderHelmChart(t *testing.T) {
+	runHelmChartTests(t, helmChartTests(), nil)
 }
 
 func TestRenderHelmChartWithTLS(t *testing.T) {
@@ -95,32 +164,12 @@ DEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz123456
 wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 -----END CERTIFICATE-----`
 
-	// Create temporary directory and CA certificate file
 	tmpDir := t.TempDir()
 	caCertPath := tmpDir + "/ca.crt"
 	err := os.WriteFile(caCertPath, []byte(caCertContent), 0o600)
 	require.NoError(t, err)
 
-	tests := []HelmTestCase{
-		{
-			Name:      "basic gateway with TLS enabled",
-			InputFile: "base-gateway-tls",
-		},
-		{
-			Name:      "agentgateway with TLS enabled",
-			InputFile: "agentgateway-tls",
-		},
-	}
-
-	tester := DeployerTester{
-		ControllerName:    wellknown.DefaultGatewayControllerName,
-		AgwControllerName: wellknown.DefaultAgwControllerName,
-		ClassName:         wellknown.DefaultGatewayClassName,
-		WaypointClassName: wellknown.DefaultWaypointClassName,
-		AgwClassName:      wellknown.DefaultAgwClassName,
-	}
-
-	// ExtraGatewayParameters function that enables TLS. this is needed as TLS
+	// ExtraGatewayParameters function that enables TLS. This is needed as TLS
 	// is injected by the control plane and not via the GWP API.
 	tlsExtraParams := func(cli client.Client, inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator {
 		inputs.ControlPlane.XdsTLS = true
@@ -128,11 +177,5 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		return nil
 	}
 
-	dir := fsutils.MustGetThisDir()
-	scheme := schemes.GatewayScheme()
-	for _, tt := range tests {
-		t.Run(tt.Name, func(t *testing.T) {
-			tester.RunHelmChartTest(t, tt, scheme, dir, tlsExtraParams)
-		})
-	}
+	runHelmChartTests(t, helmChartTestsWithTLS(), tlsExtraParams)
 }

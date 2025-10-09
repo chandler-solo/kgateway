@@ -360,6 +360,11 @@ func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.Gatewa
 		gateway.ReplicaCount = ptr.To(uint32(*deployConfig.GetReplicas())) // nolint:gosec // G115: kubebuilder validation ensures safe for uint32
 	}
 	gateway.Strategy = deployConfig.GetStrategy()
+	pdb, err := deployConfig.GetPodDisruptionBudget()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get PodDisruptionBudget: %w", err)
+	}
+	gateway.PodDisruptionBudget = pdb
 
 	// service values
 	gateway.Service = deployer.GetServiceValues(svcConfig)

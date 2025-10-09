@@ -717,6 +717,7 @@ func deepMergeDeployment(dst, src *v1alpha1.ProxyDeployment) *v1alpha1.ProxyDepl
 
 	dst.Replicas = MergePointers(dst.GetReplicas(), src.GetReplicas())
 	dst.Strategy = MergePointers(dst.Strategy, src.Strategy)
+	dst.PodDisruptionBudget = MergePointers(dst.PodDisruptionBudget, src.PodDisruptionBudget)
 
 	return dst
 }

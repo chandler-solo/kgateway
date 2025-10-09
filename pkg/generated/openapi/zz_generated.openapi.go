@@ -6462,11 +6462,17 @@ func schema_kgateway_v2_api_v1alpha1_ProxyDeployment(ref common.ReferenceCallbac
 							Ref:         ref("k8s.io/api/apps/v1.DeploymentStrategy"),
 						},
 					},
+					"podDisruptionBudget": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PodDisruptionBudget configuration for the deployment.  This is the heart of a 'spec' of a k8s.io/api/policy/v1 PodDisruptionBudget. 'spec.selector.matchLabels' is handled for you automatically.",
+							Ref:         ref("k8s.io/apimachinery/pkg/runtime.RawExtension"),
+						},
+					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"k8s.io/api/apps/v1.DeploymentStrategy"},
+			"k8s.io/api/apps/v1.DeploymentStrategy", "k8s.io/apimachinery/pkg/runtime.RawExtension"},
 	}
 }
 

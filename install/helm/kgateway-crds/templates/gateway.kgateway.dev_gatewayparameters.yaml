@@ -553,6 +553,9 @@ spec:
                     type: object
                   deployment:
                     properties:
+                      podDisruptionBudget:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       replicas:
                         format: int32
                         minimum: 0

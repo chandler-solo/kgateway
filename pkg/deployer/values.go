@@ -25,10 +25,11 @@ type HelmGateway struct {
 	FullnameOverride *string `json:"fullnameOverride,omitempty"`
 
 	// deployment/service values
-	ReplicaCount *uint32                    `json:"replicaCount,omitempty"`
-	Ports        []HelmPort                 `json:"ports,omitempty"`
-	Service      *HelmService               `json:"service,omitempty"`
-	Strategy     *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
+	ReplicaCount        *uint32                    `json:"replicaCount,omitempty"`
+	Ports               []HelmPort                 `json:"ports,omitempty"`
+	Service             *HelmService               `json:"service,omitempty"`
+	Strategy            *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
+	PodDisruptionBudget map[string]any             `json:"podDisruptionBudget,omitempty"`
 
 	// serviceaccount values
 	ServiceAccount *HelmServiceAccount `json:"serviceAccount,omitempty"`

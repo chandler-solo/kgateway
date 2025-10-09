@@ -37,6 +37,9 @@ gateway:
     protocol: TCP
     name: http
 
+  # whether using agentgateway or not:
+  podDisruptionBudget: {}
+
   agentgateway:
     enabled: false
     logLevel: info

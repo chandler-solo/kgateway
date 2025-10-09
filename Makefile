@@ -290,8 +290,11 @@ clean-test-logs:
 verify: generate-all  ## Verify that generated code is up to date
 	git diff -U3 --exit-code
 
+.PHONY: generate
+generate: generate-all  ## Alias of generate-all
+
 .PHONY: generate-all
-generate-all: generated-code
+generate-all: generated-code  ## Generates all required code, cleaning and formatting as well
 
 # Generates all required code, cleaning and formatting as well; this target is executed in CI
 .PHONY: generated-code
