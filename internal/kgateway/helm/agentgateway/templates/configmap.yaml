@@ -1,0 +1,13 @@
+{{- $gateway := .Values.gateway }}
+{{- if not $gateway.agentgateway.customConfigMapName }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kgateway.gateway.fullname" . }}
+  labels:
+    {{- include "kgateway.gateway.constLabels" . | nindent 4 }}
+    {{- include "kgateway.gateway.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    config: {}
+{{- end }}

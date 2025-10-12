@@ -1,4 +1,4 @@
-# These values represent configurable values for the dynamic proxy chart
+# These values represent configurable values for the agent gateway chart
 # They are not intended to be actual "defaults," rather they are just placeholder values
 # meant to allow rendering of the chart/template, as the real values will come from:
 # * The control plane
@@ -6,13 +6,9 @@
 # * A (possibly merged) GatewayParameters object translated to helm values
 # The actual defaults for these values should come from the "default GatewayParameters" object
 # See: (/install/helm/kgateway/templates/gatewayparameters.yaml)
-# TODO: This file/workflow can be shored up via https://github.com/kgateway-dev/kgateway/issues/10696
 
 gateway:
   # xds values actually come from the control plane
-  xds:
-    host: ""
-    port: 8080
   agwXds:
     host: ""
     port: 8080
@@ -24,12 +20,6 @@ gateway:
   image:
     pullPolicy: IfNotPresent
 
-  # rollout strategy of the proxy's Deployment
-  strategy: {}
-
-  istio:
-    enabled: false
-
   # list of ports actually come from the Gateway resource driving this proxy
   ports:
   - port: 80
@@ -38,7 +28,7 @@ gateway:
     name: http
 
   agentgateway:
-    enabled: false
+    enabled: true
     logLevel: info
     # Name of the custom configmap to use instead of the default generated one
     # When set, the agent gateway will use this configmap instead of creating the default one

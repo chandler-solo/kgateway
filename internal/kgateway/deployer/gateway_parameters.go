@@ -55,8 +55,12 @@ func (gp *GatewayParameters) WithHelmValuesGeneratorOverride(generator deployer.
 	return gp
 }
 
-func LoadGatewayChart() (*chart.Chart, error) {
-	return loadChart(helm.KgatewayHelmChart)
+func LoadEnvoyChart() (*chart.Chart, error) {
+	return loadChart(helm.EnvoyHelmChart)
+}
+
+func LoadAgentgatewayChart() (*chart.Chart, error) {
+	return loadChart(helm.AgentgatewayHelmChart)
 }
 
 func GatewayGVKsToWatch(ctx context.Context, d *deployer.Deployer) ([]schema.GroupVersionKind, error) {
@@ -417,8 +421,6 @@ func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.Gatewa
 		return nil, err
 	}
 
-	// TODO(npolshak): Currently we are using the same chart for both data planes. Should revisit having a separate chart for agentgateway: https://github.com/kgateway-dev/kgateway/issues/11240
-	// agentgateway integration values
 	gateway.Agentgateway, err = deployer.GetAgentgatewayValues(agwConfig)
 	if err != nil {
 		return nil, err

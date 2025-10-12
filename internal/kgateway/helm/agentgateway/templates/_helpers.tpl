@@ -47,7 +47,6 @@ kgateway: kube-gateway
 Common labels
 */}}
 {{- define "kgateway.gateway.labels" -}}
-helm.sh/chart: {{ include "kgateway.chart" . }}
 {{ include "kgateway.gateway.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
