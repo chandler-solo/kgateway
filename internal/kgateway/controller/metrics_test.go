@@ -44,6 +44,10 @@ var _ = Describe("GwControllerMetrics", func() {
 		cancel, err = createManager(ctx, inferenceExt, nil)
 		Expect(err).NotTo(HaveOccurred())
 
+		// Clean up any leftover gateways from previous failed tests
+		gw := gateway()
+		_ = k8sClient.Delete(ctx, gw)
+
 		ResetMetrics()
 
 	})
@@ -186,11 +190,16 @@ func deleteGateway(ctx context.Context) {
 	err := k8sClient.Delete(ctx, gw)
 	Expect(err).NotTo(HaveOccurred())
 
+	// Use a background context for cleanup to ensure it completes even if test context is cancelled
+	// This prevents "gateway already exists" errors when the next test runs
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), timeout)
+	defer cleanupCancel()
+
 	// The tests in this suite don't do a good job of cleaning up after themselves, which is relevant because of the shared envtest environment
 	// but we can at least that the gateway from this test is deleted
 	Eventually(func() bool {
 		var createdGateways api.GatewayList
-		err := k8sClient.List(ctx, &createdGateways)
+		err := k8sClient.List(cleanupCtx, &createdGateways)
 		found := false
 		for _, foundGw := range createdGateways.Items {
 			if foundGw.Name == gw.Name {
@@ -208,6 +217,17 @@ func setupGateway(ctx context.Context) {
 	Expect(err).NotTo(HaveOccurred())
 
 	waitForGatewayService(ctx, gw)
+
+	if !metrics.Active() {
+		return
+	}
+	// Wait for gateway controller to reconcile and record metrics
+	// Check that reconciliation metrics have been recorded for the gateway controller
+	Eventually(func() bool {
+		gathered := metricstest.MustGatherMetrics(GinkgoT())
+		// Check if gateway controller reconciliation metrics exist
+		return gathered.MetricLength("kgateway_controller_reconciliations_total") > 0
+	}, timeout, interval).Should(BeTrue(), "gateway controller metrics not recorded")
 
 	if probs, err := metricstest.GatherAndLint(); err != nil || len(probs) > 0 {
 		Fail("metrics linter error: " + err.Error())
