@@ -134,10 +134,49 @@ Some tests may require environment variables to be set. Some commonly used env v
 
 ### Local Development Variables
 
-These variables are useful for speeding up local test development:
+These variables speed up local test development by controlling installation and
+teardown behavior.
 
-- `PERSIST_INSTALL`: Set to `true`/`1`/`yes`/`y` to enable "persist install" mode. This skips installation if charts are already present and skips teardown. Useful for rapid iteration on tests locally.
-- `SKIP_INSTALL`: Set to `true` to skip both installation and teardown completely. Assumes the environment is already set up.
+When you are done debugging an e2e test on your local Kind cluster, and you
+want a clean slate, you might find it simplest and fastest to delete your Kind
+cluster entirely.
+
+NOTE: Teardown of specific 't.Cleanup()' functions is likely not affected, so
+you may need to alter or comment out those in order to reproduce test behavior
+after the test.
+
+#### PERSIST_INSTALL (Recommended for Most Developers)
+
+**Quick Start:**
+```shell
+PERSIST_INSTALL=true ./hack/run-test.sh SessionPersistence
+```
+
+**What it does:**
+- Installs kgateway if not present, but will not overwrite existing installations
+- Skips teardown completely (caveat t.Cleanup() functions)
+- After tests: Leaves installation intact (no teardown)
+- **Allows you to manually set up the environment but does not require it**
+
+**Why use it:**
+- **"Just handle it" mode** - automatically manages your test environment
+- **Fast iteration** - run tests repeatedly without reinstalling, and debug
+  with command-line tools after the test ends to better understand test
+  failures
+
+Set to `true`/`1`/`yes`/`y` to enable.
+
+#### SKIP_INSTALL (Full Control Desired)
+
+**What it does:**
+- Skips installation completely
+- Skips teardown completely (caveat t.Cleanup() functions)
+- **Assumes you've manually set up the environment**
+
+**When to use it:**
+- You need precise control over installation parameters
+- You're debugging a specific cluster state
+- You're working with a custom installation
 
 ## Debugging
 
