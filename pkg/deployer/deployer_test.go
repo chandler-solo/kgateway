@@ -1215,13 +1215,13 @@ var _ = Describe("Deployer", func() {
 				},
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
-			wellknown.DefaultGatewayControllerName,
-			wellknown.DefaultAgwControllerName,
-			wellknown.DefaultAgwClassName,
-			newFakeClientWithObjs(defaultGatewayClass()),
-			gwParams,
-		)
-		Expect(err).NotTo(HaveOccurred())
+				wellknown.DefaultGatewayControllerName,
+				wellknown.DefaultAgwControllerName,
+				wellknown.DefaultAgwClassName,
+				newFakeClientWithObjs(defaultGatewayClass()),
+				gwParams,
+			)
+			Expect(err).NotTo(HaveOccurred())
 
 			_, err = d.GetObjsToDeploy(context.Background(), gw)
 			Expect(err).To(MatchError(ContainSubstring("invalid group invalid.group for GatewayParameters")))
@@ -1260,13 +1260,13 @@ var _ = Describe("Deployer", func() {
 				},
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
-			wellknown.DefaultGatewayControllerName,
-			wellknown.DefaultAgwControllerName,
-			wellknown.DefaultAgwClassName,
-			newFakeClientWithObjs(defaultGatewayClass()),
-			gwParams,
-		)
-		Expect(err).NotTo(HaveOccurred())
+				wellknown.DefaultGatewayControllerName,
+				wellknown.DefaultAgwControllerName,
+				wellknown.DefaultAgwClassName,
+				newFakeClientWithObjs(defaultGatewayClass()),
+				gwParams,
+			)
+			Expect(err).NotTo(HaveOccurred())
 
 			_, err = d.GetObjsToDeploy(context.Background(), gw)
 			Expect(err).To(MatchError(ContainSubstring("invalid kind InvalidKind for GatewayParameters")))
