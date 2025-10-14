@@ -85,13 +85,6 @@ BUG_REPORT_DIR := $(TEST_ASSET_DIR)/bug_report
 $(BUG_REPORT_DIR):
 	mkdir -p $(BUG_REPORT_DIR)
 
-# This is the location where logs are stored for future processing.
-# This is used to generate summaries of test outcomes and may be used in the future to automate
-# processing of data based on test outcomes.
-TEST_LOG_DIR := $(TEST_ASSET_DIR)/test_log
-$(TEST_LOG_DIR):
-	mkdir -p $(TEST_LOG_DIR)
-
 # Base Alpine image used for all containers. Exported for use in goreleaser.yaml.
 export ALPINE_BASE_IMAGE ?= alpine:3.17.6
 
@@ -188,7 +181,7 @@ test: ## Run all tests, or only run the test package at {TEST_PKG} if it is spec
 .PHONY: e2e-test
 e2e-test: TEST_PKG = ./test/kubernetes/e2e/tests
 e2e-test: ## Run only e2e tests, and only run the test package at {TEST_PKG} if it is specified
-	$(MAKE) go-test TEST_TAG=e2e TEST_PKG=$(TEST_PKG)
+	@$(MAKE) --no-print-directory go-test TEST_TAG=e2e TEST_PKG=$(TEST_PKG)
 
 
 # https://go.dev/blog/cover#heat-maps
@@ -196,16 +189,6 @@ e2e-test: ## Run only e2e tests, and only run the test package at {TEST_PKG} if 
 test-with-coverage: GINKGO_FLAGS += $(GINKGO_COVERAGE_FLAGS)
 test-with-coverage: test
 	go tool cover -html $(OUTPUT_DIR)/coverage.cov
-
-.PHONY: run-tests
-run-tests: GINKGO_FLAGS += -skip-package=e2e,kgateway,test/kubernetes/testutils/helper ## Run all non E2E tests, or only run the test package at {TEST_PKG} if it is specified
-run-tests: GINKGO_FLAGS += --label-filter="!end-to-end && !performance"
-run-tests: test
-
-.PHONY: run-e2e-tests
-run-e2e-tests: TEST_PKG = ./test/e2e/ ## Run all in-memory E2E tests
-run-e2e-tests: GINKGO_FLAGS += --label-filter="end-to-end && !performance"
-run-e2e-tests: test
 
 #----------------------------------------------------------------------------------
 # Env test
@@ -246,8 +229,8 @@ GO_TEST_USER_ARGS ?=
 
 .PHONY: go-test
 go-test: ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
-go-test: clean-bug-report $(BUG_REPORT_DIR) # Ensure the bug_report dir is reset before each invocation
-	@$(GO_TEST_ENV) go test -ldflags='$(LDFLAGS)' $(GO_TEST_ARGS) $(GO_TEST_USER_ARGS) -tags=$(TEST_TAG) $(TEST_PKG)
+go-test: reset-bug-report
+	$(GO_TEST_ENV) go test -ldflags='$(LDFLAGS)' $(if $(TEST_TAG),-tags=$(TEST_TAG)) $(GO_TEST_ARGS) $(GO_TEST_USER_ARGS) $(TEST_PKG)
 
 # https://go.dev/blog/cover#heat-maps
 .PHONY: go-test-with-coverage
@@ -257,12 +240,12 @@ go-test-with-coverage: go-test
 # https://go.dev/blog/cover#heat-maps
 .PHONY: unit-with-coverage
 unit-with-coverage:
-	$(MAKE) unit GO_TEST_ARGS="$(GO_TEST_ARGS) $(GO_TEST_COVERAGE_ARGS)"
+	@$(MAKE) --no-print-directory unit GO_TEST_ARGS="$(GO_TEST_ARGS) $(GO_TEST_COVERAGE_ARGS)"
 
 .PHONY: unit
 unit: ## Run all unit tests (excludes e2e tests)
 	@echo "Running unit tests (excluding e2e)..."
-	@$(MAKE) go-test TEST_TAG=""
+	@$(MAKE) --no-print-directory go-test TEST_TAG=""
 
 .PHONY: validate-test-coverage
 validate-test-coverage: ## Validate the test coverage
@@ -299,13 +282,15 @@ clean-tests:
 	find * -type f -name '*.cov' -exec rm {} \;
 	find * -type f -name 'junit*.xml' -exec rm {} \;
 
+# NB: 'reset-bug-report: clean-bug-report $(BUG_REPORT_DIR)' would be a subtle
+# bug since we would never run 'mkdir' if the directory already existed.
+.PHONY: reset-bug-report
+reset-bug-report: clean-bug-report
+	@$(MAKE) --no-print-directory $(BUG_REPORT_DIR)
+
 .PHONY: clean-bug-report
 clean-bug-report:
 	rm -rf $(BUG_REPORT_DIR)
-
-.PHONY: clean-test-logs
-clean-test-logs:
-	rm -rf $(TEST_LOG_DIR)
 
 #----------------------------------------------------------------------------------
 # Generated Code
@@ -664,7 +649,7 @@ $(TEST_ASSET_DIR)/conformance/conformance_test.go:
 	cat $(shell go list -json -m sigs.k8s.io/gateway-api | jq -r '.Dir')/conformance/conformance_test.go >> $@
 	go fmt $@
 
-CONFORMANCE_SUPPORTED_FEATURES ?= -supported-features=GatewayAddressEmpty,HTTPRouteParentRefPort,HTTPRouteRequestMirror,HTTPRouteBackendRequestHeaderModification,HTTPRouteNamedRouteRule,HTTPRouteDestinationPortMatching,HTTPRouteBackendProtocolH2C,HTTPRouteBackendProtocolWebSocket,HTTPRouteBackendTimeout,HTTPRouteHostRewrite,HTTPRouteMethodMatching,HTTPRoutePathRedirect,HTTPRoutePathRewrite,HTTPRoutePortRedirect,HTTPRouteQueryParamMatching,HTTPRouteRequestTimeout,HTTPRouteResponseHeaderModification,HTTPRouteSchemeRedirect
+CONFORMANCE_SUPPORTED_FEATURES ?= -supported-features=GatewayAddressEmpty,HTTPRouteParentRefPort,HTTPRouteRequestMirror,HTTPRouteBackendRequestHeaderModification,HTTPRouteNamedRouteRule,HTTPRouteDestinationPortMatching,HTTPRouteBackendProtocolH2C,HTTPRouteBackendProtocolWebSocket,HTTPRouteBackendTimeout,HTTPRouteHostRewrite,HTTPRouteMethodMatching,HTTPRoutePathRedirect,HTTPRoutePathRewrite,HTTPRoutePortRedirect,HTTPRouteQueryParamMatching,HTTPRouteRequestTimeout,HTTPRouteResponseHeaderModification,HTTPRouteSchemeRedirect,HTTPRouteCORS
 CONFORMANCE_UNSUPPORTED_FEATURES ?= -exempt-features=GatewayPort8080,GatewayStaticAddresses,GatewayHTTPListenerIsolation,GatewayInfrastructurePropagation,HTTPRouteRequestMultipleMirrors,HTTPRouteRequestPercentageMirror
 CONFORMANCE_SUPPORTED_PROFILES ?= -conformance-profiles=GATEWAY-HTTP,GATEWAY-TLS,GATEWAY-GRPC
 CONFORMANCE_GATEWAY_CLASS ?= kgateway
@@ -735,7 +720,7 @@ all-conformance: conformance gie-conformance agw-conformance ## Run all conforma
 #----------------------------------------------------------------------------------
 
 # Agent Gateway conformance test configuration
-AGW_CONFORMANCE_SUPPORTED_FEATURES ?= -supported-features=HTTPRouteBackendProtocolH2C,HTTPRouteBackendProtocolWebSocket,HTTPRouteHostRewrite,HTTPRouteMethodMatching,HTTPRoutePathRedirect,HTTPRoutePathRewrite,HTTPRoutePortRedirect,HTTPRouteQueryParamMatching,HTTPRouteResponseHeaderModification,HTTPRouteSchemeRedirect
+AGW_CONFORMANCE_SUPPORTED_FEATURES ?= -supported-features=HTTPRouteBackendProtocolH2C,HTTPRouteBackendProtocolWebSocket,HTTPRouteHostRewrite,HTTPRouteMethodMatching,HTTPRoutePathRedirect,HTTPRoutePathRewrite,HTTPRoutePortRedirect,HTTPRouteQueryParamMatching,HTTPRouteResponseHeaderModification,HTTPRouteSchemeRedirect,HTTPRouteCORS
 AGW_CONFORMANCE_UNSUPPORTED_FEATURES ?= $(CONFORMANCE_UNSUPPORTED_FEATURES)
 AGW_CONFORMANCE_SUPPORTED_PROFILES ?= -conformance-profiles=GATEWAY-HTTP
 AGW_CONFORMANCE_GATEWAY_CLASS ?= agentgateway
