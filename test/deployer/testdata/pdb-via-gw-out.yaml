@@ -19,10 +19,9 @@ spec:
       app.kubernetes.io/name: gw
       app.kubernetes.io/instance: gw
       gateway.networking.k8s.io/gateway-name: gw
-  butAny:
-    keyWill:
-      workInA: RawExtension
+  maxUnavailable: 7
   minAvailable: 100%
+  unhealthyPodEvictionPolicy: AlwaysAllow
 ---
 # Source: kgateway-proxy/templates/gateway/proxy-deployment.yaml
 apiVersion: v1

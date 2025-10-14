@@ -8,9 +8,9 @@ spec:
     deployment:
       podDisruptionBudget:
         minAvailable: 100%
-        butAny:
-          keyWill:
-            workInA: RawExtension
+        maxUnavailable: 7
+        unhealthyPodEvictionPolicy: AlwaysAllow
+        # Note: selector is handled automatically by kgateway - don't set it manually
       strategy:
         type: Recreate
         rollingUpdate:

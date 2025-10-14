@@ -1,11 +1,13 @@
 package v1alpha1
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -295,6 +297,12 @@ func (in *ProxyDeployment) GetPodDisruptionBudget() (map[string]any, error) {
 	if in == nil || in.PodDisruptionBudget == nil || len(in.PodDisruptionBudget.Raw) == 0 {
 		return nil, nil
 	}
+
+	// Validate that the RawExtension contains a valid PodDisruptionBudgetSpec
+	if err := in.ValidatePodDisruptionBudget(); err != nil {
+		return nil, err
+	}
+
 	var pdbMap map[string]any
 	raw := in.PodDisruptionBudget.Raw
 
@@ -302,6 +310,27 @@ func (in *ProxyDeployment) GetPodDisruptionBudget() (map[string]any, error) {
 		return nil, fmt.Errorf("failed to unmarshal PodDisruptionBudget into an object: %w", err)
 	}
 	return pdbMap, nil
+}
+
+// ValidatePodDisruptionBudget validates that the RawExtension contains a valid PodDisruptionBudgetSpec.
+// It unmarshals into the official k8s.io/api/policy/v1.PodDisruptionBudgetSpec type with strict validation
+// that rejects unknown fields. The validation logic follows k8s.io/kubernetes/pkg/apis/policy/validation.ValidatePodDisruptionBudgetSpec.
+func (in *ProxyDeployment) ValidatePodDisruptionBudget() error {
+	if in == nil || in.PodDisruptionBudget == nil || len(in.PodDisruptionBudget.Raw) == 0 {
+		return nil
+	}
+
+	// Use strict unmarshaling to reject unknown fields in the PodDisruptionBudgetSpec
+	// This ensures that fields like an invalid selector structure are caught
+	var spec policyv1.PodDisruptionBudgetSpec
+	decoder := json.NewDecoder(bytes.NewReader(in.PodDisruptionBudget.Raw))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(&spec); err != nil {
+		return fmt.Errorf("invalid PodDisruptionBudget spec: %w", err)
+	}
+
+	return nil
 }
 
 // EnvoyContainer configures the container running Envoy.
