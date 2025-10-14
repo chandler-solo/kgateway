@@ -211,12 +211,12 @@ func TestProxyDeployment_GetPodDisruptionBudget(t *testing.T) {
 			name: "valid PodDisruptionBudget",
 			pdb: &runtime.RawExtension{
 				Raw: mustMarshal(t, map[string]any{
-					"minAvailable": 1,
+					"minAvailable":               1,
 					"unhealthyPodEvictionPolicy": "AlwaysAllow",
 				}),
 			},
 			want: map[string]any{
-				"minAvailable": float64(1), // JSON unmarshals numbers as float64
+				"minAvailable":               float64(1), // JSON unmarshals numbers as float64
 				"unhealthyPodEvictionPolicy": "AlwaysAllow",
 			},
 			wantErr: false,
@@ -429,7 +429,7 @@ func TestPodDisruptionBudget_UserExperience(t *testing.T) {
 					Deployment: &ProxyDeployment{
 						PodDisruptionBudget: &runtime.RawExtension{
 							Raw: mustMarshal(t, map[string]any{
-								"minAvailable":   1,
+								"minAvailable": 1,
 								"customMetadata": map[string]string{ // Extra field - rejected
 									"env": "production",
 								},
