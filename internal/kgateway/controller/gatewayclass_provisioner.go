@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	apiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
@@ -92,23 +90,26 @@ func (r *gatewayClassProvisioner) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *gatewayClassProvisioner) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, rErr error) {
 	log := log.FromContext(ctx)
-	log.Info("reconciling GatewayClasses", "controllerName", "gatewayclass-provisioner")
-	defer log.Info("finished reconciling GatewayClasses", "controllerName", "gatewayclass-provisioner")
+	log.Info("reconciling GatewayClass", "controllerName", "gatewayclass-provisioner", "name", req.Name)
+	defer log.Info("finished reconciling GatewayClass", "controllerName", "gatewayclass-provisioner", "name", req.Name)
 
 	finishMetrics := collectReconciliationMetrics("gatewayclass-provisioner", req)
 	defer func() {
 		finishMetrics(rErr)
 	}()
 
-	var errs []error
-	for name, config := range r.classConfigs {
-		if err := r.createGatewayClass(ctx, name, config); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		log.Info("created GatewayClass", "name", name)
+	config, exists := r.classConfigs[req.Name]
+	if !exists {
+		// If the GatewayClass is not in our config, we don't manage it
+		log.Info("GatewayClass not in config, skipping", "name", req.Name)
+		return ctrl.Result{}, nil
 	}
-	return ctrl.Result{}, errors.Join(errs...)
+
+	if err := r.createGatewayClass(ctx, req.Name, config); err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("ensured GatewayClass exists", "name", req.Name)
+	return ctrl.Result{}, nil
 }
 
 func (r *gatewayClassProvisioner) createGatewayClass(ctx context.Context, name string, config *deployer.GatewayClassInfo) error {
@@ -160,28 +161,38 @@ func (r *gatewayClassProvisioner) Start(ctx context.Context) error {
 	if err := r.List(ctx, &gcs); err != nil {
 		return fmt.Errorf("failed to list gatewayclasses: %w", err)
 	}
-	var missing bool
+
+	// Build a set of existing GatewayClasses
+	existing := make(map[string]bool)
 	for _, gc := range gcs.Items {
-		if _, exists := r.classConfigs[gc.Name]; !exists {
-			missing = true
-			break
-		}
-	}
-	if len(gcs.Items) > 0 && !missing {
-		log.Info("all required gatewayclasses found, skipping initial reconciliation")
-		return nil
+		existing[gc.Name] = true
 	}
 
-	log.Info("some required gatewayclasses missing, triggering initial reconciliation")
-	r.initialReconcileCh <- event.TypedGenericEvent[client.Object]{
-		Object: &apiv1.GatewayClass{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "manual",
-			},
-			Spec: apiv1.GatewayClassSpec{
-				ControllerName: wellknown.DefaultGatewayControllerName,
-			},
-		},
+	// Trigger reconciliation for each missing GatewayClass
+	var triggered bool
+	for name, config := range r.classConfigs {
+		if !existing[name] {
+			log.Info("triggering reconciliation for missing GatewayClass", "name", name)
+			controllerName := r.defaultControllerName
+			if config.ControllerName != "" {
+				controllerName = config.ControllerName
+			}
+			r.initialReconcileCh <- event.TypedGenericEvent[client.Object]{
+				Object: &apiv1.GatewayClass{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: name,
+					},
+					Spec: apiv1.GatewayClassSpec{
+						ControllerName: apiv1.GatewayController(controllerName),
+					},
+				},
+			}
+			triggered = true
+		}
+	}
+
+	if !triggered {
+		log.Info("all required gatewayclasses found, skipping initial reconciliation")
 	}
 
 	return nil
