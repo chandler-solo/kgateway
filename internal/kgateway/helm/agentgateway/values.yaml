@@ -1,4 +1,4 @@
-# These values represent configurable values for the agent gateway chart
+# These values represent configurable values for the agentgateway chart
 # They are not intended to be actual "defaults," rather they are just placeholder values
 # meant to allow rendering of the chart/template, as the real values will come from:
 # * The control plane
