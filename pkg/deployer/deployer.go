@@ -159,10 +159,9 @@ func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte,
 	// Select the appropriate chart based on whether agentgateway is enabled
 	chartToUse := d.chart
 	if d.agentgatewayChart != nil {
-		// Check if agentgateway is enabled in the values
 		if gateway, ok := vals["gateway"].(map[string]any); ok {
-			if agw, ok := gateway["agentgateway"].(map[string]any); ok {
-				if enabled, ok := agw["enabled"].(bool); ok && enabled {
+			if dataPlaneType, ok := gateway["dataPlaneType"].(string); ok {
+				if dataPlaneType == string(DataPlaneAgentgateway) {
 					chartToUse = d.agentgatewayChart
 				}
 			}

@@ -1,5 +1,5 @@
 {{- $gateway := .Values.gateway }}
-{{- if not $gateway.agentgateway.customConfigMapName }}
+{{- if not $gateway.customConfigMapName }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

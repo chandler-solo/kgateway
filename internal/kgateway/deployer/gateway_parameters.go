@@ -281,6 +281,7 @@ func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Con
 }
 
 func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.GatewayParameters) (*deployer.HelmConfig, error) {
+	var err error
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, gwParam)
 	if len(ports) == 0 {
@@ -355,7 +356,6 @@ func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.Gatewa
 	if aiExtensionConfig != nil && aiExtensionConfig.GetEnabled() != nil && *aiExtensionConfig.GetEnabled() {
 		slog.Warn("gatewayparameters spec.kube.aiExtension is deprecated in v2.1 and will be removed in v2.2. Use spec.kube.agentgateway instead.")
 	}
-	agwConfig := kubeProxyConfig.GetAgentgateway()
 
 	gateway := vals.Gateway
 
@@ -385,24 +385,26 @@ func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.Gatewa
 	gateway.TopologySpreadConstraints = podConfig.GetTopologySpreadConstraints()
 	gateway.ExtraVolumes = podConfig.GetExtraVolumes()
 
-	// envoy container values
-	logLevel := envoyContainerConfig.GetBootstrap().GetLogLevel()
-	compLogLevels := envoyContainerConfig.GetBootstrap().GetComponentLogLevels()
-	gateway.LogLevel = logLevel
-	compLogLevelStr, err := deployer.ComponentLogLevelsToString(compLogLevels)
-	if err != nil {
-		return nil, err
-	}
-	gateway.ComponentLogLevel = &compLogLevelStr
-
-	agentgatewayEnabled := agwConfig.GetEnabled()
-	if agentgatewayEnabled != nil && *agentgatewayEnabled {
+	// data plane container
+	if agwConfig := kubeProxyConfig.GetAgentgateway(); ptr.Deref(agwConfig.GetEnabled(), false) {
+		gateway.DataPlaneType = deployer.DataPlaneAgentgateway
 		gateway.Resources = agwConfig.GetResources()
 		gateway.SecurityContext = agwConfig.GetSecurityContext()
 		gateway.Image = deployer.GetImageValues(agwConfig.GetImage())
 		gateway.Env = agwConfig.GetEnv()
 		gateway.ExtraVolumeMounts = agwConfig.ExtraVolumeMounts
+		gateway.LogLevel = agwConfig.GetLogLevel()
+		gateway.CustomConfigMapName = agwConfig.GetCustomConfigMapName()
 	} else {
+		gateway.DataPlaneType = deployer.DataPlaneEnvoy
+		logLevel := envoyContainerConfig.GetBootstrap().GetLogLevel()
+		gateway.LogLevel = logLevel
+		compLogLevels := envoyContainerConfig.GetBootstrap().GetComponentLogLevels()
+		compLogLevelStr, err := deployer.ComponentLogLevelsToString(compLogLevels)
+		if err != nil {
+			return nil, err
+		}
+		gateway.ComponentLogLevel = &compLogLevelStr
 		gateway.Resources = envoyContainerConfig.GetResources()
 		gateway.SecurityContext = envoyContainerConfig.GetSecurityContext()
 		gateway.Image = deployer.GetImageValues(envoyContainerConfig.GetImage())
@@ -417,11 +419,6 @@ func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.Gatewa
 
 	// ai values
 	gateway.AIExtension, err = deployer.GetAIExtensionValues(aiExtensionConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	gateway.Agentgateway, err = deployer.GetAgentgatewayValues(agwConfig)
 	if err != nil {
 		return nil, err
 	}

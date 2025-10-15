@@ -98,7 +98,7 @@ spec:
             - name: RUST_BACKTRACE
               value: "1"
             - name: RUST_LOG
-              value: {{ $gateway.agentgateway.logLevel }}
+              value: {{ $gateway.logLevel }}
             - name: XDS_ADDRESS
               {{- if and $gateway.agwXds.tls $gateway.agwXds.tls.enabled }}
               value: "https://{{ $gateway.xds.host }}:{{ $gateway.agwXds.port }}"
@@ -138,8 +138,8 @@ spec:
       volumes:
         - name: config-volume
           configMap:
-            {{- if $gateway.agentgateway.customConfigMapName }}
-            name: {{ $gateway.agentgateway.customConfigMapName }}
+            {{- if $gateway.customConfigMapName }}
+            name: {{ $gateway.customConfigMapName }}
             {{- else }}
             name: {{ include "kgateway.gateway.fullname" . }}
             {{- end }}
