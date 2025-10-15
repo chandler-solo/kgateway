@@ -11,7 +11,7 @@ metadata:
     gateway.networking.k8s.io/gateway-name: gw
     app.kubernetes.io/version: "1.0.0-ci1"
     gateway.networking.k8s.io/gateway-class-name: kgateway
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: kgateway
 automountServiceAccountToken: false
 ---
 # Source: kgateway-proxy/templates/configmap.yaml
@@ -26,7 +26,7 @@ metadata:
     gateway.networking.k8s.io/gateway-name: gw
     app.kubernetes.io/version: "1.0.0-ci1"
     gateway.networking.k8s.io/gateway-class-name: kgateway
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: kgateway
 data:
   envoy.yaml: |
     admin:
@@ -214,7 +214,7 @@ metadata:
     gateway.networking.k8s.io/gateway-name: gw
     app.kubernetes.io/version: "1.0.0-ci1"
     gateway.networking.k8s.io/gateway-class-name: kgateway
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: kgateway
 spec:
   type: LoadBalancer
   ports:
@@ -239,7 +239,7 @@ metadata:
     gateway.networking.k8s.io/gateway-name: gw
     app.kubernetes.io/version: "1.0.0-ci1"
     gateway.networking.k8s.io/gateway-class-name: kgateway
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: kgateway
 spec:
   selector:
     matchLabels:

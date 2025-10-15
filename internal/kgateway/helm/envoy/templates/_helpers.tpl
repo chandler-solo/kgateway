@@ -52,7 +52,7 @@ Common labels
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 gateway.networking.k8s.io/gateway-class-name: {{ .Values.gateway.gatewayClassName }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/managed-by: kgateway
 {{- end }}
 
 {{- define "kgateway.gateway.podLabels" -}}
