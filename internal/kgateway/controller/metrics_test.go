@@ -44,10 +44,6 @@ var _ = Describe("GwControllerMetrics", func() {
 		cancel, err = createManager(ctx, inferenceExt, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		// Clean up any leftover gateways from previous failed tests
-		gw := gateway()
-		_ = k8sClient.Delete(ctx, gw)
-
 		ResetMetrics()
 
 	})
