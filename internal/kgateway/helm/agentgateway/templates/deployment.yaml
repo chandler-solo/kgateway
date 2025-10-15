@@ -1,9 +1,4 @@
 {{- $gateway := .Values.gateway }}
-{{- $selectorLabels := dict
-  "app.kubernetes.io/name" (include "kgateway.gateway.name" .)
-  "app.kubernetes.io/instance" .Release.Name
-  "gateway.networking.k8s.io/gateway-name" .Release.Name
-}}
 {{- $promAnnotations := (dict
   "prometheus.io/path" "/metrics"
   "prometheus.io/port" "15020"
@@ -25,7 +20,7 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- $selectorLabels | toYaml | nindent 6 }}
+      {{- include "kgateway.gateway.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
@@ -37,7 +32,7 @@ spec:
       labels:
         {{- toYaml (merge
           (dict "gateway.networking.k8s.io/gateway-class-name" .Values.gateway.gatewayClassName)
-          $selectorLabels
+          (include "kgateway.gateway.selectorLabels" . | fromYaml)
           ($gateway.gatewayLabels | default dict)
           ($gateway.extraPodLabels | default dict)
         ) | nindent 8 }}

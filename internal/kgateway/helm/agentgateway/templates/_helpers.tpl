@@ -63,17 +63,12 @@ All labels including selector labels, standard labels, and custom gateway labels
 */}}
 {{- define "kgateway.gateway.allLabels" -}}
 {{- $gateway := .Values.gateway -}}
-{{- $selectorLabels := dict
-  "app.kubernetes.io/name" (include "kgateway.gateway.name" .)
-  "app.kubernetes.io/instance" .Release.Name
-  "gateway.networking.k8s.io/gateway-name" .Release.Name
--}}
 {{- $labels := merge (dict
   "kgateway" "kube-gateway"
   "app.kubernetes.io/managed-by" .Release.Service
   "gateway.networking.k8s.io/gateway-class-name" .Values.gateway.gatewayClassName
   )
-  $selectorLabels
+  (include "kgateway.gateway.selectorLabels" . | fromYaml)
   ($gateway.gatewayLabels | default dict)
 -}}
 {{- if .Chart.AppVersion -}}
