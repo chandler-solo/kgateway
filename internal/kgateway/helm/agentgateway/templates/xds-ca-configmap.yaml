@@ -5,8 +5,7 @@ kind: ConfigMap
 metadata:
   name: {{ include "kgateway.gateway.fullname" . }}-xds-ca
   labels:
-    {{- include "kgateway.gateway.constLabels" . | nindent 4 }}
-    {{- include "kgateway.gateway.labels" . | nindent 4 }}
+    {{- include "kgateway.gateway.allLabels" . | nindent 4 }}
 data:
   ca.crt: |
 {{ $gateway.agwXds.tls.caCert | indent 4 }}

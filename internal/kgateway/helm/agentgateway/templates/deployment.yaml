@@ -4,24 +4,11 @@
   "app.kubernetes.io/instance" .Release.Name
   "gateway.networking.k8s.io/gateway-name" .Release.Name
 }}
-{{/* gateway-class-name is the odd-man-out since we cannot make it a selector label, as selector is immutable; but we want it on the pod */}}
-{{- $labels := merge (dict
-  "kgateway" "kube-gateway"
-  "helm.sh/chart" (include "kgateway.chart" .)
-  "app.kubernetes.io/managed-by" .Release.Service
-  "gateway.networking.k8s.io/gateway-class-name" .Values.gateway.gatewayClassName
-  )
-  $selectorLabels
-  ($gateway.gatewayLabels | default dict)
-}}
 {{- $promAnnotations := (dict
   "prometheus.io/path" "/metrics"
   "prometheus.io/port" "15020"
   "prometheus.io/scrape" "true")
 }}
-{{- if .Chart.AppVersion }}
-{{$_ := set $labels "app.kubernetes.io/version" .Chart.AppVersion }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,7 +18,7 @@ metadata:
       {{- toYaml . | nindent 4 }}
     {{- end }}
   labels:
-    {{- $labels | toYaml | nindent 4 }}
+    {{- include "kgateway.gateway.allLabels" . | nindent 4 }}
 spec:
   {{- if $gateway.replicaCount }}
   replicas: {{ $gateway.replicaCount }}

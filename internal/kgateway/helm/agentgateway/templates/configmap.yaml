@@ -7,7 +7,7 @@ metadata:
   annotations:
     {{- toYaml ($gateway.gatewayAnnotations| default dict) | nindent 4 }}
   labels:
-    {{- toYaml $labels | nindent 4 }}
+    {{- include "kgateway.gateway.allLabels" . | nindent 4 }}
 data:
   config.yaml: |
     config: {}

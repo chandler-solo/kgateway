@@ -10,7 +10,7 @@ metadata:
     ) | nindent 4 }}
   labels:
     {{- toYaml (merge
-      $labels
+      (include "kgateway.gateway.allLabels" . | fromYaml)
       ((($gateway.service).extraLabels) | default dict)
     ) | nindent 4 }}
 spec:
