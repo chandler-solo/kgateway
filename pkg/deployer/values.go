@@ -28,12 +28,14 @@ type HelmGateway struct {
 	DataPlaneType DataPlaneType `json:"dataPlaneType"`
 
 	// naming
-	Name             *string `json:"name,omitempty"`
-	GatewayName      *string `json:"gatewayName,omitempty"`
-	GatewayNamespace *string `json:"gatewayNamespace,omitempty"`
-	GatewayClassName *string `json:"gatewayClassName,omitempty"`
-	NameOverride     *string `json:"nameOverride,omitempty"`
-	FullnameOverride *string `json:"fullnameOverride,omitempty"`
+	Name               *string           `json:"name,omitempty"`
+	GatewayName        *string           `json:"gatewayName,omitempty"`
+	GatewayNamespace   *string           `json:"gatewayNamespace,omitempty"`
+	GatewayClassName   *string           `json:"gatewayClassName,omitempty"`
+	GatewayAnnotations map[string]string `json:"gatewayAnnotations,omitempty"`
+	GatewayLabels      map[string]string `json:"gatewayLabels,omitempty"`
+	NameOverride       *string           `json:"nameOverride,omitempty"`
+	FullnameOverride   *string           `json:"fullnameOverride,omitempty"`
 
 	// deployment/service values
 	ReplicaCount *uint32                    `json:"replicaCount,omitempty"`

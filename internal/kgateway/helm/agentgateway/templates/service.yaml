@@ -3,16 +3,16 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "kgateway.gateway.fullname" . }}
-  {{- with $gateway.service.extraAnnotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- toYaml (merge
+      ($gateway.gatewayAnnotations| default dict)
+      ((($gateway.service).extraAnnotations) | default dict)
+    ) | nindent 4 }}
   labels:
-    {{- include "kgateway.gateway.constLabels" . | nindent 4 }}
-    {{- include "kgateway.gateway.labels" . | nindent 4 }}
-    {{- with $gateway.service.extraLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml (merge
+      $labels
+      ((($gateway.service).extraLabels) | default dict)
+    ) | nindent 4 }}
 spec:
   type: {{ $gateway.service.type }}
   {{- if $gateway.service.externalTrafficPolicy }}
@@ -23,12 +23,12 @@ spec:
   {{- end }}
   ports:
   {{- range $p := $gateway.ports }}
-  - name: {{ $p.name }}
-    protocol: {{ $p.protocol }}
-    targetPort: {{ $p.port }}
-    port: {{ $p.port }}
+    - name: {{ $p.name }}
+      protocol: {{ $p.protocol }}
+      targetPort: {{ $p.port }}
+      port: {{ $p.port }}
     {{- if $p.nodePort }}
-    nodePort: {{ $p.nodePort }}
+      nodePort: {{ $p.nodePort }}
     {{- end }}
   {{- end }}
   selector:
