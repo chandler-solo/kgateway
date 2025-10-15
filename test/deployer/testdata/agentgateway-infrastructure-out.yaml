@@ -1,5 +1,5 @@
 ---
-# Source: kgateway-proxy/templates/gateway/agent-gateway-deployment.yaml
+# Source: agentgateway/templates/serviceaccount.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,13 +15,12 @@ metadata:
     app.kubernetes.io/version: 1.0.0-ci1
     gateway.networking.k8s.io/gateway-class-name: agentgateway
     gateway.networking.k8s.io/gateway-name: gw
-    helm.sh/chart: kgateway-proxy-1.0.0-ci1
     infra-and-params: infra
     kgateway: kube-gateway
     my-label: my-value
 automountServiceAccountToken: false
 ---
-# Source: kgateway-proxy/templates/gateway/agent-gateway-deployment.yaml
+# Source: agentgateway/templates/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,7 +36,6 @@ metadata:
     app.kubernetes.io/version: 1.0.0-ci1
     gateway.networking.k8s.io/gateway-class-name: agentgateway
     gateway.networking.k8s.io/gateway-name: gw
-    helm.sh/chart: kgateway-proxy-1.0.0-ci1
     infra-and-params: infra
     kgateway: kube-gateway
     my-label: my-value
@@ -45,7 +43,7 @@ data:
   config.yaml: |
     config: {}
 ---
-# Source: kgateway-proxy/templates/gateway/agent-gateway-deployment.yaml
+# Source: agentgateway/templates/service.yaml
 apiVersion: v1
 kind: Service
 metadata:
@@ -61,7 +59,6 @@ metadata:
     app.kubernetes.io/version: 1.0.0-ci1
     gateway.networking.k8s.io/gateway-class-name: agentgateway
     gateway.networking.k8s.io/gateway-name: gw
-    helm.sh/chart: kgateway-proxy-1.0.0-ci1
     infra-and-params: infra
     kgateway: kube-gateway
     my-label: my-value
@@ -77,7 +74,7 @@ spec:
     app.kubernetes.io/instance: gw
     gateway.networking.k8s.io/gateway-name: gw
 ---
-# Source: kgateway-proxy/templates/gateway/agent-gateway-deployment.yaml
+# Source: agentgateway/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -93,7 +90,6 @@ metadata:
     app.kubernetes.io/version: 1.0.0-ci1
     gateway.networking.k8s.io/gateway-class-name: agentgateway
     gateway.networking.k8s.io/gateway-name: gw
-    helm.sh/chart: kgateway-proxy-1.0.0-ci1
     infra-and-params: infra
     kgateway: kube-gateway
     my-label: my-value
