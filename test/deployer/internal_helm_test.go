@@ -62,6 +62,10 @@ func helmChartTests() []HelmTestCase {
 			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
+		{
+			Name:      "agentgateway-infrastructure",
+			InputFile: "agentgateway-infrastructure",
+		},
 	}
 }
 
