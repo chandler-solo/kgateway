@@ -29,7 +29,8 @@ func (g GinkgoTestReporter) Fatalf(format string, args ...interface{}) {
 var _ = Describe("GwControllerMetrics", func() {
 	var (
 		ctx              context.Context
-		cancel           context.CancelFunc
+		cancelCtx        context.CancelFunc
+		cancelManager    context.CancelFunc
 		goroutineMonitor *assertions.GoRoutineMonitor
 	)
 
@@ -38,10 +39,10 @@ var _ = Describe("GwControllerMetrics", func() {
 	})
 
 	JustBeforeEach(func() {
-		ctx, cancel = context.WithCancel(context.Background())
+		ctx, cancelCtx = context.WithCancel(context.Background())
 
 		var err error
-		cancel, err = createManager(ctx, inferenceExt, nil)
+		cancelManager, err = createManager(ctx, inferenceExt, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		ResetMetrics()
@@ -49,7 +50,10 @@ var _ = Describe("GwControllerMetrics", func() {
 	})
 
 	AfterEach(func() {
-		cancel()
+		if cancelManager != nil {
+			cancelManager()
+		}
+		cancelCtx()
 		waitForGoroutinesToFinish(goroutineMonitor)
 	})
 
@@ -186,16 +190,11 @@ func deleteGateway(ctx context.Context) {
 	err := k8sClient.Delete(ctx, gw)
 	Expect(err).NotTo(HaveOccurred())
 
-	// Use a background context for cleanup to ensure it completes even if test context is cancelled
-	// This prevents "gateway already exists" errors when the next test runs
-	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), timeout)
-	defer cleanupCancel()
-
 	// The tests in this suite don't do a good job of cleaning up after themselves, which is relevant because of the shared envtest environment
 	// but we can at least that the gateway from this test is deleted
 	Eventually(func() bool {
 		var createdGateways api.GatewayList
-		err := k8sClient.List(cleanupCtx, &createdGateways)
+		err := k8sClient.List(ctx, &createdGateways)
 		found := false
 		for _, foundGw := range createdGateways.Items {
 			if foundGw.Name == gw.Name {
