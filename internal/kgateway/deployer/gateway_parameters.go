@@ -284,7 +284,7 @@ func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Con
 func (k *kGatewayParameters) getValues(gw *api.Gateway, gwParam *v1alpha1.GatewayParameters) (*deployer.HelmConfig, error) {
 	var err error
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
-	ports := deployer.GetPortsValues(irGW, gwParam)
+	ports := deployer.GetPortsValues(deployer.NewGatewayIRForDeployer(irGW), gwParam)
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
 	}
