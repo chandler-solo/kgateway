@@ -27,6 +27,8 @@ set -eEuo pipefail
 #   --rebuild, -r   Delete the kind cluster, rebuild all docker images, create a
 #                   new kind cluster, load images into kind, and then run tests.
 #                   This ensures a completely fresh environment.
+#   --persist, -p   Skip 'make setup' if kind cluster exists (faster iteration).
+#                   Equivalent to setting PERSIST_INSTALL=true.
 #   --list, -l      List all available test suites and top-level tests
 #   --dry-run, -n   Print the test command that would be run without executing it
 #
@@ -40,7 +42,10 @@ set -eEuo pipefail
 #   # Run a top-level test function
 #   ./hack/run-e2e-test.sh TestKgateway
 #
-#   # Skip setup if cluster exists (faster iteration)
+#   # Skip setup if cluster exists (faster iteration) - using flag
+#   ./hack/run-e2e-test.sh --persist SessionPersistence
+#
+#   # Skip setup if cluster exists (faster iteration) - using env var
 #   PERSIST_INSTALL=true ./hack/run-e2e-test.sh SessionPersistence
 #
 #   # Auto-cleanup conflicting Helm releases
@@ -400,6 +405,7 @@ list_tests() {
 main() {
     local rebuild_cluster=false
     local dry_run=false
+    local persist_install=false
     local test_pattern=""
 
     # Parse arguments
@@ -417,12 +423,21 @@ main() {
                 dry_run=true
                 shift
                 ;;
+            --persist|-p)
+                persist_install=true
+                shift
+                ;;
             *)
                 test_pattern="$1"
                 shift
                 ;;
         esac
     done
+
+    # Set PERSIST_INSTALL environment variable if --persist flag was used
+    if [[ "$persist_install" == "true" ]]; then
+        export PERSIST_INSTALL=true
+    fi
 
     if [[ -z "$test_pattern" ]]; then
         log_error "Usage: $0 [OPTIONS] TEST_PATTERN"
@@ -431,13 +446,14 @@ main() {
         echo "  $0 SessionPersistence"
         echo "  $0 TestCookieSessionPersistence"
         echo "  $0 TestKgateway"
-        echo "  PERSIST_INSTALL=true $0 SessionPersistence"
+        echo "  $0 --persist SessionPersistence"
         echo "  $0 --rebuild SessionPersistence"
         echo "  $0 -n TestCookieSessionPersistence"
         echo ""
         echo "Options:"
         echo "  --list, -l      List all available test suites and top-level tests"
         echo "  --rebuild, -r   Delete the kind cluster, rebuild images, and create a fresh cluster"
+        echo "  --persist, -p   Skip 'make setup' if kind cluster exists (faster iteration)"
         echo "  --dry-run, -n   Print the test command that would be run without executing it"
         exit 1
     fi
