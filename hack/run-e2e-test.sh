@@ -501,7 +501,7 @@ main() {
         echo "make go-test \\"
         echo "    VERSION=\"${test_version}\" \\"
         echo "    GO_TEST_USER_ARGS=\"-run '$escaped_pattern'\" \\"
-        echo "    TEST_PKG=\"${test_pkg}\""
+        echo "    TEST_PKG=\"${test_pkg}\" TEST_TAG=e2e"
         echo ""
         log_info "Environment variables:"
         if is_truthy PERSIST_INSTALL; then
@@ -523,7 +523,7 @@ main() {
     make go-test \
         VERSION="${test_version}" \
         "GO_TEST_USER_ARGS=-run '$escaped_pattern'" \
-        TEST_PKG="${test_pkg}" 2>&1 | tee "$test_output_file"
+        TEST_PKG="${test_pkg}" TEST_TAG=e2e 2>&1 | tee "$test_output_file"
     test_exit_code=${PIPESTATUS[0]}
     set +x
     set -e
