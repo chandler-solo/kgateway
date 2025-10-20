@@ -253,13 +253,39 @@ build_test_pattern() {
             method_file=$(git grep -l "func (.*) ${method_name}\(\)" -- 'test/kubernetes/e2e/features' 2>/dev/null | head -1 || true)
 
             if [[ -n "$method_file" ]]; then
-                # Found a test method, now find which suite it belongs to by looking at the package
-                local suite_pkg
-                suite_pkg=$(dirname "$method_file" | xargs basename)
+                # Found a test method, now find which suite it belongs to
+                # Get the package import path relative to the features directory
+                local rel_path
+                rel_path=$(echo "$method_file" | sed 's|test/kubernetes/e2e/features/||' | xargs dirname)
 
-                # Find the suite registration for this package
+                # Find the suite registration that imports from this path
+                # This handles both simple package names and import aliases
                 local suite_line
-                suite_line=$(git grep "Register(\"[^\"]*\", ${suite_pkg}\\.NewTestingSuite)" -- 'test/kubernetes/e2e/tests/*.go' 2>/dev/null | head -1 || true)
+                suite_line=$(git grep "Register(\"[^\"]*\", .*\\.NewTestingSuite)" -- 'test/kubernetes/e2e/tests/*.go' 2>/dev/null | \
+                    grep -v "^\s*//" | \
+                    while IFS=: read -r file line_content; do
+                        # Extract the package identifier from the Register call
+                        pkg_id=$(echo "$line_content" | sed -E 's/.*Register\("[^"]*", ([^.]*)\..*/\1/')
+                        # Check if this package identifier's import path matches our method's path
+                        # Look for either:
+                        # 1. Aliased import: pkg_id "path/to/rel_path"
+                        # 2. Non-aliased import: "path/to/rel_path" (where pkg_id matches the last component)
+                        if git grep -q "[[:space:]]${pkg_id}[[:space:]]\".*/${rel_path}\"" "$file" 2>/dev/null; then
+                            echo "${file}:${line_content}"
+                            break
+                        elif git grep -q "\".*/${rel_path}\"" "$file" 2>/dev/null; then
+                            # For non-aliased imports, verify pkg_id matches the last path component
+                            local import_line
+                            import_line=$(git grep "\".*/${rel_path}\"" "$file" 2>/dev/null | head -1)
+                            # Extract the last component of the import path
+                            local last_component
+                            last_component=$(echo "$import_line" | sed -E 's|.*/([^/"]+)".*|\1|')
+                            if [[ "$last_component" == "$pkg_id" ]]; then
+                                echo "${file}:${line_content}"
+                                break
+                            fi
+                        fi
+                    done | head -1 || true)
 
                 if [[ -n "$suite_line" ]]; then
                     local suite_name
