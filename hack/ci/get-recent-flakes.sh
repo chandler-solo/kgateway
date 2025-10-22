@@ -163,20 +163,27 @@ while IFS= read -r line; do
             fi
             # Print local reproduce command
             if [[ "$disable_reproduce_command" != "true" ]]; then
-                # Extract test name after last '/'
-                short_test_name="${test_name##*/}"
-                echo "  ./hack/run-e2e-test.sh -p $short_test_name"
+                # Format test name as ^A$/^B$/^C$
+                formatted_test_name="^$(echo "$test_name" | sed 's|/|\$/^|g')\$"
+                echo "  # Reproduce locally:"
+                echo "  ./hack/run-e2e-test.sh --persist $formatted_test_name"
             fi
             # Process each run URL
             while IFS= read -r url; do
                 if [[ -n "$url" ]]; then
                     if [[ "$show_urls" == "true" ]]; then
-                        echo "  $url"
+                        echo "    # CI web page:"
+			if command -v open >/dev/null 2>&1; then
+			    echo "    open $url"
+			else
+			    echo "    $url"
+			fi
                     fi
                     if [[ "$disable_helper_command" != "true" ]]; then
                         # Extract run ID from URL (format: https://github.com/owner/repo/actions/runs/12345)
                         run_id=$(echo "$url" | grep -o '/runs/[0-9]*' | cut -d'/' -f3)
-                        echo "  gh -R $repo_info run view $run_id --log-failed"
+                        echo "    # Print on stdout the CI logs of failed tests:"
+                        echo "    gh -R $repo_info run view $run_id --log-failed"
                     fi
                 fi
             done <<< "$(echo "$run_urls" | tr ',' '\n')"
