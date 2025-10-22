@@ -14,6 +14,17 @@ const (
 	// installed, and then skip teardown. Useful for local development - "just handle it" mode.
 	PersistInstall = "PERSIST_INSTALL"
 
+	// FailFastAndPersist causes tests to skip cleanup when they fail.
+	// When set, if a test fails:
+	// - Cleanup is skipped to allow inspection of resources
+	// - Resources are left in place for debugging
+	//
+	// To abort further testing after first failure, combine with Go's -failfast flag:
+	//   FAIL_FAST_AND_PERSIST=true go test -failfast ./...
+	//
+	// This is useful for debugging test failures.
+	FailFastAndPersist = "FAIL_FAST_AND_PERSIST"
+
 	// InstallNamespace is the namespace in which kgateway is installed
 	InstallNamespace = "INSTALL_NAMESPACE"
 
@@ -54,4 +65,57 @@ func ShouldPersistInstall() bool {
 // ShouldSkipIstioInstall returns true if istio installation and teardown should be skipped.
 func ShouldSkipIstioInstall() bool {
 	return envutils.IsEnvTruthy(SkipIstioInstall)
+}
+
+// ShouldFailFastAndPersist returns true if tests should skip cleanup on failure.
+// This allows resources to persist for debugging when tests fail.
+// Combine with `go test -failfast` to stop running tests after first failure.
+func ShouldFailFastAndPersist() bool {
+	return envutils.IsEnvTruthy(FailFastAndPersist)
+}
+
+// TestingT is an interface that matches the subset of testing.T methods we need
+type TestingT interface {
+	Failed() bool
+	Cleanup(func())
+}
+
+// ShouldSkipCleanup returns true if cleanup should be skipped.
+// Cleanup is skipped if:
+// - ShouldSkipInstallAndTeardown() returns true (SKIP_INSTALL env var)
+// - ShouldPersistInstall() returns true (PERSIST_INSTALL env var)
+// - The test failed AND ShouldFailFastAndPersist() returns true (FAIL_FAST_AND_PERSIST env var)
+//
+// Note: By default, cleanup runs even if the test fails. Set FAIL_FAST_AND_PERSIST=true
+// to skip cleanup on failure for debugging purposes.
+func ShouldSkipCleanup(t TestingT) bool {
+	if ShouldSkipInstallAndTeardown() {
+		return true
+	}
+	if ShouldPersistInstall() {
+		return true
+	}
+	if t.Failed() && ShouldFailFastAndPersist() {
+		return true
+	}
+	return false
+}
+
+// Cleanup registers a cleanup function that will only run if cleanup should not be skipped.
+// Use this instead of t.Cleanup() to automatically handle cleanup based on environment variables.
+//
+// Cleanup will be skipped if:
+// - SKIP_INSTALL is set (skip all cleanup)
+// - PERSIST_INSTALL is set (persist resources across test runs)
+// - FAIL_FAST_AND_PERSIST is set AND the test failed (skip cleanup on failure for debugging)
+//
+// By default, cleanup runs even if tests fail (to clean up resources).
+// Set FAIL_FAST_AND_PERSIST=true to skip cleanup on failure for debugging.
+func Cleanup(t TestingT, f func()) {
+	t.Cleanup(func() {
+		if ShouldSkipCleanup(t) {
+			return
+		}
+		f()
+	})
 }

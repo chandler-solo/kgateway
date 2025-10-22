@@ -125,6 +125,9 @@ func (s *testingSuite) SetupSuite() {
 }
 
 func (s *testingSuite) TearDownSuite() {
+	if testutils.ShouldSkipCleanup(s.T()) {
+		return
+	}
 	err := s.testInstallation.ClusterContext.Cli.DeleteFilePath(s.ctx, commonYAML, "-n", testNamespace)
 	if err != nil {
 		s.Error(err)
@@ -203,7 +206,7 @@ func (s *testingSuite) applyOrFail(fileName string, namespace string) {
 		return
 	}
 
-	s.T().Cleanup(func() {
+	testutils.Cleanup(s.T(), func() {
 		if err := s.testInstallation.ClusterContext.Cli.DeleteFilePath(s.ctx, path, "-n", namespace); err != nil {
 			s.FailNow("failed deleting yaml", path, err)
 		}
