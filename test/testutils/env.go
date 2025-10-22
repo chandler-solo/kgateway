@@ -25,6 +25,14 @@ const (
 	// This is useful for debugging test failures.
 	FailFastAndPersist = "FAIL_FAST_AND_PERSIST"
 
+	// SkipAllTeardown skips the teardown/cleanup that SkipInstallAndTeardown
+	// and PersistInstall do, but then also skips the per-test-suite and
+	// per-test-case teardown/cleanup. This is useful for debugging tests but
+	// not suitable for reproducing flaky tests to the same extent as
+	// FailFastAndPersist since you cannot, in general, run a single test in a
+	// loop if it litters.
+	SkipAllTeardown = "SKIP_ALL_TEARDOWN"
+
 	// InstallNamespace is the namespace in which kgateway is installed
 	InstallNamespace = "INSTALL_NAMESPACE"
 
@@ -74,6 +82,15 @@ func ShouldFailFastAndPersist() bool {
 	return envutils.IsEnvTruthy(FailFastAndPersist)
 }
 
+// SkipAllTeardown returns true if tests, regardless of success or failure,
+// should skip cleanup and teardown to attempt to leave your local Kind cluster
+// in the exact state of the heart of the test case. Typically you would run a
+// single test case when skipping all teardown because a suite is likely to
+// waste your time and confuse you if each test case starts in a chaotic state.
+func ShouldSkipAllTeardown() bool {
+	return envutils.IsEnvTruthy(SkipAllTeardown)
+}
+
 // TestingT is an interface that matches the subset of testing.T methods we need
 type TestingT interface {
 	Failed() bool
@@ -82,17 +99,9 @@ type TestingT interface {
 
 // ShouldSkipCleanup returns true if cleanup should be skipped.
 // Cleanup is skipped if:
-// - ShouldSkipInstallAndTeardown() returns true (SKIP_INSTALL env var)
-// - ShouldPersistInstall() returns true (PERSIST_INSTALL env var)
 // - The test failed AND ShouldFailFastAndPersist() returns true (FAIL_FAST_AND_PERSIST env var)
-//
-// Note: By default, cleanup runs even if the test fails. Set FAIL_FAST_AND_PERSIST=true
-// to skip cleanup on failure for debugging purposes.
 func ShouldSkipCleanup(t TestingT) bool {
-	if ShouldSkipInstallAndTeardown() {
-		return true
-	}
-	if ShouldPersistInstall() {
+	if ShouldSkipAllTeardown() {
 		return true
 	}
 	if t.Failed() && ShouldFailFastAndPersist() {
