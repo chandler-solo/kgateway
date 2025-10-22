@@ -14,15 +14,24 @@ const (
 	// installed, and then skip teardown. Useful for local development - "just handle it" mode.
 	PersistInstall = "PERSIST_INSTALL"
 
-	// FailFastAndPersist causes tests to skip cleanup when they fail.
-	// When set, if a test fails:
-	// - Cleanup is skipped to allow inspection of resources
-	// - Resources are left in place for debugging
+	// FailFastAndPersist skips installation if charts already exist and skips
+	// cleanup when tests fail. This provides the "install once" convenience of
+	// PERSIST_INSTALL combined with "cleanup only on success (unless
+	// SkipAllTeardown skips cleanup)" behavior leaving you with a local Kind
+	// cluster on failure begging for forensic analysis.
+	//
+	// Setup/Install behavior:
+	// - Installs kgateway if not present
+	// - Skips installation if charts are already installed (same as PERSIST_INSTALL)
+	//
+	// Teardown/Cleanup behavior:
+	// - If tests pass: Runs cleanup normally
+	// - If tests fail: Skips cleanup to allow inspection of resources
 	//
 	// To abort further testing after first failure, combine with Go's -failfast flag:
 	//   FAIL_FAST_AND_PERSIST=true go test -failfast ./...
 	//
-	// This is useful for debugging test failures.
+	// This is useful for debugging test failures while maintaining a fast development loop.
 	FailFastAndPersist = "FAIL_FAST_AND_PERSIST"
 
 	// SkipAllTeardown skips the teardown/cleanup that SkipInstallAndTeardown
