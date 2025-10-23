@@ -34,7 +34,7 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 func (s *testingSuite) SetupSuite() {
 	var cancel context.CancelFunc
 	s.ctx, cancel = context.WithTimeout(context.Background(), ctxTimeout)
-	s.T().Cleanup(cancel)
+	testutils.Cleanup(s.T(), cancel)
 
 	// Apply setup manifest
 	err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, setupManifest, "-n", testNamespace)

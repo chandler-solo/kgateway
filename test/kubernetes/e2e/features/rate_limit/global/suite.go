@@ -192,7 +192,7 @@ func (s *testingSuite) TestCombinedLocalAndGlobalRateLimit() {
 }
 
 func (s *testingSuite) setupTest(manifests []string, resources []client.Object) {
-	s.T().Cleanup(func() {
+	testutils.Cleanup(s.T(), func() {
 		for _, manifest := range manifests {
 			err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
 			s.Require().NoError(err)

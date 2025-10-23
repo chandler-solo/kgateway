@@ -112,7 +112,7 @@ func (s *testingSuite) TestExtAuthPolicy() {
 		gatewayAttachedTrafficPolicy,
 		insecureRoute,
 	}
-	s.T().Cleanup(func() {
+	testutils.Cleanup(s.T(), func() {
 		for _, manifest := range manifests {
 			err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
 			s.Require().NoError(err)
@@ -204,7 +204,7 @@ func (s *testingSuite) TestRouteTargetedExtAuthPolicy() {
 		secureRoute, secureTrafficPolicy,
 		insecureRoute, insecureTrafficPolicy,
 	}
-	s.T().Cleanup(func() {
+	testutils.Cleanup(s.T(), func() {
 		for _, manifest := range manifests {
 			err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
 			s.Require().NoError(err)

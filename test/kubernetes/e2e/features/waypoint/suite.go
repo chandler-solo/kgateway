@@ -175,7 +175,7 @@ func (s *testingSuite) setDeploymentEnvVariable(name, value string) {
 		envVarToAdd,
 	)
 
-	s.T().Cleanup(func() {
+	testutils.Cleanup(s.T(), func() {
 		// revert to original version of deployment
 		controllerDeploymentOriginal.ResourceVersion = ""
 		err = s.testInstallation.ClusterContext.Client.Patch(s.ctx, controllerDeploymentOriginal, client.MergeFrom(controllerDeployModified))
