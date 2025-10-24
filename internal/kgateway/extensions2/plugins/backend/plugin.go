@@ -13,6 +13,7 @@ import (
 	"istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/kubetypes"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -74,18 +75,23 @@ func registerTypes(ourCli versioned.Interface) {
 		func(c kubeclient.ClientGetter, namespace string, o metav1.ListOptions) (watch.Interface, error) {
 			return ourCli.GatewayV1alpha1().Backends(namespace).Watch(context.Background(), o)
 		},
+		func(c kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*v1alpha1.Backend] {
+			return ourCli.GatewayV1alpha1().Backends(namespace)
+		},
 	)
 }
 
 func NewPlugin(ctx context.Context, commoncol *collections.CommonCollections) sdk.Plugin {
 	registerTypes(commoncol.OurClient)
 
-	setBackendStatusClient(commoncol.CrudClient)
-
-	col := krt.WrapClient(kclient.NewFiltered[*v1alpha1.Backend](
+	cli := kclient.NewFilteredDelayed[*v1alpha1.Backend](
 		commoncol.Client,
+		wellknown.BackendGVR,
 		kclient.Filter{ObjectFilter: commoncol.Client.ObjectFilter()},
-	), commoncol.KrtOpts.ToOptions("Backends")...)
+	)
+	setBackendStatusClient(cli)
+
+	col := krt.WrapClient(cli, commoncol.KrtOpts.ToOptions("Backends")...)
 
 	gk := wellknown.BackendGVK.GroupKind()
 	translateFn := buildTranslateFunc(ctx, commoncol.Secrets, commoncol.Services, commoncol.Namespaces)

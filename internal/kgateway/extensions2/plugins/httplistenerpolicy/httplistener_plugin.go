@@ -21,6 +21,7 @@ import (
 	skubeclient "istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/kube/kubetypes"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -182,16 +183,21 @@ func registerTypes(ourCli versioned.Interface) {
 		func(c skubeclient.ClientGetter, namespace string, o metav1.ListOptions) (watch.Interface, error) {
 			return ourCli.GatewayV1alpha1().HTTPListenerPolicies(namespace).Watch(context.Background(), o)
 		},
+		func(c skubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[*v1alpha1.HTTPListenerPolicy] {
+			return ourCli.GatewayV1alpha1().HTTPListenerPolicies(namespace)
+		},
 	)
 }
 
 func NewPlugin(ctx context.Context, commoncol *collections.CommonCollections) sdk.Plugin {
 	registerTypes(commoncol.OurClient)
 
-	col := krt.WrapClient(kclient.NewFiltered[*v1alpha1.HTTPListenerPolicy](
+	cli := kclient.NewFilteredDelayed[*v1alpha1.HTTPListenerPolicy](
 		commoncol.Client,
+		wellknown.HTTPListenerPolicyGVR,
 		kclient.Filter{ObjectFilter: commoncol.Client.ObjectFilter()},
-	), commoncol.KrtOpts.ToOptions("HTTPListenerPolicy")...)
+	)
+	col := krt.WrapClient(cli, commoncol.KrtOpts.ToOptions("HTTPListenerPolicy")...)
 	gk := wellknown.HTTPListenerPolicyGVK.GroupKind()
 	policyCol := krt.NewCollection(col, func(krtctx krt.HandlerContext, i *v1alpha1.HTTPListenerPolicy) *ir.PolicyWrapper {
 		objSrc := ir.ObjectSource{
@@ -268,8 +274,8 @@ func NewPlugin(ctx context.Context, commoncol *collections.CommonCollections) sd
 			wellknown.HTTPListenerPolicyGVK.GroupKind(): {
 				NewGatewayTranslationPass: NewGatewayTranslationPass,
 				Policies:                  policyCol,
-				GetPolicyStatus:           getPolicyStatusFn(commoncol.CrudClient),
-				PatchPolicyStatus:         patchPolicyStatusFn(commoncol.CrudClient),
+				GetPolicyStatus:           getPolicyStatusFn(cli),
+				PatchPolicyStatus:         patchPolicyStatusFn(cli),
 				MergePolicies: func(pols []ir.PolicyAtt) ir.PolicyAtt {
 					return policy.MergePolicies(pols, mergePolicies, "" /*no merge settings*/)
 				},
