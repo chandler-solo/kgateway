@@ -160,7 +160,7 @@ func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonColl
 //
 // 1. No lines should end with whitespace. This sometimes means you forgot
 // something important, such as handling edge cases when certain values are
-// absent, e.g. `foo: {{ bar }}` leads to `foo ` if bar is the empty string,
+// absent, e.g. `foo: {{ bar }}` leads to `foo: ` if bar is the empty string,
 // and should probably be handled by omitting `foo:` altogether. If it's not a
 // real problem, it's lint that can be quickly fixed.
 //
@@ -178,7 +178,7 @@ func validateYAML(t *testing.T, filename string, data []byte) {
 		if strings.HasSuffix(line, " ") || strings.HasSuffix(line, "\t") {
 			t.Errorf("helm chart produced yaml indicative of a buggy helm chart not handling edge cases: line %d in %s ends with whitespace: %q", i+1, filename, line)
 		}
-		if line == "" && i + 1 != len(lines) {
+		if line == "" && i+1 != len(lines) {
 			t.Errorf("helm chart produced yaml with blank lines; please remove these to help ensure good hygiene around usage of helm template functions indent/nindent: line %d in %s is blank", i+1, filename)
 		}
 	}
