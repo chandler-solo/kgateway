@@ -24,23 +24,10 @@ If release name contains chart name it will be used as a full name.
 {{- end }}
 
 {{/*
-Strip version metadata (everything after and including '+') from Chart.Version.
-
-This is useful with Flux, which appends the first part of the OCI artifact
-digest after the '+' unless you use a non-default value for the
-DisableChartDigestTracking feature gate. See issue #12728.
-
-Example: v2.1.1+0c2bb8ac869b becomes v2.1.1
-*/}}
-{{- define "kgateway.chartVersionStripped" -}}
-{{- regexReplaceAll "\\+.*$" .Chart.Version "" -}}
-{{- end }}
-
-{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "kgateway.chart" -}}
-{{- printf "%s-%s" .Chart.Name (include "kgateway.chartVersionStripped" $) | replace "+" "_" | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
