@@ -38,12 +38,12 @@ func TestGetInMemoryGatewayParameters_ControllerNamePriority(t *testing.T) {
 			description:          "When controller name matches agentgateway, it should return agentgateway parameters regardless of class name",
 		},
 		{
-			name:                 "envoy controller name - ignores waypoint class name",
+			name:                 "waypoint class name takes priority over envoy controller",
 			controllerName:       envoyController,
-			className:            waypointClass, // should be ignored
+			className:            waypointClass, // waypoint class checked before controller
 			expectedAgwEnabled:   false,
-			expectedServicePorts: 0,
-			description:          "When controller name matches envoy controller, it should return default gateway parameters and ignore the waypoint class name",
+			expectedServicePorts: 1, // waypoint adds a mesh port
+			description:          "When both envoy controller and waypoint class match, waypoint class takes priority",
 		},
 		{
 			name:                 "waypoint class name - no controller match",

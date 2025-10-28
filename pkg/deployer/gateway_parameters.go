@@ -121,15 +121,17 @@ type InMemoryGatewayParametersConfig struct {
 }
 
 // GetInMemoryGatewayParameters returns an in-memory GatewayParameters.
-// Controller name takes priority. This allows users to define their own
-// GatewayClass that acts very much like a built-in class but is not an
-// exact name match.
+// Priority order:
+// 1. Agentgateway controller name (highest priority)
+// 2. Waypoint class name (must check before envoy controller since waypoint uses the same controller)
+// 3. Envoy controller name
+// 4. Default gateway parameters (fallback)
+//
+// This allows users to define their own GatewayClass that acts very much like a
+// built-in class but is not an exact name match.
 func GetInMemoryGatewayParameters(cfg InMemoryGatewayParametersConfig) *v1alpha1.GatewayParameters {
 	if cfg.ControllerName == cfg.AgwControllerName {
 		return defaultAgentgatewayParameters(cfg.ImageInfo, cfg.OmitDefaultSecurityContext)
-	}
-	if cfg.ControllerName == cfg.EnvoyControllerName {
-		return defaultGatewayParameters(cfg.ImageInfo, cfg.OmitDefaultSecurityContext)
 	}
 	if cfg.ClassName == cfg.WaypointClassName {
 		return defaultWaypointGatewayParameters(cfg.ImageInfo, cfg.OmitDefaultSecurityContext)
