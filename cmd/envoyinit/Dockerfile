@@ -1,31 +1,39 @@
 ARG ENVOY_IMAGE
 
-
-
-FROM ghcr.io/rust-cross/cargo-zigbuild:0.19.88@sha256:a00024c136a365171892a186b1ee5552812a8f91f2ba9f5fe609c0d352238cca AS rust_builder
+FROM ghcr.io/rust-cross/cargo-zigbuild:0.19.88@sha256:a00024c136a365171892a186b1ee5552812a8f91f2ba9f5fe609c0d352238cca AS deps
 
 WORKDIR /build
 
 RUN apt update && apt install -y clang
 
-
-
-# Then copy the rest of the source code and build the library.
 # Paramerized to allow for supporting local, make and goreleaser builds
 ARG RUSTFORMATIONS_DIR=./rustformations
+
 COPY ${RUSTFORMATIONS_DIR}/Cargo.toml ${RUSTFORMATIONS_DIR}/Cargo.lock ./
+
 RUN mkdir src && echo "" > src/lib.rs
-RUN cargo fetch
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo fetch
+
+FROM deps AS builder
+
 RUN rm -rf src
 
-# Then copy the rest of the source code and build the library.
+# Copy the actual source code - this changes frequently but deps are cached
 COPY ${RUSTFORMATIONS_DIR} .
-RUN cargo zigbuild --target x86_64-unknown-linux-gnu
+
+# Build with cache mount for incremental compilation.
+# This speeds up rebuilds when only source files change.
+# Hard code amd64 for now as we only have that version of envoy-gloo.
+RUN --mount=type=cache,target=/build/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    cargo zigbuild --target x86_64-unknown-linux-gnu && \
+    cp /build/target/x86_64-unknown-linux-gnu/debug/librust_module.so /build/amd64_librust_module.so
 # switch to this locally if you are on arm
 # RUN cargo zigbuild --target aarch64-unknown-linux-gnu
-
-# hard code amd64 for now as we only have that version of envoy-gloo
-RUN cp /build/target/x86_64-unknown-linux-gnu/debug/librust_module.so /build/amd64_librust_module.so
 
 FROM $ENVOY_IMAGE AS envoy
 # hard code amd64 for now as we only have that version of envoy-gloo
@@ -49,7 +57,7 @@ RUN apt-get update \
 COPY *envoyinit-linux-$GOARCH /usr/local/bin/envoyinit
 
 ENV ENVOY_DYNAMIC_MODULES_SEARCH_PATH=/usr/local/lib
-COPY --from=rust_builder /build/amd64_librust_module.so /usr/local/lib/librust_module.so
+COPY --from=builder /build/amd64_librust_module.so /usr/local/lib/librust_module.so
 
 
 # SDS-specific setup, only used if ENVOY_SIDECAR=true
