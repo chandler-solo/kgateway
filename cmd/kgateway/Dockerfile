@@ -2,7 +2,9 @@ ARG ENVOY_IMAGE
 
 FROM $ENVOY_IMAGE
 
-ARG GOARCH=amd64
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG GOARCH=${TARGETARCH:-amd64}
 # eventually may matter for now https://unix.stackexchange.com/a/701288
 # means its not too useful
 ENV DEBIAN_FRONTEND=noninteractive
@@ -15,7 +17,10 @@ RUN apt-get update \
     && apt-get install wget -y \
     && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
 
-COPY kgateway-linux-$GOARCH /usr/local/bin/kgateway
+# Copy binary from goreleaser context (with $TARGETPLATFORM/) or Makefile context (without)
+# The wildcard matches both "kgateway-linux-arm64" and "linux/arm64/kgateway-linux-arm64"
+# See: https://pkg.go.dev/path/filepath#Match
+COPY *kgateway-linux-$GOARCH /usr/local/bin/kgateway
 
 USER 10101
 

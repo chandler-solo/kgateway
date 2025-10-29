@@ -29,7 +29,9 @@ RUN cp /build/target/x86_64-unknown-linux-gnu/debug/librust_module.so /build/amd
 
 FROM $ENVOY_IMAGE AS envoy
 # hard code amd64 for now as we only have that version of envoy-gloo
-ARG GOARCH=amd64
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG GOARCH=${TARGETARCH:-amd64}
 # eventually may matter for now https://unix.stackexchange.com/a/701288
 # means its not too useful
 ENV DEBIAN_FRONTEND=noninteractive
@@ -41,7 +43,10 @@ RUN apt-get update \
     && apt-get install wget ca-certificates -y \
     && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
 
-COPY envoyinit-linux-$GOARCH /usr/local/bin/envoyinit
+# Copy binary from goreleaser context (with $TARGETPLATFORM/) or Makefile context (without)
+# The wildcard matches both "envoyinit-linux-arm64" and "linux/arm64/envoyinit-linux-arm64"
+# See: https://pkg.go.dev/path/filepath#Match
+COPY *envoyinit-linux-$GOARCH /usr/local/bin/envoyinit
 
 ENV ENVOY_DYNAMIC_MODULES_SEARCH_PATH=/usr/local/lib
 COPY --from=rust_builder /build/amd64_librust_module.so /usr/local/lib/librust_module.so

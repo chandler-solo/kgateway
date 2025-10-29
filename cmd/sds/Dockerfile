@@ -2,11 +2,16 @@ ARG BASE_IMAGE
 
 FROM $BASE_IMAGE
 
-ARG GOARCH=amd64
+ARG TARGETPLATFORM
+ARG TARGETARCH
+ARG GOARCH=${TARGETARCH:-amd64}
 
 RUN apk -U upgrade
 
-COPY sds-linux-$GOARCH /usr/local/bin/sds
+# Copy binary from goreleaser context (with $TARGETPLATFORM/) or Makefile context (without)
+# The wildcard matches both "sds-linux-arm64" and "linux/arm64/sds-linux-arm64"
+# See: https://pkg.go.dev/path/filepath#Match
+COPY *sds-linux-$GOARCH /usr/local/bin/sds
 
 USER 10101
 
