@@ -576,10 +576,32 @@ INSTALL_NAMESPACE ?= kgateway-system
 # The version of the Node Docker image to use for booting the kind cluster: https://hub.docker.com/r/kindest/node/tags
 # This version should stay in sync with `hack/kind/setup-kind.sh`.
 CLUSTER_NODE_VERSION ?= v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
+# Extract the version tag without the digest for use in custom image builds
+CLUSTER_NODE_VERSION_TAG := $(shell echo $(CLUSTER_NODE_VERSION) | cut -d'@' -f1)
+# Custom Kind node image name and tag
+KIND_NODE_CUSTOM_IMAGE ?= kgateway-kind-node
+KIND_NODE_CUSTOM_TAG ?= $(CLUSTER_NODE_VERSION_TAG)
+
+.PHONY: kind-build-node-image
+kind-build-node-image: ## Build custom Kind node image with preloaded containers
+	@echo "Building custom Kind node image: $(KIND_NODE_CUSTOM_IMAGE):$(KIND_NODE_CUSTOM_TAG)"
+	docker build \
+		-q \
+		--build-arg KIND_NODE_VERSION=$(CLUSTER_NODE_VERSION_TAG) \
+		-t $(KIND_NODE_CUSTOM_IMAGE):$(KIND_NODE_CUSTOM_TAG) \
+		-f hack/kind/Dockerfile.kind-node \
+		hack/kind
+	@echo "Custom Kind node image built successfully"
+	@echo "To use this image, set USE_CUSTOM_KIND_IMAGE=true when running 'make kind-create' or 'make run'"
 
 .PHONY: kind-create
-kind-create: ## Create a KinD cluster
+kind-create: ## Create a KinD cluster (set USE_CUSTOM_KIND_IMAGE=true to use custom preloaded image)
+ifeq ($(USE_CUSTOM_KIND_IMAGE), true)
+	@echo "Using custom Kind node image: $(KIND_NODE_CUSTOM_IMAGE):$(KIND_NODE_CUSTOM_TAG)"
+	$(KIND) get clusters | grep $(CLUSTER_NAME) || $(KIND) create cluster --name $(CLUSTER_NAME) --image $(KIND_NODE_CUSTOM_IMAGE):$(KIND_NODE_CUSTOM_TAG) --config=hack/kind/cluster.yaml
+else
 	$(KIND) get clusters | grep $(CLUSTER_NAME) || $(KIND) create cluster --name $(CLUSTER_NAME) --image kindest/node:$(CLUSTER_NODE_VERSION)
+endif
 
 CONFORMANCE_CHANNEL ?= experimental
 CONFORMANCE_VERSION ?= v1.4.0

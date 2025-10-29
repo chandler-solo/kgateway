@@ -1,5 +1,12 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+# Uncomment the nodes section below to use a custom Kind node image with preloaded containers
+# This speeds up local development by avoiding image pulls
+# nodes:
+# - role: control-plane
+#   # This image is built by 'make kind-build-node-image'
+#   # The tag should match CLUSTER_NODE_VERSION
+#   image: kgateway-kind-node:v1.34.0
 kubeadmConfigPatches:
   - |
     apiVersion: kubeadm.k8s.io/v1beta3

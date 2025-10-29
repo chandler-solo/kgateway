@@ -8,6 +8,13 @@ CLUSTER_NAME="${CLUSTER_NAME:-kind}"
 # The version of the Node Docker image to use for booting the cluster: https://hub.docker.com/r/kindest/node/tags
 # This version should stay in sync with `../../Makefile`.
 CLUSTER_NODE_VERSION="${CLUSTER_NODE_VERSION:-v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a}"
+# Set to true to use a custom Kind node image with preloaded containers
+USE_CUSTOM_KIND_IMAGE="${USE_CUSTOM_KIND_IMAGE:-false}"
+# Custom Kind node image name and tag
+KIND_NODE_CUSTOM_IMAGE="${KIND_NODE_CUSTOM_IMAGE:-kgateway-kind-node}"
+# Extract version tag without digest
+CLUSTER_NODE_VERSION_TAG=$(echo "$CLUSTER_NODE_VERSION" | cut -d'@' -f1)
+KIND_NODE_CUSTOM_TAG="${KIND_NODE_CUSTOM_TAG:-$CLUSTER_NODE_VERSION_TAG}"
 # The version used to tag images
 VERSION="${VERSION:-1.0.0-ci1}"
 # Skip building docker images if we are testing a released version
@@ -42,10 +49,21 @@ function create_kind_cluster_or_skip() {
     return
   fi
 
+  # Determine which image to use
+  local KIND_IMAGE
+  if [[ "$USE_CUSTOM_KIND_IMAGE" == "true" ]]; then
+    KIND_IMAGE="$KIND_NODE_CUSTOM_IMAGE:$KIND_NODE_CUSTOM_TAG"
+    echo "Using custom Kind node image: $KIND_IMAGE"
+    echo "This image should have preloaded containers for faster startup"
+  else
+    KIND_IMAGE="kindest/node:$CLUSTER_NODE_VERSION"
+    echo "Using standard Kind node image: $KIND_IMAGE"
+  fi
+
   echo "creating cluster ${CLUSTER_NAME}"
   $KIND create cluster \
     --name "$CLUSTER_NAME" \
-    --image "kindest/node:$CLUSTER_NODE_VERSION" \
+    --image "$KIND_IMAGE" \
     --config="$SCRIPT_DIR/cluster.yaml"
   echo "Finished setting up cluster $CLUSTER_NAME"
 

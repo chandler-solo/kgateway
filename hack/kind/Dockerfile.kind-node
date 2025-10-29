@@ -1,0 +1,99 @@
+# Dockerfile for custom Kind node image with preloaded container images
+# This speeds up local development by pre-caching images that would otherwise
+# need to be pulled on every 'make run'
+#
+# Approach: Use crane (from google/go-containerregistry) to pull images as tarballs,
+# then import them into containerd during the image build.
+
+# Global ARG that can be used in all stages
+# This version should stay in sync with CLUSTER_NODE_VERSION in:
+# - Makefile
+# - hack/kind/setup-kind.sh
+ARG KIND_NODE_VERSION=v1.34.0
+
+# Stage 1: Pull images as Docker-format tarballs using skopeo
+# skopeo can convert to docker-archive format which ctr can import
+FROM quay.io/skopeo/stable:latest AS image-puller
+
+# Create directory for image tarballs
+RUN mkdir -p /images
+
+# Pull and save all preloaded images in docker-archive format (compatible with ctr import)
+RUN skopeo copy docker://quay.io/metallb/controller:v0.13.7 docker-archive:/images/metallb-controller.tar:quay.io/metallb/controller:v0.13.7
+RUN skopeo copy docker://quay.io/metallb/speaker:v0.13.7 docker-archive:/images/metallb-speaker.tar:quay.io/metallb/speaker:v0.13.7
+RUN skopeo copy docker://docker.io/mccutchen/go-httpbin:v2.6.0 docker-archive:/images/go-httpbin-v2.6.0.tar:docker.io/mccutchen/go-httpbin:v2.6.0
+RUN skopeo copy docker://docker.io/mccutchen/go-httpbin:v2.15.0 docker-archive:/images/go-httpbin-v2.15.0.tar:docker.io/mccutchen/go-httpbin:v2.15.0
+RUN skopeo copy docker://docker.io/kennethreitz/httpbin@sha256:599fe5e5073102dbb0ee3dbb65f049dab44fa9fc251f6835c9990f8fb196a72b docker-archive:/images/kennethreitz-httpbin.tar:docker.io/kennethreitz/httpbin:latest
+RUN skopeo copy docker://gcr.io/k8s-staging-gateway-api/echo-basic:v20231214-v1.0.0-140-gf544a46e docker-archive:/images/gateway-api-echo.tar:gcr.io/k8s-staging-gateway-api/echo-basic:v20231214-v1.0.0-140-gf544a46e
+RUN skopeo copy docker://gcr.io/solo-test-236622/http-echo:0.2.4 docker-archive:/images/solo-http-echo.tar:gcr.io/solo-test-236622/http-echo:0.2.4
+RUN skopeo copy docker://hashicorp/http-echo:1.0.0 docker-archive:/images/hashicorp-http-echo.tar:hashicorp/http-echo:1.0.0
+RUN skopeo copy docker://jmalloc/echo-server:v0.3.7 docker-archive:/images/jmalloc-echo.tar:jmalloc/echo-server:v0.3.7
+RUN skopeo copy docker://soloio/tcp-echo@sha256:6ad961aa515283242f8f18bfedb41f93ffe8cc983846da139f247fbab7519f16 docker-archive:/images/tcp-echo.tar:soloio/tcp-echo:latest
+RUN skopeo copy docker://ghcr.io/kgateway-dev/curl:7.83.1 docker-archive:/images/kgateway-curl.tar:ghcr.io/kgateway-dev/curl:7.83.1
+RUN skopeo copy docker://curlimages/curl:7.83.1 docker-archive:/images/curlimages-curl.tar:curlimages/curl:7.83.1
+RUN skopeo copy docker://nginx:1.28.0 docker-archive:/images/nginx.tar:nginx:1.28.0
+RUN skopeo copy docker://amazon/aws-cli:2.31.29 docker-archive:/images/aws-cli.tar:amazon/aws-cli:2.31.29
+RUN skopeo copy docker://golang:1.24 docker-archive:/images/golang.tar:golang:1.24
+RUN skopeo copy docker://ricoli/hey@sha256:306dcd944a4398264f8a6bb43501afb3bb2285be4be248859bac971c57e3c270 docker-archive:/images/hey.tar:ricoli/hey:latest
+RUN skopeo copy docker://docker.io/fullstorydev/grpcurl:v1.8.7-alpine docker-archive:/images/grpcurl.tar:docker.io/fullstorydev/grpcurl:v1.8.7-alpine
+RUN skopeo copy docker://ghcr.io/projectcontour/yages:v0.1.0 docker-archive:/images/yages.tar:ghcr.io/projectcontour/yages:v0.1.0
+RUN skopeo copy docker://gcr.io/istio-testing/ext-authz:1.25-dev docker-archive:/images/ext-authz.tar:gcr.io/istio-testing/ext-authz:1.25-dev
+RUN skopeo copy docker://gcr.io/solo-public/docs/ai-guardrail-webhook@sha256:01f81b20ae016d123f018841c62daff7f6f44d0dec9189ecf591b3e99753c6b1 docker-archive:/images/ai-guardrail-webhook.tar:gcr.io/solo-public/docs/ai-guardrail-webhook:latest
+RUN skopeo copy docker://docker.io/envoyproxy/ratelimit:3e085e5b docker-archive:/images/envoy-ratelimit.tar:docker.io/envoyproxy/ratelimit:3e085e5b
+RUN skopeo copy docker://redis:7.4.3 docker-archive:/images/redis.tar:redis:7.4.3
+RUN skopeo copy docker://otel/opentelemetry-collector-contrib:0.116.1 docker-archive:/images/otel-collector.tar:otel/opentelemetry-collector-contrib:0.116.1
+RUN skopeo copy docker://quay.io/solo-io/access-logger:1.18.13 docker-archive:/images/access-logger.tar:quay.io/solo-io/access-logger:1.18.13
+RUN skopeo copy docker://gcr.io/solo-test-236622/ext-proc-example-basic-sink:0.0.2 docker-archive:/images/ext-proc-sink.tar:gcr.io/solo-test-236622/ext-proc-example-basic-sink:0.0.2
+RUN skopeo copy docker://ghcr.io/llm-d/llm-d-inference-sim:v0.3.0 docker-archive:/images/llm-inference-sim.tar:ghcr.io/llm-d/llm-d-inference-sim:v0.3.0
+RUN skopeo copy docker://us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/epp:v1.1.0 docker-archive:/images/gateway-api-epp.tar:us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/epp:v1.1.0
+RUN skopeo copy docker://ghcr.io/kgateway-dev/mcp-admin-server:0.0.1 docker-archive:/images/mcp-admin.tar:ghcr.io/kgateway-dev/mcp-admin-server:0.0.1
+RUN skopeo copy docker://ghcr.io/kgateway-dev/mcp-website-fetcher:0.0.1 docker-archive:/images/mcp-website-fetcher.tar:ghcr.io/kgateway-dev/mcp-website-fetcher:0.0.1
+RUN skopeo copy docker://ghcr.io/kgateway-dev/test-a2a-server:0.0.11 docker-archive:/images/a2a-server.tar:ghcr.io/kgateway-dev/test-a2a-server:0.0.11
+RUN skopeo copy docker://docker.io/istio/examples-bookinfo-reviews-v3:1.20.1 docker-archive:/images/istio-bookinfo-reviews.tar:docker.io/istio/examples-bookinfo-reviews-v3:1.20.1
+RUN skopeo copy docker://ghcr.io/agentgateway/agentgateway:0.11.0-alpha.2f71d0e845d0105037cbb5524262a5f1c1bd94a9 docker-archive:/images/agentgateway.tar:ghcr.io/agentgateway/agentgateway:0.11.0-alpha.2f71d0e845d0105037cbb5524262a5f1c1bd94a9
+RUN skopeo copy docker://quay.io/solo-io/envoy-gloo:1.36.2-patch1 docker-archive:/images/envoy-gloo.tar:quay.io/solo-io/envoy-gloo:1.36.2-patch1
+RUN skopeo copy docker://docker:26-dind docker-archive:/images/docker-dind.tar:docker:26-dind
+
+# Stage 2: Build the final Kind node image
+# Re-declare ARG to use it in this stage
+ARG KIND_NODE_VERSION
+FROM kindest/node:${KIND_NODE_VERSION}
+
+# Copy image tarballs from puller stage to /kind/images
+# These will be imported when the Kind container starts
+COPY --from=image-puller /images/*.tar /kind/images/
+
+# Create a script that will import images on container startup
+# This runs before Kubernetes starts, ensuring images are available
+RUN mkdir -p /usr/local/bin && \
+    cat > /usr/local/bin/import-preloaded-images.sh <<'EOF'
+#!/bin/bash
+# Import preloaded images into containerd
+# This runs early in the Kind node startup process
+
+if [ -d "/kind/images" ] && [ "$(ls -A /kind/images/*.tar 2>/dev/null)" ]; then
+    echo "Importing preloaded images into containerd..."
+    for img in /kind/images/*.tar; do
+        if [ -f "$img" ]; then
+            echo "Importing $img..."
+            ctr --namespace k8s.io images import "$img" 2>&1 | grep -v "image might be filtered out" || true
+        fi
+    done
+    echo "Preloaded images imported successfully"
+    # Clean up tarballs to save space
+    rm -rf /kind/images
+else
+    echo "No preloaded images found in /kind/images"
+fi
+EOF
+
+# Make the script executable
+RUN chmod +x /usr/local/bin/import-preloaded-images.sh
+
+# Modify the entrypoint to run our import script before starting services
+# The Kind node uses /usr/local/bin/entrypoint as its entrypoint
+RUN if [ -f /usr/local/bin/entrypoint ]; then \
+        mv /usr/local/bin/entrypoint /usr/local/bin/entrypoint.original; \
+    fi && \
+    printf '#!/bin/bash\n# Run image import before starting Kind node services\n/usr/local/bin/import-preloaded-images.sh\n# Now run the original entrypoint\nexec /usr/local/bin/entrypoint.original "$@"\n' > /usr/local/bin/entrypoint && \
+    chmod +x /usr/local/bin/entrypoint
