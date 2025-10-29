@@ -1,0 +1,71 @@
+# Dockerfile for custom Kind node image with preloaded container images
+# This speeds up local development by pre-caching images that would otherwise
+# need to be pulled on every 'make run'
+#
+# Approach: Use crane (from google/go-containerregistry) to pull images as tarballs,
+# then import them into containerd during the image build.
+
+# Global ARG that can be used in all stages
+# This version should stay in sync with CLUSTER_NODE_VERSION in:
+# - Makefile
+# - hack/kind/setup-kind.sh
+ARG KIND_NODE_VERSION=v1.34.0
+
+# Stage 1: Pull images as Docker-format tarballs using skopeo
+# skopeo can convert to docker-archive format which ctr can import
+FROM quay.io/skopeo/stable:latest AS image-puller
+
+# Create directory for image tarballs
+RUN mkdir -p /images
+
+# Pull and save MetalLB images in docker-archive format (compatible with ctr import)
+RUN skopeo copy docker://quay.io/metallb/controller:v0.13.7 docker-archive:/images/metallb-controller.tar:quay.io/metallb/controller:v0.13.7
+RUN skopeo copy docker://quay.io/metallb/speaker:v0.13.7 docker-archive:/images/metallb-speaker.tar:quay.io/metallb/speaker:v0.13.7
+
+# Note: Additional images can be added here in the future
+# Example format:
+# RUN skopeo copy docker://quay.io/example/image:tag docker-archive:/images/example-image.tar:quay.io/example/image:tag
+
+# Stage 2: Build the final Kind node image
+# Re-declare ARG to use it in this stage
+ARG KIND_NODE_VERSION
+FROM kindest/node:${KIND_NODE_VERSION}
+
+# Copy image tarballs from puller stage to /kind/images
+# These will be imported when the Kind container starts
+COPY --from=image-puller /images/*.tar /kind/images/
+
+# Create a script that will import images on container startup
+# This runs before Kubernetes starts, ensuring images are available
+RUN mkdir -p /usr/local/bin && \
+    cat > /usr/local/bin/import-preloaded-images.sh <<'EOF'
+#!/bin/bash
+# Import preloaded images into containerd
+# This runs early in the Kind node startup process
+
+if [ -d "/kind/images" ] && [ "$(ls -A /kind/images/*.tar 2>/dev/null)" ]; then
+    echo "Importing preloaded images into containerd..."
+    for img in /kind/images/*.tar; do
+        if [ -f "$img" ]; then
+            echo "Importing $img..."
+            ctr --namespace k8s.io images import "$img" 2>&1 | grep -v "image might be filtered out" || true
+        fi
+    done
+    echo "Preloaded images imported successfully"
+    # Clean up tarballs to save space
+    rm -rf /kind/images
+else
+    echo "No preloaded images found in /kind/images"
+fi
+EOF
+
+# Make the script executable
+RUN chmod +x /usr/local/bin/import-preloaded-images.sh
+
+# Modify the entrypoint to run our import script before starting services
+# The Kind node uses /usr/local/bin/entrypoint as its entrypoint
+RUN if [ -f /usr/local/bin/entrypoint ]; then \
+        mv /usr/local/bin/entrypoint /usr/local/bin/entrypoint.original; \
+    fi && \
+    printf '#!/bin/bash\n# Run image import before starting Kind node services\n/usr/local/bin/import-preloaded-images.sh\n# Now run the original entrypoint\nexec /usr/local/bin/entrypoint.original "$@"\n' > /usr/local/bin/entrypoint && \
+    chmod +x /usr/local/bin/entrypoint
