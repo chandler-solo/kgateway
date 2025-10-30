@@ -51,6 +51,11 @@ builds:
       - amd64
       - arm64
 dockers:
+  # BuildKit layer caching via registry cache backend enables reusing layers between versions.
+  # When building v2.8.1, layers from v2.8.0 will be reused, significantly speeding up builds.
+  # mode=max exports all layers including intermediate stages (critical for multi-stage Dockerfiles).
+  # Cache is stored in separate :buildcache-* tags, so it does NOT increase pull times for users.
+  # See https://goreleaser.com/customization/docker/#buildx-support
   - image_templates:
       - &controller_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
@@ -62,6 +67,8 @@ dockers:
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:buildcache-arm64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:buildcache-arm64,mode=max"
   - image_templates:
       - &controller_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
     use: buildx
@@ -73,6 +80,8 @@ dockers:
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:buildcache-amd64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:buildcache-amd64,mode=max"
   - image_templates:
       - &sds_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
@@ -84,6 +93,8 @@ dockers:
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:buildcache-arm64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:buildcache-arm64,mode=max"
   - image_templates:
       - &sds_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
     use: buildx
@@ -95,6 +106,8 @@ dockers:
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:buildcache-amd64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:buildcache-amd64,mode=max"
   - image_templates:
       - &envoyinit_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
@@ -108,6 +121,8 @@ dockers:
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit/rustformations"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:buildcache-arm64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:buildcache-arm64,mode=max"
     extra_files:
       - cmd/envoyinit/docker-entrypoint.sh
       - internal/envoyinit/rustformations
@@ -124,6 +139,8 @@ dockers:
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit/rustformations"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:buildcache-amd64"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:buildcache-amd64,mode=max"
     extra_files:
       - cmd/envoyinit/docker-entrypoint.sh
       - internal/envoyinit/rustformations

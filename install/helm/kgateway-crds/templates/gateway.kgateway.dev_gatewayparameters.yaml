@@ -1523,8 +1523,8 @@ spec:
                       image:
                         description: "The envoy container image. See\nhttps://kubernetes.io/docs/concepts/containers/images\nfor
                           details.\n\nDefault values, which may be overridden individually:\n\n\tregistry:
-                          quay.io/solo-io\n\trepository: envoy-wrapper\n\ttag: <kgateway
-                          version>\n\tpullPolicy: IfNotPresent"
+                          cr.kgateway.dev\n\trepository: kgateway-dev/envoy-wrapper\n\ttag:
+                          <kgateway version>\n\tpullPolicy: IfNotPresent"
                         properties:
                           digest:
                             description: The hash digest of the image, e.g. `sha256:12345...`

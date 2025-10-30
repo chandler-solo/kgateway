@@ -278,8 +278,8 @@ type EnvoyContainer struct {
 	//
 	// Default values, which may be overridden individually:
 	//
-	//	registry: quay.io/solo-io
-	//	repository: envoy-wrapper
+	//	registry: cr.kgateway.dev
+	//	repository: kgateway-dev/envoy-wrapper
 	//	tag: <kgateway version>
 	//	pullPolicy: IfNotPresent
 	//
