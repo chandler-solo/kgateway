@@ -43,6 +43,7 @@ SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 
 # Note: When bumping this version, update the version in pkg/validator/validator.go as well.
 export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.2-patch1
+export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/internal/version.Version=$(VERSION)' -s -w
 export GCFLAGS ?=
 
@@ -62,16 +63,6 @@ else
 endif
 
 PLATFORM := --platform=linux/$(GOARCH)
-PLATFORM_MULTIARCH := $(PLATFORM)
-LOAD_OR_PUSH := --load
-ifeq ($(MULTIARCH), true)
-	PLATFORM_MULTIARCH := --platform=linux/amd64,linux/arm64
-	LOAD_OR_PUSH :=
-
-	ifeq ($(MULTIARCH_PUSH), true)
-		LOAD_OR_PUSH := --push
-	endif
-endif
 
 GOOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
@@ -231,11 +222,12 @@ GO_TEST_COVERAGE ?= go tool github.com/vladopajic/go-test-coverage/v2
 GO_TEST_USER_ARGS ?=
 GO_TEST_RETRIES ?= 0
 GOTESTSUM ?= go tool gotestsum
+GOTESTSUM_ARGS ?= --format=testname
 
 .PHONY: go-test
 go-test: ## Run all tests, or only run the test package at {TEST_PKG} if it is specified
 go-test: reset-bug-report
-	$(GO_TEST_ENV) $(GOTESTSUM) --rerun-fails-abort-on-data-race --rerun-fails=$(GO_TEST_RETRIES) --packages="$(TEST_PKG)" -- -ldflags='$(LDFLAGS)' $(if $(TEST_TAG),-tags=$(TEST_TAG)) $(GO_TEST_ARGS) $(GO_TEST_USER_ARGS)
+	$(GO_TEST_ENV) $(GOTESTSUM) $(GOTESTSUM_ARGS) --rerun-fails-abort-on-data-race --rerun-fails=$(GO_TEST_RETRIES) --packages="$(TEST_PKG)" -- -ldflags='$(LDFLAGS)' $(if $(TEST_TAG),-tags=$(TEST_TAG)) $(GO_TEST_ARGS) $(GO_TEST_USER_ARGS)
 
 # https://go.dev/blog/cover#heat-maps
 .PHONY: go-test-with-coverage
@@ -472,9 +464,9 @@ ENVOYINIT_SOURCES=$(call get_sources,$(ENVOYINIT_DIR))
 ENVOYINIT_OUTPUT_DIR=$(OUTPUT_DIR)/$(ENVOYINIT_DIR)
 export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 
-RUSTFORMATIONS_DIR := internal/envoyinit/rustformations
-# find all the find under the rustformation directory but exclude the target directory
-RUSTFORMATIONS_SRC_FILES := $(shell find $(RUSTFORMATIONS_DIR) -type d -name target -prune -o -type f)
+RUSTFORMATIONS_DIR := internal/envoyinit/
+# find all the files under the rustformation directory but exclude the target and pkg directory
+RUSTFORMATIONS_SRC_FILES := $(shell find $(RUSTFORMATIONS_DIR) \( -type d -name target -o -type d -name pkg \) -prune -o -type f -print)
 
 $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH): $(ENVOYINIT_SOURCES)
 	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/envoyinit/...
@@ -482,12 +474,12 @@ $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH): $(ENVOYINIT_SOURCES)
 .PHONY: envoyinit
 envoyinit: $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH)
 
-# TODO(nfuden) cheat the process for now with -r but try to find a cleaner method
 # Allow override of Dockerfile for local development
 ENVOYINIT_DOCKERFILE ?= cmd/envoyinit/Dockerfile
 $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(RUSTFORMATIONS_SRC_FILES)
 	@if [ "$(ENVOYINIT_DOCKERFILE)" = "cmd/envoyinit/Dockerfile" ]; then \
-		cp -r internal/envoyinit/rustformations $(ENVOYINIT_OUTPUT_DIR); \
+		echo "syncing rustformations..."; \
+		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${RUSTFORMATIONS_DIR} $(ENVOYINIT_OUTPUT_DIR)/rustformations; \
 	fi
 	cp $< $@
 
@@ -498,6 +490,8 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 	$(BUILDX_BUILD) --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
+		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
+		--build-arg RUSTFORMATIONS_DIR=./rustformations \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
 	@touch $@
 
@@ -708,21 +702,14 @@ CONFORMANCE_GATEWAY_CLASS ?= kgateway
 CONFORMANCE_REPORT_ARGS ?= -report-output=$(TEST_ASSET_DIR)/conformance/$(VERSION)-report.yaml -organization=kgateway-dev -project=kgateway -version=$(VERSION) -url=github.com/kgateway-dev/kgateway -contact=github.com/kgateway-dev/kgateway/issues/new/choose
 CONFORMANCE_ARGS := -gateway-class=$(CONFORMANCE_GATEWAY_CLASS) $(CONFORMANCE_SUPPORTED_PROFILES) $(CONFORMANCE_REPORT_ARGS)
 
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
 .PHONY: conformance ## Run the conformance test suite
 conformance: $(TEST_ASSET_DIR)/conformance/conformance_test.go ## Run the Gateway API conformance suite
 	go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(CONFORMANCE_ARGS)
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
-# Run only the specified conformance test. The name must correspond to the ShortName of one of the k8s gateway api
-# conformance tests.
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
+# Run only the specified conformance test. The name must correspond to the ShortName of one of the k8s gateway api conformance tests.
 conformance-%: $(TEST_ASSET_DIR)/conformance/conformance_test.go ## Run only the specified Gateway API conformance test by ShortName
 	go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(CONFORMANCE_ARGS) \
 	-run-test=$*
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
 #----------------------------------------------------------------------------------
 # Targets for running Gateway API Inference Extension conformance tests
@@ -744,7 +731,6 @@ GIE_CONFORMANCE_ARGS := \
 
 INFERENCE_CONFORMANCE_DIR := $(shell go list -m -f '{{.Dir}}' sigs.k8s.io/gateway-api-inference-extension)/conformance
 
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
 .PHONY: gie-conformance
 gie-conformance: gie-crds ## Run the Gateway API Inference Extension conformance suite
 	@mkdir -p $(TEST_ASSET_DIR)/conformance
@@ -753,10 +739,7 @@ gie-conformance: gie-crds ## Run the Gateway API Inference Extension conformance
 	    -timeout=25m \
 	    -v $(INFERENCE_CONFORMANCE_DIR) \
 	    -args $(GIE_CONFORMANCE_ARGS)
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
 .PHONY: gie-conformance-%
 gie-conformance-%: gie-crds ## Run only the specified Gateway API Inference Extension conformance test by ShortName
 	@mkdir -p $(TEST_ASSET_DIR)/conformance
@@ -765,8 +748,6 @@ gie-conformance-%: gie-crds ## Run only the specified Gateway API Inference Exte
 	    -timeout=25m \
 	    -v $(INFERENCE_CONFORMANCE_DIR) \
 	    -args $(GIE_CONFORMANCE_ARGS) -run-test=$*
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
 # An alias to run both Gateway API and Inference Extension conformance tests.
 .PHONY: all-conformance
@@ -783,20 +764,14 @@ AGW_CONFORMANCE_GATEWAY_CLASS ?= agentgateway
 AGW_CONFORMANCE_REPORT_ARGS ?= -report-output=$(TEST_ASSET_DIR)/conformance/agw-$(VERSION)-report.yaml -organization=kgateway-dev -project=kgateway -version=$(VERSION) -url=github.com/kgateway-dev/kgateway -contact=github.com/kgateway-dev/kgateway/issues/new/choose
 AGW_CONFORMANCE_ARGS := -gateway-class=$(AGW_CONFORMANCE_GATEWAY_CLASS) $(AGW_CONFORMANCE_SUPPORTED_PROFILES) $(AGW_CONFORMANCE_REPORT_ARGS)
 
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
 .PHONY: agw-conformance ## Run the agent gateway conformance test suite
 agw-conformance: $(TEST_ASSET_DIR)/conformance/conformance_test.go
 	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS)
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
-# TODO [danehans]: Remove `kubectl wait` when gateway-api-inference-extension/issues/1315 is fixed.
 # Run only the specified agent gateway conformance test
 agw-conformance-%: $(TEST_ASSET_DIR)/conformance/conformance_test.go
 	CONFORMANCE_GATEWAY_CLASS=$(AGW_CONFORMANCE_GATEWAY_CLASS) go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(TEST_ASSET_DIR)/conformance/... -args $(AGW_CONFORMANCE_ARGS) \
 	-run-test=$*
-	@echo "Waiting for gateway-conformance-infra namespace to terminate..."
-	kubectl wait ns gateway-conformance-infra --for=delete --timeout=2m || true
 
 #----------------------------------------------------------------------------------
 # Dependency Bumping
