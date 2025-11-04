@@ -215,17 +215,6 @@ func TestWithAutoDns(t *testing.T) {
 	runScenario(t, "testdata/autodns", st)
 }
 
-func TestWithInferenceAPI(t *testing.T) {
-	st, err := envtestutil.BuildSettings()
-	if err != nil {
-		t.Fatalf("can't get settings %v", err)
-	}
-	st.EnableInferExt = true
-	st.InferExtAutoProvision = true
-
-	runScenario(t, "testdata/inference_api", st)
-}
-
 func TestPolicyUpdate(t *testing.T) {
 	st, err := envtestutil.BuildSettings()
 	if err != nil {
@@ -364,6 +353,9 @@ func setupEnvTestAndRun(t *testing.T, globalSettings *apisettings.Settings, run 
 ) {
 	proxy_syncer.UseDetailedUnmarshalling = true
 	writer.set(t)
+	t.Cleanup(func() {
+		writer.set(nil)
+	})
 
 	testEnv := &envtest.Environment{
 		CRDDirectoryPaths: []string{
@@ -380,7 +372,6 @@ func setupEnvTestAndRun(t *testing.T, globalSettings *apisettings.Settings, run 
 	}
 	envtestutil.RunController(
 		t,
-		logger,
 		globalSettings,
 		testEnv,
 		nil,

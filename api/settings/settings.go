@@ -124,9 +124,6 @@ type Settings struct {
 	// If enabled, EnableAgentgateway should also be set to true. Enabling inference extension without agentgateway
 	// is deprecated in v2.1 and will not be supported in v2.2.
 	EnableInferExt bool `split_words:"true"`
-	// InferExtAutoProvision defines whether to enable/disable the Gateway API inference extension deployer.
-	// Deprecated: inference extension auto-provisioning is deprecated in v2.1 and will be removed in v2.2.
-	InferExtAutoProvision bool `split_words:"true"`
 
 	// DefaultImageRegistry is the default image registry to use for the kgateway image.
 	DefaultImageRegistry string `split_words:"true" default:"cr.kgateway.dev"`
@@ -155,7 +152,10 @@ type Settings struct {
 	// E.g., [{"matchExpressions":[{"key":"kubernetes.io/metadata.name","operator":"In","values":["infra"]}]},{"matchLabels":{"app":"a"}}]
 	DiscoveryNamespaceSelectors string `split_words:"true" default:"[]"`
 
-	// EnableAgentgateway enables kgateway to send config to the agentgateway
+	// EnableEnvoy enables kgateway to send config to Envoy
+	EnableEnvoy bool `split_words:"true" default:"true"`
+
+	// EnableAgentgateway enables kgateway to send config to Agentgateway
 	EnableAgentgateway bool `split_words:"true" default:"true"`
 
 	// WeightedRoutePrecedence enables routes with a larger weight to take precedence over routes with a smaller weight.

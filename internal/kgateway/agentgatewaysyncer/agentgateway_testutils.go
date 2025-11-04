@@ -585,7 +585,7 @@ func (tc TestCase) Run(
 	kubeclient.WaitForCacheSync("httproutes", ctx.Done(), agwCollections.HTTPRoutes.HasSynced)
 	kubeclient.WaitForCacheSync("grpcroutes", ctx.Done(), agwCollections.GRPCRoutes.HasSynced)
 	kubeclient.WaitForCacheSync("backends", ctx.Done(), agwCollections.Backends.HasSynced)
-	kubeclient.WaitForCacheSync("trafficpolicies", ctx.Done(), agwCollections.TrafficPolicies.HasSynced)
+	kubeclient.WaitForCacheSync("agentgatewaypolicies", ctx.Done(), agwCollections.AgentgatewayPolicies.HasSynced)
 	kubeclient.WaitForCacheSync("infpool", ctx.Done(), agwCollections.InferencePools.HasSynced)
 	kubeclient.WaitForCacheSync("secrets", ctx.Done(), agwCollections.Secrets.HasSynced)
 
@@ -596,6 +596,7 @@ func (tc TestCase) Run(
 		cli,
 		agwCollections,
 		agwMergedPlugins,
+		nil,
 	)
 	agentGwSyncer.translator.Init()
 	gatewayClasses := agwtranslator.GatewayClassesCollection(agwCollections.GatewayClasses, krtOpts)

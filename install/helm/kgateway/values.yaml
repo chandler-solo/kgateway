@@ -98,14 +98,16 @@ image:
 inferenceExtension:
   # -- Enable Inference Extension. If enabled, agentgateway.enabled should also be set to true. Enabling inference extension without agentgateway is deprecated in v2.1 and will not be supported in v2.2.
   enabled: false
-  # -- Enable automatic provisioning for Inference Extension. Deprecated: this is deprecated in v2.1 and will be removed in v2.2.
-  autoProvision: false
 
 # -- List of namespace selectors (OR'ed): each entry can use 'matchLabels' or 'matchExpressions' (AND'ed within each entry if used together). Kgateway includes the selected namespaces in config discovery. For more information, see the docs https://kgateway.dev/docs/operations/install/#namespace-discovery.
 discoveryNamespaceSelectors: []
 
 # -- Enable the integration with Agent Gateway, which lets you use kgateway to help manage agent connectivity across MCP servers, A2A agents, and REST APIs.
 agentgateway:
+  enabled: true
+
+# -- Enable the integration with Envoy
+envoy:
   enabled: true
 
 # -- Policy merging settings. Currently, TrafficPolicy's extAuth, extProc, and transformation policies support deep merging.
@@ -115,7 +117,7 @@ agentgateway:
 #     extProc: DeepMerge
 policyMerge: {}
 
-# -- Enable the waypoint integration. This enables kgateway to translate istio waypoints and use kgateway as a waypoint in an Istio Ambient service mesh setup..
+# -- Enable the waypoint integration. This enables kgateway to translate istio waypoints and use kgateway as a waypoint in an Istio Ambient service mesh setup.
 waypoint:
   enabled: false
 

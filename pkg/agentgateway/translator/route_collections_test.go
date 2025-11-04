@@ -160,6 +160,190 @@ func TestAgwRouteCollection(t *testing.T) {
 			},
 		},
 		{
+			name: "HTTP route with multiple mirrors and header modifier",
+			httpRoutes: []*gwv1.HTTPRoute{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "request-multiple-mirrors-headers",
+						Namespace: "default",
+					},
+					Spec: gwv1.HTTPRouteSpec{
+						CommonRouteSpec: gwv1.CommonRouteSpec{ParentRefs: []gwv1.ParentReference{{Name: "test-gateway"}}},
+						Hostnames:       []gwv1.Hostname{"example.com"},
+						Rules: []gwv1.HTTPRouteRule{{
+							Matches: []gwv1.HTTPRouteMatch{{
+								Path: &gwv1.HTTPPathMatch{Type: ptr.To(gwv1.PathMatchPathPrefix), Value: ptr.To("/multi-mirror-and-modify-request-headers")},
+							}},
+							Filters: []gwv1.HTTPRouteFilter{
+								{
+									Type: gwv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwv1.HTTPHeaderFilter{
+										Set:    []gwv1.HTTPHeader{{Name: "X-Header-Set", Value: "set-overwrites-values"}},
+										Add:    []gwv1.HTTPHeader{{Name: "X-Header-Add", Value: "header-val-1"}, {Name: "X-Header-Add-Append", Value: "header-val-2"}},
+										Remove: []string{"X-Header-Remove"},
+									},
+								},
+								{
+									Type: gwv1.HTTPRouteFilterRequestMirror,
+									RequestMirror: &gwv1.HTTPRequestMirrorFilter{
+										BackendRef: gwv1.BackendObjectReference{Name: "infra-backend-v2", Namespace: ptr.To(gwv1.Namespace("default")), Port: ptr.To(gwv1.PortNumber(8080))},
+									},
+								},
+								{
+									Type: gwv1.HTTPRouteFilterRequestMirror,
+									RequestMirror: &gwv1.HTTPRequestMirrorFilter{
+										BackendRef: gwv1.BackendObjectReference{Name: "infra-backend-v3", Namespace: ptr.To(gwv1.Namespace("default")), Port: ptr.To(gwv1.PortNumber(8080))},
+									},
+								},
+							},
+							BackendRefs: []gwv1.HTTPBackendRef{{BackendRef: gwv1.BackendRef{BackendObjectReference: gwv1.BackendObjectReference{Name: "infra-backend-v1", Port: ptr.To(gwv1.PortNumber(8080))}}}},
+						}},
+					},
+				},
+			},
+			services: []*corev1.Service{
+				{ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v1", Namespace: "default"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v2", Namespace: "default"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v3", Namespace: "default"}, Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}}},
+			},
+			namespaces: []*corev1.Namespace{{ObjectMeta: metav1.ObjectMeta{Name: "default"}}},
+			gateways: []GatewayListener{{
+				ParentGateway: types.NamespacedName{Name: "test-gateway", Namespace: "default"},
+				ParentObject:  ParentKey{Kind: wellknown.GatewayGVK, Name: "test-gateway", Namespace: "default"},
+				ParentInfo:    ParentInfo{InternalName: "default/test-gateway", Protocol: gwv1.HTTPProtocolType, Port: 80, SectionName: "http", AllowedKinds: []gwv1.RouteGroupKind{{Group: &groupName, Kind: gwv1.Kind(wellknown.HTTPRouteKind)}}},
+				Valid:         true,
+			}},
+			refGrants:     []ReferenceGrant{},
+			expectedCount: 1,
+			expectedRoutes: []*api.Route{{
+				Key:       "default/request-multiple-mirrors-headers.0.0.http",
+				RouteName: "default/request-multiple-mirrors-headers",
+				Hostnames: []string{"example.com"},
+				Matches:   []*api.RouteMatch{{Path: &api.PathMatch{Kind: &api.PathMatch_PathPrefix{PathPrefix: "/multi-mirror-and-modify-request-headers"}}}},
+				TrafficPolicies: []*api.TrafficPolicySpec{
+					{Kind: &api.TrafficPolicySpec_RequestHeaderModifier{RequestHeaderModifier: &api.HeaderModifier{
+						Set:    []*api.Header{{Name: "X-Header-Set", Value: "set-overwrites-values"}},
+						Add:    []*api.Header{{Name: "X-Header-Add", Value: "header-val-1"}, {Name: "X-Header-Add-Append", Value: "header-val-2"}},
+						Remove: []string{"X-Header-Remove"},
+					}}},
+					{Kind: &api.TrafficPolicySpec_RequestMirror{RequestMirror: &api.RequestMirrors{Mirrors: []*api.RequestMirrors_Mirror{
+						{Percentage: 100, Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v2.default.svc.cluster.local"}, Port: 8080}},
+						{Percentage: 100, Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v3.default.svc.cluster.local"}, Port: 8080}},
+					}}}},
+				},
+				Backends: []*api.RouteBackend{{Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v1.default.svc.cluster.local"}, Port: 8080}}},
+			}},
+		},
+		{
+			name: "HTTP route with multiple request mirrors",
+			httpRoutes: []*gwv1.HTTPRoute{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "request-multiple-mirrors",
+						Namespace: "default",
+					},
+					Spec: gwv1.HTTPRouteSpec{
+						CommonRouteSpec: gwv1.CommonRouteSpec{
+							ParentRefs: []gwv1.ParentReference{{
+								Name: "test-gateway",
+							}},
+						},
+						Hostnames: []gwv1.Hostname{"example.com"},
+						Rules: []gwv1.HTTPRouteRule{
+							{
+								Matches: []gwv1.HTTPRouteMatch{{
+									Path: &gwv1.HTTPPathMatch{
+										Type:  ptr.To(gwv1.PathMatchPathPrefix),
+										Value: ptr.To("/multi-mirror"),
+									},
+								}},
+								Filters: []gwv1.HTTPRouteFilter{
+									{
+										Type: gwv1.HTTPRouteFilterRequestMirror,
+										RequestMirror: &gwv1.HTTPRequestMirrorFilter{
+											BackendRef: gwv1.BackendObjectReference{
+												Name:      "infra-backend-v2",
+												Namespace: ptr.To(gwv1.Namespace("default")),
+												Port:      ptr.To(gwv1.PortNumber(8080)),
+											},
+										},
+									},
+									{
+										Type: gwv1.HTTPRouteFilterRequestMirror,
+										RequestMirror: &gwv1.HTTPRequestMirrorFilter{
+											BackendRef: gwv1.BackendObjectReference{
+												Name:      "infra-backend-v3",
+												Namespace: ptr.To(gwv1.Namespace("default")),
+												Port:      ptr.To(gwv1.PortNumber(8080)),
+											},
+										},
+									},
+								},
+								BackendRefs: []gwv1.HTTPBackendRef{{
+									BackendRef: gwv1.BackendRef{
+										BackendObjectReference: gwv1.BackendObjectReference{
+											Name: "infra-backend-v1",
+											Port: ptr.To(gwv1.PortNumber(8080)),
+										},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			services: []*corev1.Service{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v1", Namespace: "default"},
+					Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v2", Namespace: "default"},
+					Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "infra-backend-v3", Namespace: "default"},
+					Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8080}}},
+				},
+			},
+			namespaces: []*corev1.Namespace{{ObjectMeta: metav1.ObjectMeta{Name: "default"}}},
+			gateways: []GatewayListener{
+				{
+					ParentGateway: types.NamespacedName{Name: "test-gateway", Namespace: "default"},
+					ParentObject:  ParentKey{Kind: wellknown.GatewayGVK, Name: "test-gateway", Namespace: "default"},
+					ParentInfo: ParentInfo{
+						InternalName: "default/test-gateway",
+						Protocol:     gwv1.HTTPProtocolType,
+						Port:         80,
+						SectionName:  "http",
+						AllowedKinds: []gwv1.RouteGroupKind{{Group: &groupName, Kind: gwv1.Kind(wellknown.HTTPRouteKind)}},
+					},
+					Valid: true,
+				},
+			},
+			refGrants:     []ReferenceGrant{},
+			expectedCount: 1,
+			expectedRoutes: []*api.Route{
+				{
+					Key:       "default/request-multiple-mirrors.0.0.http",
+					RouteName: "default/request-multiple-mirrors",
+					Hostnames: []string{"example.com"},
+					Matches: []*api.RouteMatch{{
+						Path: &api.PathMatch{Kind: &api.PathMatch_PathPrefix{PathPrefix: "/multi-mirror"}},
+					}},
+					TrafficPolicies: []*api.TrafficPolicySpec{
+						{Kind: &api.TrafficPolicySpec_RequestMirror{RequestMirror: &api.RequestMirrors{Mirrors: []*api.RequestMirrors_Mirror{
+							{Percentage: 100, Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v2.default.svc.cluster.local"}, Port: 8080}},
+							{Percentage: 100, Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v3.default.svc.cluster.local"}, Port: 8080}},
+						}}}},
+					},
+					Backends: []*api.RouteBackend{{
+						Backend: &api.BackendReference{Kind: &api.BackendReference_Service{Service: "default/infra-backend-v1.default.svc.cluster.local"}, Port: 8080},
+					}},
+				},
+			},
+		},
+		{
 			name: "Two HTTP Routes on same gateway",
 			httpRoutes: []*gwv1.HTTPRoute{
 				{
@@ -770,6 +954,162 @@ func TestAgwRouteCollection(t *testing.T) {
 			},
 		},
 		{
+			name: "HTTP route with multiple header matches",
+			httpRoutes: []*gwv1.HTTPRoute{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "header-match-route",
+						Namespace: "default",
+					},
+					Spec: gwv1.HTTPRouteSpec{
+						CommonRouteSpec: gwv1.CommonRouteSpec{
+							ParentRefs: []gwv1.ParentReference{
+								{
+									Name: "test-gateway",
+								},
+							},
+						},
+						Hostnames: []gwv1.Hostname{"example.com"},
+						Rules: []gwv1.HTTPRouteRule{
+							{
+								Matches: []gwv1.HTTPRouteMatch{
+									{
+										Path: &gwv1.HTTPPathMatch{
+											Type:  ptr.To(gwv1.PathMatchPathPrefix),
+											Value: ptr.To("/api"),
+										},
+										Headers: []gwv1.HTTPHeaderMatch{
+											{
+												Type:  ptr.To(gwv1.HeaderMatchExact),
+												Name:  "X-API-Version",
+												Value: "v1",
+											},
+											{
+												Type:  ptr.To(gwv1.HeaderMatchExact),
+												Name:  "X-Header-One",
+												Value: "value-one",
+											},
+											{
+												Type:  ptr.To(gwv1.HeaderMatchExact),
+												Name:  "X-Header-Two",
+												Value: "value-two",
+											},
+										},
+									},
+								},
+								BackendRefs: []gwv1.HTTPBackendRef{
+									{
+										BackendRef: gwv1.BackendRef{
+											BackendObjectReference: gwv1.BackendObjectReference{
+												Name: "test-service",
+												Port: ptr.To(gwv1.PortNumber(80)),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			services: []*corev1.Service{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-service",
+						Namespace: "default",
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{
+								Port: 80,
+							},
+						},
+					},
+				},
+			},
+			namespaces: []*corev1.Namespace{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "default",
+					},
+				},
+			},
+			gateways: []GatewayListener{
+				{
+					ParentGateway: types.NamespacedName{
+						Name:      "test-gateway",
+						Namespace: "default",
+					},
+					ParentObject: ParentKey{
+						Kind:      wellknown.GatewayGVK,
+						Name:      "test-gateway",
+						Namespace: "default",
+					},
+					ParentInfo: ParentInfo{
+						InternalName: "default/test-gateway",
+						Protocol:     gwv1.HTTPProtocolType,
+						Port:         80,
+						SectionName:  "http",
+						AllowedKinds: []gwv1.RouteGroupKind{
+							{
+								Group: &groupName,
+								Kind:  gwv1.Kind(wellknown.HTTPRouteKind),
+							},
+						},
+					},
+					Valid: true,
+				},
+			},
+			refGrants:     []ReferenceGrant{},
+			expectedCount: 1,
+			expectedRoutes: []*api.Route{
+				{
+					Key:       "default/header-match-route.0.0.http",
+					RouteName: "default/header-match-route",
+					Hostnames: []string{"example.com"},
+					Matches: []*api.RouteMatch{
+						{
+							Path: &api.PathMatch{
+								Kind: &api.PathMatch_PathPrefix{
+									PathPrefix: "/api",
+								},
+							},
+							Headers: []*api.HeaderMatch{
+								{
+									Name: "X-API-Version",
+									Value: &api.HeaderMatch_Exact{
+										Exact: "v1",
+									},
+								},
+								{
+									Name: "X-Header-One",
+									Value: &api.HeaderMatch_Exact{
+										Exact: "value-one",
+									},
+								},
+								{
+									Name: "X-Header-Two",
+									Value: &api.HeaderMatch_Exact{
+										Exact: "value-two",
+									},
+								},
+							},
+						},
+					},
+					Backends: []*api.RouteBackend{
+						{
+							Backend: &api.BackendReference{
+								Kind: &api.BackendReference_Service{
+									Service: "default/test-service.default.svc.cluster.local",
+								},
+								Port: 80,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:           "No HTTP Routes",
 			httpRoutes:     []*gwv1.HTTPRoute{},
 			services:       []*corev1.Service{},
@@ -795,7 +1135,7 @@ func TestAgwRouteCollection(t *testing.T) {
 				inputs = append(inputs, ns)
 			}
 			for _, gw := range tc.gateways {
-				inputs = append(inputs, gw)
+				inputs = append(inputs, &gw)
 			}
 			for _, gw := range tc.refGrants {
 				inputs = append(inputs, gw)
@@ -803,7 +1143,7 @@ func TestAgwRouteCollection(t *testing.T) {
 
 			// Create mock collections
 			mock := krttest.NewMock(t, inputs)
-			gateways := krttest.GetMockCollection[GatewayListener](mock)
+			gateways := krttest.GetMockCollection[*GatewayListener](mock)
 			gatewayObjs := krttest.GetMockCollection[*gwv1.Gateway](mock)
 			httpRoutes := krttest.GetMockCollection[*gwv1.HTTPRoute](mock)
 			grpcRoutes := krttest.GetMockCollection[*gwv1.GRPCRoute](mock)
@@ -1392,7 +1732,7 @@ func TestAgwRouteCollectionGRPC(t *testing.T) {
 				inputs = append(inputs, ns)
 			}
 			for _, gw := range tc.gateways {
-				inputs = append(inputs, gw)
+				inputs = append(inputs, &gw)
 			}
 			for _, gw := range tc.refGrants {
 				inputs = append(inputs, gw)
@@ -1400,7 +1740,7 @@ func TestAgwRouteCollectionGRPC(t *testing.T) {
 
 			// Create mock collections
 			mock := krttest.NewMock(t, inputs)
-			gateways := krttest.GetMockCollection[GatewayListener](mock)
+			gateways := krttest.GetMockCollection[*GatewayListener](mock)
 			gatewayObjs := krttest.GetMockCollection[*gwv1.Gateway](mock)
 			httpRoutes := krttest.GetMockCollection[*gwv1.HTTPRoute](mock)
 			grpcRoutes := krttest.GetMockCollection[*gwv1.GRPCRoute](mock)
@@ -1527,7 +1867,7 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 	testCases := []struct {
 		name           string
 		httpRoute      *gwv1.HTTPRoute
-		expectedFilter *api.RouteFilter
+		expectedPolicy *api.TrafficPolicySpec
 	}{
 		{
 			name: "Route with request header modifier",
@@ -1573,8 +1913,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 					},
 				},
 			},
-			expectedFilter: &api.RouteFilter{
-				Kind: &api.RouteFilter_RequestHeaderModifier{
+			expectedPolicy: &api.TrafficPolicySpec{
+				Kind: &api.TrafficPolicySpec_RequestHeaderModifier{
 					RequestHeaderModifier: &api.HeaderModifier{
 						Set: []*api.Header{
 							{
@@ -1626,8 +1966,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 					},
 				},
 			},
-			expectedFilter: &api.RouteFilter{
-				Kind: &api.RouteFilter_RequestRedirect{
+			expectedPolicy: &api.TrafficPolicySpec{
+				Kind: &api.TrafficPolicySpec_RequestRedirect{
 					RequestRedirect: &api.RequestRedirect{
 						Scheme: "https",
 						Status: 301,
@@ -1691,8 +2031,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 					},
 				},
 			},
-			expectedFilter: &api.RouteFilter{
-				Kind: &api.RouteFilter_Cors{
+			expectedPolicy: &api.TrafficPolicySpec{
+				Kind: &api.TrafficPolicySpec_Cors{
 					Cors: &api.CORS{
 						AllowCredentials: true,
 						AllowHeaders:     []string{"Content-Type", "Authorization"},
@@ -1756,8 +2096,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 					},
 				},
 			},
-			expectedFilter: &api.RouteFilter{
-				Kind: &api.RouteFilter_DirectResponse{
+			expectedPolicy: &api.TrafficPolicySpec{
+				Kind: &api.TrafficPolicySpec_DirectResponse{
 					DirectResponse: &api.DirectResponse{
 						Status: 200,
 						Body:   []byte("User-agent: *\nDisallow: /admin\nAllow: /"),
@@ -1818,7 +2158,7 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 			refGrant := ReferenceGrant{}
 
 			var inputs []any
-			inputs = []any{tc.httpRoute, service, namespace, gateway, refGrant}
+			inputs = []any{tc.httpRoute, service, namespace, &gateway, refGrant}
 
 			// Add DirectResponse resources for the DirectResponse filter tests
 			if tc.name == "Route with DirectResponse ExtensionRef filter" {
@@ -1837,7 +2177,7 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 
 			// Create mock collections
 			mock := krttest.NewMock(t, inputs)
-			gateways := krttest.GetMockCollection[GatewayListener](mock)
+			gateways := krttest.GetMockCollection[*GatewayListener](mock)
 			gatewayObjs := krttest.GetMockCollection[*gwv1.Gateway](mock)
 			httpRoutes := krttest.GetMockCollection[*gwv1.HTTPRoute](mock)
 			grpcRoutes := krttest.GetMockCollection[*gwv1.GRPCRoute](mock)
@@ -1893,13 +2233,13 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 			require.NotNil(t, routeResource, "Route resource should not be nil")
 
 			// Verify filters
-			require.Len(t, routeResource.GetFilters(), 1, "Expected exactly one filter")
-			actualFilter := routeResource.GetFilters()[0]
+			require.Len(t, routeResource.GetTrafficPolicies(), 1, "Expected exactly one filter")
+			actualFilter := routeResource.GetTrafficPolicies()[0]
 
 			// Verify filter type and content
-			switch expectedKind := tc.expectedFilter.GetKind().(type) {
-			case *api.RouteFilter_RequestHeaderModifier:
-				actualKind, ok := actualFilter.GetKind().(*api.RouteFilter_RequestHeaderModifier)
+			switch expectedKind := tc.expectedPolicy.GetKind().(type) {
+			case *api.TrafficPolicySpec_RequestHeaderModifier:
+				actualKind, ok := actualFilter.GetKind().(*api.TrafficPolicySpec_RequestHeaderModifier)
 				require.True(t, ok, "Expected RequestHeaderModifier filter")
 
 				expectedMod := expectedKind.RequestHeaderModifier
@@ -1912,8 +2252,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 					assert.Equal(t, expectedHeader.GetValue(), actualHeader.GetValue(), "Header value mismatch")
 				}
 
-			case *api.RouteFilter_RequestRedirect:
-				actualKind, ok := actualFilter.GetKind().(*api.RouteFilter_RequestRedirect)
+			case *api.TrafficPolicySpec_RequestRedirect:
+				actualKind, ok := actualFilter.GetKind().(*api.TrafficPolicySpec_RequestRedirect)
 				require.True(t, ok, "Expected RequestRedirect filter")
 
 				expectedRedirect := expectedKind.RequestRedirect
@@ -1921,8 +2261,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 
 				assert.Equal(t, expectedRedirect.GetScheme(), actualRedirect.GetScheme(), "Redirect scheme mismatch")
 				assert.Equal(t, expectedRedirect.GetStatus(), actualRedirect.GetStatus(), "Redirect status mismatch")
-			case *api.RouteFilter_Cors:
-				actualKind, ok := actualFilter.GetKind().(*api.RouteFilter_Cors)
+			case *api.TrafficPolicySpec_Cors:
+				actualKind, ok := actualFilter.GetKind().(*api.TrafficPolicySpec_Cors)
 				require.True(t, ok, "Expected CORS filter")
 
 				expectedCors := expectedKind.Cors
@@ -1934,8 +2274,8 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 				assert.Equal(t, expectedCors.GetAllowOrigins(), actualCors.GetAllowOrigins(), "CORS AllowOrigins mismatch")
 				assert.Equal(t, expectedCors.GetExposeHeaders(), actualCors.GetExposeHeaders(), "CORS ExposeHeaders mismatch")
 				assert.Equal(t, expectedCors.GetMaxAge().GetSeconds(), actualCors.GetMaxAge().GetSeconds(), "CORS MaxAge mismatch")
-			case *api.RouteFilter_DirectResponse:
-				actualKind, ok := actualFilter.GetKind().(*api.RouteFilter_DirectResponse)
+			case *api.TrafficPolicySpec_DirectResponse:
+				actualKind, ok := actualFilter.GetKind().(*api.TrafficPolicySpec_DirectResponse)
 				require.True(t, ok, "Expected DirectResponse filter")
 
 				expectedDirect := expectedKind.DirectResponse
@@ -1953,4 +2293,180 @@ func TestAgwRouteCollectionWithFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAgwRouteCollectionTimeouts(t *testing.T) {
+	type tc struct {
+		name              string
+		request           gwv1.Duration
+		backendRequest    *gwv1.Duration
+		expectReqSeconds  *duration.Duration
+		expectBackendSecs *duration.Duration
+	}
+	five := duration.Duration{Seconds: int64(5)}
+	ten := duration.Duration{Seconds: int64(10)}
+	tests := []tc{
+		{
+			name:              "non-zero request and backend",
+			request:           gwv1.Duration("10s"),
+			backendRequest:    ptr.To(gwv1.Duration("5s")),
+			expectReqSeconds:  &ten,
+			expectBackendSecs: &five,
+		},
+		{
+			name:              "zero request timeout disables request timeout; backend non-zero kept",
+			request:           gwv1.Duration("0s"),
+			backendRequest:    ptr.To(gwv1.Duration("5s")),
+			expectReqSeconds:  nil,
+			expectBackendSecs: &five,
+		},
+		{
+			name:              "zero backend timeout disables backend timeout; request non-zero kept",
+			request:           gwv1.Duration("10s"),
+			backendRequest:    ptr.To(gwv1.Duration("0s")),
+			expectReqSeconds:  &ten,
+			expectBackendSecs: nil,
+		},
+		// Note: No test case to ensure BackendRequest is less than Request timeout
+		// since it's covered by API validation and not the responsibility of this function.
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Input objects
+			route := &gwv1.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{Name: "timeouts", Namespace: "default"},
+				Spec: gwv1.HTTPRouteSpec{
+					CommonRouteSpec: gwv1.CommonRouteSpec{
+						ParentRefs: []gwv1.ParentReference{{Name: "test-gateway"}},
+					},
+					Hostnames: []gwv1.Hostname{"example.com"},
+					Rules: []gwv1.HTTPRouteRule{
+						{
+							Timeouts: &gwv1.HTTPRouteTimeouts{
+								Request:        ptr.To(tt.request),
+								BackendRequest: tt.backendRequest,
+							},
+							Matches: []gwv1.HTTPRouteMatch{
+								{Path: &gwv1.HTTPPathMatch{Type: ptr.To(gwv1.PathMatchPathPrefix), Value: ptr.To("/api")}},
+							},
+							BackendRefs: []gwv1.HTTPBackendRef{
+								{BackendRef: gwv1.BackendRef{
+									BackendObjectReference: gwv1.BackendObjectReference{Name: "svc", Port: ptr.To(gwv1.PortNumber(80))},
+								}},
+							},
+						},
+					},
+				},
+			}
+
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "default"},
+				Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}}},
+			}
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}}
+			gl := GatewayListener{
+				ParentGateway: types.NamespacedName{Namespace: "default", Name: "test-gateway"},
+				ParentObject:  ParentKey{Kind: wellknown.GatewayGVK, Name: "test-gateway", Namespace: "default"},
+				ParentInfo: ParentInfo{
+					InternalName: "default/test-gateway",
+					Protocol:     gwv1.HTTPProtocolType,
+					Port:         80,
+					SectionName:  "http",
+					AllowedKinds: []gwv1.RouteGroupKind{{Group: &groupName, Kind: gwv1.Kind(wellknown.HTTPRouteKind)}},
+				},
+				Valid: true,
+			}
+			refGrant := ReferenceGrant{}
+
+			inputs := []any{route, svc, ns, &gl, refGrant}
+
+			// KRT collections
+			mock := krttest.NewMock(t, inputs)
+			gateways := krttest.GetMockCollection[*GatewayListener](mock)
+			gwObjs := krttest.GetMockCollection[*gwv1.Gateway](mock)
+			httpRoutes := krttest.GetMockCollection[*gwv1.HTTPRoute](mock)
+			grpcRoutes := krttest.GetMockCollection[*gwv1.GRPCRoute](mock)
+			tcpRoutes := krttest.GetMockCollection[*gwv1alpha2.TCPRoute](mock)
+			tlsRoutes := krttest.GetMockCollection[*gwv1alpha2.TLSRoute](mock)
+			refGrantsCol := krttest.GetMockCollection[ReferenceGrant](mock)
+			services := krttest.GetMockCollection[*corev1.Service](mock)
+			namespaces := krttest.GetMockCollection[*corev1.Namespace](mock)
+			serviceEntries := krttest.GetMockCollection[*networkingclient.ServiceEntry](mock)
+			inferencePools := krttest.GetMockCollection[*inf.InferencePool](mock)
+
+			gwObjs.WaitUntilSynced(context.Background().Done())
+			httpRoutes.WaitUntilSynced(context.Background().Done())
+			grpcRoutes.WaitUntilSynced(context.Background().Done())
+			tcpRoutes.WaitUntilSynced(context.Background().Done())
+			tlsRoutes.WaitUntilSynced(context.Background().Done())
+			refGrantsCol.WaitUntilSynced(context.Background().Done())
+			services.WaitUntilSynced(context.Background().Done())
+			namespaces.WaitUntilSynced(context.Background().Done())
+
+			routeParents := BuildRouteParents(gateways)
+			refGrants := BuildReferenceGrants(refGrantsCol)
+			routeInputs := RouteContextInputs{
+				Grants:         refGrants,
+				RouteParents:   routeParents,
+				Services:       services,
+				Namespaces:     namespaces,
+				ServiceEntries: serviceEntries,
+				InferencePools: inferencePools,
+			}
+
+			// Call function under test
+			agwRoutes, _ := AgwRouteCollection(&status.StatusCollections{}, httpRoutes, grpcRoutes, tcpRoutes, tlsRoutes, routeInputs, krtutil.KrtOptions{})
+			agwRoutes.WaitUntilSynced(context.Background().Done())
+
+			// Assert results
+			results := agwRoutes.List()
+			require.Len(t, results, 1, "expected exactly one route result")
+			require.NotNil(t, results[0].Resource)
+			rr := results[0].Resource.GetRoute()
+			require.NotNil(t, rr, "route must be present")
+
+			// Assert timeout mappings and “0s disables timeouts” semantics
+			beTimeout := getBackendRequestTimeout(rr)
+			reqTimeout := getRequestTimeout(rr)
+
+			// Request timeout
+			if tt.expectReqSeconds == nil {
+				require.True(t, isDisabled(reqTimeout), "request timeout should be disabled when set to 0s or omitted")
+			} else {
+				require.NotNil(t, reqTimeout, "request timeout missing")
+				assert.Equal(t, tt.expectReqSeconds, reqTimeout, "request timeout seconds")
+			}
+
+			// BackendRequest timeout
+			if tt.expectBackendSecs == nil {
+				require.True(t, isDisabled(beTimeout), "backendRequest timeout should be disabled when set to 0s or omitted")
+			} else {
+				require.NotNil(t, beTimeout, "backendRequest timeout missing")
+				assert.Equal(t, tt.expectBackendSecs, beTimeout, "backendRequest timeout seconds")
+			}
+		})
+	}
+}
+
+func isDisabled(d *duration.Duration) bool {
+	return d == nil || (d.GetSeconds() == 0 && d.GetNanos() == 0)
+}
+
+func getRequestTimeout(r *api.Route) *duration.Duration {
+	for _, t := range r.TrafficPolicies {
+		if t.GetTimeout() != nil {
+			return t.GetTimeout().GetRequest()
+		}
+	}
+	return nil
+}
+
+func getBackendRequestTimeout(r *api.Route) *duration.Duration {
+	for _, t := range r.TrafficPolicies {
+		if t.GetTimeout() != nil {
+			return t.GetTimeout().GetBackendRequest()
+		}
+	}
+	return nil
 }

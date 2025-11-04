@@ -7,10 +7,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 	"github.com/kelseyhightower/envconfig"
-
-	"github.com/solo-io/go-utils/stats"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/sds/pkg/run"
 	"github.com/kgateway-dev/kgateway/v2/internal/sds/pkg/server"
@@ -38,8 +36,6 @@ type Config struct {
 }
 
 func RunMain() {
-	// Initialize stats server to dynamically change log level. This will also use LOG_LEVEL if set.
-	stats.ConditionallyStartStatsServer()
 	logger.Info("initializing config")
 
 	c := setup()
