@@ -111,7 +111,7 @@ fmt: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint
 
 .PHONY: fmt-changed
 fmt-changed: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format only the changed code with golangci-lint
-	git diff --name-only | grep '.*.go$$' | xargs -r $(CUSTOM_GOLANGCI_LINT_FMT)
+	git status -s -uno | awk '{print $2}' | grep '.*.go$$' | xargs -r $(CUSTOM_GOLANGCI_LINT_FMT)
 
 # must be a separate target so that make waits for it to complete before moving on
 .PHONY: mod-download
@@ -346,6 +346,7 @@ $(STAMP_DIR)/go-generate-apis: $(API_SOURCE_FILES) | $(STAMP_DIR)
 $(STAMP_DIR)/go-generate-mocks: $(MOCK_SOURCE_FILES) | $(STAMP_DIR)
 	@echo "Running mock generation..."
 	GO111MODULE=on go generate -run="mockgen" ./...
+	$(MAKE) fmt-changed
 	@touch $@
 
 # Combine both generation steps
