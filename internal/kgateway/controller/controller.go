@@ -175,7 +175,6 @@ func (c *controllerBuilder) watchGw(ctx context.Context) error {
 		GatewayClassName:           c.cfg.GatewayClassName,
 		WaypointGatewayClassName:   c.cfg.WaypointGatewayClassName,
 		AgentgatewayClassName:      c.cfg.AgentgatewayClassName,
-		EnvoyControllerName:        c.cfg.ControllerName,
 		AgentgatewayControllerName: c.cfg.AgwControllerName,
 	}
 

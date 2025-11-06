@@ -157,7 +157,6 @@ func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonColl
 		GatewayClassName:           dt.ClassName,
 		WaypointGatewayClassName:   dt.WaypointClassName,
 		AgentgatewayClassName:      dt.AgwClassName,
-		EnvoyControllerName:        dt.ControllerName,
 		AgentgatewayControllerName: dt.AgwControllerName,
 	}
 }

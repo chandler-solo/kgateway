@@ -208,7 +208,6 @@ func (k *kGatewayParameters) getGatewayParametersForGateway(ctx context.Context,
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			EnvoyControllerName:        k.inputs.EnvoyControllerName,
 			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})
@@ -235,7 +234,6 @@ func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Con
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
 		WaypointClassName:          k.inputs.WaypointGatewayClassName,
-		EnvoyControllerName:        k.inputs.EnvoyControllerName,
 		AgwControllerName:          k.inputs.AgentgatewayControllerName,
 		OmitDefaultSecurityContext: false,
 	})
@@ -282,7 +280,6 @@ func (k *kGatewayParameters) getGatewayParametersForGatewayClass(ctx context.Con
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			EnvoyControllerName:        k.inputs.EnvoyControllerName,
 			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})

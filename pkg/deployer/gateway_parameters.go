@@ -21,7 +21,6 @@ type Inputs struct {
 	GatewayClassName           string
 	WaypointGatewayClassName   string
 	AgentgatewayClassName      string
-	EnvoyControllerName        string
 	AgentgatewayControllerName string
 }
 
@@ -79,7 +78,6 @@ type InMemoryGatewayParametersConfig struct {
 	ClassName                  string
 	ImageInfo                  *ImageInfo
 	WaypointClassName          string
-	EnvoyControllerName        string
 	AgwControllerName          string
 	OmitDefaultSecurityContext bool
 }

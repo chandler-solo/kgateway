@@ -306,7 +306,6 @@ func newGatewayHelper(testInst *e2e.TestInstallation) *defaultGatewayHelper {
 			GatewayClassName:           wellknown.DefaultGatewayClassName,
 			WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 			AgentgatewayClassName:      wellknown.DefaultAgwClassName,
-			EnvoyControllerName:        wellknown.DefaultGatewayControllerName,
 			AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 		},
 	)
