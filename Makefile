@@ -86,7 +86,8 @@ DEPSGOBIN ?= $(OUTPUT_DIR)
 GOLANGCI_LINT ?= go tool golangci-lint
 ANALYZE_ARGS ?= --fix --verbose
 CUSTOM_GOLANGCI_LINT_BIN ?= $(DEPSGOBIN)/golangci-lint-custom
-CUSTOM_GOLANGCI_LINT ?= $(CUSTOM_GOLANGCI_LINT_BIN) --build-tags e2e
+CUSTOM_GOLANGCI_LINT_RUN ?= $(CUSTOM_GOLANGCI_LINT_BIN) run --build-tags e2e
+CUSTOM_GOLANGCI_LINT_FMT ?= $(CUSTOM_GOLANGCI_LINT_BIN) fmt
 
 #----------------------------------------------------------------------------------
 # Macros
@@ -105,12 +106,12 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 
 .PHONY: fmt
-fmt: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint gci
-	$(CUSTOM_GOLANGCI_LINT) run --fix ./...
+fmt: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint
+	$(CUSTOM_GOLANGCI_LINT_FMT) ./...
 
 .PHONY: fmt-changed
-fmt-changed: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint gci
-	$(CUSTOM_GOLANGCI_LINT) run --fix $$(git diff --name-only | grep '.*.go$$')
+fmt-changed: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format only the changed code with golangci-lint
+	git diff --name-only | grep '.*.go$$' | xargs -r $(CUSTOM_GOLANGCI_LINT_FMT)
 
 # must be a separate target so that make waits for it to complete before moving on
 .PHONY: mod-download
@@ -132,7 +133,7 @@ mod-tidy: mod-download mod-tidy-nested ## Tidy the go mod file
 
 .PHONY: analyze
 analyze: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Run golangci-lint. Override options with ANALYZE_ARGS.
-	$(CUSTOM_GOLANGCI_LINT) run $(ANALYZE_ARGS) ./...
+	$(CUSTOM_GOLANGCI_LINT_RUN) $(ANALYZE_ARGS) ./...
 
 $(CUSTOM_GOLANGCI_LINT_BIN):
 	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) custom
@@ -369,7 +370,7 @@ $(STAMP_DIR)/generate-licenses: $(MOD_FILES) | $(STAMP_DIR)
 # Formatting - only runs if generation steps changed
 $(STAMP_DIR)/fmt: $(STAMP_DIR)/go-generate-all $(CUSTOM_GOLANGCI_LINT_BIN)
 	@echo "Formatting code..."
-	$(CUSTOM_GOLANGCI_LINT) run --fix ./...
+	$(CUSTOM_GOLANGCI_LINT_FMT) ./...
 	@touch $@
 
 # Fast generation using stamp files (for local development)
