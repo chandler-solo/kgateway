@@ -68,6 +68,3 @@ go tool client-gen \
 
 go generate ${ROOT_DIR}/internal/...
 go generate ${ROOT_DIR}/pkg/...
-
-# remove import lint
-${MAKE:-make} -C "$ROOT_DIR" fmt

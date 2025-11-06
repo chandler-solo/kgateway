@@ -339,6 +339,7 @@ clean-stamps:
 $(STAMP_DIR)/go-generate-apis: $(API_SOURCE_FILES) | $(STAMP_DIR)
 	@echo "Running API code generation..."
 	GO111MODULE=on go generate ./hack/...
+	$(MAKE) fmt-changed
 	@touch $@
 
 # Mock generation with dependency tracking
