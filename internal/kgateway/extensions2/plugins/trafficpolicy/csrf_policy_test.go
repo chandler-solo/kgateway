@@ -3,11 +3,12 @@ package trafficpolicy
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	csrfv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/csrf/v3"
 	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestCsrfIREquals(t *testing.T) {

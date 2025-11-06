@@ -91,19 +91,17 @@ get_sources = $(shell find $(1) -name "*.go" | grep -v test | grep -v generated.
 # Repo setup
 #----------------------------------------------------------------------------------
 
-GOIMPORTS ?= go tool goimports
-
 .PHONY: init-git-hooks
 init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 
 .PHONY: fmt
-fmt:  ## Format the code with goimports
-	$(GOIMPORTS) -local "github.com/kgateway-dev/kgateway/v2/"  -w $(shell ls -d */ | grep -v vendor)
+fmt:  ## Format the code with golangci-lint gci
+	$(CUSTOM_GOLANGCI_LINT_BIN) run --fix ./...
 
 .PHONY: fmt-changed
-fmt-changed:  ## Format the code with goimports
-	git diff --name-only | grep '.*.go$$' | xargs -- $(GOIMPORTS) -w
+fmt-changed:  ## Format the code with golangci-lint gci
+	$(CUSTOM_GOLANGCI_LINT_BIN) run --fix $$(git diff --name-only | grep '.*.go$$')
 
 # must be a separate target so that make waits for it to complete before moving on
 .PHONY: mod-download
@@ -369,9 +367,9 @@ $(STAMP_DIR)/generate-licenses: $(MOD_FILES) | $(STAMP_DIR)
 	@touch $@
 
 # Formatting - only runs if generation steps changed
-$(STAMP_DIR)/fmt: $(STAMP_DIR)/go-generate-all
+$(STAMP_DIR)/fmt: $(STAMP_DIR)/go-generate-all $(CUSTOM_GOLANGCI_LINT_BIN)
 	@echo "Formatting code..."
-	$(GOIMPORTS) -local "github.com/kgateway-dev/kgateway/v2/"  -w $(shell ls -d */ | grep -v vendor)
+	$(CUSTOM_GOLANGCI_LINT_BIN) run --fix ./...
 	@touch $@
 
 # Fast generation using stamp files (for local development)

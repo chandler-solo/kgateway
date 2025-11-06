@@ -3,13 +3,14 @@ package waypoint
 import (
 	"context"
 
+	"istio.io/istio/pkg/kube/krt"
+	"istio.io/istio/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	istioannot "istio.io/api/annotation"
-	"istio.io/istio/pkg/kube/krt"
-	"istio.io/istio/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugins/waypoint/waypointquery"

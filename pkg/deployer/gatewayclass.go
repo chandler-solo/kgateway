@@ -5,8 +5,9 @@ import (
 	"slices"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	apiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/gateway-api/pkg/features"
+
+	apiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // GatewayClassInfo describes the desired configuration for a GatewayClass.

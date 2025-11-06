@@ -5,6 +5,7 @@ import (
 
 	"github.com/agentgateway/agentgateway/go/api"
 	"google.golang.org/protobuf/proto"
+
 	corev1 "k8s.io/api/core/v1"
 )
 

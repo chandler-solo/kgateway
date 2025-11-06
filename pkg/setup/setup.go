@@ -3,12 +3,13 @@ package setup
 import (
 	"context"
 
-	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"istio.io/istio/pkg/kube/kubetypes"
 	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/setup"
 	agwplugins "github.com/kgateway-dev/kgateway/v2/pkg/agentgateway/plugins"

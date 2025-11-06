@@ -3,10 +3,11 @@ package trafficpolicy
 import (
 	"testing"
 
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )

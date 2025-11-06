@@ -3,9 +3,10 @@ package irtranslator
 import (
 	"testing"
 
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 )
 
 func TestValidateWeightedClusters(t *testing.T) {

@@ -31,14 +31,15 @@ package sandwich
 import (
 	"time"
 
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"istio.io/istio/pilot/pkg/util/protoconv"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	sfsvalue "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/common/set_filter_state/v3"
 	proxy_protocol "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/listener/proxy_protocol/v3"
 	sfsnetwork "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/set_filter_state/v3"
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"istio.io/istio/pilot/pkg/util/protoconv"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/filters"

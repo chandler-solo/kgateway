@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	ratev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
+
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	ratev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/pluginutils"

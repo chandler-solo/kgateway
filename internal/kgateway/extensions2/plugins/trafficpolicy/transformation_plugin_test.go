@@ -3,8 +3,9 @@ package trafficpolicy
 import (
 	"testing"
 
-	transformationpb "github.com/solo-io/envoy-gloo/go/config/filter/http/transformation/v2"
 	"github.com/stretchr/testify/assert"
+
+	transformationpb "github.com/solo-io/envoy-gloo/go/config/filter/http/transformation/v2"
 )
 
 func TestTransformationIREquals(t *testing.T) {

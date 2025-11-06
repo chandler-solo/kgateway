@@ -10,8 +10,9 @@ import (
 	"sort"
 	"time"
 
-	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"istio.io/istio/pkg/kube/krt"
+
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/controller"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

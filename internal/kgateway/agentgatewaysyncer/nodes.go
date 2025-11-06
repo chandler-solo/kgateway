@@ -5,6 +5,7 @@ import (
 	"istio.io/api/label"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/kube/krt"
+
 	corev1 "k8s.io/api/core/v1"
 )
 

@@ -6,14 +6,14 @@ import (
 	"hash/fnv"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"istio.io/api/networking/v1alpha3"
+	"istio.io/istio/pkg/config/schema/gvr"
+	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_type_v3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
-	"istio.io/api/networking/v1alpha3"
-	"istio.io/istio/pkg/config/schema/gvr"
-	"istio.io/istio/pkg/kube/krt"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/endpoints"
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"

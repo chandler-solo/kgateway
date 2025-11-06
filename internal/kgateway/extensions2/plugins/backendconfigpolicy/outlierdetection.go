@@ -1,9 +1,10 @@
 package backendconfigpolicy
 
 import (
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 )

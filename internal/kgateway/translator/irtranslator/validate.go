@@ -8,9 +8,10 @@ import (
 	"regexp"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"

@@ -4,13 +4,6 @@ import (
 	"net/netip"
 
 	"github.com/agentgateway/agentgateway/go/api"
-	corev1 "k8s.io/api/core/v1"
-	discovery "k8s.io/api/discovery/v1"
-	"k8s.io/apimachinery/pkg/types"
-
-	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
-
 	"istio.io/api/annotation"
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
@@ -19,13 +12,20 @@ import (
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/config/schema/kind"
-	kubeutil "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
-	kubelabels "istio.io/istio/pkg/kube/labels"
 	"istio.io/istio/pkg/log"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/types"
+
+	kubeutil "istio.io/istio/pkg/kube"
+	kubelabels "istio.io/istio/pkg/kube/labels"
+	corev1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 )
 
 // index maintains an index of ambient WorkloadInfo objects by various keys.

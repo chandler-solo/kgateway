@@ -3,11 +3,12 @@ package downward
 import (
 	"io"
 
-	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	// register all top level types used in the bootstrap config
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+
+	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 )
 
 func Transform(in io.Reader, out io.Writer) error {

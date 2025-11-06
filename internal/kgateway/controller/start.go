@@ -8,16 +8,17 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
-	istiokube "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
-	istiolog "istio.io/istio/pkg/log"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	istiokube "istio.io/istio/pkg/kube"
+	istiolog "istio.io/istio/pkg/log"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/agentgatewaysyncer"
