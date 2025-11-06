@@ -221,11 +221,11 @@ var _ = Describe("Reporting Infrastructure", func() {
 					Status: gwv1.HTTPRouteStatus{
 						RouteStatus: gwv1.RouteStatus{
 							Parents: []gwv1.RouteParentStatus{
-								gwv1.RouteParentStatus{
+								{
 									ControllerName: "other.io/controller",
 									ParentRef:      *otherParentRef(),
 									Conditions: []metav1.Condition{
-										metav1.Condition{
+										{
 											Type:   string(gwv1.RouteConditionAccepted),
 											Status: metav1.ConditionTrue,
 											Reason: string(gwv1.RouteConditionAccepted),
@@ -265,11 +265,11 @@ var _ = Describe("Reporting Infrastructure", func() {
 				Status: gwv1.HTTPRouteStatus{
 					RouteStatus: gwv1.RouteStatus{
 						Parents: []gwv1.RouteParentStatus{
-							gwv1.RouteParentStatus{
+							{
 								ControllerName: "other.io/controller",
 								ParentRef:      *otherParentRef(),
 								Conditions: []metav1.Condition{
-									metav1.Condition{
+									{
 										Type:   string(gwv1.RouteConditionAccepted),
 										Status: metav1.ConditionTrue,
 										Reason: string(gwv1.RouteConditionAccepted),
