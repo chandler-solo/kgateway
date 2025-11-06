@@ -3,12 +3,11 @@ package xds
 import (
 	"strings"
 
-	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/types"
-
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )

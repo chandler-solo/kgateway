@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/agentgateway/agentgateway/go/api"
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
@@ -14,12 +15,10 @@ import (
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-
-	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"

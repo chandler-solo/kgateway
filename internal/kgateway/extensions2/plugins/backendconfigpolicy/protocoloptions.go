@@ -1,13 +1,12 @@
 package backendconfigpolicy
 
 import (
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
-
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	preserve_case_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/header_formatters/preserve_case/v3"
 	envoy_upstreams_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	translatorutils "github.com/kgateway-dev/kgateway/v2/internal/kgateway/translator/utils"

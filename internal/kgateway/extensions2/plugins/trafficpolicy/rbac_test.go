@@ -3,14 +3,13 @@ package trafficpolicy
 import (
 	"testing"
 
-	"github.com/google/cel-go/cel"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	cncfcorev3 "github.com/cncf/xds/go/xds/core/v3"
 	cncfmatcherv3 "github.com/cncf/xds/go/xds/type/matcher/v3"
 	envoyrbacv3 "github.com/envoyproxy/go-control-plane/envoy/config/rbac/v3"
 	envoyauthz "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/rbac/v3"
+	"github.com/google/cel-go/cel"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 )

@@ -7,13 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"

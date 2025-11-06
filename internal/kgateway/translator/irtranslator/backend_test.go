@@ -5,13 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoy_upstreams_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoy_upstreams_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/translator/irtranslator"

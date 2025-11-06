@@ -7,7 +7,6 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"

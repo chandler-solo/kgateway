@@ -5,9 +5,8 @@ import (
 
 	"github.com/agentgateway/agentgateway/go/api"
 	"istio.io/istio/pkg/kube/krt"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 )

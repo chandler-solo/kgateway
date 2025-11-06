@@ -12,13 +12,12 @@ import (
 	"strings"
 
 	"github.com/ghodss/yaml"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	apiserverschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	apiextensionsvalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 

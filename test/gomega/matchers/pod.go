@@ -5,9 +5,8 @@ import (
 	"log"
 
 	"github.com/onsi/gomega/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // ExpectedPod is a struct that represents the expected pod.

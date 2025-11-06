@@ -3,7 +3,6 @@ package deployer
 import (
 	"istio.io/istio/pkg/util/smallset"
 	"k8s.io/apimachinery/pkg/util/sets"
-
 	api "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

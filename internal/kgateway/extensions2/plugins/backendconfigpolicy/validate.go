@@ -4,10 +4,9 @@ import (
 	"context"
 	"time"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"

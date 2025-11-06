@@ -6,7 +6,6 @@ import (
 	"unicode/utf8"
 
 	"istio.io/istio/pkg/kube/krt"
-
 	corev1 "k8s.io/api/core/v1"
 )
 

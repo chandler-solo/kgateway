@@ -6,9 +6,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 )

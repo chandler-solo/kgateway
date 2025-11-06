@@ -8,13 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/durationpb"
-	"istio.io/istio/pkg/kube/krt"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/utils/ptr"
-
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	corsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/cors/v3"
@@ -25,7 +18,13 @@ import (
 	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	envoytype "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	envoy_wellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	apiannotations "github.com/kgateway-dev/kgateway/v2/api/annotations"

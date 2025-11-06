@@ -6,20 +6,19 @@ import (
 	"net"
 	"sync"
 
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"github.com/go-logr/logr"
+	istiokube "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
 	"istio.io/istio/pkg/security"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
-	istiokube "istio.io/istio/pkg/kube"
-	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"

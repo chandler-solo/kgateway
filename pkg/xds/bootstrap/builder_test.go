@@ -5,12 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoy_hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	"github.com/google/go-cmp/cmp"
 )
 
 func TestConfigBuilder_Build(t *testing.T) {

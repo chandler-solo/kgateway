@@ -1,15 +1,14 @@
 package downward_test
 
 import (
-	"google.golang.org/protobuf/types/known/structpb"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	. "github.com/kgateway-dev/kgateway/v2/internal/envoyinit/pkg/downward"
 )

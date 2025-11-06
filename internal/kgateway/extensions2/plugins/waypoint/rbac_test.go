@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/onsi/gomega"
-
 	authpb "istio.io/api/security/v1"
 	authcr "istio.io/client-go/pkg/apis/security/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

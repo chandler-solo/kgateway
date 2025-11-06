@@ -4,10 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
-
-	corev1 "k8s.io/api/core/v1"
 
 	gw2_v1alpha1 "github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 )

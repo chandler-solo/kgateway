@@ -3,16 +3,15 @@ package kubernetes
 import (
 	"context"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"istio.io/api/annotation"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"

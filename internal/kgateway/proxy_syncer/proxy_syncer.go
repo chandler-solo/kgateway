@@ -7,6 +7,8 @@ import (
 	"maps"
 	"sync/atomic"
 
+	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
@@ -15,9 +17,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
-	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 
 	kmetrics "github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections/metrics"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/translator"

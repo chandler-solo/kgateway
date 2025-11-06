@@ -6,18 +6,17 @@ import (
 	"testing"
 
 	"github.com/agentgateway/agentgateway/go/api"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
+	istioxds "istio.io/istio/pilot/pkg/xds"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/test/util/assert"
 	"k8s.io/apimachinery/pkg/types"
-
-	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	istioxds "istio.io/istio/pilot/pkg/xds"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/agentgatewaysyncer"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/agentgatewaysyncer/krtxds"

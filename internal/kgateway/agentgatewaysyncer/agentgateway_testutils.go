@@ -1,6 +1,7 @@
 package agentgatewaysyncer
 
 import (
+	gocmp "cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,19 +27,17 @@ import (
 	"istio.io/istio/pilot/pkg/config/kube/crd"
 	"istio.io/istio/pilot/test/util"
 	"istio.io/istio/pkg/config/schema/gvk"
+	kubeclient "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/kclient/clienttest"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/gateway-api/pkg/consts"
 	"sigs.k8s.io/yaml"
-
-	gocmp "cmp"
-	kubeclient "istio.io/istio/pkg/kube"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"

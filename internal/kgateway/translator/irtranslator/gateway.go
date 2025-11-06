@@ -4,15 +4,14 @@ import (
 	"sort"
 	"strconv"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"golang.org/x/net/context"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/slices"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"

@@ -9,15 +9,14 @@ import (
 	"sync"
 	"sync/atomic"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"google.golang.org/protobuf/types/known/structpb"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/security"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/xds"

@@ -4,12 +4,11 @@ import (
 	"testing"
 	"time"
 
+	localratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/local_ratelimit/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-
-	localratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/local_ratelimit/v3"
-	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 )
 
 func TestLocalRateLimitIREquals(t *testing.T) {

@@ -10,10 +10,9 @@ import (
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kclient"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"

@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"maps"
 
-	"istio.io/istio/pkg/kube/controllers"
-	"istio.io/istio/pkg/kube/krt"
-
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	"istio.io/istio/pkg/kube/controllers"
+	"istio.io/istio/pkg/kube/krt"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"

@@ -7,7 +7,6 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/gstruct"
 	"github.com/onsi/gomega/types"
-
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 

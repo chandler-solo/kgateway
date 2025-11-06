@@ -4,15 +4,14 @@ import (
 	"context"
 	"log/slog"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"istio.io/api/annotation"
+	networking "istio.io/api/networking/v1alpha3"
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/utils/ptr"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	networking "istio.io/api/networking/v1alpha3"
-	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"

@@ -5,13 +5,12 @@ import (
 	"sort"
 	"strings"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/api/label"
 	"istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pkg/slices"
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

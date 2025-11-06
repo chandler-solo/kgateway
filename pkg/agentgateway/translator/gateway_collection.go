@@ -6,17 +6,16 @@ import (
 	"fmt"
 
 	"github.com/agentgateway/agentgateway/go/api"
+	istio "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
-	"k8s.io/apimachinery/pkg/types"
-
-	istio "istio.io/api/networking/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayx "sigs.k8s.io/gateway-api/apisx/v1alpha1"
 

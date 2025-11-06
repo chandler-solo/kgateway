@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
-	"k8s.io/utils/ptr"
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	envoymatcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"

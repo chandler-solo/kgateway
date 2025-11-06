@@ -1,10 +1,9 @@
 package trafficpolicy
 
 import (
-	"google.golang.org/protobuf/proto"
-
 	corsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/cors/v3"
 	envoy_wellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"

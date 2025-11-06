@@ -4,14 +4,13 @@ import (
 	"fmt"
 
 	"google.golang.org/protobuf/types/known/anypb"
+	authpb "istio.io/api/security/v1"
+	authcr "istio.io/client-go/pkg/apis/security/v1"
 	"istio.io/istio/pilot/pkg/config/kube/crdclient"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/security/authz/builder"
 	"istio.io/istio/pilot/pkg/security/trustdomain"
 	"istio.io/istio/pkg/config/schema/gvk"
-
-	authpb "istio.io/api/security/v1"
-	authcr "istio.io/client-go/pkg/apis/security/v1"
 	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/extensions2/plugins/waypoint/waypointquery"

@@ -3,11 +3,10 @@ package waypointquery
 import (
 	"context"
 
+	authcr "istio.io/client-go/pkg/apis/security/v1"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/types"
-
-	authcr "istio.io/client-go/pkg/apis/security/v1"
 	gwapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

@@ -4,17 +4,16 @@ import (
 	"context"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
-	"istio.io/istio/pkg/kube/kclient"
-	"istio.io/istio/pkg/kube/krt"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	mutation_v3 "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	header_mutationv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/header_mutation/v3"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+	"istio.io/istio/pkg/kube/kclient"
+	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/setup"

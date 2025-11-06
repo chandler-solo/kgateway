@@ -6,13 +6,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"istio.io/api/networking/v1alpha3"
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pkg/config/schema/gvr"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
-
-	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"

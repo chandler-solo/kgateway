@@ -7,19 +7,18 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
 	"istio.io/istio/pkg/test"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"

@@ -1,10 +1,9 @@
 package trafficpolicy
 
 import (
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
-
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/policy"

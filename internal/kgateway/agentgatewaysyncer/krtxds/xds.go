@@ -11,8 +11,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	stdatomic "sync/atomic"
 	"time"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/google/uuid"
 	"go.uber.org/atomic"
 	"golang.org/x/time/rate"
@@ -21,9 +24,12 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pilot/pkg/features"
+	istiogrpc "istio.io/istio/pilot/pkg/grpc"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pilot/pkg/util/protoconv"
+	pilotxds "istio.io/istio/pilot/pkg/xds"
+	v3 "istio.io/istio/pilot/pkg/xds/v3"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/maps"
 	"istio.io/istio/pkg/ptr"
@@ -34,13 +40,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	_ "istio.io/istio/pkg/util/protomarshal" // Ensure we get the more efficient vtproto gRPC encoder
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-	istiogrpc "istio.io/istio/pilot/pkg/grpc"
-	pilotxds "istio.io/istio/pilot/pkg/xds"
-	v3 "istio.io/istio/pilot/pkg/xds/v3"
-	stdatomic "sync/atomic"
 
 	kgwxds "github.com/kgateway-dev/kgateway/v2/internal/kgateway/xds"
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"

@@ -3,9 +3,6 @@ package httplistenerpolicy
 import (
 	"fmt"
 
-	"google.golang.org/protobuf/types/known/wrapperspb"
-	"istio.io/istio/pkg/kube/krt"
-
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoytracev3 "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
 	envoy_hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
@@ -14,6 +11,8 @@ import (
 	metadatav3 "github.com/envoyproxy/go-control-plane/envoy/type/metadata/v3"
 	tracingv3 "github.com/envoyproxy/go-control-plane/envoy/type/tracing/v3"
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"google.golang.org/protobuf/types/known/wrapperspb"
+	"istio.io/istio/pkg/kube/krt"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils"

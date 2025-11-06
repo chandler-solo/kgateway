@@ -3,8 +3,6 @@ package schemes
 import (
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
 	istionetworkingv1 "istio.io/client-go/pkg/apis/networking/v1"
 	istiosecurityv1 "istio.io/client-go/pkg/apis/security/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -12,6 +10,7 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"

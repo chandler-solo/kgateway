@@ -1,12 +1,11 @@
 package utils
 
 import (
-	"google.golang.org/protobuf/types/known/anypb"
-
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_upstreams_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	proto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils"
 )

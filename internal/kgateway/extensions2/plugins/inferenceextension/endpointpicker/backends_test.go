@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"testing"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/krt/krttest"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"

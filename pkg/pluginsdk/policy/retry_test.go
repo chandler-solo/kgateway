@@ -4,13 +4,12 @@ import (
 	"testing"
 	"time"
 
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 

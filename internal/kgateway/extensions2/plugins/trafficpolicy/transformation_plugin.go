@@ -3,13 +3,12 @@ package trafficpolicy
 import (
 	"encoding/json"
 
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/wrapperspb"
-
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	exteniondynamicmodulev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/dynamic_modules/v3"
 	dynamicmodulesv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/dynamic_modules/v3"
 	transformationpb "github.com/solo-io/envoy-gloo/go/config/filter/http/transformation/v2"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/utils"

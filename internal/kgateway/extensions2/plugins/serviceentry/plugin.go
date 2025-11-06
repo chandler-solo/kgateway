@@ -3,10 +3,9 @@ package serviceentry
 import (
 	"context"
 
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pkg/slices"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"

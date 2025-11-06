@@ -6,11 +6,10 @@ import (
 	"strings"
 
 	"istio.io/istio/pkg/kube/krt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	apiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	apixv1alpha1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"

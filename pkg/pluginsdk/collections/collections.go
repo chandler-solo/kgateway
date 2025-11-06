@@ -3,16 +3,15 @@ package collections
 import (
 	"context"
 
+	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pkg/config/schema/gvr"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
 	"istio.io/istio/pkg/util/smallset"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	gwv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"

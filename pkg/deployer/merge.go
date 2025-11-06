@@ -1,9 +1,8 @@
 package deployer
 
 import (
-	"k8s.io/apimachinery/pkg/util/intstr"
-
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 )

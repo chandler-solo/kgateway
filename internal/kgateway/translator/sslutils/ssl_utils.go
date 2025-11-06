@@ -5,9 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"k8s.io/client-go/util/cert"
-
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/util/cert"
 )
 
 var (

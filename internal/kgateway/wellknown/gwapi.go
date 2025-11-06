@@ -1,10 +1,9 @@
 package wellknown
 
 import (
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	apiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	apiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"

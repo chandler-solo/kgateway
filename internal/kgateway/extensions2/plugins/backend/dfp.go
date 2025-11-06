@@ -1,16 +1,15 @@
 package backend
 
 import (
-	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
-	"k8s.io/utils/ptr"
-
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_dfp_cluster "github.com/envoyproxy/go-control-plane/envoy/extensions/clusters/dynamic_forward_proxy/v3"
 	envoydfp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/dynamic_forward_proxy/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"k8s.io/utils/ptr"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 	eiutils "github.com/kgateway-dev/kgateway/v2/internal/envoyinit/pkg/utils"

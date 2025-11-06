@@ -8,17 +8,16 @@ import (
 	"istio.io/istio/pkg/kube/krt/krttest"
 	"istio.io/istio/pkg/test"
 	"istio.io/istio/pkg/util/smallset"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
-
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	api "sigs.k8s.io/gateway-api/apis/v1"
 	apixv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
+
+	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"

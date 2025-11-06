@@ -3,11 +3,10 @@ package trafficpolicy
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	mutation_rulesv3 "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	header_mutationv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/header_mutation/v3"
+	"github.com/stretchr/testify/assert"
 )
 
 // Helper to create a simple header mutations filter for testing.

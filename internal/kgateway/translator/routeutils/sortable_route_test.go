@@ -1,13 +1,12 @@
 package routeutils
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )

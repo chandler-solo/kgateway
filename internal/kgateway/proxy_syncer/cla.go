@@ -3,9 +3,8 @@ package proxy_syncer
 import (
 	"fmt"
 
-	"istio.io/istio/pkg/kube/krt"
-
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	"istio.io/istio/pkg/kube/krt"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	krtutil "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"

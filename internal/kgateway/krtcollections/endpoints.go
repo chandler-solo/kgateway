@@ -3,15 +3,14 @@ package krtcollections
 import (
 	"context"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/kube/krt"
-	"k8s.io/apimachinery/pkg/types"
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

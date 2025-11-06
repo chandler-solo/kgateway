@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"istio.io/istio/pkg/kube/krt"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"k8s.io/utils/ptr"
-
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 

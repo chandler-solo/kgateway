@@ -8,9 +8,8 @@ import (
 	"io"
 	"math"
 
-	"google.golang.org/protobuf/proto"
-
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	"google.golang.org/protobuf/proto"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 

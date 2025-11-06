@@ -4,18 +4,17 @@ import (
 	"context"
 	"fmt"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	skubeclient "istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
-	"sigs.k8s.io/gateway-api-inference-extension/client-go/clientset/versioned"
-
-	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	skubeclient "istio.io/istio/pkg/config/schema/kubeclient"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	"sigs.k8s.io/gateway-api-inference-extension/client-go/clientset/versioned"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/krtcollections"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

@@ -181,7 +181,6 @@ formatters:
       - prefix(github.com/kgateway-dev)
       - blank
       - dot
-      - alias
       - localmodule
       custom-order: true
   exclusions:

@@ -3,11 +3,10 @@ package policy
 import (
 	"strings"
 
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"

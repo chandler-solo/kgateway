@@ -4,10 +4,9 @@ import (
 	"fmt"
 
 	"github.com/agentgateway/agentgateway/go/api"
+	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-
-	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"

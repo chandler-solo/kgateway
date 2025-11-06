@@ -4,13 +4,12 @@ import (
 	"testing"
 	"time"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	"k8s.io/utils/ptr"
-
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
 )

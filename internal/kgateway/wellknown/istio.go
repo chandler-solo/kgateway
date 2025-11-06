@@ -1,9 +1,8 @@
 package wellknown
 
 import (
-	"k8s.io/apimachinery/pkg/util/sets"
-
 	istionetworking "istio.io/client-go/pkg/apis/networking/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 var (
