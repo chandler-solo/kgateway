@@ -70,7 +70,6 @@ func TestGetInMemoryGatewayParameters_ControllerNamePriority(t *testing.T) {
 				ClassName:                  tt.className,
 				ImageInfo:                  imageInfo,
 				WaypointClassName:          waypointClass,
-				EnvoyControllerName:        envoyController,
 				AgwControllerName:          agwController,
 				OmitDefaultSecurityContext: false,
 			}

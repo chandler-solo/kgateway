@@ -1923,7 +1923,6 @@ var _ = Describe("Deployer", func() {
 				ClassName:                  "a",
 				ImageInfo:                  &deployer.ImageInfo{},
 				WaypointClassName:          "b",
-				EnvoyControllerName:        "kgateway.dev/kgateway",
 				AgwControllerName:          "c",
 				OmitDefaultSecurityContext: true,
 			}).Spec.Kube.Istio.IstioProxyContainer.Image.Tag
