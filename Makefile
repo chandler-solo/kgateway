@@ -96,11 +96,11 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 
 .PHONY: fmt
-fmt:  ## Format the code with golangci-lint gci
+fmt: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint gci
 	$(CUSTOM_GOLANGCI_LINT_BIN) run --fix ./...
 
 .PHONY: fmt-changed
-fmt-changed:  ## Format the code with golangci-lint gci
+fmt-changed: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint gci
 	$(CUSTOM_GOLANGCI_LINT_BIN) run --fix $$(git diff --name-only | grep '.*.go$$')
 
 # must be a separate target so that make waits for it to complete before moving on
