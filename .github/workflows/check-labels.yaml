@@ -6,10 +6,18 @@ on:
   merge_group:
     types: [checks_requested]
 
+concurrency:
+  group: pr-kind-labeler-and-check-labels-mutex-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   check-labels:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        if: github.event_name != 'merge_group'
+        uses: actions/checkout@v4
+
       # only run this step on PRs, not in the merge queue (we need to explicitly add the merge queue logic because making this check required
       # causes it to get run in the merge queue as well)
       - name: Conditional skip for merge queue
@@ -21,9 +29,17 @@ jobs:
       - name: Check for labels that should block merge
         if: github.event_name != 'merge_group'
         env:
-          PR_LABELS: ${{ toJson(github.event.pull_request.labels) }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          echo "$PR_LABELS" | jq -r '.[].name' | while read -r label; do
+          # Fetch current labels from the API to avoid stale data from the event payload
+          echo "Checking PR #$PR_NUMBER"
+          CURRENT_LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+
+          echo "Current labels:"
+          echo "$CURRENT_LABELS"
+
+          echo "$CURRENT_LABELS" | while read -r label; do
             if [[ "$label" == "do-not-merge"* || "$label" == "work in progress" ]]; then
               echo "Pull request has 'do-not-merge' or 'work in progress' label. Blocking merge."
               exit 1
