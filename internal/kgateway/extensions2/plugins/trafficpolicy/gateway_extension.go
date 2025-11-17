@@ -110,23 +110,46 @@ func TranslateGatewayExtensionBuilder(commoncol *collections.CommonCollections) 
 
 		switch gExt.Type {
 		case v1alpha1.GatewayExtensionTypeExtAuth:
-			envoyGrpcService, err := ResolveExtGrpcService(krtctx, commoncol.BackendIndex, false, gExt.ObjectSource, &gExt.ExtAuth.GrpcService)
-			if err != nil {
-				// TODO: should this be a warning, and set cluster to blackhole?
-				p.Err = fmt.Errorf("failed to resolve ExtAuth backend: %w", err)
+			// Check if HTTP or gRPC service is configured
+			if gExt.ExtAuth.HttpService != nil {
+				envoyHttpService, err := ResolveExtHttpService(krtctx, commoncol.BackendIndex, false, gExt.ObjectSource, gExt.ExtAuth.HttpService)
+				if err != nil {
+					p.Err = fmt.Errorf("failed to resolve ExtAuth HTTP backend: %w", err)
+					return p
+				}
+
+				p.ExtAuth = &envoy_ext_authz_v3.ExtAuthz{
+					Services: &envoy_ext_authz_v3.ExtAuthz_HttpService{
+						HttpService: envoyHttpService,
+					},
+					FilterEnabledMetadata: ExtAuthzEnabledMetadataMatcher,
+					FailureModeAllow:      gExt.ExtAuth.FailOpen,
+					ClearRouteCache:       gExt.ExtAuth.ClearRouteCache,
+					StatusOnError:         &envoytypev3.HttpStatus{Code: envoytypev3.StatusCode(gExt.ExtAuth.StatusOnError)}, //nolint:gosec // G115: StatusOnError is HTTP status code, valid range fits in int32
+				}
+			} else if gExt.ExtAuth.GrpcService != nil {
+				envoyGrpcService, err := ResolveExtGrpcService(krtctx, commoncol.BackendIndex, false, gExt.ObjectSource, gExt.ExtAuth.GrpcService)
+				if err != nil {
+					// TODO: should this be a warning, and set cluster to blackhole?
+					p.Err = fmt.Errorf("failed to resolve ExtAuth gRPC backend: %w", err)
+					return p
+				}
+
+				p.ExtAuth = &envoy_ext_authz_v3.ExtAuthz{
+					Services: &envoy_ext_authz_v3.ExtAuthz_GrpcService{
+						GrpcService: envoyGrpcService,
+					},
+					FilterEnabledMetadata: ExtAuthzEnabledMetadataMatcher,
+					FailureModeAllow:      gExt.ExtAuth.FailOpen,
+					ClearRouteCache:       gExt.ExtAuth.ClearRouteCache,
+					StatusOnError:         &envoytypev3.HttpStatus{Code: envoytypev3.StatusCode(gExt.ExtAuth.StatusOnError)}, //nolint:gosec // G115: StatusOnError is HTTP status code, valid range fits in int32
+				}
+			} else {
+				p.Err = fmt.Errorf("ExtAuth provider must specify either grpcService or httpService")
 				return p
 			}
 
-			p.ExtAuth = &envoy_ext_authz_v3.ExtAuthz{
-				Services: &envoy_ext_authz_v3.ExtAuthz_GrpcService{
-					GrpcService: envoyGrpcService,
-				},
-				FilterEnabledMetadata: ExtAuthzEnabledMetadataMatcher,
-				FailureModeAllow:      gExt.ExtAuth.FailOpen,
-				ClearRouteCache:       gExt.ExtAuth.ClearRouteCache,
-				StatusOnError:         &envoytypev3.HttpStatus{Code: envoytypev3.StatusCode(gExt.ExtAuth.StatusOnError)}, //nolint:gosec // G115: StatusOnError is HTTP status code, valid range fits in int32
-			}
-
+			// Common configuration for both HTTP and gRPC
 			if gExt.ExtAuth.WithRequestBody != nil {
 				p.ExtAuth.WithRequestBody = &envoy_ext_authz_v3.BufferSettings{
 					MaxRequestBytes:     uint32(gExt.ExtAuth.WithRequestBody.MaxRequestBytes), // nolint:gosec // G115: kubebuilder validation ensures safe for uint32
@@ -216,6 +239,142 @@ func ResolveExtGrpcService(
 		envoyGrpcService.Timeout = durationpb.New(grpcService.RequestTimeout.Duration)
 	}
 	return envoyGrpcService, nil
+}
+
+func ResolveExtHttpService(
+	krtctx krt.HandlerContext,
+	backends *krtcollections.BackendIndex,
+	disableExtensionRefValidation bool,
+	objectSource ir.ObjectSource,
+	httpService *v1alpha1.ExtHttpService,
+) (*envoy_ext_authz_v3.HttpService, error) {
+	// defensive checks
+	if httpService == nil {
+		return nil, errors.New("httpService not provided")
+	}
+
+	var backend *ir.BackendObjectIR
+	var err error
+	backendRef := httpService.BackendRef.BackendObjectReference
+	if disableExtensionRefValidation {
+		backend, err = backends.GetBackendFromRefWithoutRefGrantValidation(krtctx, objectSource, backendRef)
+	} else {
+		backend, err = backends.GetBackendFromRef(krtctx, objectSource, backendRef)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var clusterName string
+	if backend != nil {
+		clusterName = backend.ClusterName()
+	}
+	if clusterName == "" {
+		return nil, errors.New("backend not found")
+	}
+
+	// Build path prefix, default to "/"
+	pathPrefix := "/"
+	if httpService.PathPrefix != nil {
+		pathPrefix = *httpService.PathPrefix
+	}
+
+	// Build timeout, default to 200ms if not specified
+	timeout := durationpb.New(200 * 1000 * 1000) // 200ms in nanoseconds
+	if httpService.RequestTimeout != nil {
+		timeout = durationpb.New(httpService.RequestTimeout.Duration)
+	}
+
+	envoyHttpService := &envoy_ext_authz_v3.HttpService{
+		ServerUri: &envoycorev3.HttpUri{
+			// The URI will be determined by Envoy based on the cluster
+			Uri: clusterName,
+			HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+				Cluster: clusterName,
+			},
+			Timeout: timeout,
+		},
+		PathPrefix: pathPrefix,
+	}
+
+	// Configure authorization request
+	if httpService.AuthorizationRequest != nil {
+		envoyHttpService.AuthorizationRequest = &envoy_ext_authz_v3.AuthorizationRequest{}
+
+		// Set allowed headers
+		if len(httpService.AuthorizationRequest.AllowedHeaders) > 0 {
+			envoyHttpService.AuthorizationRequest.AllowedHeaders = &envoymatcherv3.ListStringMatcher{
+				Patterns: make([]*envoymatcherv3.StringMatcher, len(httpService.AuthorizationRequest.AllowedHeaders)),
+			}
+			for i, header := range httpService.AuthorizationRequest.AllowedHeaders {
+				envoyHttpService.AuthorizationRequest.AllowedHeaders.Patterns[i] = &envoymatcherv3.StringMatcher{
+					MatchPattern: &envoymatcherv3.StringMatcher_Exact{
+						Exact: header,
+					},
+				}
+			}
+		}
+
+		// Set headers to add
+		if len(httpService.AuthorizationRequest.HeadersToAdd) > 0 {
+			envoyHttpService.AuthorizationRequest.HeadersToAdd = make([]*envoycorev3.HeaderValue, 0, len(httpService.AuthorizationRequest.HeadersToAdd))
+			for name, value := range httpService.AuthorizationRequest.HeadersToAdd {
+				envoyHttpService.AuthorizationRequest.HeadersToAdd = append(envoyHttpService.AuthorizationRequest.HeadersToAdd, &envoycorev3.HeaderValue{
+					Key:   name,
+					Value: value,
+				})
+			}
+		}
+	}
+
+	// Configure authorization response
+	if httpService.AuthorizationResponse != nil {
+		envoyHttpService.AuthorizationResponse = &envoy_ext_authz_v3.AuthorizationResponse{}
+
+		// Set allowed upstream headers
+		if len(httpService.AuthorizationResponse.AllowedUpstreamHeaders) > 0 {
+			envoyHttpService.AuthorizationResponse.AllowedUpstreamHeaders = &envoymatcherv3.ListStringMatcher{
+				Patterns: make([]*envoymatcherv3.StringMatcher, len(httpService.AuthorizationResponse.AllowedUpstreamHeaders)),
+			}
+			for i, header := range httpService.AuthorizationResponse.AllowedUpstreamHeaders {
+				envoyHttpService.AuthorizationResponse.AllowedUpstreamHeaders.Patterns[i] = &envoymatcherv3.StringMatcher{
+					MatchPattern: &envoymatcherv3.StringMatcher_Exact{
+						Exact: header,
+					},
+				}
+			}
+		}
+
+		// Set allowed client headers
+		if len(httpService.AuthorizationResponse.AllowedClientHeaders) > 0 {
+			envoyHttpService.AuthorizationResponse.AllowedClientHeaders = &envoymatcherv3.ListStringMatcher{
+				Patterns: make([]*envoymatcherv3.StringMatcher, len(httpService.AuthorizationResponse.AllowedClientHeaders)),
+			}
+			for i, header := range httpService.AuthorizationResponse.AllowedClientHeaders {
+				envoyHttpService.AuthorizationResponse.AllowedClientHeaders.Patterns[i] = &envoymatcherv3.StringMatcher{
+					MatchPattern: &envoymatcherv3.StringMatcher_Exact{
+						Exact: header,
+					},
+				}
+			}
+		}
+
+		// Set dynamic metadata from headers
+		if len(httpService.AuthorizationResponse.DynamicMetadataFromHeaders) > 0 {
+			envoyHttpService.AuthorizationResponse.DynamicMetadataFromHeaders = &envoymatcherv3.ListStringMatcher{
+				Patterns: make([]*envoymatcherv3.StringMatcher, len(httpService.AuthorizationResponse.DynamicMetadataFromHeaders)),
+			}
+			for i, header := range httpService.AuthorizationResponse.DynamicMetadataFromHeaders {
+				envoyHttpService.AuthorizationResponse.DynamicMetadataFromHeaders.Patterns[i] = &envoymatcherv3.StringMatcher{
+					MatchPattern: &envoymatcherv3.StringMatcher_Exact{
+						Exact: header,
+					},
+				}
+			}
+		}
+	}
+
+	return envoyHttpService, nil
 }
 
 func buildGRPCRetryPolicy(in *v1alpha1.GRPCRetryPolicy) *envoycorev3.RetryPolicy {

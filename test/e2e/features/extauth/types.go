@@ -64,13 +64,55 @@ var (
 		Spec: v1alpha1.GatewayExtensionSpec{
 			Type: v1alpha1.GatewayExtensionTypeExtAuth,
 			ExtAuth: &v1alpha1.ExtAuthProvider{
-				GrpcService: v1alpha1.ExtGrpcService{
+				GrpcService: &v1alpha1.ExtGrpcService{
 					BackendRef: gwv1.BackendRef{
 						BackendObjectReference: gwv1.BackendObjectReference{
 							Name: "ext-authz",
 						},
 					},
 				},
+			},
+		},
+	}
+
+	// HTTP ExtAuth service and extension
+	extAuthHttpSvc = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ext-authz-http",
+			Namespace: "kgateway-test",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name: "http",
+					Port: 8080,
+				},
+			},
+			Selector: map[string]string{
+				defaults.WellKnownAppLabel: "extauth-http",
+			},
+		},
+	}
+
+	extAuthHttpExtension = &v1alpha1.GatewayExtension{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "http-extauth",
+			Namespace: "kgateway-test",
+		},
+		Spec: v1alpha1.GatewayExtensionSpec{
+			Type: v1alpha1.GatewayExtensionTypeExtAuth,
+			ExtAuth: &v1alpha1.ExtAuthProvider{
+				HttpService: &v1alpha1.ExtHttpService{
+					BackendRef: gwv1.BackendRef{
+						BackendObjectReference: gwv1.BackendObjectReference{
+							Name: "ext-authz-http",
+							Port: ptrTo(gwv1.PortNumber(8080)),
+						},
+					},
+					PathPrefix: ptrTo("/verify"),
+				},
+				FailOpen:      false,
+				StatusOnError: 403,
 			},
 		},
 	}
@@ -124,4 +166,8 @@ var (
 
 func getTestFile(filename string) string {
 	return filepath.Join(fsutils.MustGetThisDir(), "testdata", filename)
+}
+
+func ptrTo[T any](v T) *T {
+	return &v
 }

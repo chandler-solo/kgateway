@@ -1,0 +1,17 @@
+---
+# TrafficPolicy applying HTTP ExtAuth at the Gateway level
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: gateway-http-extauth-policy
+  namespace: kgateway-test
+  labels:
+    app: http-auth-server
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: http-extauth-gateway
+  extAuth:
+    extensionRef:
+      name: http-ext-auth

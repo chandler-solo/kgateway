@@ -1,0 +1,16 @@
+---
+# TrafficPolicy to disable HTTP ExtAuth at the route level
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: route-disable-extauth-policy
+  namespace: httpbin
+  labels:
+    app: http-auth-server
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: httpbin-route
+  extAuth:
+    disable: {}

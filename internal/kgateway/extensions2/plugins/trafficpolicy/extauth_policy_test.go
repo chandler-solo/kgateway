@@ -313,4 +313,51 @@ func TestExtAuthPolicyPlugin(t *testing.T) {
 		assert.NotNil(t, pCtx.TypedFilterConfig, pCtx)
 		assert.NotEmpty(t, pCtx.TypedFilterConfig[ExtAuthGlobalDisableFilterName])
 	})
+
+	t.Run("applies HTTP ext auth configuration to route", func(t *testing.T) {
+		// Setup
+		plugin := &trafficPolicyPluginGwPass{}
+		policy := &TrafficPolicy{
+			spec: trafficPolicySpecIr{
+				extAuth: &extAuthIR{
+					perProviderConfig: []*perProviderExtAuthConfig{
+						{
+							provider: &TrafficPolicyGatewayExtensionIR{
+								Name:    "test-http-auth-extension",
+								ExtType: v1alpha1.GatewayExtensionTypeExtAuth,
+								ExtAuth: &envoy_ext_authz_v3.ExtAuthz{
+									Services: &envoy_ext_authz_v3.ExtAuthz_HttpService{
+										HttpService: &envoy_ext_authz_v3.HttpService{
+											ServerUri: &envoycorev3.HttpUri{
+												Uri: "auth-service",
+												HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+													Cluster: "auth-service",
+												},
+											},
+											PathPrefix: "/verify",
+										},
+									},
+									FailureModeAllow: false,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		pCtx := &ir.RouteContext{
+			Policy: policy,
+		}
+		outputRoute := &envoyroutev3.Route{}
+
+		// Execute
+		err := plugin.ApplyForRoute(pCtx, outputRoute)
+
+		// Verify
+		require.NoError(t, err)
+		require.NotNil(t, pCtx.TypedFilterConfig)
+		extAuthConfig, ok := pCtx.TypedFilterConfig[extAuthFilterName("test-http-auth-extension")]
+		assert.True(t, ok)
+		assert.NotNil(t, extAuthConfig)
+	})
 }

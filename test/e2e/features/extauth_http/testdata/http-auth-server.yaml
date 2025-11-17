@@ -1,0 +1,111 @@
+---
+# Simple HTTP authorization server for testing
+# Returns 200 OK if request has x-auth-token: allow header
+# Returns 403 Forbidden otherwise
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: http-auth-server-script
+  namespace: kgateway-test
+data:
+  server.py: |
+    #!/usr/bin/env python3
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import json
+
+    class AuthHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            # Get the authorization header
+            auth_header = self.headers.get('x-auth-token', '')
+
+            # Log the request
+            self.log_message("Received auth request with x-auth-token: %s", auth_header)
+
+            if auth_header == 'allow':
+                # Allow the request
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain')
+                # Add headers that will be forwarded to upstream
+                self.send_header('X-Auth-User', 'test-user')
+                self.send_header('X-Auth-Roles', 'admin,user')
+                self.end_headers()
+                self.wfile.write(b'OK')
+            else:
+                # Deny the request
+                self.send_response(403)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('X-Auth-Result', 'denied')
+                self.end_headers()
+                self.wfile.write(b'Access Denied: Missing or invalid x-auth-token header')
+
+        def log_message(self, format, *args):
+            # Override to add timestamp
+            import sys
+            sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), format % args))
+
+    if __name__ == '__main__':
+        server = HTTPServer(('0.0.0.0', 8080), AuthHandler)
+        print('Starting HTTP Auth Server on port 8080...')
+        server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: http-auth-server
+  namespace: kgateway-test
+  labels:
+    app: http-auth-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: http-auth-server
+  template:
+    metadata:
+      labels:
+        app: http-auth-server
+        app.kubernetes.io/name: http-auth-server
+    spec:
+      containers:
+      - name: http-auth-server
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          cp /config/server.py /tmp/server.py
+          chmod +x /tmp/server.py
+          python3 /tmp/server.py
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: script
+          mountPath: /config
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 5
+      volumes:
+      - name: script
+        configMap:
+          name: http-auth-server-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: http-auth-server
+  namespace: kgateway-test
+  labels:
+    app: http-auth-server
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: http-auth-server

@@ -112,6 +112,77 @@ type GRPCRetryBackoff struct {
 	MaxInterval *metav1.Duration `json:"maxInterval,omitempty"`
 }
 
+// ExtHttpService defines the HTTP service that will handle the processing.
+type ExtHttpService struct {
+	// BackendRef references the backend HTTP service.
+	// +required
+	BackendRef gwv1.BackendRef `json:"backendRef"`
+
+	// PathPrefix specifies a prefix to the value of the authorization request's path header.
+	// This allows customizing the path at which the authorization server expects to receive requests.
+	// For example, if the authorization server expects requests at "/verify", set this to "/verify".
+	// If not specified, defaults to "/".
+	// +optional
+	// +kubebuilder:default="/"
+	PathPrefix *string `json:"pathPrefix,omitempty"`
+
+	// RequestTimeout is the timeout for the HTTP request. This is the timeout for a specific request.
+	// If not specified, defaults to 200ms.
+	// +optional
+	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid timeout value"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1ms')",message="timeout must be at least 1ms."
+	// +kubebuilder:default="200ms"
+	RequestTimeout *metav1.Duration `json:"requestTimeout,omitempty"`
+
+	// AuthorizationRequest configures the authorization request sent to the HTTP service.
+	// +optional
+	AuthorizationRequest *AuthorizationRequest `json:"authorizationRequest,omitempty"`
+
+	// AuthorizationResponse configures how to handle the authorization response from the HTTP service.
+	// +optional
+	AuthorizationResponse *AuthorizationResponse `json:"authorizationResponse,omitempty"`
+}
+
+// AuthorizationRequest configures the HTTP authorization request.
+type AuthorizationRequest struct {
+	// AllowedHeaders specifies which client request headers should be sent to the authorization server.
+	// By default, the following headers are sent: Host, Method, Path, Content-Length, and Authorization.
+	// Use this to add additional headers that the authorization server needs for decision-making.
+	// If not set, only the default headers are sent.
+	// Note: pseudo-headers like :method, :path, :authority are automatically included and don't need to be specified.
+	// +optional
+	AllowedHeaders []string `json:"allowedHeaders,omitempty"`
+
+	// HeadersToAdd specifies additional headers to add to the authorization request as a map of header names to values.
+	// These headers will be added to every request sent to the authorization server.
+	// Useful for adding static metadata like API keys or version information.
+	// +optional
+	HeadersToAdd map[string]string `json:"headersToAdd,omitempty"`
+}
+
+// AuthorizationResponse configures how to handle the HTTP authorization response.
+type AuthorizationResponse struct {
+	// AllowedUpstreamHeaders specifies which authorization response headers should be added to the
+	// upstream request when authorization succeeds. This allows the authorization service to pass
+	// additional context (like user ID, roles, etc.) to the upstream service.
+	// If not set, no authorization response headers are added to the upstream request.
+	// +optional
+	AllowedUpstreamHeaders []string `json:"allowedUpstreamHeaders,omitempty"`
+
+	// AllowedClientHeaders specifies which authorization response headers should be added to the
+	// client response when authorization fails. This allows the authorization service to provide
+	// additional context in error responses (like WWW-Authenticate challenges).
+	// If not set, no authorization response headers are added to the client response.
+	// +optional
+	AllowedClientHeaders []string `json:"allowedClientHeaders,omitempty"`
+
+	// DynamicMetadataFromHeaders specifies headers from the authorization response that should be
+	// emitted as dynamic metadata to be consumed by the next filter. The header names will be used
+	// as the metadata keys. The metadata lives in the "envoy.filters.http.ext_authz" namespace.
+	// +optional
+	DynamicMetadataFromHeaders []string `json:"dynamicMetadataFromHeaders,omitempty"`
+}
+
 // RateLimitProvider defines the configuration for a RateLimit service provider.
 type RateLimitProvider struct {
 	// GrpcService is the GRPC service that will handle the rate limiting.

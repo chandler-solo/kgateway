@@ -17,6 +17,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/dfp"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/directresponse"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/extauth"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/extauth_http"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/extproc"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/header_modifiers"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/http_listener_policy"
@@ -42,6 +43,7 @@ import (
 func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner := e2e.NewSuiteRunner(false)
 	kubeGatewaySuiteRunner.Register("ExtAuth", extauth.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("ExtAuthHTTP", extauth_http.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("AccessLog", accesslog.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("Backends", backends.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("BackendTLSPolicies", backendtls.NewTestingSuite)
