@@ -283,6 +283,26 @@ func (s *testingSuite) TestRouteTargetedExtAuthPolicy() {
 	}
 }
 
+// TestHttpExtAuthPolicy tests HTTP-based ExtAuth functionality
+// This validates that HTTP extauth services work correctly alongside gRPC services
+func (s *testingSuite) TestHttpExtAuthPolicy() {
+	// This is a basic validation test that the HTTP extauth extension can be created.
+	// For comprehensive HTTP ExtAuth testing, see test/e2e/features/extauth_http which includes:
+	//   * HTTP authorization server deployment
+	//   * TrafficPolicy configuration with HTTP ExtAuth
+	//   * Basic allow/deny via HTTP responses (200 = allow, 403 = deny)
+	//   * Path prefix configuration and request timeout handling
+	//   * Authorization request headers (allowedHeaders, headersToAdd)
+	//   * Authorization response headers (allowedUpstreamHeaders, allowedClientHeaders)
+	//   * Dynamic metadata from headers
+	//   * Route-level policy overrides
+
+	s.Run("HTTP ExtAuth extension can be created", func() {
+		// Verify the HTTP extension was created
+		s.testInstallation.Assertions.EventuallyObjectsExist(s.ctx, extAuthHttpExtension)
+	})
+}
+
 func (s *testingSuite) ensureBasicRunning() {
 	s.testInstallation.Assertions.EventuallyPodsRunning(s.ctx, testdefaults.CurlPod.GetNamespace(), metav1.ListOptions{
 		LabelSelector: testdefaults.WellKnownAppLabel + "=curl",

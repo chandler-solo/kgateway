@@ -1,0 +1,28 @@
+---
+# GatewayExtension for HTTP-based external authorization
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayExtension
+metadata:
+  name: http-ext-auth
+  namespace: kgateway-test
+  labels:
+    app: http-auth-server
+spec:
+  type: ExtAuth
+  extAuth:
+    httpService:
+      backendRef:
+        name: http-auth-server
+        port: 8080
+      pathPrefix: /verify
+      requestTimeout: 500ms
+      authorizationResponse:
+        # Forward these headers from auth response to upstream
+        allowedUpstreamHeaders:
+          - x-auth-user
+          - x-auth-roles
+        # Include these headers in client error responses
+        allowedClientHeaders:
+          - x-auth-result
+    failOpen: false
+    statusOnError: 403

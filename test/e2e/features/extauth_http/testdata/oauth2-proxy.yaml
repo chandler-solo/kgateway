@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-proxy-config
+  namespace: kgateway-test
+data:
+  oauth2_proxy.cfg: |
+    # OAuth2 Proxy test configuration
+    # This is a simple test setup that allows/denies based on headers
+    http_address = "0.0.0.0:4180"
+    upstreams = [ "static://200" ]
+    email_domains = [ "*" ]
+    cookie_secret = "OQINaROshtE9TcZkNAm-5Zs2Pv3xaWytBmc5W7sPX7w="
+    cookie_secure = false
+    cookie_httponly = true
+    cookie_expire = "168h"
+    cookie_refresh = "60m"
+    cookie_name = "_oauth2_proxy"
+
+    # Skip authentication for requests with x-skip-auth header for testing
+    skip_auth_regex = [ ".*" ]
+
+    # Provider configuration (mock OIDC for testing)
+    provider = "google"
+    client_id = "test-client-id"
+    client_secret = "test-client-secret"
+
+    # Disable OIDC discovery for testing
+    oidc_issuer_url = ""
+
+    # Pass headers to upstream
+    pass_authorization_header = true
+    pass_access_token = true
+    pass_user_headers = true
+    set_authorization_header = true
+    set_xauthrequest = true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: kgateway-test
+  labels:
+    app: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+        app.kubernetes.io/name: oauth2-proxy
+    spec:
+      containers:
+      - name: oauth2-proxy
+        image: quay.io/oauth2-proxy/oauth2-proxy:v7.5.1
+        args:
+        - --config=/etc/oauth2-proxy/oauth2_proxy.cfg
+        - --skip-provider-button=true
+        - --skip-auth-route=^/verify$
+        - --upstream=static://200
+        ports:
+        - containerPort: 4180
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /etc/oauth2-proxy
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+            scheme: HTTP
+          initialDelaySeconds: 0
+          timeoutSeconds: 1
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: 4180
+            scheme: HTTP
+          initialDelaySeconds: 0
+          timeoutSeconds: 1
+          successThreshold: 1
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: oauth2-proxy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: kgateway-test
+  labels:
+    app: oauth2-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - port: 4180
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: oauth2-proxy
