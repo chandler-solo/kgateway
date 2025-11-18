@@ -78,7 +78,7 @@ type ExtAuthProvider struct {
 
 	// WithRequestBody allows the request body to be buffered and sent to the auth service.
 	// Warning: buffering has implications for streaming and therefore performance.
-	// Note: This is primarily useful for HTTP services. For gRPC services, body handling
+	// Note: This is primarily useful for HTTP services. DLC? For gRPC services, body handling
 	// is typically done through the gRPC protocol.
 	// +optional
 	WithRequestBody *ExtAuthBufferSettings `json:"withRequestBody,omitempty"`

@@ -286,31 +286,21 @@ func (s *testingSuite) TestRouteTargetedExtAuthPolicy() {
 // TestHttpExtAuthPolicy tests HTTP-based ExtAuth functionality
 // This validates that HTTP extauth services work correctly alongside gRPC services
 func (s *testingSuite) TestHttpExtAuthPolicy() {
-	// This test demonstrates HTTP extauth configuration
-	// In a full implementation, you would:
-	// 1. Deploy an HTTP-based authorization service
-	// 2. Create a TrafficPolicy that references the HTTP extauth extension
-	// 3. Test authorization requests are sent to the HTTP service
-	// 4. Verify allow/deny responses work correctly
-	// 5. Test header manipulation (allowed headers, headers to add, etc.)
-
-	// For demonstration purposes, we'll just validate that the HTTP extauth extension
-	// can be created and referenced
-	s.Run("HTTP ExtAuth extension exists", func() {
-		// Verify the HTTP extension was created
-		s.testInstallation.Assertions.EventuallyObjectsExist(s.ctx, extAuthHttpExtension)
-	})
-
-	// Note: A complete E2E test would require:
-	// - An HTTP authorization server deployment (similar to ext-authz-server.yaml but HTTP-based)
-	// - Traffic policies that use the HTTP extension
-	// - Test cases validating:
+	// This is a basic validation test that the HTTP extauth extension can be created.
+	// For comprehensive HTTP ExtAuth testing, see test/e2e/features/extauth_http which includes:
+	//   * HTTP authorization server deployment
+	//   * TrafficPolicy configuration with HTTP ExtAuth
 	//   * Basic allow/deny via HTTP responses (200 = allow, 403 = deny)
-	//   * Path prefix configuration
-	//   * Request timeout handling
+	//   * Path prefix configuration and request timeout handling
 	//   * Authorization request headers (allowedHeaders, headersToAdd)
 	//   * Authorization response headers (allowedUpstreamHeaders, allowedClientHeaders)
 	//   * Dynamic metadata from headers
+	//   * Route-level policy overrides
+
+	s.Run("HTTP ExtAuth extension can be created", func() {
+		// Verify the HTTP extension was created
+		s.testInstallation.Assertions.EventuallyObjectsExist(s.ctx, extAuthHttpExtension)
+	})
 }
 
 func (s *testingSuite) ensureBasicRunning() {
