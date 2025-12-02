@@ -60,16 +60,28 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
+			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
+			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
 		{
-			Name:      "agentgateway-infrastructure",
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
+			InputFile: "agentgateway-omitdefaultsecuritycontext-gwp",
+		},
+		{
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
+			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw-gwp",
+		},
+		{
+			Name:      "agentgateway-infrastructure with AgentgatewayParameters",
 			InputFile: "agentgateway-infrastructure",
+		},
+		{
+			Name:      "agentgateway-infrastructure with GatewayParameters",
+			InputFile: "agentgateway-infrastructure-gwp",
 		},
 		{
 			Name:      "agentgateway-controller-but-custom-gatewayclass",
