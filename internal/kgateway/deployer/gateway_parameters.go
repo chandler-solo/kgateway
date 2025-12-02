@@ -106,26 +106,6 @@ func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
 }
 
-// isAgentgatewayParametersReferenced checks if the Gateway or its GatewayClass references AgentgatewayParameters.
-func (gp *GatewayParameters) isAgentgatewayParametersReferenced(gw *gwv1.Gateway) bool {
-	// Check Gateway's infrastructure.parametersRef
-	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
-		ref := gw.Spec.Infrastructure.ParametersRef
-		if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
-			return true
-		}
-	}
-
-	// Check GatewayClass's parametersRef
-	gwc := gp.kgwParameters.gwClassClient.Get(string(gw.Spec.GatewayClassName), "")
-	if gwc == nil || gwc.Spec.ParametersRef == nil {
-		return false
-	}
-
-	ref := gwc.Spec.ParametersRef
-	return ref.Group == v1alpha1.GroupName && string(ref.Kind) == wellknown.AgentgatewayParametersGVK.Kind
-}
-
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
@@ -234,7 +214,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
 	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
 	if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
-		slog.Debug("Gateway references AgentgatewayParameters, using default GatewayParameters",
+		slog.Debug("the Gateway references AgentgatewayParameters, using default GatewayParameters",
 			"gateway_name", gw.GetName(),
 			"gateway_namespace", gw.GetNamespace(),
 		)
@@ -312,7 +292,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
 	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
 	if paramRef.Group == v1alpha1.GroupName && string(paramRef.Kind) == wellknown.AgentgatewayParametersGVK.Kind {
-		slog.Debug("GatewayClass references AgentgatewayParameters, using default GatewayParameters",
+		slog.Debug("the GatewayClass references AgentgatewayParameters, using default GatewayParameters",
 			"gatewayclass_name", gwc.GetName(),
 		)
 		return defaultGwp, nil

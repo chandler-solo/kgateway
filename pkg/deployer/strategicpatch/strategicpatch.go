@@ -3,6 +3,7 @@ package strategicpatch
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -77,9 +78,7 @@ func applyOverlay(obj client.Object, overlay *v1alpha1.KubernetesResourceOverlay
 		if existingLabels == nil {
 			existingLabels = make(map[string]string)
 		}
-		for k, v := range overlay.Metadata.Labels {
-			existingLabels[k] = v
-		}
+		maps.Copy(existingLabels, overlay.Metadata.Labels)
 		obj.SetLabels(existingLabels)
 	}
 	if overlay.Metadata.Annotations != nil {
@@ -87,9 +86,7 @@ func applyOverlay(obj client.Object, overlay *v1alpha1.KubernetesResourceOverlay
 		if existingAnnotations == nil {
 			existingAnnotations = make(map[string]string)
 		}
-		for k, v := range overlay.Metadata.Annotations {
-			existingAnnotations[k] = v
-		}
+		maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
 		obj.SetAnnotations(existingAnnotations)
 	}
 

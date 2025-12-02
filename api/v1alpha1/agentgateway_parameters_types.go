@@ -69,8 +69,11 @@ const (
 
 // +kubebuilder:validation:AtMostOneOf=level;levels
 type AgentgatewayParametersLogging struct {
-	Level  string                              `json:"level,omitempty"`
-	Levels []string                            `json:"levels,omitempty"`
+	// +optional
+	Level string `json:"level,omitempty"`
+	// +optional
+	Levels []string `json:"levels,omitempty"`
+	// +optional
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }
 
@@ -115,12 +118,15 @@ type AgentgatewayParametersConfigs struct {
 
 type AgentgatewayParametersOverlays struct {
 	// deployment allows specifying overrides for the generated Deployment resource.
+	// +optional
 	Deployment *KubernetesResourceOverlay `json:"deployment,omitempty"`
 
 	// service allows specifying overrides for the generated Service resource.
+	// +optional
 	Service *KubernetesResourceOverlay `json:"service,omitempty"`
 
 	// serviceAccount allows specifying overrides for the generated ServiceAccount resource.
+	// +optional
 	ServiceAccount *KubernetesResourceOverlay `json:"serviceAccount,omitempty"`
 
 	// podDisruptionBudget allows specifying overrides for the generated PodDisruptionBudget resource.
@@ -130,6 +136,7 @@ type AgentgatewayParametersOverlays struct {
 	// spec.selector.matchLabels will be set first and can be overridden with
 	// strategic-merge-patch. Details of maxAvailable, maxUnavailable, etc. are
 	// left to you. TODO(chandler): DLC: implement
+	// +optional
 	PodDisruptionBudget *KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
 
 	// TODO(chandler): DLC: why is HPA special compared to VPA and KPA? Do we
@@ -146,6 +153,7 @@ type AgentgatewayParametersOverlays struct {
 	// field enables one, and metadata.name, metadata.labels, and
 	// spec.scaleTargetRef will be set first and can be overridden with
 	// strategic-merge-patch.
+	// +optional
 	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
 }
 

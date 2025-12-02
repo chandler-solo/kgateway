@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"istio.io/istio/pkg/kube/kclient"
 	corev1 "k8s.io/api/core/v1"
@@ -94,7 +95,7 @@ func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *g
 
 	// Check if it's an AgentgatewayParameters reference
 	if ref.Group != v1alpha1.GroupName || string(ref.Kind) != wellknown.AgentgatewayParametersGVK.Kind {
-		slog.Debug("GatewayClass parametersRef is not an AgentgatewayParameters",
+		slog.Debug("the GatewayClass parametersRef is not an AgentgatewayParameters",
 			"gatewayclass_name", gwc.GetName(),
 			"group", ref.Group,
 			"kind", ref.Kind,
@@ -128,7 +129,7 @@ func (a *agentgatewayParameters) getGatewayClassFromGateway(gw *gwv1.Gateway) (*
 		return nil, errors.New("nil Gateway")
 	}
 	if gw.Spec.GatewayClassName == "" {
-		return nil, errors.New("GatewayClassName must not be empty")
+		return nil, errors.New("gatewayClassName must not be empty")
 	}
 
 	gwc := a.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
@@ -203,17 +204,13 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		if vals.Gateway.ExtraPodLabels == nil {
 			vals.Gateway.ExtraPodLabels = make(map[string]string)
 		}
-		for k, v := range configs.Labels {
-			vals.Gateway.ExtraPodLabels[k] = v
-		}
+		maps.Copy(vals.Gateway.ExtraPodLabels, configs.Labels)
 	}
 	if len(configs.Annotations) > 0 {
 		if vals.Gateway.ExtraPodAnnotations == nil {
 			vals.Gateway.ExtraPodAnnotations = make(map[string]string)
 		}
-		for k, v := range configs.Annotations {
-			vals.Gateway.ExtraPodAnnotations[k] = v
-		}
+		maps.Copy(vals.Gateway.ExtraPodAnnotations, configs.Annotations)
 	}
 }
 
