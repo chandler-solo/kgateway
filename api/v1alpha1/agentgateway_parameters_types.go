@@ -1,10 +1,15 @@
+// NOTE(chandler): This is my illuminated manuscript for PR 13007, which is
+// much better than the way that kgateway 2.1.0 specifies many Kubernetes
+// fields, but never the one you need, in its GatewayParameters.
+
+// TODO(chandler): DLC: should we implement either or both of the following?
+//
+// - validation of objects before S-M-P using strategicpatch lib
+// - validation of objects after S-M-P
+
 package v1alpha1
 
 import (
-	"encoding/json"
-	"fmt"
-	"strings"
-
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,7 +25,7 @@ import (
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:metadata:labels={app=kgateway,app.kubernetes.io/name=kgateway}
-// +kubebuilder:resource:categories=kgateway,shortName=agpar
+// +kubebuilder:resource:categories=kgateway,shortName=agpar,path=agentgatewayparameters
 // +kubebuilder:subresource:status
 // +kubebuilder:metadata:labels="gateway.networking.k8s.io/policy=Direct"
 type AgentgatewayParameters struct {
@@ -28,7 +33,7 @@ type AgentgatewayParameters struct {
 	// metadata for the object
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	// spec defines the desired state of AgentgatewayParameters.
 	// +required
@@ -36,7 +41,7 @@ type AgentgatewayParameters struct {
 
 	// status defines the current state of AgentgatewayParameters.
 	// +optional
-	Status AgentgatewayParametersStatus `json:"status,omitempty"`
+	Status AgentgatewayParametersStatus `json:"status"`
 }
 
 // The current conditions of the GatewayParameters. This is not currently implemented.
@@ -45,7 +50,7 @@ type AgentgatewayParametersStatus struct{}
 // +kubebuilder:object:root=true
 type AgentgatewayParametersList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
+	metav1.ListMeta `json:"metadata"`
 	Items           []AgentgatewayParameters `json:"items"`
 }
 
@@ -62,8 +67,10 @@ const (
 	AgentgatewayParametersLoggingPlain AgentgatewayParametersLoggingFormat = "Plain"
 )
 
+// +kubebuilder:validation:AtMostOneOf=level;levels
 type AgentgatewayParametersLogging struct {
-	Level  ListOrString                        `json:"level,omitempty"`
+	Level  string                              `json:"level,omitempty"`
+	Levels []string                            `json:"levels,omitempty"`
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }
 
@@ -79,6 +86,7 @@ type AgentgatewayParametersConfigs struct {
 	// logging configuration for Agentgateway. By default, all logs are set to "info" level.
 	// +optional
 	Logging *AgentgatewayParametersLogging `json:"logging,omitempty"`
+
 	// The agentgateway container image. See
 	// https://kubernetes.io/docs/concepts/containers/images
 	// for details.
@@ -92,6 +100,7 @@ type AgentgatewayParametersConfigs struct {
 	//
 	// +optional
 	Image *Image `json:"image,omitempty"`
+
 	// The container environment variables.
 	//
 	// +optional
@@ -106,19 +115,38 @@ type AgentgatewayParametersConfigs struct {
 
 type AgentgatewayParametersOverlays struct {
 	// deployment allows specifying overrides for the generated Deployment resource.
-	Deployment *AgentgatewayParametersObjectOverlay `json:"deployment,omitempty"`
+	Deployment *KubernetesResourceOverlay `json:"deployment,omitempty"`
+
 	// service allows specifying overrides for the generated Service resource.
-	Service *AgentgatewayParametersObjectOverlay `json:"service,omitempty"`
+	Service *KubernetesResourceOverlay `json:"service,omitempty"`
+
 	// serviceAccount allows specifying overrides for the generated ServiceAccount resource.
-	ServiceAccount *AgentgatewayParametersObjectOverlay `json:"serviceAccount,omitempty"`
+	ServiceAccount *KubernetesResourceOverlay `json:"serviceAccount,omitempty"`
+
 	// podDisruptionBudget allows specifying overrides for the generated PodDisruptionBudget resource.
-	// Note: a PodDisruptionBudget is not deployed by default. Setting this field enables a default one.
-	// If you just want the default, without customizations, use `podDisruptionBudget: {}`.
-	PodDisruptionBudget *AgentgatewayParametersObjectOverlay `json:"podDisruptionBudget,omitempty"`
+	// Note: a PodDisruptionBudget is not deployed by default. kgateway has no
+	// opinion about a correct PodDisruptionBudget, but if you set this field,
+	// even to the empty Object `{}`, metadata.name, metadata.labels, and
+	// spec.selector.matchLabels will be set first and can be overridden with
+	// strategic-merge-patch. Details of maxAvailable, maxUnavailable, etc. are
+	// left to you. TODO(chandler): DLC: implement
+	PodDisruptionBudget *KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
+
+	// TODO(chandler): DLC: why is HPA special compared to VPA and KPA? Do we
+	// plan to allow configuring extensions like extauth?
+
+	// TODO(chandler): DLC: If you want a PDB, PR 12592 has the right idea --
+	// protect the control plane and the data plane both.
+
+	// TODO(chandler): DLC: If you want an HPA, perhaps you want an autoscaler
+	// (VPA because of leader election?) for the control plane?
+
 	// horizontalPodAutoscaler allows specifying overrides for the generated HorizontalPodAutoscaler resource.
-	// Note: a HorizontalPodAutoscaler is not deployed by default. Setting this field enables a default one.
-	// If you just want the default, without customizations, use `horizontalPodAutoscaler: {}`.
-	HorizontalPodAutoscaler *AgentgatewayParametersObjectOverlay `json:"horizontalPodAutoscaler,omitempty"`
+	// Note: a HorizontalPodAutoscaler is not deployed by default. Setting this
+	// field enables one, and metadata.name, metadata.labels, and
+	// spec.scaleTargetRef will be set first and can be overridden with
+	// strategic-merge-patch.
+	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
 }
 
 type AgentgatewayParametersObjectMetadata struct {
@@ -136,41 +164,65 @@ type AgentgatewayParametersObjectMetadata struct {
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
-type AgentgatewayParametersObjectOverlay struct {
+
+// KubernetesResourceOverlay provides a mechanism to customize generated
+// Kubernetes resources using [Strategic Merge
+// Patch](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-api-machinery/strategic-merge-patch.md)
+// semantics.
+type KubernetesResourceOverlay struct {
 	// metadata defines a subset of object metadata to be customized.
 	// +optional
-	Metadata AgentgatewayParametersObjectMetadata `json:"metadata,omitempty"`
-	// spec defines an overlay to apply onto the object, using [Strategic Merge Patch](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-api-machinery/strategic-merge-patch.md).
+	Metadata AgentgatewayParametersObjectMetadata `json:"metadata"`
+
+	// Spec provides an opaque mechanism to configure the resource Spec.
+	// This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
+	// and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
 	// The patch is applied after all other fields are applied.
+	//
+	// # Strategic Merge Patch & Deletion Guide
+	//
+	// This merge strategy allows you to override individual fields, merge lists, or delete items
+	// without needing to provide the entire resource definition.
+	//
+	// **1. Replacing Values (Scalars):**
+	// Simple fields (strings, integers, booleans) in your config will overwrite the generated defaults.
+	//
+	// **2. Merging Lists (Append/Merge):**
+	// Lists with "merge keys" (like `containers` which merges on `name`, or `tolerations` which merges on `key`)
+	// will append your items to the generated list, or update existing items if keys match.
+	//
+	// **3. Deleting List Items ($patch: delete):**
+	// To remove an item from a generated list (e.g., removing a default sidecar), you must use
+	// the special `$patch: delete` directive.
+	//
+	//   spec:
+	//     template:
+	//       spec:
+	//         containers:
+	//         - name: unwanted-sidecar
+	//           $patch: delete
+	//
+	// **4. Deleting/Clearing Map Fields (null):**
+	// To remove a map field or a scalar entirely, set its value to `null`.
+	//
+	//   spec:
+	//     template:
+	//       spec:
+	//         nodeSelector: null  # Removes default nodeSelector
+	//
+	// **5. Replacing Lists Entirely ($patch: replace):**
+	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
+	//
+	//   spec:
+	//     template:
+	//       spec:
+	//         containers:
+	//         - name: my-only-container
+	//           image: alpine
+	//         $patch: replace
+	//
 	// +optional
-	Spec apiextensionsv1.JSON `json:"spec,omitempty"`
-}
-
-// TODO: this doesn't work
-// ListOrString is a type that can hold either a single string or a list of strings
-// +kubebuilder:validation:Type=array
-// +kubebuilder:validation:Type=string
-type ListOrString []string
-
-// UnmarshalJSON implements the json.Unmarshaller interface
-func (l *ListOrString) UnmarshalJSON(data []byte) error {
-	if len(data) == 0 || string(data) == "null" {
-		return nil
-	}
-
-	// Try to unmarshal as string first
-	var strVal string
-	if err := json.Unmarshal(data, &strVal); err == nil {
-		*l = strings.Split(strVal, ",")
-		return nil
-	}
-
-	// Try to unmarshal as array
-	var arrVal []string
-	if err := json.Unmarshal(data, &arrVal); err == nil {
-		*l = arrVal
-		return nil
-	}
-
-	return fmt.Errorf("cannot unmarshal %s into ListOrString", string(data))
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Spec *apiextensionsv1.JSON `json:"spec,omitempty"`
 }

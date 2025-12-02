@@ -13,7 +13,7 @@ import (
 type GatewayV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	AgentgatewayBackendsGetter
-	AgentgatewayParametersesGetter
+	AgentgatewayParametersGetter
 	AgentgatewayPoliciesGetter
 	BackendsGetter
 	BackendConfigPoliciesGetter
@@ -34,8 +34,8 @@ func (c *GatewayV1alpha1Client) AgentgatewayBackends(namespace string) Agentgate
 	return newAgentgatewayBackends(c, namespace)
 }
 
-func (c *GatewayV1alpha1Client) AgentgatewayParameterses(namespace string) AgentgatewayParametersInterface {
-	return newAgentgatewayParameterses(c, namespace)
+func (c *GatewayV1alpha1Client) AgentgatewayParameters(namespace string) AgentgatewayParametersInterface {
+	return newAgentgatewayParameters(c, namespace)
 }
 
 func (c *GatewayV1alpha1Client) AgentgatewayPolicies(namespace string) AgentgatewayPolicyInterface {

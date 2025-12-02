@@ -13,10 +13,10 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// AgentgatewayParametersesGetter has a method to return a AgentgatewayParametersInterface.
+// AgentgatewayParametersGetter has a method to return a AgentgatewayParametersInterface.
 // A group's client should implement this interface.
-type AgentgatewayParametersesGetter interface {
-	AgentgatewayParameterses(namespace string) AgentgatewayParametersInterface
+type AgentgatewayParametersGetter interface {
+	AgentgatewayParameters(namespace string) AgentgatewayParametersInterface
 }
 
 // AgentgatewayParametersInterface has methods to work with AgentgatewayParameters resources.
@@ -34,16 +34,16 @@ type AgentgatewayParametersInterface interface {
 	AgentgatewayParametersExpansion
 }
 
-// agentgatewayParameterses implements AgentgatewayParametersInterface
-type agentgatewayParameterses struct {
+// agentgatewayParameters implements AgentgatewayParametersInterface
+type agentgatewayParameters struct {
 	*gentype.ClientWithList[*apiv1alpha1.AgentgatewayParameters, *apiv1alpha1.AgentgatewayParametersList]
 }
 
-// newAgentgatewayParameterses returns a AgentgatewayParameterses
-func newAgentgatewayParameterses(c *GatewayV1alpha1Client, namespace string) *agentgatewayParameterses {
-	return &agentgatewayParameterses{
+// newAgentgatewayParameters returns a AgentgatewayParameters
+func newAgentgatewayParameters(c *GatewayV1alpha1Client, namespace string) *agentgatewayParameters {
+	return &agentgatewayParameters{
 		gentype.NewClientWithList[*apiv1alpha1.AgentgatewayParameters, *apiv1alpha1.AgentgatewayParametersList](
-			"agentgatewayparameterses",
+			"agentgatewayparameters",
 			c.RESTClient(),
 			scheme.ParameterCodec,
 			namespace,

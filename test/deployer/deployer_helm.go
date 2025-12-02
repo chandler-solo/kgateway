@@ -126,11 +126,12 @@ func (dt DeployerTester) RunHelmChartTest(
 	ctx := t.Context()
 	fakeClient.RunAndWait(ctx.Done())
 
-	vals, err := gwParams.GetValues(ctx, gtw)
-	assert.NoError(t, err, "error getting values for GwParams")
+	// Get post-processed objects (what actually gets deployed)
+	deployObjs, err := deployer.GetObjsToDeploy(ctx, gtw)
+	assert.NoError(t, err, "error getting objects to deploy")
 
-	got, err := deployer.RenderManifest(gtw.Namespace, gtw.Name, vals)
-	assert.NoError(t, err, "error rendering helm manifest")
+	got, err := objectsToYAML(deployObjs)
+	assert.NoError(t, err, "error converting objects to YAML")
 
 	if envutils.IsEnvTruthy("REFRESH_GOLDEN") {
 		t.Log("REFRESH_GOLDEN is set, writing output file", outputFile)
@@ -157,6 +158,22 @@ func (dt DeployerTester) RunHelmChartTest(
 	diff := cmp.Diff(data, got)
 	outputStr := "%s\nthe golden file, which can be refreshed via `REFRESH_GOLDEN=true go test ./test/deployer`, is\n%s"
 	assert.Empty(t, diff, outputStr, diff, outputFile)
+}
+
+// objectsToYAML converts a slice of client.Object to YAML bytes, separated by "---"
+func objectsToYAML(objs []client.Object) ([]byte, error) {
+	var result []byte
+	for i, obj := range objs {
+		objYAML, err := yaml.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 {
+			result = append(result, []byte("---\n")...)
+		}
+		result = append(result, objYAML...)
+	}
+	return result, nil
 }
 
 func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonCollections) *pkgdeployer.Inputs {

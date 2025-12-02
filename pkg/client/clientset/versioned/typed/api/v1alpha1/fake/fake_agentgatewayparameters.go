@@ -8,18 +8,18 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakeAgentgatewayParameterses implements AgentgatewayParametersInterface
-type fakeAgentgatewayParameterses struct {
+// fakeAgentgatewayParameters implements AgentgatewayParametersInterface
+type fakeAgentgatewayParameters struct {
 	*gentype.FakeClientWithList[*v1alpha1.AgentgatewayParameters, *v1alpha1.AgentgatewayParametersList]
 	Fake *FakeGatewayV1alpha1
 }
 
-func newFakeAgentgatewayParameterses(fake *FakeGatewayV1alpha1, namespace string) apiv1alpha1.AgentgatewayParametersInterface {
-	return &fakeAgentgatewayParameterses{
+func newFakeAgentgatewayParameters(fake *FakeGatewayV1alpha1, namespace string) apiv1alpha1.AgentgatewayParametersInterface {
+	return &fakeAgentgatewayParameters{
 		gentype.NewFakeClientWithList[*v1alpha1.AgentgatewayParameters, *v1alpha1.AgentgatewayParametersList](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("agentgatewayparameterses"),
+			v1alpha1.SchemeGroupVersion.WithResource("agentgatewayparameters"),
 			v1alpha1.SchemeGroupVersion.WithKind("AgentgatewayParameters"),
 			func() *v1alpha1.AgentgatewayParameters { return &v1alpha1.AgentgatewayParameters{} },
 			func() *v1alpha1.AgentgatewayParametersList { return &v1alpha1.AgentgatewayParametersList{} },

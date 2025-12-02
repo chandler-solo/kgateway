@@ -35,7 +35,8 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 	gp := &GatewayParameters{
 		inputs: inputs,
 		// build this once versus on every getHelmValuesGenerator call
-		kgwParameters: newkgatewayParameters(cli, inputs),
+		kgwParameters:          newkgatewayParameters(cli, inputs),
+		agwHelmValuesGenerator: newAgentgatewayParametersHelmValuesGenerator(cli, inputs),
 	}
 
 	return gp
@@ -45,6 +46,7 @@ type GatewayParameters struct {
 	inputs                      *deployer.Inputs
 	helmValuesGeneratorOverride deployer.HelmValuesGenerator
 	kgwParameters               *kgatewayParameters
+	agwHelmValuesGenerator      *agentgatewayParametersHelmValuesGenerator
 }
 
 type kgatewayParameters struct {
@@ -83,8 +85,45 @@ func (gp *GatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	return gp.kgwParameters.GetCacheSyncHandlers()
 }
 
+// PostProcessObjects implements deployer.ObjectPostProcessor.
+// It applies AgentgatewayParameters overlays to the rendered objects.
+func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok || gp.agwHelmValuesGenerator == nil {
+		return nil
+	}
+
+	agwp, err := gp.agwHelmValuesGenerator.GetAgentgatewayParametersForGateway(gw)
+	if err != nil || agwp == nil {
+		return nil
+	}
+
+	applier := NewAgentgatewayParametersApplier(agwp)
+	return applier.ApplyOverlaysToObjects(rendered)
+}
+
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
+}
+
+// isAgentgatewayParametersReferenced checks if the Gateway or its GatewayClass references AgentgatewayParameters.
+func (gp *GatewayParameters) isAgentgatewayParametersReferenced(gw *gwv1.Gateway) bool {
+	// Check Gateway's infrastructure.parametersRef
+	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
+		ref := gw.Spec.Infrastructure.ParametersRef
+		if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
+			return true
+		}
+	}
+
+	// Check GatewayClass's parametersRef
+	gwc := gp.kgwParameters.gwClassClient.Get(string(gw.Spec.GatewayClassName), "")
+	if gwc == nil || gwc.Spec.ParametersRef == nil {
+		return false
+	}
+
+	ref := gwc.Spec.ParametersRef
+	return ref.Group == v1alpha1.GroupName && string(ref.Kind) == wellknown.AgentgatewayParametersGVK.Kind
 }
 
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
@@ -99,6 +138,15 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 			"gateway_namespace", gw.GetNamespace(),
 		)
 		return gp.helmValuesGeneratorOverride, nil
+	}
+
+	// Check if AgentgatewayParameters is referenced - use agentgateway helm values generator
+	if gp.isAgentgatewayParametersReferenced(gw) {
+		slog.Debug("using AgentgatewayParameters HelmValuesGenerator for Gateway",
+			"gateway_name", gw.GetName(),
+			"gateway_namespace", gw.GetNamespace(),
+		)
+		return gp.agwHelmValuesGenerator, nil
 	}
 
 	slog.Debug("using default HelmValuesGenerator for Gateway",
