@@ -140,8 +140,9 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		return gp.helmValuesGeneratorOverride, nil
 	}
 
-	// Check if AgentgatewayParameters is referenced - use agentgateway helm values generator
-	if gp.isAgentgatewayParametersReferenced(gw) {
+	// Check if AgentgatewayParameters is referenced with config fields set
+	// (image, resources, etc.) - if so, use the agentgateway helm values generator
+	if gp.agentgatewayParametersHasConfigs(gw) {
 		slog.Debug("using AgentgatewayParameters HelmValuesGenerator for Gateway",
 			"gateway_name", gw.GetName(),
 			"gateway_namespace", gw.GetNamespace(),
@@ -149,11 +150,35 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		return gp.agwHelmValuesGenerator, nil
 	}
 
+	// Use kgwParameters for helm values generation.
+	// AgentgatewayParameters overlays (if any) are applied via PostProcessObjects.
 	slog.Debug("using default HelmValuesGenerator for Gateway",
 		"gateway_name", gw.GetName(),
 		"gateway_namespace", gw.GetNamespace(),
 	)
 	return gp.kgwParameters, nil
+}
+
+// agentgatewayParametersHasConfigs checks if the Gateway references AgentgatewayParameters
+// with config fields set (image, resources, logging, etc.)
+func (gp *GatewayParameters) agentgatewayParametersHasConfigs(gw *gwv1.Gateway) bool {
+	if gp.agwHelmValuesGenerator == nil {
+		return false
+	}
+
+	agwp, err := gp.agwHelmValuesGenerator.GetAgentgatewayParametersForGateway(gw)
+	if err != nil || agwp == nil {
+		return false
+	}
+
+	// Check if any config fields are set
+	configs := agwp.Spec.AgentgatewayParametersConfigs
+	return configs.Image != nil ||
+		configs.Resources != nil ||
+		configs.Logging != nil ||
+		len(configs.Labels) > 0 ||
+		len(configs.Annotations) > 0 ||
+		len(configs.Env) > 0
 }
 
 func newkgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *kgatewayParameters {
@@ -205,11 +230,22 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 		return k.getDefaultGatewayParameters(gw)
 	}
 
-	gwpName := gw.Spec.Infrastructure.ParametersRef.Name
-	if group := gw.Spec.Infrastructure.ParametersRef.Group; group != v1alpha1.GroupName {
+	ref := gw.Spec.Infrastructure.ParametersRef
+	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
+	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
+	if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
+		slog.Debug("Gateway references AgentgatewayParameters, using default GatewayParameters",
+			"gateway_name", gw.GetName(),
+			"gateway_namespace", gw.GetNamespace(),
+		)
+		return k.getDefaultGatewayParameters(gw)
+	}
+
+	gwpName := ref.Name
+	if group := ref.Group; group != v1alpha1.GroupName {
 		return nil, fmt.Errorf("invalid group %s for GatewayParameters", group)
 	}
-	if kind := gw.Spec.Infrastructure.ParametersRef.Kind; kind != gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+	if kind := ref.Kind; kind != gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
 		return nil, fmt.Errorf("invalid kind %s for GatewayParameters", kind)
 	}
 
@@ -270,6 +306,15 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 	paramRef := gwc.Spec.ParametersRef
 	if paramRef == nil {
 		// when there is no parametersRef, just return the defaults
+		return defaultGwp, nil
+	}
+
+	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
+	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
+	if paramRef.Group == v1alpha1.GroupName && string(paramRef.Kind) == wellknown.AgentgatewayParametersGVK.Kind {
+		slog.Debug("GatewayClass references AgentgatewayParameters, using default GatewayParameters",
+			"gatewayclass_name", gwc.GetName(),
+		)
 		return defaultGwp, nil
 	}
 

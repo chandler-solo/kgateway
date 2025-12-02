@@ -9,6 +9,7 @@ import (
 	"istio.io/istio/pkg/kube/kclient"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -331,22 +332,42 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		gtw.GatewayLabels = translateInfraMeta(i.Labels)
 	}
 
-	// Set default image if available from inputs
-	if g.inputs.ImageInfo != nil {
-		gtw.Image = &deployer.HelmImage{
-			Registry: &g.inputs.ImageInfo.Registry,
-			Tag:      &g.inputs.ImageInfo.Tag,
-		}
+	gtw.Image = &deployer.HelmImage{
+		Registry:   ptr.To(deployer.AgentgatewayRegistry),
+		Repository: ptr.To(deployer.AgentgatewayImage),
+		Tag:        ptr.To(deployer.AgentgatewayDefaultTag),
+		PullPolicy: ptr.To(""),
 	}
+	gtw.DataPlaneType = deployer.DataPlaneAgentgateway
 
-	// Set default values for agentgateway (same defaults as kgwParameters path)
 	gtw.TerminationGracePeriodSeconds = ptr.To(int64(60))
 	gtw.GracefulShutdown = &v1alpha1.GracefulShutdownSpec{
 		Enabled:          ptr.To(true),
 		SleepTimeSeconds: ptr.To(int64(10)),
 	}
 
-	// Set default security contexts for agentgateway
+	gtw.ReadinessProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/healthz/ready",
+				Port: intstr.FromInt(15021),
+			},
+		},
+		PeriodSeconds: 10,
+	}
+	gtw.StartupProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: "/healthz/ready",
+				Port: intstr.FromInt(15021),
+			},
+		},
+		PeriodSeconds:    1,
+		TimeoutSeconds:   2,
+		FailureThreshold: 60,
+		SuccessThreshold: 1,
+	}
+
 	gtw.PodSecurityContext = &corev1.PodSecurityContext{
 		Sysctls: []corev1.Sysctl{
 			{

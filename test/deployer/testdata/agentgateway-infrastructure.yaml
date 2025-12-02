@@ -6,31 +6,6 @@ spec:
   controllerName: kgateway.dev/kgateway
   description: Standard class for managing Gateway API ingress traffic.
 ---
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: GatewayParameters
-metadata:
-  name: opts
-  namespace: default
-spec:
-  kube:
-    service:
-      extraLabels:
-        infra-and-params: params
-      extraAnnotations:
-        infra-and-params: params
-    serviceAccount:
-      extraLabels:
-        infra-and-params: params
-      extraAnnotations:
-        infra-and-params: params
-    podTemplate:
-      extraAnnotations:
-        extra-annotation: v1
-        infra-and-params: params
-      extraLabels:
-        extra-label: v1
-        infra-and-params: params
----
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -40,9 +15,24 @@ spec:
   description: Specialized class for agentgateway.
   parametersRef:
     group: gateway.kgateway.dev
-    kind: GatewayParameters
+    kind: AgentgatewayParameters
     name: opts
     namespace: default
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: opts
+  namespace: default
+spec:
+  # Pod-level labels and annotations (applied to helm values before rendering)
+  # These test that infrastructure labels/annotations take precedence
+  labels:
+    extra-label: v1
+    infra-and-params: params
+  annotations:
+    extra-annotation: v1
+    infra-and-params: params
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1

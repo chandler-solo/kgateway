@@ -132,13 +132,17 @@ spec:
               fieldPath: metadata.namespace
         - name: GATEWAY
           value: gw
-        image: ghcr.io/custom-agentgateway:v1.0.0
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/agentgateway/custom-agentgateway:v1.0.0
         name: agent-gateway
         ports:
         - containerPort: 15020
           name: metrics
           protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz/ready
+            port: 15021
+          periodSeconds: 10
         resources:
           limits:
             cpu: 500m
@@ -147,6 +151,14 @@ spec:
             cpu: 100m
             memory: 128Mi
         securityContext: {}
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /healthz/ready
+            port: 15021
+          periodSeconds: 1
+          successThreshold: 1
+          timeoutSeconds: 2
         volumeMounts:
         - mountPath: /etc/custom-config
           name: custom-config
