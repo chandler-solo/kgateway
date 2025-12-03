@@ -142,7 +142,16 @@ spec:
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
               env:
-                description: The container environment variables.
+                description: |-
+                  The container environment variables. These override any existing
+                  values. If you want to delete an environment variable entirely, use
+                  `$patch: delete` with AgentgatewayParametersOverlays instead. Note that
+                  [variable
+                  expansion](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/)
+                  does apply, but is highly discouraged -- to set dependent environment
+                  variables, you can use $(VAR_NAME), but it's highly
+                  discouraged. `$$(VAR_NAME)` avoids expansion and results in a literal
+                  `$(VAR_NAME)`.
                 items:
                   description: EnvVar represents an environment variable present in
                     a Container.
@@ -384,7 +393,8 @@ spec:
                 description: "The agentgateway container image. See\nhttps://kubernetes.io/docs/concepts/containers/images\nfor
                   details.\n\nDefault values, which may be overridden individually:\n\n\tregistry:
                   ghcr.io/agentgateway\n\trepository: agentgateway\n\ttag: <agentgateway
-                  version>\n\tpullPolicy: IfNotPresent"
+                  version>\n\tpullPolicy: <omitted, relying on Kubernetes defaults
+                  which depend on the tag>"
                 properties:
                   digest:
                     description: The hash digest of the image, e.g. `sha256:12345...`

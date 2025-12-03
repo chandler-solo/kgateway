@@ -107,6 +107,16 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway with full image override",
 			InputFile: "agentgateway-image-override",
 		},
+		{
+			Name:      "agentgateway with env vars",
+			InputFile: "agentgateway-env",
+		},
+		{
+			// The key thing here is that ImagePullPolicy is not specified at
+			// all, allowing k8s to look at the tag to decide:
+			Name:      "agentgateway with repository only image override",
+			InputFile: "agentgateway-image-repo-only",
+		},
 	}
 
 	tester := DeployerTester{

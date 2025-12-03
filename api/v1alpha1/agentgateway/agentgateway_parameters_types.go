@@ -99,12 +99,20 @@ type AgentgatewayParametersConfigs struct {
 	//	registry: ghcr.io/agentgateway
 	//	repository: agentgateway
 	//	tag: <agentgateway version>
-	//	pullPolicy: IfNotPresent
+	//	pullPolicy: <omitted, relying on Kubernetes defaults which depend on the tag>
 	//
 	// +optional
 	Image *Image `json:"image,omitempty"`
 
-	// The container environment variables.
+	// The container environment variables. These override any existing
+	// values. If you want to delete an environment variable entirely, use
+	// `$patch: delete` with AgentgatewayParametersOverlays instead. Note that
+	// [variable
+	// expansion](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/)
+	// does apply, but is highly discouraged -- to set dependent environment
+	// variables, you can use $(VAR_NAME), but it's highly
+	// discouraged. `$$(VAR_NAME)` avoids expansion and results in a literal
+	// `$(VAR_NAME)`.
 	//
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`

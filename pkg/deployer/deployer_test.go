@@ -2083,14 +2083,16 @@ var _ = Describe("Deployer", func() {
 
 			// assert istio container
 			istioContainer := dep.Spec.Template.Spec.Containers[2]
-			defaultIstioVersion := *deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+			defaultGwp, err := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 				ControllerName:             "kgateway.dev/a",
 				ClassName:                  "a",
 				ImageInfo:                  &deployer.ImageInfo{},
 				WaypointClassName:          "b",
 				AgwControllerName:          "c",
 				OmitDefaultSecurityContext: true,
-			}).Spec.Kube.Istio.IstioProxyContainer.Image.Tag
+			})
+			Expect(err).NotTo(HaveOccurred())
+			defaultIstioVersion := *defaultGwp.Spec.Kube.Istio.IstioProxyContainer.Image.Tag
 			helpTestImage(expectedGwp.Istio.IstioProxyContainer.Image, istioContainer, defaultIstioVersion)
 			Expect(istioContainer.Resources.Limits.Cpu()).To(Equal(expectedGwp.Istio.IstioProxyContainer.Resources.Limits.Cpu()))
 			Expect(istioContainer.Resources.Requests.Cpu()).To(Equal(expectedGwp.Istio.IstioProxyContainer.Resources.Requests.Cpu()))
