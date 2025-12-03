@@ -26,10 +26,6 @@ spec:
       jsonPath: .status.conditions[?(@.type=='Accepted')].status
       name: Accepted
       type: string
-    - description: The age of the backend.
-      jsonPath: .metadata.creationTimestamp
-      name: Age
-      type: date
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
