@@ -103,6 +103,10 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway-params-primary",
 			InputFile: "agentgateway-params-primary",
 		},
+		{
+			Name:      "agentgateway with full image override",
+			InputFile: "agentgateway-image-override",
+		},
 	}
 
 	tester := DeployerTester{

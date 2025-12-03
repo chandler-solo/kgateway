@@ -13,8 +13,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 )
 
 // +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
@@ -104,9 +102,7 @@ type AgentgatewayParametersConfigs struct {
 	//	pullPolicy: IfNotPresent
 	//
 	// +optional
-	Image *kgateway.Image `json:"image,omitempty"`
-
-	// TODO(chandler): DLC: kgateway.Image is the wrong GVK!
+	Image *Image `json:"image,omitempty"`
 
 	// The container environment variables.
 	//
@@ -237,4 +233,35 @@ type KubernetesResourceOverlay struct {
 	// +kubebuilder:validation:Type=object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Spec *apiextensionsv1.JSON `json:"spec,omitempty"`
+}
+
+// A container image. See https://kubernetes.io/docs/concepts/containers/images
+// for details.
+type Image struct {
+	// The image registry.
+	//
+	// +optional
+	Registry *string `json:"registry,omitempty"`
+
+	// The image repository (name).
+	//
+	// +optional
+	Repository *string `json:"repository,omitempty"`
+
+	// The image tag.
+	//
+	// +optional
+	Tag *string `json:"tag,omitempty"`
+
+	// The hash digest of the image, e.g. `sha256:12345...`
+	//
+	// +optional
+	Digest *string `json:"digest,omitempty"`
+
+	// The image pull policy for the container. See
+	// https://kubernetes.io/docs/concepts/containers/images/#image-pull-policy
+	// for details.
+	//
+	// +optional
+	PullPolicy *corev1.PullPolicy `json:"pullPolicy,omitempty"`
 }

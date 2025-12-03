@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
@@ -36,7 +35,7 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Image(t *testing.T) {
 	params := &agentgateway.AgentgatewayParameters{
 		Spec: agentgateway.AgentgatewayParametersSpec{
 			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
-				Image: &kgateway.Image{
+				Image: &agentgateway.Image{
 					Registry:   ptr.To("custom.registry.io"),
 					Repository: ptr.To("custom/agentgateway"),
 					Tag:        ptr.To("v1.0.0"),

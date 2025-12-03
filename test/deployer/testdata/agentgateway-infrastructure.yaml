@@ -14,12 +14,12 @@ spec:
   controllerName: kgateway.dev/agentgateway
   description: Specialized class for agentgateway.
   parametersRef:
-    group: gateway.kgateway.dev
+    group: agentgateway.dev
     kind: AgentgatewayParameters
     name: opts
     namespace: default
 ---
-apiVersion: gateway.kgateway.dev/v1alpha1
+apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
 metadata:
   name: opts
