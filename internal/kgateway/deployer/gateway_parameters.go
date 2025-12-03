@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/helm"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
@@ -50,7 +50,7 @@ type GatewayParameters struct {
 }
 
 type kgatewayParameters struct {
-	gwParamClient kclient.Client[*v1alpha1.GatewayParameters]
+	gwParamClient kclient.Client[*kgateway.GatewayParameters]
 	gwClassClient kclient.Client[*gwv1.GatewayClass]
 	inputs        *deployer.Inputs
 }
@@ -163,7 +163,7 @@ func (gp *GatewayParameters) agentgatewayParametersHasConfigs(gw *gwv1.Gateway) 
 
 func newkgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *kgatewayParameters {
 	return &kgatewayParameters{
-		gwParamClient: kclient.NewFilteredDelayed[*v1alpha1.GatewayParameters](cli, wellknown.GatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
+		gwParamClient: kclient.NewFilteredDelayed[*kgateway.GatewayParameters](cli, wellknown.GatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		gwClassClient: kclient.NewFilteredDelayed[*gwv1.GatewayClass](cli, wellknown.GatewayClassGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		inputs:        inputs,
 	}
@@ -199,7 +199,7 @@ func (k *kgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 
 // getGatewayParametersForGateway returns the merged GatewayParameters object resulting from the default GwParams object and
 // the GwParam object specifically associated with the given Gateway (if one exists).
-func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*v1alpha1.GatewayParameters, error) {
+func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
 	// attempt to get the GatewayParameters name from the Gateway. If we can't find it,
 	// we'll check for the default GWP for the GatewayClass.
 	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
@@ -222,7 +222,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 	}
 
 	gwpName := ref.Name
-	if group := ref.Group; group != v1alpha1.GroupName {
+	if group := ref.Group; group != kgateway.GroupName {
 		return nil, fmt.Errorf("invalid group %s for GatewayParameters", group)
 	}
 	if kind := ref.Kind; kind != gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
@@ -262,7 +262,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 }
 
 // gets the default GatewayParameters associated with the GatewayClass of the provided Gateway
-func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*v1alpha1.GatewayParameters, error) {
+func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
 	gwc, err := getGatewayClassFromGateway(k.gwClassClient, gw)
 	if err != nil {
 		return nil, err
@@ -271,7 +271,7 @@ func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*v1a
 }
 
 // Gets the GatewayParameters object associated with a given GatewayClass.
-func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*v1alpha1.GatewayParameters, error) {
+func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
 	// Our defaults depend on OmitDefaultSecurityContext, but these are the defaults
 	// when not OmitDefaultSecurityContext:
 	defaultGwp := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
@@ -341,7 +341,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 	return mergedGwp, nil
 }
 
-func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *v1alpha1.GatewayParameters) (*deployer.HelmConfig, error) {
+func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, gwParam, irGW.ControllerName == k.inputs.AgentgatewayControllerName)
 	if len(ports) == 0 {
