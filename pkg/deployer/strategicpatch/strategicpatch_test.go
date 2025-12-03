@@ -12,7 +12,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 )
 
 func TestOverlayApplier_ApplyOverlays_NilParams(t *testing.T) {
@@ -35,11 +35,11 @@ func TestOverlayApplier_ApplyOverlays_NilParams(t *testing.T) {
 }
 
 func TestOverlayApplier_ApplyOverlays_MetadataLabels(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Deployment: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Deployment: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{
 							"custom-label": "custom-value",
 						},
@@ -73,11 +73,11 @@ func TestOverlayApplier_ApplyOverlays_MetadataLabels(t *testing.T) {
 }
 
 func TestOverlayApplier_ApplyOverlays_MetadataAnnotations(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Service: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Service: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Annotations: map[string]string{
 							"custom-annotation": "custom-value",
 						},
@@ -124,10 +124,10 @@ func TestOverlayApplier_ApplyOverlays_DeploymentSpec(t *testing.T) {
 		}
 	}`)
 
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Deployment: &v1alpha1.KubernetesResourceOverlay{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Deployment: &agentgateway.KubernetesResourceOverlay{
 					Spec: &apiextensionsv1.JSON{Raw: specPatch},
 				},
 			},
@@ -182,10 +182,10 @@ func TestOverlayApplier_ApplyOverlays_DeleteContainerWithPatchDirective(t *testi
 		}
 	}`)
 
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Deployment: &v1alpha1.KubernetesResourceOverlay{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Deployment: &agentgateway.KubernetesResourceOverlay{
 					Spec: &apiextensionsv1.JSON{Raw: specPatch},
 				},
 			},
@@ -233,10 +233,10 @@ func TestOverlayApplier_ApplyOverlays_ServiceSpec(t *testing.T) {
 		"type": "NodePort"
 	}`)
 
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Service: &v1alpha1.KubernetesResourceOverlay{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Service: &agentgateway.KubernetesResourceOverlay{
 					Spec: &apiextensionsv1.JSON{Raw: specPatch},
 				},
 			},
@@ -266,21 +266,21 @@ func TestOverlayApplier_ApplyOverlays_ServiceSpec(t *testing.T) {
 }
 
 func TestOverlayApplier_ApplyOverlays_MultipleObjects(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Deployment: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Deployment: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"app": "modified"},
 					},
 				},
-				Service: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+				Service: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"svc": "modified"},
 					},
 				},
-				ServiceAccount: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+				ServiceAccount: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"sa": "modified"},
 					},
 				},

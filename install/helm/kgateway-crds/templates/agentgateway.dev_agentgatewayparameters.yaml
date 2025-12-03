@@ -8,9 +8,9 @@ metadata:
     app: kgateway
     app.kubernetes.io/name: kgateway
     gateway.networking.k8s.io/policy: Direct
-  name: agentgatewayparameters.gateway.kgateway.dev
+  name: agentgatewayparameters.agentgateway.dev
 spec:
-  group: gateway.kgateway.dev
+  group: agentgateway.dev
   names:
     categories:
     - kgateway

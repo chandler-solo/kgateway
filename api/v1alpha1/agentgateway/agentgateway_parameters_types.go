@@ -7,16 +7,18 @@
 // - validation of objects before S-M-P using strategicpatch lib
 // - validation of objects after S-M-P
 
-package v1alpha1
+package agentgateway
 
 import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 )
 
-// +kubebuilder:rbac:groups=gateway.kgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=gateway.kgateway.dev,resources=agentgatewayparameters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters/status,verbs=get;update;patch
 
 // +kubebuilder:printcolumn:name="Accepted",type=string,JSONPath=".status.ancestors[*].conditions[?(@.type=='Accepted')].status",description="Agentgateway policy acceptance status"
 // +kubebuilder:printcolumn:name="Attached",type=string,JSONPath=".status.ancestors[*].conditions[?(@.type=='Attached')].status",description="Agentgateway policy attachment status"
@@ -102,7 +104,9 @@ type AgentgatewayParametersConfigs struct {
 	//	pullPolicy: IfNotPresent
 	//
 	// +optional
-	Image *Image `json:"image,omitempty"`
+	Image *kgateway.Image `json:"image,omitempty"`
+
+	// TODO(chandler): DLC: kgateway.Image is the wrong GVK!
 
 	// The container environment variables.
 	//

@@ -3,31 +3,31 @@
 package fake
 
 import (
-	v1alpha1 "github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
-	apiv1alpha1 "github.com/kgateway-dev/kgateway/v2/pkg/client/clientset/versioned/typed/api/v1alpha1"
+	agentgateway "github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
+	v1alpha1agentgateway "github.com/kgateway-dev/kgateway/v2/pkg/client/clientset/versioned/typed/v1alpha1/agentgateway"
 	gentype "k8s.io/client-go/gentype"
 )
 
 // fakeAgentgatewayParameters implements AgentgatewayParametersInterface
 type fakeAgentgatewayParameters struct {
-	*gentype.FakeClientWithList[*v1alpha1.AgentgatewayParameters, *v1alpha1.AgentgatewayParametersList]
-	Fake *FakeGatewayV1alpha1
+	*gentype.FakeClientWithList[*agentgateway.AgentgatewayParameters, *agentgateway.AgentgatewayParametersList]
+	Fake *FakeGatewayAgentgateway
 }
 
-func newFakeAgentgatewayParameters(fake *FakeGatewayV1alpha1, namespace string) apiv1alpha1.AgentgatewayParametersInterface {
+func newFakeAgentgatewayParameters(fake *FakeGatewayAgentgateway, namespace string) v1alpha1agentgateway.AgentgatewayParametersInterface {
 	return &fakeAgentgatewayParameters{
-		gentype.NewFakeClientWithList[*v1alpha1.AgentgatewayParameters, *v1alpha1.AgentgatewayParametersList](
+		gentype.NewFakeClientWithList[*agentgateway.AgentgatewayParameters, *agentgateway.AgentgatewayParametersList](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("agentgatewayparameters"),
-			v1alpha1.SchemeGroupVersion.WithKind("AgentgatewayParameters"),
-			func() *v1alpha1.AgentgatewayParameters { return &v1alpha1.AgentgatewayParameters{} },
-			func() *v1alpha1.AgentgatewayParametersList { return &v1alpha1.AgentgatewayParametersList{} },
-			func(dst, src *v1alpha1.AgentgatewayParametersList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.AgentgatewayParametersList) []*v1alpha1.AgentgatewayParameters {
+			agentgateway.SchemeGroupVersion.WithResource("agentgatewayparameters"),
+			agentgateway.SchemeGroupVersion.WithKind("AgentgatewayParameters"),
+			func() *agentgateway.AgentgatewayParameters { return &agentgateway.AgentgatewayParameters{} },
+			func() *agentgateway.AgentgatewayParametersList { return &agentgateway.AgentgatewayParametersList{} },
+			func(dst, src *agentgateway.AgentgatewayParametersList) { dst.ListMeta = src.ListMeta },
+			func(list *agentgateway.AgentgatewayParametersList) []*agentgateway.AgentgatewayParameters {
 				return gentype.ToPointerSlice(list.Items)
 			},
-			func(list *v1alpha1.AgentgatewayParametersList, items []*v1alpha1.AgentgatewayParameters) {
+			func(list *agentgateway.AgentgatewayParametersList, items []*agentgateway.AgentgatewayParameters) {
 				list.Items = gentype.FromPointerSlice(items)
 			},
 		),

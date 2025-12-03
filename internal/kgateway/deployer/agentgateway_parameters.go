@@ -16,7 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
@@ -25,7 +26,7 @@ import (
 
 // agentgatewayParameters resolves AgentgatewayParameters for agentgateway-backed gateways.
 type agentgatewayParameters struct {
-	agwParamClient kclient.Client[*v1alpha1.AgentgatewayParameters]
+	agwParamClient kclient.Client[*agentgateway.AgentgatewayParameters]
 	gwClassClient  kclient.Client[*gwv1.GatewayClass]
 	inputs         *deployer.Inputs
 }
@@ -33,7 +34,7 @@ type agentgatewayParameters struct {
 // newAgentgatewayParameters creates a new agentgatewayParameters resolver.
 func newAgentgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *agentgatewayParameters {
 	return &agentgatewayParameters{
-		agwParamClient: kclient.NewFilteredDelayed[*v1alpha1.AgentgatewayParameters](cli, wellknown.AgentgatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
+		agwParamClient: kclient.NewFilteredDelayed[*agentgateway.AgentgatewayParameters](cli, wellknown.AgentgatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		gwClassClient:  kclient.NewFilteredDelayed[*gwv1.GatewayClass](cli, wellknown.GatewayClassGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		inputs:         inputs,
 	}
@@ -47,13 +48,13 @@ func (a *agentgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 // GetAgentgatewayParametersForGateway returns the AgentgatewayParameters for the given Gateway.
 // It first checks if the Gateway references an AgentgatewayParameters via infrastructure.parametersRef,
 // then falls back to the GatewayClass's parametersRef.
-func (a *agentgatewayParameters) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*v1alpha1.AgentgatewayParameters, error) {
+func (a *agentgatewayParameters) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	// First, check if the Gateway references an AgentgatewayParameters
 	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
 		ref := gw.Spec.Infrastructure.ParametersRef
 
 		// Check if it's an AgentgatewayParameters reference
-		if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
+		if ref.Group == agentgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
 			agwpName := ref.Name
 			agwpNamespace := gw.GetNamespace() // AgentgatewayParameters must be in the same namespace
 
@@ -78,7 +79,7 @@ func (a *agentgatewayParameters) GetAgentgatewayParametersForGateway(gw *gwv1.Ga
 }
 
 // getAgentgatewayParametersFromGatewayClass looks up AgentgatewayParameters from the GatewayClass.
-func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *gwv1.Gateway) (*v1alpha1.AgentgatewayParameters, error) {
+func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	gwc, err := a.getGatewayClassFromGateway(gw)
 	if err != nil {
 		return nil, err
@@ -94,7 +95,7 @@ func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *g
 	ref := gwc.Spec.ParametersRef
 
 	// Check if it's an AgentgatewayParameters reference
-	if ref.Group != v1alpha1.GroupName || string(ref.Kind) != wellknown.AgentgatewayParametersGVK.Kind {
+	if ref.Group != agentgateway.GroupName || string(ref.Kind) != wellknown.AgentgatewayParametersGVK.Kind {
 		slog.Debug("the GatewayClass parametersRef is not an AgentgatewayParameters",
 			"gatewayclass_name", gwc.GetName(),
 			"group", ref.Group,
@@ -143,11 +144,11 @@ func (a *agentgatewayParameters) getGatewayClassFromGateway(gw *gwv1.Gateway) (*
 
 // AgentgatewayParametersApplier applies AgentgatewayParameters configurations and overlays.
 type AgentgatewayParametersApplier struct {
-	params *v1alpha1.AgentgatewayParameters
+	params *agentgateway.AgentgatewayParameters
 }
 
 // NewAgentgatewayParametersApplier creates a new applier from the resolved parameters.
-func NewAgentgatewayParametersApplier(params *v1alpha1.AgentgatewayParameters) *AgentgatewayParametersApplier {
+func NewAgentgatewayParametersApplier(params *agentgateway.AgentgatewayParameters) *AgentgatewayParametersApplier {
 	return &AgentgatewayParametersApplier{params: params}
 }
 
@@ -282,7 +283,7 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cac
 }
 
 // GetAgentgatewayParametersForGateway returns the AgentgatewayParameters for the given Gateway.
-func (g *agentgatewayParametersHelmValuesGenerator) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*v1alpha1.AgentgatewayParameters, error) {
+func (g *agentgatewayParametersHelmValuesGenerator) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	return g.agwParams.GetAgentgatewayParametersForGateway(gw)
 }
 
@@ -338,7 +339,7 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 	gtw.DataPlaneType = deployer.DataPlaneAgentgateway
 
 	gtw.TerminationGracePeriodSeconds = ptr.To(int64(60))
-	gtw.GracefulShutdown = &v1alpha1.GracefulShutdownSpec{
+	gtw.GracefulShutdown = &kgateway.GracefulShutdownSpec{
 		Enabled:          ptr.To(true),
 		SleepTimeSeconds: ptr.To(int64(10)),
 	}
@@ -388,7 +389,7 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 
 // AgentgatewayParametersResolver is the interface for resolving AgentgatewayParameters.
 type AgentgatewayParametersResolver interface {
-	GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*v1alpha1.AgentgatewayParameters, error)
+	GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error)
 	GetCacheSyncHandlers() []cache.InformerSynced
 }
 
@@ -405,7 +406,7 @@ func NewAgentgatewayParametersResolver(cli apiclient.Client, inputs *deployer.In
 }
 
 // GetAgentgatewayParametersForGateway implements AgentgatewayParametersResolver.
-func (r *agentgatewayParametersResolverImpl) GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*v1alpha1.AgentgatewayParameters, error) {
+func (r *agentgatewayParametersResolverImpl) GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	return r.agwParams.GetAgentgatewayParametersForGateway(gw)
 }
 

@@ -13,7 +13,8 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
@@ -32,10 +33,10 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_NilParams(t *testing.T)
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_Image(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: v1alpha1.AgentgatewayParametersConfigs{
-				Image: &v1alpha1.Image{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
+				Image: &kgateway.Image{
 					Registry:   ptr.To("custom.registry.io"),
 					Repository: ptr.To("custom/agentgateway"),
 					Tag:        ptr.To("v1.0.0"),
@@ -58,9 +59,9 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Image(t *testing.T) {
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_Resources(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: v1alpha1.AgentgatewayParametersConfigs{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
 				Resources: &corev1.ResourceRequirements{
 					Limits: corev1.ResourceList{
 						corev1.ResourceMemory: resource.MustParse("512Mi"),
@@ -88,9 +89,9 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Resources(t *testing.T)
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_Env(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: v1alpha1.AgentgatewayParametersConfigs{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
 				Env: []corev1.EnvVar{
 					{Name: "CUSTOM_VAR", Value: "custom_value"},
 					{Name: "ANOTHER_VAR", Value: "another_value"},
@@ -117,10 +118,10 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Env(t *testing.T) {
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_Logging(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: v1alpha1.AgentgatewayParametersConfigs{
-				Logging: &v1alpha1.AgentgatewayParametersLogging{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
+				Logging: &agentgateway.AgentgatewayParametersLogging{
 					Level: "debug",
 				},
 			},
@@ -139,9 +140,9 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Logging(t *testing.T) {
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_LabelsAndAnnotations(t *testing.T) {
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: v1alpha1.AgentgatewayParametersConfigs{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
 				Labels: map[string]string{
 					"custom-label": "custom-value",
 				},
@@ -176,11 +177,11 @@ func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects(t *testing.T) {
 		"replicas": 3
 	}`)
 
-	params := &v1alpha1.AgentgatewayParameters{
-		Spec: v1alpha1.AgentgatewayParametersSpec{
-			AgentgatewayParametersOverlays: v1alpha1.AgentgatewayParametersOverlays{
-				Deployment: &v1alpha1.KubernetesResourceOverlay{
-					Metadata: v1alpha1.AgentgatewayParametersObjectMetadata{
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
+				Deployment: &agentgateway.KubernetesResourceOverlay{
+					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{
 							"overlay-label": "overlay-value",
 						},

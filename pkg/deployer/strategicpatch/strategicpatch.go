@@ -14,17 +14,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 )
 
 // OverlayApplier applies AgentgatewayParameters overlays to rendered k8s objects
 // using strategic merge patch semantics.
 type OverlayApplier struct {
-	params *v1alpha1.AgentgatewayParameters
+	params *agentgateway.AgentgatewayParameters
 }
 
 // NewOverlayApplier creates a new OverlayApplier with the given parameters.
-func NewOverlayApplier(params *v1alpha1.AgentgatewayParameters) *OverlayApplier {
+func NewOverlayApplier(params *agentgateway.AgentgatewayParameters) *OverlayApplier {
 	return &OverlayApplier{params: params}
 }
 
@@ -39,7 +39,7 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) error {
 
 	for i, obj := range objs {
 		gvk := obj.GetObjectKind().GroupVersionKind()
-		var overlay *v1alpha1.KubernetesResourceOverlay
+		var overlay *agentgateway.KubernetesResourceOverlay
 
 		switch gvk.Kind {
 		case "Deployment":
@@ -71,7 +71,7 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) error {
 }
 
 // applyOverlay applies a KubernetesResourceOverlay to a single object.
-func applyOverlay(obj client.Object, overlay *v1alpha1.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
+func applyOverlay(obj client.Object, overlay *agentgateway.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
 	// Apply metadata first
 	if overlay.Metadata.Labels != nil {
 		existingLabels := obj.GetLabels()

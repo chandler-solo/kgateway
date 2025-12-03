@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/helm"
 	"github.com/kgateway-dev/kgateway/v2/internal/kgateway/wellknown"
@@ -213,7 +214,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 	ref := gw.Spec.Infrastructure.ParametersRef
 	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
 	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
-	if ref.Group == v1alpha1.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
+	if ref.Group == agentgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
 		slog.Debug("the Gateway references AgentgatewayParameters, using default GatewayParameters",
 			"gateway_name", gw.GetName(),
 			"gateway_namespace", gw.GetNamespace(),
@@ -291,7 +292,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 
 	// If the parametersRef is for AgentgatewayParameters, treat it as no GatewayParameters
 	// (AgentgatewayParameters overlays are applied via PostProcessObjects)
-	if paramRef.Group == v1alpha1.GroupName && string(paramRef.Kind) == wellknown.AgentgatewayParametersGVK.Kind {
+	if paramRef.Group == agentgateway.GroupName && string(paramRef.Kind) == wellknown.AgentgatewayParametersGVK.Kind {
 		slog.Debug("the GatewayClass references AgentgatewayParameters, using default GatewayParameters",
 			"gatewayclass_name", gwc.GetName(),
 		)
