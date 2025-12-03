@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 
 	"istio.io/istio/pkg/kube/kclient"
 	corev1 "k8s.io/api/core/v1"
@@ -24,14 +25,13 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 )
 
-// agentgatewayParameters resolves AgentgatewayParameters for agentgateway-backed gateways.
 type agentgatewayParameters struct {
 	agwParamClient kclient.Client[*agentgateway.AgentgatewayParameters]
 	gwClassClient  kclient.Client[*gwv1.GatewayClass]
-	inputs         *deployer.Inputs
+	// DLC gwp client?
+	inputs *deployer.Inputs
 }
 
-// newAgentgatewayParameters creates a new agentgatewayParameters resolver.
 func newAgentgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *agentgatewayParameters {
 	return &agentgatewayParameters{
 		agwParamClient: kclient.NewFilteredDelayed[*agentgateway.AgentgatewayParameters](cli, wellknown.AgentgatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
@@ -40,20 +40,19 @@ func newAgentgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *a
 	}
 }
 
-// GetCacheSyncHandlers returns the cache sync handlers for the AgentgatewayParameters controller.
 func (a *agentgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	return []cache.InformerSynced{a.agwParamClient.HasSynced, a.gwClassClient.HasSynced}
 }
 
-// GetAgentgatewayParametersForGateway returns the AgentgatewayParameters for the given Gateway.
-// It first checks if the Gateway references an AgentgatewayParameters via infrastructure.parametersRef,
-// then falls back to the GatewayClass's parametersRef.
+// GetAgentgatewayParametersForGateway returns the AgentgatewayParameters for
+// the given Gateway. Be aware of GatewayParameters as well.  It first checks
+// if the Gateway references an AgentgatewayParameters via
+// infrastructure.parametersRef, then falls back to the GatewayClass's
+// parametersRef.
 func (a *agentgatewayParameters) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
-	// First, check if the Gateway references an AgentgatewayParameters
 	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
 		ref := gw.Spec.Infrastructure.ParametersRef
 
-		// Check if it's an AgentgatewayParameters reference
 		if ref.Group == agentgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
 			agwpName := ref.Name
 			agwpNamespace := gw.GetNamespace() // AgentgatewayParameters must be in the same namespace
@@ -74,11 +73,9 @@ func (a *agentgatewayParameters) GetAgentgatewayParametersForGateway(gw *gwv1.Ga
 		}
 	}
 
-	// Fall back to GatewayClass's parametersRef
 	return a.getAgentgatewayParametersFromGatewayClass(gw)
 }
 
-// getAgentgatewayParametersFromGatewayClass looks up AgentgatewayParameters from the GatewayClass.
 func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	gwc, err := a.getGatewayClassFromGateway(gw)
 	if err != nil {
@@ -94,7 +91,6 @@ func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *g
 
 	ref := gwc.Spec.ParametersRef
 
-	// Check if it's an AgentgatewayParameters reference
 	if ref.Group != agentgateway.GroupName || string(ref.Kind) != wellknown.AgentgatewayParametersGVK.Kind {
 		slog.Debug("the GatewayClass parametersRef is not an AgentgatewayParameters",
 			"gatewayclass_name", gwc.GetName(),
@@ -124,7 +120,6 @@ func (a *agentgatewayParameters) getAgentgatewayParametersFromGatewayClass(gw *g
 	return agwp, nil
 }
 
-// getGatewayClassFromGateway retrieves the GatewayClass for the given Gateway.
 func (a *agentgatewayParameters) getGatewayClassFromGateway(gw *gwv1.Gateway) (*gwv1.GatewayClass, error) {
 	if gw == nil {
 		return nil, errors.New("nil Gateway")
@@ -152,8 +147,9 @@ func NewAgentgatewayParametersApplier(params *agentgateway.AgentgatewayParameter
 	return &AgentgatewayParametersApplier{params: params}
 }
 
-// ApplyToHelmValues applies the AgentgatewayParameters configs to the helm values.
-// This is called before rendering the helm chart.
+// ApplyToHelmValues applies the AgentgatewayParameters configs to the helm
+// values.  This is called before rendering the helm chart. (We render a helm
+// chart, but we do not use helm beyond that point.)
 func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmConfig) {
 	if a.params == nil || vals == nil || vals.Gateway == nil {
 		return
@@ -161,7 +157,6 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 
 	configs := a.params.Spec.AgentgatewayParametersConfigs
 
-	// Apply image configuration
 	if configs.Image != nil {
 		if vals.Gateway.Image == nil {
 			vals.Gateway.Image = &deployer.HelmImage{}
@@ -183,24 +178,23 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		}
 	}
 
-	// Apply resources
 	if configs.Resources != nil {
 		vals.Gateway.Resources = configs.Resources
 	}
 
 	// Apply environment variables
+	// The Helm template handles deduplication - if user specifies an env var,
+	// the template skips the default with the same name.
 	if len(configs.Env) > 0 {
 		vals.Gateway.Env = append(vals.Gateway.Env, configs.Env...)
 	}
 
-	// Apply logging configuration
 	if configs.Logging != nil {
 		if configs.Logging.Level != "" {
 			vals.Gateway.LogLevel = &configs.Logging.Level
 		}
 	}
 
-	// Apply common labels and annotations to pod template
 	if len(configs.Labels) > 0 {
 		if vals.Gateway.ExtraPodLabels == nil {
 			vals.Gateway.ExtraPodLabels = make(map[string]string)
@@ -215,7 +209,7 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 	}
 }
 
-// ApplyOverlaysToObjects applies the strategic merge patch overlays to rendered k8s objects.
+// ApplyOverlaysToObjects applies the strategic-merge-patch overlays to rendered k8s objects.
 // This is called after rendering the helm chart.
 func (a *AgentgatewayParametersApplier) ApplyOverlaysToObjects(objs []client.Object) error {
 	if a.params == nil {
@@ -225,27 +219,17 @@ func (a *AgentgatewayParametersApplier) ApplyOverlaysToObjects(objs []client.Obj
 	return applier.ApplyOverlays(objs)
 }
 
-// IsAgentgateway returns true if the Gateway is backed by agentgateway.
-func IsAgentgateway(gw *gwv1.Gateway, agwClassName string) bool {
-	return string(gw.Spec.GatewayClassName) == agwClassName
-}
-
-// IsAgentgatewayController returns true if the GatewayClass is controlled by the agentgateway controller.
-func IsAgentgatewayController(gwc *gwv1.GatewayClass, agwControllerName string) bool {
-	return string(gwc.Spec.ControllerName) == agwControllerName
-}
-
-// agentgatewayParametersHelmValuesGenerator is a HelmValuesGenerator that uses AgentgatewayParameters.
 type agentgatewayParametersHelmValuesGenerator struct {
-	agwParams *agentgatewayParameters
-	inputs    *deployer.Inputs
+	agwParams     *agentgatewayParameters
+	gwParamClient kclient.Client[*kgateway.GatewayParameters]
+	inputs        *deployer.Inputs
 }
 
-// newAgentgatewayParametersHelmValuesGenerator creates a new HelmValuesGenerator for AgentgatewayParameters.
 func newAgentgatewayParametersHelmValuesGenerator(cli apiclient.Client, inputs *deployer.Inputs) *agentgatewayParametersHelmValuesGenerator {
 	return &agentgatewayParametersHelmValuesGenerator{
-		agwParams: newAgentgatewayParameters(cli, inputs),
-		inputs:    inputs,
+		agwParams:     newAgentgatewayParameters(cli, inputs),
+		gwParamClient: kclient.NewFilteredDelayed[*kgateway.GatewayParameters](cli, wellknown.GatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
+		inputs:        inputs,
 	}
 }
 
@@ -261,15 +245,31 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 		return nil, err
 	}
 
-	vals, err := g.getDefaultAgentgatewayHelmValues(gw)
+	// Check if a GatewayParameters is referenced (for backwards compatibility
+	// since GatewayParameters predates AgentgatewayParameters)
+	gwp := g.getGatewayParametersForGateway(gw)
+
+	omitDefaultSecurityContext := g.shouldOmitDefaultSecurityContext(gwp)
+
+	vals, err := g.getDefaultAgentgatewayHelmValues(gw, omitDefaultSecurityContext)
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply AgentgatewayParameters configs to helm values
+	if gwp != nil {
+		g.applyGatewayParametersToHelmValues(gwp, vals)
+	}
+
+	// Apply AgentgatewayParameters configs to helm values (these take precedence over GWP TODO(chandler): DLC: but you can't have both)
 	if agwp != nil {
 		applier := NewAgentgatewayParametersApplier(agwp)
 		applier.ApplyToHelmValues(vals)
+	}
+
+	if g.inputs.ControlPlane.XdsTLS {
+		if err := g.injectXdsCACertificate(vals); err != nil {
+			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
+		}
 	}
 
 	var jsonVals map[string]any
@@ -277,26 +277,91 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	return jsonVals, err
 }
 
-// GetCacheSyncHandlers returns cache sync handlers.
-func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynced {
-	return g.agwParams.GetCacheSyncHandlers()
+// getGatewayParametersForGateway returns the GatewayParameters for the given
+// Gateway, if any. (AgentgatewayParameters and GatewayParameters are both
+// supported, but mixing GVKs is inelegant and so AgentgatewayParameters is
+// preferred.)
+func (g *agentgatewayParametersHelmValuesGenerator) getGatewayParametersForGateway(gw *gwv1.Gateway) *kgateway.GatewayParameters {
+	// Check if the Gateway's infrastructure references a GatewayParameters
+	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
+		ref := gw.Spec.Infrastructure.ParametersRef
+		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+			return g.gwParamClient.Get(ref.Name, gw.GetNamespace())
+		}
+	}
+
+	// Check if the GatewayClass references a GatewayParameters
+	gwc := g.agwParams.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc != nil && gwc.Spec.ParametersRef != nil {
+		ref := gwc.Spec.ParametersRef
+		if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
+			gwpNamespace := ""
+			if ref.Namespace != nil {
+				gwpNamespace = string(*ref.Namespace)
+			}
+			return g.gwParamClient.Get(ref.Name, gwpNamespace)
+		}
+	}
+
+	return nil
 }
 
-// GetAgentgatewayParametersForGateway returns the AgentgatewayParameters for the given Gateway.
+// shouldOmitDefaultSecurityContext checks if the Gateway references a GatewayParameters
+// with omitDefaultSecurityContext set to true.
+func (g *agentgatewayParametersHelmValuesGenerator) shouldOmitDefaultSecurityContext(gwp *kgateway.GatewayParameters) bool {
+	if gwp != nil && gwp.Spec.Kube != nil {
+		return ptr.Deref(gwp.Spec.Kube.OmitDefaultSecurityContext, false)
+	}
+	return false
+}
+
+// applyGatewayParametersToHelmValues applies relevant fields from
+// GatewayParameters to helm values.  This provides backward compatibility for
+// users who configure agentgateway using GatewayParameters, not
+// AgentgatewayParameters.
+func (g *agentgatewayParametersHelmValuesGenerator) applyGatewayParametersToHelmValues(gwp *kgateway.GatewayParameters, vals *deployer.HelmConfig) {
+	if gwp == nil || gwp.Spec.Kube == nil || vals.Gateway == nil {
+		return
+	}
+
+	podConfig := gwp.Spec.Kube.GetPodTemplate()
+
+	if extraAnnotations := podConfig.GetExtraAnnotations(); len(extraAnnotations) > 0 {
+		if vals.Gateway.ExtraPodAnnotations == nil {
+			vals.Gateway.ExtraPodAnnotations = make(map[string]string)
+		}
+		maps.Copy(vals.Gateway.ExtraPodAnnotations, extraAnnotations)
+	}
+	if extraLabels := podConfig.GetExtraLabels(); len(extraLabels) > 0 {
+		if vals.Gateway.ExtraPodLabels == nil {
+			vals.Gateway.ExtraPodLabels = make(map[string]string)
+		}
+		maps.Copy(vals.Gateway.ExtraPodLabels, extraLabels)
+	}
+
+	svcConfig := gwp.Spec.Kube.GetService()
+	vals.Gateway.Service = deployer.GetServiceValues(svcConfig)
+
+	svcAccountConfig := gwp.Spec.Kube.GetServiceAccount()
+	vals.Gateway.ServiceAccount = deployer.GetServiceAccountValues(svcAccountConfig)
+}
+
+func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynced {
+	handlers := g.agwParams.GetCacheSyncHandlers()
+	return append(handlers, g.gwParamClient.HasSynced)
+}
+
 func (g *agentgatewayParametersHelmValuesGenerator) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
 	return g.agwParams.GetAgentgatewayParametersForGateway(gw)
 }
 
-// getDefaultAgentgatewayHelmValues returns default helm values for an agentgateway Gateway.
-func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway) (*deployer.HelmConfig, error) {
-	// Get gateway IR for ports
+func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway, omitDefaultSecurityContext bool) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, g.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, nil, true) // true = agentgateway
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
 	}
 
-	// Build default helm values for agentgateway
 	gtw := &deployer.HelmGateway{
 		DataPlaneType:    deployer.DataPlaneAgentgateway,
 		Name:             &gw.Name,
@@ -366,51 +431,54 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		SuccessThreshold: 1,
 	}
 
-	gtw.PodSecurityContext = &corev1.PodSecurityContext{
-		Sysctls: []corev1.Sysctl{
-			{
-				Name:  "net.ipv4.ip_unprivileged_port_start",
-				Value: "0",
+	if !omitDefaultSecurityContext {
+		gtw.PodSecurityContext = &corev1.PodSecurityContext{
+			Sysctls: []corev1.Sysctl{
+				{
+					Name:  "net.ipv4.ip_unprivileged_port_start",
+					Value: "0",
+				},
 			},
-		},
-	}
-	gtw.SecurityContext = &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
-		ReadOnlyRootFilesystem: ptr.To(true),
-		RunAsNonRoot:           ptr.To(true),
-		RunAsUser:              ptr.To(int64(10101)),
+		}
+		gtw.SecurityContext = &corev1.SecurityContext{
+			AllowPrivilegeEscalation: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+			ReadOnlyRootFilesystem: ptr.To(true),
+			RunAsNonRoot:           ptr.To(true),
+			RunAsUser:              ptr.To(int64(10101)),
+		}
 	}
 
 	return &deployer.HelmConfig{Gateway: gtw}, nil
 }
 
-// AgentgatewayParametersResolver is the interface for resolving AgentgatewayParameters.
-type AgentgatewayParametersResolver interface {
-	GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error)
-	GetCacheSyncHandlers() []cache.InformerSynced
-}
-
-// agentgatewayParametersResolverImpl is the implementation of AgentgatewayParametersResolver.
-type agentgatewayParametersResolverImpl struct {
-	agwParams *agentgatewayParameters
-}
-
-// NewAgentgatewayParametersResolver creates a new AgentgatewayParametersResolver.
-func NewAgentgatewayParametersResolver(cli apiclient.Client, inputs *deployer.Inputs) AgentgatewayParametersResolver {
-	return &agentgatewayParametersResolverImpl{
-		agwParams: newAgentgatewayParameters(cli, inputs),
+// DLC injectXdsCACertificate reads the CA certificate from the control plane's mounted TLS Secret
+// and injects it into the Helm values so it can be used by the proxy templates.
+func (g *agentgatewayParametersHelmValuesGenerator) injectXdsCACertificate(vals *deployer.HelmConfig) error {
+	caCertPath := g.inputs.ControlPlane.XdsTlsCaPath
+	if _, err := os.Stat(caCertPath); os.IsNotExist(err) {
+		return fmt.Errorf("xDS TLS is enabled but CA certificate file not found at %s. "+
+			"Ensure the xDS TLS secret is properly mounted and contains ca.crt", caCertPath,
+		)
 	}
-}
 
-// GetAgentgatewayParametersForGateway implements AgentgatewayParametersResolver.
-func (r *agentgatewayParametersResolverImpl) GetAgentgatewayParametersForGateway(ctx context.Context, gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
-	return r.agwParams.GetAgentgatewayParametersForGateway(gw)
-}
+	caCert, err := os.ReadFile(caCertPath)
+	if err != nil {
+		return fmt.Errorf("failed to read CA certificate from %s: %w", caCertPath, err)
+	}
+	if len(caCert) == 0 {
+		return fmt.Errorf("CA certificate at %s is empty", caCertPath)
+	}
 
-// GetCacheSyncHandlers implements AgentgatewayParametersResolver.
-func (r *agentgatewayParametersResolverImpl) GetCacheSyncHandlers() []cache.InformerSynced {
-	return r.agwParams.GetCacheSyncHandlers()
+	caCertStr := string(caCert)
+	if vals.Gateway.Xds != nil && vals.Gateway.Xds.Tls != nil {
+		vals.Gateway.Xds.Tls.CaCert = &caCertStr
+	}
+	if vals.Gateway.AgwXds != nil && vals.Gateway.AgwXds.Tls != nil {
+		vals.Gateway.AgwXds.Tls.CaCert = &caCertStr
+	}
+
+	return nil
 }

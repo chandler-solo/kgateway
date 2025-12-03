@@ -121,45 +121,28 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		return gp.helmValuesGeneratorOverride, nil
 	}
 
-	// Check if AgentgatewayParameters is referenced with config fields set
-	// (image, resources, etc.) - if so, use the agentgateway helm values generator
-	if gp.agentgatewayParametersHasConfigs(gw) {
+	// Check if the GatewayClass uses the agentgateway controller
+	gwc, err := getGatewayClassFromGateway(gp.kgwParameters.gwClassClient, gw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GatewayClass of Gateway: %w", err)
+	}
+
+	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
 		slog.Debug("using AgentgatewayParameters HelmValuesGenerator for Gateway",
 			"gateway_name", gw.GetName(),
 			"gateway_namespace", gw.GetNamespace(),
+			"controller_name", gwc.Spec.ControllerName,
 		)
 		return gp.agwHelmValuesGenerator, nil
 	}
 
-	// Use kgwParameters for helm values generation.
-	// AgentgatewayParameters overlays (if any) are applied via PostProcessObjects.
+	// Use kgwParameters for helm values generation (envoy-based gateways).
 	slog.Debug("using default HelmValuesGenerator for Gateway",
 		"gateway_name", gw.GetName(),
 		"gateway_namespace", gw.GetNamespace(),
+		"controller_name", gwc.Spec.ControllerName,
 	)
 	return gp.kgwParameters, nil
-}
-
-// agentgatewayParametersHasConfigs checks if the Gateway references AgentgatewayParameters
-// with config fields set (image, resources, logging, etc.)
-func (gp *GatewayParameters) agentgatewayParametersHasConfigs(gw *gwv1.Gateway) bool {
-	if gp.agwHelmValuesGenerator == nil {
-		return false
-	}
-
-	agwp, err := gp.agwHelmValuesGenerator.GetAgentgatewayParametersForGateway(gw)
-	if err != nil || agwp == nil {
-		return false
-	}
-
-	// Check if any config fields are set
-	configs := agwp.Spec.AgentgatewayParametersConfigs
-	return configs.Image != nil ||
-		configs.Resources != nil ||
-		configs.Logging != nil ||
-		len(configs.Labels) > 0 ||
-		len(configs.Annotations) > 0 ||
-		len(configs.Env) > 0
 }
 
 func newkgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *kgatewayParameters {
@@ -249,7 +232,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 		if err != nil {
 			return nil, err
 		}
-		mergedGwp = deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+		mergedGwp, err = deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 			ControllerName:             string(gwc.Spec.ControllerName),
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
@@ -257,6 +240,9 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	deployer.DeepMergeGatewayParameters(mergedGwp, gwp)
 	return mergedGwp, nil
@@ -275,7 +261,7 @@ func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*kga
 func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
 	// Our defaults depend on OmitDefaultSecurityContext, but these are the defaults
 	// when not OmitDefaultSecurityContext:
-	defaultGwp := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+	defaultGwp, err := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 		ControllerName:             string(gwc.Spec.ControllerName),
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
@@ -283,6 +269,9 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 		AgwControllerName:          k.inputs.AgentgatewayControllerName,
 		OmitDefaultSecurityContext: false,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	paramRef := gwc.Spec.ParametersRef
 	if paramRef == nil {
@@ -329,7 +318,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 	// correctly set when they aren't overridden by the GatewayParameters.
 	mergedGwp := defaultGwp
 	if ptr.Deref(gwp.Spec.Kube.GetOmitDefaultSecurityContext(), false) {
-		mergedGwp = deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+		mergedGwp, err = deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 			ControllerName:             string(gwc.Spec.ControllerName),
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
@@ -337,6 +326,9 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	deployer.DeepMergeGatewayParameters(mergedGwp, gwp)
 	return mergedGwp, nil
