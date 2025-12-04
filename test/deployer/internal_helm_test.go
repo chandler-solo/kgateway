@@ -124,6 +124,13 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway GWC with GWP and GW with AGWP",
 			InputFile: "agentgateway-gwc-gwp-gw-agwp",
 		},
+		{
+			// TODO(chandler): perhaps this replaces the more expensive e2e
+			// test case
+			// TestAgentgatewayIntegration/ConfigMap/TestTracingConfigMap:
+			Name:      "agentgateway with custom configmap",
+			InputFile: "agentgateway-custom-configmap",
+		},
 	}
 
 	tester := DeployerTester{
