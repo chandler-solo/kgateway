@@ -1,0 +1,6 @@
+dependencies:
+- name: kgateway
+  repository: file://../kgateway
+  version: v0.0.1
+digest: sha256:90f17167c8449f82fb247a41c6d4c233d010a382c9d90364f610113f6fb30d06
+generated: "2025-12-04T17:13:07.79022-05:00"

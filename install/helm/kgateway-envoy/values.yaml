@@ -1,0 +1,98 @@
+# kgateway-envoy values
+# This chart is pre-configured for Envoy data plane deployments.
+# All values are passed through to the kgateway subchart.
+
+kgateway:
+  # -- Enable the integration with Envoy
+  envoy:
+    enabled: true
+
+  # -- Disable agentgateway for Envoy-only deployments DLC hard-code?
+  agentgateway:
+    enabled: false
+
+  # -- Set a list of image pull secrets for Kubernetes to use when pulling container images.
+  imagePullSecrets: []
+
+  # -- Add a name to the default Helm base release.
+  nameOverride: ""
+
+  # -- Override the full name of resources created by the Helm chart.
+  fullnameOverride: ""
+
+  # -- Configure the service account for the deployment.
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+
+  # -- Add annotations to the kgateway deployment.
+  deploymentAnnotations: {}
+
+  # -- Add annotations to the kgateway pods.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+
+  # -- Set the pod-level security context.
+  podSecurityContext: {}
+
+  # -- Set the container-level security context.
+  securityContext: {}
+
+  # -- Configure resource requests and limits for the container.
+  resources: {}
+
+  # -- Set node selector labels for pod scheduling.
+  nodeSelector: {}
+
+  # -- Set tolerations for pod scheduling.
+  tolerations: []
+
+  # -- Set affinity rules for pod scheduling.
+  affinity: {}
+
+  # -- Configure the kgateway control plane deployment.
+  controller:
+    replicaCount: 1
+    logLevel: info
+    image:
+      registry: ""
+      repository: kgateway
+      pullPolicy: ""
+      tag: ""
+    service:
+      type: ClusterIP
+      ports:
+        grpc: 9977
+        agwGrpc: 9978
+        health: 9093
+        metrics: 9092
+    extraEnv: {}
+    xds:
+      tls:
+        enabled: false
+    strategy: {}
+
+  # -- Configure the default container image for components.
+  image:
+    registry: cr.kgateway.dev/kgateway-dev
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # -- Configure the integration with the Gateway API Inference Extension project.
+  inferenceExtension:
+    enabled: false
+
+  # -- List of namespace selectors for config discovery.
+  discoveryNamespaceSelectors: []
+
+  # -- Policy merging settings.
+  policyMerge: {}
+
+  # -- Enable the waypoint integration for Istio Ambient service mesh.
+  waypoint:
+    enabled: false
+
+  # -- Configure validation behavior for route and policy safety checks.
+  validation:
+    level: standard

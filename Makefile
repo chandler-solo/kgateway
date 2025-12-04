@@ -606,12 +606,31 @@ HELM ?= go tool helm
 HELM_PACKAGE_ARGS ?= --version $(VERSION) --app-version $(VERSION)
 HELM_CHART_DIR=install/helm/kgateway
 HELM_CHART_DIR_CRD=install/helm/kgateway-crds
+HELM_CHART_DIR_ENVOY=install/helm/kgateway-envoy
+HELM_CHART_DIR_AGENTGATEWAY=install/helm/kgateway-agentgateway
+
+# Source files for the core kgateway chart (used for dependency tracking)
+HELM_KGATEWAY_SOURCES := $(shell find $(HELM_CHART_DIR) -type f -name '*.yaml' -o -name '*.tpl' 2>/dev/null)
+
+# Wrapper chart dependency stamps - these track when dependencies were last updated
+HELM_ENVOY_DEP_STAMP := $(STAMP_DIR)/helm-envoy-deps
+HELM_AGENTGATEWAY_DEP_STAMP := $(STAMP_DIR)/helm-agentgateway-deps
+
+# Update kgateway-envoy dependencies when core chart changes
+$(HELM_ENVOY_DEP_STAMP): $(HELM_KGATEWAY_SOURCES) $(HELM_CHART_DIR_ENVOY)/Chart.yaml | $(STAMP_DIR)
+	$(HELM) dependency update $(HELM_CHART_DIR_ENVOY)
+	touch $@
+
+# Update kgateway-agentgateway dependencies when core chart changes
+$(HELM_AGENTGATEWAY_DEP_STAMP): $(HELM_KGATEWAY_SOURCES) $(HELM_CHART_DIR_AGENTGATEWAY)/Chart.yaml | $(STAMP_DIR)
+	$(HELM) dependency update $(HELM_CHART_DIR_AGENTGATEWAY)
+	touch $@
 
 .PHONY: package-kgateway-charts
-package-kgateway-charts: package-kgateway-chart package-kgateway-crd-chart ## Package the kgateway charts
+package-kgateway-charts: package-kgateway-chart package-kgateway-crd-chart package-kgateway-envoy-chart package-kgateway-agentgateway-chart ## Package the kgateway charts
 
 .PHONY: package-kgateway-chart
-package-kgateway-chart: ## Package the kgateway charts
+package-kgateway-chart: ## Package the kgateway chart
 	mkdir -p $(TEST_ASSET_DIR); \
 	$(HELM) package $(HELM_PACKAGE_ARGS) --destination $(TEST_ASSET_DIR) $(HELM_CHART_DIR); \
 	$(HELM) repo index $(TEST_ASSET_DIR);
@@ -622,10 +641,24 @@ package-kgateway-crd-chart: ## Package the kgateway crd chart
 	$(HELM) package $(HELM_PACKAGE_ARGS) --destination $(TEST_ASSET_DIR) $(HELM_CHART_DIR_CRD); \
 	$(HELM) repo index $(TEST_ASSET_DIR);
 
+.PHONY: package-kgateway-envoy-chart
+package-kgateway-envoy-chart: package-kgateway-chart $(HELM_ENVOY_DEP_STAMP) ## Package the kgateway-envoy chart
+	mkdir -p $(TEST_ASSET_DIR); \
+	$(HELM) package $(HELM_PACKAGE_ARGS) --destination $(TEST_ASSET_DIR) $(HELM_CHART_DIR_ENVOY); \
+	$(HELM) repo index $(TEST_ASSET_DIR);
+
+.PHONY: package-kgateway-agentgateway-chart
+package-kgateway-agentgateway-chart: package-kgateway-chart $(HELM_AGENTGATEWAY_DEP_STAMP) ## Package the kgateway-agentgateway chart
+	mkdir -p $(TEST_ASSET_DIR); \
+	$(HELM) package $(HELM_PACKAGE_ARGS) --destination $(TEST_ASSET_DIR) $(HELM_CHART_DIR_AGENTGATEWAY); \
+	$(HELM) repo index $(TEST_ASSET_DIR);
+
 .PHONY: release-charts
 release-charts: package-kgateway-charts ## Release the kgateway charts
 	$(HELM) push $(TEST_ASSET_DIR)/kgateway-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
 	$(HELM) push $(TEST_ASSET_DIR)/kgateway-crds-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
+	$(HELM) push $(TEST_ASSET_DIR)/kgateway-envoy-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
+	$(HELM) push $(TEST_ASSET_DIR)/kgateway-agentgateway-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
 
 .PHONY: deploy-kgateway-crd-chart
 deploy-kgateway-crd-chart: ## Deploy the kgateway crd chart
@@ -641,9 +674,23 @@ deploy-kgateway-chart: ## Deploy the kgateway chart
 	-f $(HELM_ADDITIONAL_VALUES)
 
 .PHONY: lint-kgateway-charts
-lint-kgateway-charts: ## Lint the kgateway charts
+lint-kgateway-charts: $(HELM_ENVOY_DEP_STAMP) $(HELM_AGENTGATEWAY_DEP_STAMP) ## Lint the kgateway charts
 	$(HELM) lint $(HELM_CHART_DIR)
 	$(HELM) lint $(HELM_CHART_DIR_CRD)
+	$(HELM) lint $(HELM_CHART_DIR_ENVOY)
+	$(HELM) lint $(HELM_CHART_DIR_AGENTGATEWAY)
+
+.PHONY: helm-dependency-build
+helm-dependency-build: ## Build helm chart dependencies from Chart.lock (fast, reproducible)
+	$(HELM) dependency build $(HELM_CHART_DIR_ENVOY)
+	$(HELM) dependency build $(HELM_CHART_DIR_AGENTGATEWAY)
+
+.PHONY: helm-dependency-update
+helm-dependency-update: ## Update Chart.lock and rebuild dependencies for wrapper charts (forces update)
+	$(HELM) dependency update $(HELM_CHART_DIR_ENVOY)
+	$(HELM) dependency update $(HELM_CHART_DIR_AGENTGATEWAY)
+	mkdir -p $(STAMP_DIR)
+	touch $(HELM_ENVOY_DEP_STAMP) $(HELM_AGENTGATEWAY_DEP_STAMP)
 
 #----------------------------------------------------------------------------------
 # Release

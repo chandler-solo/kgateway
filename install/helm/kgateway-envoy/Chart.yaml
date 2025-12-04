@@ -1,0 +1,14 @@
+apiVersion: v2
+name: kgateway-envoy
+description: A Helm chart for kgateway with Envoy data plane
+icon: https://raw.githubusercontent.com/kgateway-dev/kgateway.dev/main/static/favicon.svg
+type: application
+# Note that, for legacy reasons, this has a "v" prefix and thus does not strictly follow
+# Semantic Versioning (https://semver.org/)
+version: "v0.0.1"
+appVersion: "v0.0.2"
+
+dependencies:
+  - name: kgateway
+    version: "v0.0.1"
+    repository: "file://../kgateway"
