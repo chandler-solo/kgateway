@@ -2,11 +2,6 @@
 // much better than the way that kgateway 2.1.0 specifies many Kubernetes
 // fields, but never the one you need, in its GatewayParameters.
 
-// TODO(chandler): DLC: should we implement either or both of the following?
-//
-// - validation of objects before S-M-P using strategicpatch lib
-// - validation of objects after S-M-P
-
 package agentgateway
 
 import (
@@ -136,33 +131,6 @@ type AgentgatewayParametersOverlays struct {
 	// serviceAccount allows specifying overrides for the generated ServiceAccount resource.
 	// +optional
 	ServiceAccount *KubernetesResourceOverlay `json:"serviceAccount,omitempty"`
-
-	// podDisruptionBudget allows specifying overrides for the generated PodDisruptionBudget resource.
-	// Note: a PodDisruptionBudget is not deployed by default. kgateway has no
-	// opinion about a correct PodDisruptionBudget, but if you set this field,
-	// even to the empty Object `{}`, metadata.name, metadata.labels, and
-	// spec.selector.matchLabels will be set first and can be overridden with
-	// strategic-merge-patch. Details of maxAvailable, maxUnavailable, etc. are
-	// left to you. TODO(chandler): DLC: implement
-	// +optional
-	PodDisruptionBudget *KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
-
-	// TODO(chandler): DLC: why is HPA special compared to VPA and KPA? Do we
-	// plan to allow configuring extensions like extauth?
-
-	// TODO(chandler): DLC: If you want a PDB, PR 12592 has the right idea --
-	// protect the control plane and the data plane both.
-
-	// TODO(chandler): DLC: If you want an HPA, perhaps you want an autoscaler
-	// (VPA because of leader election?) for the control plane?
-
-	// horizontalPodAutoscaler allows specifying overrides for the generated HorizontalPodAutoscaler resource.
-	// Note: a HorizontalPodAutoscaler is not deployed by default. Setting this
-	// field enables one, and metadata.name, metadata.labels, and
-	// spec.scaleTargetRef will be set first and can be overridden with
-	// strategic-merge-patch.
-	// +optional
-	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
 }
 
 type AgentgatewayParametersObjectMetadata struct {
