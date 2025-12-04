@@ -192,7 +192,7 @@ type Settings struct {
 	// GatewayParameters. When set to false, only AgentgatewayParameters are allowed,
 	// and using GatewayParameters will result in an error. Defaults to true for
 	// backward compatibility.
-	GwpAgwpCompatibility bool `split_words:"true" default:"true"`
+	GwpAgwpCompatibility bool `split_words:"true" default:"false"`
 }
 
 // BuildSettings returns a zero-valued Settings obj if error is encountered when parsing env
