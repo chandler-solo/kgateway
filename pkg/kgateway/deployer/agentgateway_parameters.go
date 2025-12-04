@@ -24,6 +24,13 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
+var (
+	ErrGatewayParametersNotAllowedForAgentgateway = errors.New(
+		"GatewayParameters cannot be used with agentgateway Gateways when KGW_GWP_AGWP_COMPATIBILITY=false; " +
+			"use AgentgatewayParameters instead",
+	)
+)
+
 type agentgatewayParameters struct {
 	agwParamClient kclient.Client[*agentgateway.AgentgatewayParameters]
 	gwClassClient  kclient.Client[*gwv1.GatewayClass]
@@ -294,6 +301,12 @@ func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.G
 
 		// Check for GatewayParameters
 		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+			// Check if GatewayParameters is allowed for agentgateway Gateways
+			if !g.inputs.GwpAgwpCompatibility {
+				return nil, nil, fmt.Errorf("Gateway %s/%s references GatewayParameters %s: %w",
+					gw.GetNamespace(), gw.GetName(), ref.Name, ErrGatewayParametersNotAllowedForAgentgateway)
+			}
+
 			gwp := g.gwParamClient.Get(ref.Name, gw.GetNamespace())
 			if gwp == nil {
 				return nil, nil, fmt.Errorf("GatewayParameters %s/%s not found for Gateway %s/%s",
@@ -330,6 +343,12 @@ func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.G
 
 	// Check for GatewayParameters on GatewayClass
 	if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
+		// Check if GatewayParameters is allowed for agentgateway Gateways
+		if !g.inputs.GwpAgwpCompatibility {
+			return nil, nil, fmt.Errorf("GatewayClass %s references GatewayParameters %s: %w",
+				gwc.GetName(), ref.Name, ErrGatewayParametersNotAllowedForAgentgateway)
+		}
+
 		gwpNamespace := ""
 		if ref.Namespace != nil {
 			gwpNamespace = string(*ref.Namespace)
