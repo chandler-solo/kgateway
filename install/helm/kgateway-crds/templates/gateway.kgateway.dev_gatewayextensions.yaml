@@ -24,7 +24,8 @@ spec:
       jsonPath: .spec.type
       name: Type
       type: string
-    - jsonPath: .metadata.creationTimestamp
+    - description: The age of the gatewayextension.
+      jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1alpha1
