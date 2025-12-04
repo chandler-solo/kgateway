@@ -747,6 +747,8 @@ kind-build-and-load: kind-build-and-load-sds
 kind-load: kind-load-kgateway
 kind-load: kind-load-envoy-wrapper
 kind-load: kind-load-sds
+kind-load: kind-load-dummy-idp
+kind-load: kind-load-dummy-auth0
 
 #----------------------------------------------------------------------------------
 # Load Testing
