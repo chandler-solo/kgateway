@@ -200,6 +200,18 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		}
 	}
 
+	if configs.Shutdown != nil {
+		if configs.Shutdown.MaxSeconds != nil {
+			vals.Gateway.TerminationGracePeriodSeconds = configs.Shutdown.MaxSeconds
+		}
+		if configs.Shutdown.MinSeconds != nil {
+			if vals.Gateway.GracefulShutdown == nil {
+				vals.Gateway.GracefulShutdown = &kgateway.GracefulShutdownSpec{}
+			}
+			vals.Gateway.GracefulShutdown.SleepTimeSeconds = configs.Shutdown.MinSeconds
+		}
+	}
+
 	if len(configs.Labels) > 0 {
 		if vals.Gateway.ExtraPodLabels == nil {
 			vals.Gateway.ExtraPodLabels = make(map[string]string)

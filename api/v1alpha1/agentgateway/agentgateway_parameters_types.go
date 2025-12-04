@@ -118,6 +118,35 @@ type AgentgatewayParametersConfigs struct {
 	//
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// Shutdown delay configuration.  How graceful planned or unplanned data
+	// plane changes happen is in tension with how quickly rollouts of the data
+	// plane complete. How long a data plane pod must wait for shutdown to be
+	// perfectly graceful depends on how you have configured your Gateways.
+	//
+	// +optional
+	Shutdown *ShutdownSpec `json:"shutdown,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="self.minSeconds <= self.maxSeconds",message="The 'minSeconds' value must be less than or equal to the 'maxSeconds' value."
+type ShutdownSpec struct {
+	// Maximum time (in seconds) to wait before allowing Agentgateway to
+	// terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
+	// variable for details.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=31536000
+	MinSeconds *int64 `json:"minSeconds,omitempty"`
+
+	// Minimum time (in seconds) to wait before allowing Agentgateway to
+	// terminate. Refer to the CONNECTION_MIN_TERMINATION_DEADLINE environment
+	// variable for details.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=31536000
+	MaxSeconds *int64 `json:"maxSeconds,omitempty"`
 }
 
 type AgentgatewayParametersOverlays struct {

@@ -576,6 +576,36 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
+              shutdown:
+                description: |-
+                  Shutdown delay configuration.  How graceful planned or unplanned data
+                  plane changes happen is in tension with how quickly rollouts of the data
+                  plane complete. How long a data plane pod must wait for shutdown to be
+                  perfectly graceful depends on how you have configured your Gateways.
+                properties:
+                  maxSeconds:
+                    description: |-
+                      Minimum time (in seconds) to wait before allowing Agentgateway to
+                      terminate. Refer to the CONNECTION_MIN_TERMINATION_DEADLINE environment
+                      variable for details.
+                    format: int64
+                    maximum: 31536000
+                    minimum: 0
+                    type: integer
+                  minSeconds:
+                    description: |-
+                      Maximum time (in seconds) to wait before allowing Agentgateway to
+                      terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
+                      variable for details.
+                    format: int64
+                    maximum: 31536000
+                    minimum: 0
+                    type: integer
+                type: object
+                x-kubernetes-validations:
+                - message: The 'minSeconds' value must be less than or equal to the
+                    'maxSeconds' value.
+                  rule: self.minSeconds <= self.maxSeconds
             type: object
           status:
             description: status defines the current state of AgentgatewayParameters.
