@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
 
 	"istio.io/istio/pkg/kube/kclient"
 	corev1 "k8s.io/api/core/v1"
@@ -265,7 +264,7 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	}
 
 	if g.inputs.ControlPlane.XdsTLS {
-		if err := g.injectXdsCACertificate(vals); err != nil {
+		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
@@ -499,33 +498,4 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 	}
 
 	return &deployer.HelmConfig{Gateway: gtw}, nil
-}
-
-// DLC injectXdsCACertificate reads the CA certificate from the control plane's mounted TLS Secret
-// and injects it into the Helm values so it can be used by the proxy templates.
-func (g *agentgatewayParametersHelmValuesGenerator) injectXdsCACertificate(vals *deployer.HelmConfig) error {
-	caCertPath := g.inputs.ControlPlane.XdsTlsCaPath
-	if _, err := os.Stat(caCertPath); os.IsNotExist(err) {
-		return fmt.Errorf("xDS TLS is enabled but CA certificate file not found at %s. "+
-			"Ensure the xDS TLS secret is properly mounted and contains ca.crt", caCertPath,
-		)
-	}
-
-	caCert, err := os.ReadFile(caCertPath)
-	if err != nil {
-		return fmt.Errorf("failed to read CA certificate from %s: %w", caCertPath, err)
-	}
-	if len(caCert) == 0 {
-		return fmt.Errorf("CA certificate at %s is empty", caCertPath)
-	}
-
-	caCertStr := string(caCert)
-	if vals.Gateway.Xds != nil && vals.Gateway.Xds.Tls != nil {
-		vals.Gateway.Xds.Tls.CaCert = &caCertStr
-	}
-	if vals.Gateway.AgwXds != nil && vals.Gateway.AgwXds.Tls != nil {
-		vals.Gateway.AgwXds.Tls.CaCert = &caCertStr
-	}
-
-	return nil
 }

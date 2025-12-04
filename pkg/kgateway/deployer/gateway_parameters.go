@@ -379,7 +379,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	// Inject xDS CA certificate into Helm values if TLS is enabled
 	if k.inputs.ControlPlane.XdsTLS {
-		if err := k.injectXdsCACertificate(vals); err != nil {
+		if err := injectXdsCACertificate(k.inputs.ControlPlane.XdsTlsCaPath, vals); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
@@ -479,8 +479,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 // injectXdsCACertificate reads the CA certificate from the control plane's mounted TLS Secret
 // and injects it into the Helm values so it can be used by the proxy templates.
-func (k *kgatewayParameters) injectXdsCACertificate(vals *deployer.HelmConfig) error {
-	caCertPath := k.inputs.ControlPlane.XdsTlsCaPath
+func injectXdsCACertificate(caCertPath string, vals *deployer.HelmConfig) error {
 	if _, err := os.Stat(caCertPath); os.IsNotExist(err) {
 		return fmt.Errorf("xDS TLS is enabled but CA certificate file not found at %s. "+
 			"Ensure the xDS TLS secret is properly mounted and contains ca.crt", caCertPath,
