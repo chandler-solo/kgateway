@@ -110,9 +110,6 @@ rules:
 - apiGroups:
   - gateway.kgateway.dev
   resources:
-  # NOTE: A fresh install doesn't need permissions to look at
-  # agentgatewaypolicies or agentgatewaybackends, but we changed GVKs in PR
-  # #13013.
   - agentgatewaybackends
   - agentgatewaypolicies
   - backendconfigpolicies
@@ -130,9 +127,6 @@ rules:
 - apiGroups:
   - gateway.kgateway.dev
   resources:
-  # NOTE: A fresh install doesn't need permissions to look at
-  # agentgatewaypolicies or agentgatewaybackends, but we changed GVKs in PR
-  # #13013.
   - agentgatewaybackends/status
   - agentgatewaypolicies/status
   - backendconfigpolicies/status
