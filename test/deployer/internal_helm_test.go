@@ -131,6 +131,12 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway with custom configmap",
 			InputFile: "agentgateway-custom-configmap",
 		},
+		{
+			// The GW parametersRef is meant to override the GWC parametersRef,
+			// not to create a 'merge' of params:
+			Name:      "both GWC and GW have parametersRef",
+			InputFile: "both-gwc-and-gw-have-params",
+		},
 	}
 
 	tester := DeployerTester{
