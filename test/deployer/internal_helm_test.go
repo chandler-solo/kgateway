@@ -64,16 +64,28 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
+			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
+			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
 		{
-			Name:      "agentgateway-infrastructure",
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
+			InputFile: "agentgateway-omitdefaultsecuritycontext-gwp",
+		},
+		{
+			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
+			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw-gwp",
+		},
+		{
+			Name:      "agentgateway-infrastructure with AgentgatewayParameters",
 			InputFile: "agentgateway-infrastructure",
+		},
+		{
+			Name:      "agentgateway-infrastructure with GatewayParameters",
+			InputFile: "agentgateway-infrastructure-gwp",
 		},
 		{
 			Name:      "agentgateway-controller-but-custom-gatewayclass",
@@ -86,6 +98,53 @@ func TestRenderHelmChart(t *testing.T) {
 		{
 			Name:      "envoy-infrastructure",
 			InputFile: "envoy-infrastructure",
+		},
+		{
+			Name:      "agentgateway-params-primary",
+			InputFile: "agentgateway-params-primary",
+		},
+		{
+			Name:      "agentgateway with full image override",
+			InputFile: "agentgateway-image-override",
+		},
+		{
+			Name:      "agentgateway with env vars",
+			InputFile: "agentgateway-env",
+		},
+		{
+			Name:      "agentgateway with shutdown configuration",
+			InputFile: "agentgateway-shutdown",
+		},
+		{
+			// The key thing here is that ImagePullPolicy is not specified at
+			// all, allowing k8s to look at the tag to decide:
+			Name:      "agentgateway with repository only image override",
+			InputFile: "agentgateway-image-repo-only",
+		},
+		{
+			// GatewayClass refs GatewayParameters, Gateway refs AgentgatewayParameters
+			// Tests the mixed-kind scenario where cluster defaults come from GWP
+			// but a specific Gateway overrides with AGWP.
+			Name:      "agentgateway GWC with GWP and GW with AGWP",
+			InputFile: "agentgateway-gwc-gwp-gw-agwp",
+		},
+		{
+			// TODO(chandler): perhaps this replaces the more expensive e2e
+			// test case
+			// TestAgentgatewayIntegration/ConfigMap/TestTracingConfigMap:
+			Name:      "agentgateway with custom configmap",
+			InputFile: "agentgateway-custom-configmap",
+		},
+		{
+			// The GW parametersRef is meant to override the GWC parametersRef,
+			// not to create a 'merge' of params:
+			Name:      "both GWC and GW have parametersRef",
+			InputFile: "both-gwc-and-gw-have-params",
+		},
+		{
+			// Same as above but with AgentgatewayParameters instead of GatewayParameters:
+			Name:      "agentgateway both GWC and GW have parametersRef",
+			InputFile: "agentgateway-both-gwc-and-gw-have-params",
 		},
 	}
 

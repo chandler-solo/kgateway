@@ -16,26 +16,17 @@ spec:
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters
-    name: agwp-omit-security
+    name: repo-only
     namespace: default
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
 metadata:
-  name: agwp-omit-security
+  name: repo-only
   namespace: default
 spec:
-  # Use deployment overlay to delete the default securityContext using null
-  deployment:
-    spec:
-      template:
-        spec:
-          # Delete pod-level securityContext
-          securityContext: null
-          containers:
-            - name: agent-gateway
-              # Delete container-level securityContext
-              securityContext: null
+  image:
+    repository: custom-repo
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1

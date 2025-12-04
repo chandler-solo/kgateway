@@ -126,8 +126,7 @@ func (dt DeployerTester) RunHelmChartTest(
 	ctx := t.Context()
 	fakeClient.RunAndWait(ctx.Done())
 
-	// Get objects (what actually gets deployed), which in the future is likely
-	// to differ from helm's rendered output
+	// Get post-processed objects (what actually gets deployed)
 	deployObjs, err := deployer.GetObjsToDeploy(ctx, gtw)
 	assert.NoError(t, err, "error getting objects to deploy")
 
@@ -159,6 +158,22 @@ func (dt DeployerTester) RunHelmChartTest(
 	diff := cmp.Diff(data, got)
 	outputStr := "%s\nthe golden file, which can be refreshed via `REFRESH_GOLDEN=true go test ./test/deployer`, is\n%s"
 	assert.Empty(t, diff, outputStr, diff, outputFile)
+}
+
+// objectsToYAML converts a slice of client.Object to YAML bytes, separated by "---"
+func objectsToYAML(objs []client.Object) ([]byte, error) {
+	var result []byte
+	for i, obj := range objs {
+		objYAML, err := yaml.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		if i > 0 {
+			result = append(result, []byte("---\n")...)
+		}
+		result = append(result, objYAML...)
+	}
+	return result, nil
 }
 
 func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonCollections) *pkgdeployer.Inputs {
@@ -253,20 +268,4 @@ func validateYAML(t *testing.T, filename string, data []byte) {
 			t.Errorf("helm chart produced yaml with implicit null that becomes explicit: document %d in %s\nDiff (- original, + after round-trip):\n%s", i+1, filename, diff)
 		}
 	}
-}
-
-// objectsToYAML converts a slice of client.Object to YAML bytes, separated by "---"
-func objectsToYAML(objs []client.Object) ([]byte, error) {
-	var result []byte
-	for i, obj := range objs {
-		objYAML, err := yaml.Marshal(obj)
-		if err != nil {
-			return nil, err
-		}
-		if i > 0 {
-			result = append(result, []byte("---\n")...)
-		}
-		result = append(result, objYAML...)
-	}
-	return result, nil
 }
