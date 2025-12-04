@@ -385,6 +385,32 @@ func (g *agentgatewayParametersHelmValuesGenerator) applyGatewayParametersToHelm
 
 	svcAccountConfig := gwp.Spec.Kube.GetServiceAccount()
 	vals.Gateway.ServiceAccount = deployer.GetServiceAccountValues(svcAccountConfig)
+
+	// Apply agentgateway-specific config from GatewayParameters
+	agwConfig := gwp.Spec.Kube.GetAgentgateway()
+	if agwConfig != nil {
+		if logLevel := agwConfig.GetLogLevel(); logLevel != nil {
+			vals.Gateway.LogLevel = logLevel
+		}
+		if image := agwConfig.GetImage(); image != nil {
+			vals.Gateway.Image = deployer.GetImageValues(image)
+		}
+		if resources := agwConfig.GetResources(); resources != nil {
+			vals.Gateway.Resources = resources
+		}
+		if securityContext := agwConfig.GetSecurityContext(); securityContext != nil {
+			vals.Gateway.SecurityContext = securityContext
+		}
+		if env := agwConfig.GetEnv(); len(env) > 0 {
+			vals.Gateway.Env = env
+		}
+		if customConfigMapName := agwConfig.GetCustomConfigMapName(); customConfigMapName != nil {
+			vals.Gateway.CustomConfigMapName = customConfigMapName
+		}
+		if extraVolumeMounts := agwConfig.ExtraVolumeMounts; len(extraVolumeMounts) > 0 {
+			vals.Gateway.ExtraVolumeMounts = extraVolumeMounts
+		}
+	}
 }
 
 func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynced {
