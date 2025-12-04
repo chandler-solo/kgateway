@@ -302,12 +302,8 @@ func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.G
 			return nil, gwp, nil
 		}
 
-		// Unknown parameter type - ignore and fall through to GatewayClass
-		slog.Debug("gateway infrastructure.parametersRef references unknown type",
-			"gateway", gw.GetName(),
-			"group", ref.Group,
-			"kind", ref.Kind,
-		)
+		return nil, nil, fmt.Errorf("infrastructure.parametersRef on Gateway %s references unknown type: group=%s kind=%s",
+			gw.GetName(), ref.Group, ref.Kind)
 	}
 
 	// Fall back to GatewayClass parametersRef
