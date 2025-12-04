@@ -111,6 +111,7 @@ type AgentgatewayParametersConfigs struct {
 	//
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+
 	// The compute resources required by this container. See
 	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// for details.
