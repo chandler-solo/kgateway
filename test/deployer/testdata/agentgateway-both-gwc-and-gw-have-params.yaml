@@ -1,0 +1,80 @@
+# This tests the scenario where both GWC and GW specify parametersRef,
+# and verifies that the Gateway's parametersRef takes over completely.
+#
+# Expected behavior: Gateway's parametersRef REPLACES GatewayClass's
+# parametersRef entirely.  The AgentgatewayParameters on the Gateway takes full
+# precedence; AgentgatewayParameters from GatewayClass is ignored.  This
+# follows the Gateway API spec which states merging is implementation-specific,
+# and we choose replacement semantics for clarity and predictability.
+#
+# Note that inlined parameters on the Gateway will merge with parameters in the
+# GatewayClass's parametersRef; see ./agentgateway-infrastructure.yaml for an
+# example.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: gwc-params
+  namespace: default
+spec:
+  # From AgentgatewayParametersConfigs:
+  labels:
+    # MUST NOT be found in the output:
+    from-gwc: "true"
+  # From AgentgatewayParametersOverlays:
+  deployment:
+    spec:
+      # MUST NOT be found in the output:
+      replicas: 3
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: gw-params
+  namespace: default
+spec:
+  labels:
+    from-gw: "true"
+  service:
+    spec:
+      type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: kgateway
+spec:
+  controllerName: kgateway.dev/kgateway
+  description: Standard class for managing Gateway API ingress traffic.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: agentgateway
+spec:
+  controllerName: kgateway.dev/agentgateway
+  description: Specialized class for agentgateway.
+  parametersRef:
+    group: agentgateway.dev
+    kind: AgentgatewayParameters
+    name: gwc-params
+    namespace: default
+---
+kind: Gateway
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: gw-using-gw-params
+  namespace: default
+spec:
+  gatewayClassName: agentgateway
+  infrastructure:
+    parametersRef:
+      group: agentgateway.dev
+      kind: AgentgatewayParameters
+      name: gw-params
+  listeners:
+    - protocol: HTTP
+      port: 8080
+      name: http
+      allowedRoutes:
+        namespaces:
+          from: Same

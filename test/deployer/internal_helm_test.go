@@ -137,6 +137,11 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "both GWC and GW have parametersRef",
 			InputFile: "both-gwc-and-gw-have-params",
 		},
+		{
+			// Same as above but with AgentgatewayParameters instead of GatewayParameters:
+			Name:      "agentgateway both GWC and GW have parametersRef",
+			InputFile: "agentgateway-both-gwc-and-gw-have-params",
+		},
 	}
 
 	tester := DeployerTester{
