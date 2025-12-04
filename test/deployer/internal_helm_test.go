@@ -117,6 +117,13 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway with repository only image override",
 			InputFile: "agentgateway-image-repo-only",
 		},
+		{
+			// GatewayClass refs GatewayParameters, Gateway refs AgentgatewayParameters
+			// Tests the mixed-kind scenario where cluster defaults come from GWP
+			// but a specific Gateway overrides with AGWP.
+			Name:      "agentgateway GWC with GWP and GW with AGWP",
+			InputFile: "agentgateway-gwc-gwp-gw-agwp",
+		},
 	}
 
 	tester := DeployerTester{

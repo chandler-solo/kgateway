@@ -6,9 +6,7 @@ import (
 	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
@@ -48,10 +46,6 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) error {
 			overlay = overlays.Service
 		case "ServiceAccount":
 			overlay = overlays.ServiceAccount
-		case "PodDisruptionBudget":
-			overlay = overlays.PodDisruptionBudget
-		case "HorizontalPodAutoscaler":
-			overlay = overlays.HorizontalPodAutoscaler
 		default:
 			continue
 		}
@@ -146,10 +140,6 @@ func getDataObjectForGVK(gvk schema.GroupVersionKind) (runtime.Object, error) {
 		return &corev1.Service{}, nil
 	case "ServiceAccount":
 		return &corev1.ServiceAccount{}, nil
-	case "PodDisruptionBudget":
-		return &policyv1.PodDisruptionBudget{}, nil
-	case "HorizontalPodAutoscaler":
-		return &autoscalingv2.HorizontalPodAutoscaler{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", gvk.Kind)
 	}

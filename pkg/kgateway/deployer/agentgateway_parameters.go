@@ -28,8 +28,7 @@ import (
 type agentgatewayParameters struct {
 	agwParamClient kclient.Client[*agentgateway.AgentgatewayParameters]
 	gwClassClient  kclient.Client[*gwv1.GatewayClass]
-	// DLC gwp client?
-	inputs *deployer.Inputs
+	inputs         *deployer.Inputs
 }
 
 func newAgentgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *agentgatewayParameters {
@@ -240,27 +239,26 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 		return nil, fmt.Errorf("expected a Gateway resource, got %s", obj.GetObjectKind().GroupVersionKind().String())
 	}
 
-	agwp, err := g.agwParams.GetAgentgatewayParametersForGateway(gw)
+	// Resolve parameters with Gateway-level parametersRef completely replacing
+	// GatewayClass-level parametersRef. This follows the Gateway API spec which
+	// states that merging behavior is implementation-specific, and we choose
+	// replacement semantics for clarity and predictability.
+	agwp, gwp, err := g.resolveParameters(gw)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if a GatewayParameters is referenced (for backwards compatibility
-	// since GatewayParameters predates AgentgatewayParameters)
-	gwp := g.getGatewayParametersForGateway(gw)
-
-	omitDefaultSecurityContext := g.shouldOmitDefaultSecurityContext(gwp)
+	omitDefaultSecurityContext := g.shouldOmitDefaultSecurityContext(gwp, agwp)
 
 	vals, err := g.getDefaultAgentgatewayHelmValues(gw, omitDefaultSecurityContext)
 	if err != nil {
 		return nil, err
 	}
 
+	// Apply at most one of GWP or AGWP (they are mutually exclusive after resolution)
 	if gwp != nil {
 		g.applyGatewayParametersToHelmValues(gwp, vals)
 	}
-
-	// Apply AgentgatewayParameters configs to helm values (these take precedence over GWP TODO(chandler): DLC: but you can't have both)
 	if agwp != nil {
 		applier := NewAgentgatewayParametersApplier(agwp)
 		applier.ApplyToHelmValues(vals)
@@ -277,41 +275,89 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	return jsonVals, err
 }
 
-// getGatewayParametersForGateway returns the GatewayParameters for the given
-// Gateway, if any. (AgentgatewayParameters and GatewayParameters are both
-// supported, but mixing GVKs is inelegant and so AgentgatewayParameters is
-// preferred.)
-func (g *agentgatewayParametersHelmValuesGenerator) getGatewayParametersForGateway(gw *gwv1.Gateway) *kgateway.GatewayParameters {
-	// Check if the Gateway's infrastructure references a GatewayParameters
+// resolveParameters resolves the effective parameters for the Gateway.
+// Gateway-level parametersRef completely replaces GatewayClass-level parametersRef.
+// Returns at most one of AgentgatewayParameters or GatewayParameters (never both).
+func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, *kgateway.GatewayParameters, error) {
+	// First, check if Gateway has its own parametersRef - this takes full precedence
 	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
 		ref := gw.Spec.Infrastructure.ParametersRef
-		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
-			return g.gwParamClient.Get(ref.Name, gw.GetNamespace())
-		}
-	}
 
-	// Check if the GatewayClass references a GatewayParameters
-	gwc := g.agwParams.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
-	if gwc != nil && gwc.Spec.ParametersRef != nil {
-		ref := gwc.Spec.ParametersRef
-		if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
-			gwpNamespace := ""
-			if ref.Namespace != nil {
-				gwpNamespace = string(*ref.Namespace)
+		// Check for AgentgatewayParameters
+		if ref.Group == agentgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.AgentgatewayParametersGVK.Kind) {
+			agwp := g.agwParams.agwParamClient.Get(ref.Name, gw.GetNamespace())
+			if agwp == nil {
+				return nil, nil, fmt.Errorf("AgentgatewayParameters %s/%s not found for Gateway %s/%s",
+					gw.GetNamespace(), ref.Name, gw.GetNamespace(), gw.GetName())
 			}
-			return g.gwParamClient.Get(ref.Name, gwpNamespace)
+			return agwp, nil, nil
 		}
+
+		// Check for GatewayParameters
+		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+			gwp := g.gwParamClient.Get(ref.Name, gw.GetNamespace())
+			if gwp == nil {
+				return nil, nil, fmt.Errorf("GatewayParameters %s/%s not found for Gateway %s/%s",
+					gw.GetNamespace(), ref.Name, gw.GetNamespace(), gw.GetName())
+			}
+			return nil, gwp, nil
+		}
+
+		// Unknown parameter type - ignore and fall through to GatewayClass
+		slog.Debug("gateway infrastructure.parametersRef references unknown type",
+			"gateway", gw.GetName(),
+			"group", ref.Group,
+			"kind", ref.Kind,
+		)
 	}
 
-	return nil
+	// Fall back to GatewayClass parametersRef
+	gwc := g.agwParams.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc == nil || gwc.Spec.ParametersRef == nil {
+		return nil, nil, nil
+	}
+
+	ref := gwc.Spec.ParametersRef
+
+	// Check for AgentgatewayParameters on GatewayClass
+	if ref.Group == agentgateway.GroupName && string(ref.Kind) == wellknown.AgentgatewayParametersGVK.Kind {
+		agwpNamespace := ""
+		if ref.Namespace != nil {
+			agwpNamespace = string(*ref.Namespace)
+		}
+		agwp := g.agwParams.agwParamClient.Get(ref.Name, agwpNamespace)
+		if agwp == nil {
+			return nil, nil, fmt.Errorf("AgentgatewayParameters %s/%s not found for GatewayClass %s",
+				agwpNamespace, ref.Name, gwc.GetName())
+		}
+		return agwp, nil, nil
+	}
+
+	// Check for GatewayParameters on GatewayClass
+	if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
+		gwpNamespace := ""
+		if ref.Namespace != nil {
+			gwpNamespace = string(*ref.Namespace)
+		}
+		gwp := g.gwParamClient.Get(ref.Name, gwpNamespace)
+		if gwp == nil {
+			return nil, nil, fmt.Errorf("GatewayParameters %s/%s not found for GatewayClass %s",
+				gwpNamespace, ref.Name, gwc.GetName())
+		}
+		return nil, gwp, nil
+	}
+
+	return nil, nil, nil
 }
 
-// shouldOmitDefaultSecurityContext checks if the Gateway references a GatewayParameters
-// with omitDefaultSecurityContext set to true.
-func (g *agentgatewayParametersHelmValuesGenerator) shouldOmitDefaultSecurityContext(gwp *kgateway.GatewayParameters) bool {
+// shouldOmitDefaultSecurityContext checks if the resolved parameters specify
+// omitDefaultSecurityContext. Only GatewayParameters supports this field currently.
+func (g *agentgatewayParametersHelmValuesGenerator) shouldOmitDefaultSecurityContext(gwp *kgateway.GatewayParameters, _ *agentgateway.AgentgatewayParameters) bool {
+	// GatewayParameters has explicit omitDefaultSecurityContext field
 	if gwp != nil && gwp.Spec.Kube != nil {
 		return ptr.Deref(gwp.Spec.Kube.OmitDefaultSecurityContext, false)
 	}
+	// AgentgatewayParameters doesn't have this field - users can use deployment overlay instead
 	return false
 }
 
@@ -352,7 +398,8 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cac
 }
 
 func (g *agentgatewayParametersHelmValuesGenerator) GetAgentgatewayParametersForGateway(gw *gwv1.Gateway) (*agentgateway.AgentgatewayParameters, error) {
-	return g.agwParams.GetAgentgatewayParametersForGateway(gw)
+	agwp, _, err := g.resolveParameters(gw)
+	return agwp, err
 }
 
 func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway, omitDefaultSecurityContext bool) (*deployer.HelmConfig, error) {
