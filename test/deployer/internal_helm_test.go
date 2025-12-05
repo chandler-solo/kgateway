@@ -154,6 +154,10 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway both GWC and GW have parametersRef",
 			InputFile: "agentgateway-both-gwc-and-gw-have-params",
 		},
+		{
+			Name:      "agentgateway strategic-merge-patch tests",
+			InputFile: "agentgateway-strategic-merge-patch",
+		},
 	}
 
 	tester := DeployerTester{
