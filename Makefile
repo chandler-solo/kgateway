@@ -645,6 +645,10 @@ lint-kgateway-charts: ## Lint the kgateway charts
 	$(HELM) lint $(HELM_CHART_DIR)
 	$(HELM) lint $(HELM_CHART_DIR_CRD)
 
+.PHONY: build-crds-yaml
+build-crds-yaml: $(STAMP_DIR)/go-generate-apis ## Generate a single YAML file containing all kgateway CRDs suitable for use as a release artifact
+	./hack/build-crds-yaml.sh
+
 #----------------------------------------------------------------------------------
 # Release
 #----------------------------------------------------------------------------------
