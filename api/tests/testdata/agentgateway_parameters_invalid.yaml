@@ -20,3 +20,12 @@ spec:
       - rmcp=warn
       - hickory_server::server::server_future=off
       - typespec_client_core::http::policies::logging=warn
+---
+_err: "Unsupported value"
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: logging-format-invalid
+spec:
+  logging:
+    format: Unknown
