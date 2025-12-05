@@ -61,7 +61,9 @@ spec:
               annotations:
                 additionalProperties:
                   type: string
-                description: Common set of annotations to apply to all generated resources.
+                description: |-
+                  DLC delete
+                  Common set of annotations to apply to all generated resources.
                 type: object
               deployment:
                 description: deployment allows specifying overrides for the generated
@@ -96,9 +98,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
-                      If you have AgentgatewayParameters on both the GatewayClass and the
-                      Gateway, the Gateway-level parameters completely replace the
-                      GatewayClass-level parameters (no merging occurs).
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first.
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -117,10 +119,10 @@ spec:
                       the special `$patch: delete` directive.
 
                         spec:
-                          template:
-                            spec:
-                              containers:
-                              - name: unwanted-sidecar
+                          containers:
+                            - name: agent-gateway
+                              # Delete the securityContext using $patch: delete
+                              securityContext:
                                 $patch: delete
 
                       **4. Deleting/Clearing Map Fields (null):**
@@ -134,13 +136,18 @@ spec:
                       **5. Replacing Lists Entirely ($patch: replace):**
                       If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 
-                        spec:
-                          template:
-                            spec:
-                              containers:
+                        service:
+                          spec:
+                            ports:
                               - $patch: replace
-                                name: my-only-container
-                                image: alpine
+                              - name: http
+                                port: 80
+                                targetPort: 8080
+                                protocol: TCP
+                              - name: https
+                                port: 443
+                                targetPort: 8443
+                                protocol: TCP
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
@@ -339,13 +346,16 @@ spec:
               labels:
                 additionalProperties:
                   type: string
-                description: Common set of labels to apply to all generated resources.
+                description: |-
+                  DLC delete
+                  Common set of labels to apply to all generated resources.
                 type: object
               logging:
                 description: logging configuration for Agentgateway. By default, all
                   logs are set to "info" level.
                 properties:
                   format:
+                    description: The default logging format is Text.
                     enum:
                     - Json
                     - Text
@@ -456,9 +466,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
-                      If you have AgentgatewayParameters on both the GatewayClass and the
-                      Gateway, the Gateway-level parameters completely replace the
-                      GatewayClass-level parameters (no merging occurs).
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first.
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -477,10 +487,10 @@ spec:
                       the special `$patch: delete` directive.
 
                         spec:
-                          template:
-                            spec:
-                              containers:
-                              - name: unwanted-sidecar
+                          containers:
+                            - name: agent-gateway
+                              # Delete the securityContext using $patch: delete
+                              securityContext:
                                 $patch: delete
 
                       **4. Deleting/Clearing Map Fields (null):**
@@ -494,13 +504,18 @@ spec:
                       **5. Replacing Lists Entirely ($patch: replace):**
                       If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 
-                        spec:
-                          template:
-                            spec:
-                              containers:
+                        service:
+                          spec:
+                            ports:
                               - $patch: replace
-                                name: my-only-container
-                                image: alpine
+                              - name: http
+                                port: 80
+                                targetPort: 8080
+                                protocol: TCP
+                              - name: https
+                                port: 443
+                                targetPort: 8443
+                                protocol: TCP
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
@@ -537,9 +552,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
-                      If you have AgentgatewayParameters on both the GatewayClass and the
-                      Gateway, the Gateway-level parameters completely replace the
-                      GatewayClass-level parameters (no merging occurs).
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first.
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -558,10 +573,10 @@ spec:
                       the special `$patch: delete` directive.
 
                         spec:
-                          template:
-                            spec:
-                              containers:
-                              - name: unwanted-sidecar
+                          containers:
+                            - name: agent-gateway
+                              # Delete the securityContext using $patch: delete
+                              securityContext:
                                 $patch: delete
 
                       **4. Deleting/Clearing Map Fields (null):**
@@ -575,13 +590,18 @@ spec:
                       **5. Replacing Lists Entirely ($patch: replace):**
                       If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 
-                        spec:
-                          template:
-                            spec:
-                              containers:
+                        service:
+                          spec:
+                            ports:
                               - $patch: replace
-                                name: my-only-container
-                                image: alpine
+                              - name: http
+                                port: 80
+                                targetPort: 8080
+                                protocol: TCP
+                              - name: https
+                                port: 443
+                                targetPort: 8443
+                                protocol: TCP
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object

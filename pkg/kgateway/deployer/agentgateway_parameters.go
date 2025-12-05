@@ -210,15 +210,11 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 	}
 
 	if configs.Shutdown != nil {
-		if configs.Shutdown.MaxSeconds != nil {
-			vals.Gateway.TerminationGracePeriodSeconds = configs.Shutdown.MaxSeconds
+		vals.Gateway.TerminationGracePeriodSeconds = ptr.To(configs.Shutdown.MaxSeconds)
+		if vals.Gateway.GracefulShutdown == nil {
+			vals.Gateway.GracefulShutdown = &kgateway.GracefulShutdownSpec{}
 		}
-		if configs.Shutdown.MinSeconds != nil {
-			if vals.Gateway.GracefulShutdown == nil {
-				vals.Gateway.GracefulShutdown = &kgateway.GracefulShutdownSpec{}
-			}
-			vals.Gateway.GracefulShutdown.SleepTimeSeconds = configs.Shutdown.MinSeconds
-		}
+		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.MinSeconds)
 	}
 
 	if len(configs.Labels) > 0 {
@@ -314,11 +310,6 @@ type resolvedParameters struct {
 	// gwp is the GatewayParameters (from either Gateway or GatewayClass).
 	// This is mutually exclusive with gatewayClassAGWP and gatewayAGWP.
 	gwp *kgateway.GatewayParameters
-}
-
-// hasAnyAGWP returns true if either GatewayClass or Gateway has AgentgatewayParameters.
-func (r *resolvedParameters) hasAnyAGWP() bool {
-	return r.gatewayClassAGWP != nil || r.gatewayAGWP != nil
 }
 
 // resolveParameters resolves the parameters for the Gateway.

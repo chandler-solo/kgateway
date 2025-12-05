@@ -39,7 +39,7 @@ func TestOverlayApplier_ApplyOverlays_MetadataLabels(t *testing.T) {
 		Spec: agentgateway.AgentgatewayParametersSpec{
 			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
 				Deployment: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{
 							"custom-label": "custom-value",
 						},
@@ -77,7 +77,7 @@ func TestOverlayApplier_ApplyOverlays_MetadataAnnotations(t *testing.T) {
 		Spec: agentgateway.AgentgatewayParametersSpec{
 			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
 				Service: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Annotations: map[string]string{
 							"custom-annotation": "custom-value",
 						},
@@ -270,17 +270,17 @@ func TestOverlayApplier_ApplyOverlays_MultipleObjects(t *testing.T) {
 		Spec: agentgateway.AgentgatewayParametersSpec{
 			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
 				Deployment: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"app": "modified"},
 					},
 				},
 				Service: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"svc": "modified"},
 					},
 				},
 				ServiceAccount: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{"sa": "modified"},
 					},
 				},

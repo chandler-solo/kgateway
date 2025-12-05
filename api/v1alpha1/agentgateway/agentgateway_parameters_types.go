@@ -6,6 +6,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// AgentgatewayParameters are configuration that is used to dynamically
+// provision the agentgateway data plane. Labels and annotations that apply to
+// all resources may be specified at a higher level; see
+// https://gateway-api.sigs.k8s.io/reference/spec/#gatewayinfrastructure
+//
 // +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters/status,verbs=get;update;patch
 
@@ -50,6 +55,7 @@ type AgentgatewayParametersSpec struct {
 	AgentgatewayParametersOverlays `json:",inline"`
 }
 
+// The default logging format is Text.
 // +kubebuilder:validation:Enum=Json;Text
 type AgentgatewayParametersLoggingFormat string
 
@@ -64,16 +70,17 @@ type AgentgatewayParametersLogging struct {
 	Level string `json:"level,omitempty"`
 	// +optional
 	Levels []string `json:"levels,omitempty"`
-	// +kubebuilder:validation:Enum=Json;Text
 	// +optional
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }
 
 type AgentgatewayParametersConfigs struct {
+	// DLC delete
 	// Common set of labels to apply to all generated resources.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
 
+	// DLC delete
 	// Common set of annotations to apply to all generated resources.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
@@ -134,7 +141,7 @@ type ShutdownSpec struct {
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
-	MinSeconds *int64 `json:"minSeconds,omitempty"`
+	MinSeconds int64 `json:"minSeconds"`
 
 	// Maximum time (in seconds) to wait before allowing Agentgateway to
 	// terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
@@ -143,7 +150,7 @@ type ShutdownSpec struct {
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
-	MaxSeconds *int64 `json:"maxSeconds,omitempty"`
+	MaxSeconds int64 `json:"maxSeconds"`
 }
 
 type AgentgatewayParametersOverlays struct {
