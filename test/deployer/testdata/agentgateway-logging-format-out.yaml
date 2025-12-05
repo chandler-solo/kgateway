@@ -15,7 +15,9 @@ metadata:
 apiVersion: v1
 data:
   config.yaml: |
-    config: {}
+    config:
+      logging:
+        format: Json
 kind: ConfigMap
 metadata:
   labels:
@@ -76,6 +78,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/config: 5946ce840843921dc9621f1feaf1eb99e07c1a305301ab5cf2400735a6866058
         prometheus.io/path: /metrics
         prometheus.io/port: "15020"
         prometheus.io/scrape: "true"
@@ -110,7 +113,6 @@ spec:
           value: gw
         - name: RUST_BACKTRACE
           value: "1"
-        # TODO(chandler): DLC: Plain log format not yet implemented
         - name: RUST_LOG
           value: info
         - name: XDS_ADDRESS

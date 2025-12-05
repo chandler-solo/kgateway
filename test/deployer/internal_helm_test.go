@@ -120,7 +120,7 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-logging-levels",
 		},
 		{
-			Name:      "agentgateway with logging format Plain",
+			Name:      "agentgateway with logging format Json",
 			InputFile: "agentgateway-logging-format",
 		},
 		{

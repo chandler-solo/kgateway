@@ -91,6 +91,8 @@ type HelmGateway struct {
 
 	// agentgateway integration values
 	CustomConfigMapName *string `json:"customConfigMapName,omitempty"`
+	// LogFormat specifies the logging format for agentgateway (Json or Text)
+	LogFormat *string `json:"logFormat,omitempty"`
 }
 
 // helmPort represents a Gateway Listener port

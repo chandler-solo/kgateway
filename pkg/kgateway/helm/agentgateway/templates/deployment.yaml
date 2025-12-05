@@ -24,7 +24,13 @@ spec:
   template:
     metadata:
       annotations:
+      {{- /* Add configmap checksum to trigger rollout when config changes (only for managed configmaps) */}}
+      {{- $configChecksum := dict }}
+      {{- if not $gateway.customConfigMapName }}
+        {{- $configChecksum = dict "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
+      {{- end }}
       {{- toYaml (merge
+          $configChecksum
           (deepCopy ($gateway.gatewayAnnotations | default dict))
           ($gateway.extraPodAnnotations | default dict)
           $promAnnotations

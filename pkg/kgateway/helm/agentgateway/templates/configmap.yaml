@@ -10,5 +10,11 @@ metadata:
     {{- include "kgateway.gateway.allLabels" . | nindent 4 }}
 data:
   config.yaml: |
+    {{- if $gateway.logFormat }}
+    config:
+      logging:
+        format: {{ $gateway.logFormat }}
+    {{- else }}
     config: {}
+    {{- end }}
 {{- end }}

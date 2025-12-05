@@ -198,6 +198,14 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		if configs.Logging.Level != "" {
 			vals.Gateway.LogLevel = &configs.Logging.Level
 		}
+		if configs.Logging.Format != "" {
+			format := string(configs.Logging.Format)
+			vals.Gateway.LogFormat = &format
+			// NOTE: The Deployment needs to have a new rollout if the only
+			// thing that changes is the ConfigMap. The usual solution with
+			// Helm is an annotation on the Deployment with a hash of the
+			// ConfigMap's contents, and that's what our helm chart does.
+		}
 	}
 
 	if configs.Shutdown != nil {

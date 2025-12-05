@@ -26,8 +26,7 @@ metadata:
   namespace: default
 spec:
   logging:
-    # TODO(chandler): DLC: not yet implemented
-    format: Plain
+    format: Json
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1

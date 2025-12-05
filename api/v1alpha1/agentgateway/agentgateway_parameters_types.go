@@ -50,12 +50,12 @@ type AgentgatewayParametersSpec struct {
 	AgentgatewayParametersOverlays `json:",inline"`
 }
 
-// +kubebuilder:validation:Enum=Json;Plain
+// +kubebuilder:validation:Enum=Json;Text
 type AgentgatewayParametersLoggingFormat string
 
 const (
-	AgentgatewayParametersLoggingJson  AgentgatewayParametersLoggingFormat = "Json"
-	AgentgatewayParametersLoggingPlain AgentgatewayParametersLoggingFormat = "Plain"
+	AgentgatewayParametersLoggingJson AgentgatewayParametersLoggingFormat = "Json"
+	AgentgatewayParametersLoggingText AgentgatewayParametersLoggingFormat = "Text"
 )
 
 // +kubebuilder:validation:AtMostOneOf=level;levels
@@ -64,7 +64,7 @@ type AgentgatewayParametersLogging struct {
 	Level string `json:"level,omitempty"`
 	// +optional
 	Levels []string `json:"levels,omitempty"`
-	// +kubebuilder:validation:Enum=Json;Plain
+	// +kubebuilder:validation:Enum=Json;Text
 	// +optional
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }
