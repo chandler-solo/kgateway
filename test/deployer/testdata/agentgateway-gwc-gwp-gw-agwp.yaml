@@ -53,12 +53,23 @@ metadata:
   name: agwp-override
   namespace: default
 spec:
-  labels:
-    from-agwp: "true"
-    shared-key: agwp-value
-  annotations:
-    from-agwp: "true"
-    shared-key: agwp-value
+  deployment:
+    metadata:
+      labels:
+        from-agwp: "true"
+        shared-key: agwp-value
+      annotations:
+        from-agwp: "true"
+        shared-key: agwp-value
+    spec:
+      template:
+        metadata:
+          labels:
+            from-agwp: "true"
+            shared-key: agwp-value
+          annotations:
+            from-agwp: "true"
+            shared-key: agwp-value
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1
@@ -68,6 +79,8 @@ metadata:
 spec:
   gatewayClassName: agentgateway
   infrastructure:
+    labels:
+      from-infra: "true"
     parametersRef:
       group: agentgateway.dev
       kind: AgentgatewayParameters

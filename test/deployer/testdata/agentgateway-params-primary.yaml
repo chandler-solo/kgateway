@@ -26,10 +26,6 @@ metadata:
   namespace: default
 spec:
   # Configs applied to helm values BEFORE rendering
-  labels:
-    custom-label: test-value
-  annotations:
-    custom-annotation: annotation-value
   logging:
     level: debug
   image:
@@ -51,6 +47,9 @@ spec:
     spec:
       # Add a custom volume using strategic merge patch
       template:
+        metadata:
+          annotations:
+            deployment-overlay-annotation: from-overlay
         spec:
           volumes:
             - name: custom-config

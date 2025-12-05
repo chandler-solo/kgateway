@@ -17,8 +17,10 @@ metadata:
   namespace: default
 spec:
   # From AgentgatewayParametersConfigs:
-  labels:
-    from-gwc: "true"
+  image:
+    digest: sha256:fd697c0542524e19a19baf75acfd06714b95bf4f7c60bf22c86164dd647ceb48
+    tag: ""
+    registry: "from-gwc"
   # From AgentgatewayParametersOverlays:
   deployment:
     spec:
@@ -30,8 +32,8 @@ metadata:
   name: gw-params
   namespace: default
 spec:
-  labels:
-    from-gw: "true"
+  image:
+    registry: "from-gw"
   service:
     spec:
       type: ClusterIP

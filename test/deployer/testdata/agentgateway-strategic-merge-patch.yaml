@@ -26,10 +26,6 @@ metadata:
   namespace: default
 spec:
   # Configs applied to helm values BEFORE rendering
-  labels:
-    custom-label: test-value
-  annotations:
-    custom-annotation: annotation-value
   logging:
     level: debug
   image:

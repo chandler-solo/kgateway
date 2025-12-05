@@ -84,8 +84,6 @@ spec:
       labels:
         app.kubernetes.io/instance: gw-using-gw-params
         app.kubernetes.io/name: gw-using-gw-params
-        from-gw: "true"
-        from-gwc: "true"
         gateway.networking.k8s.io/gateway-class-name: agentgateway
         gateway.networking.k8s.io/gateway-name: gw-using-gw-params
     spec:
@@ -124,7 +122,7 @@ spec:
               fieldPath: metadata.namespace
         - name: GATEWAY
           value: gw-using-gw-params
-        image: ghcr.io/agentgateway/agentgateway:0.11.0-alpha.f45f1a94cdfa53d96e14301d59ac62200214cb9c
+        image: from-gw/agentgateway@sha256:fd697c0542524e19a19baf75acfd06714b95bf4f7c60bf22c86164dd647ceb48
         name: agent-gateway
         ports:
         - containerPort: 15020
