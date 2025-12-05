@@ -51,27 +51,29 @@ spec:
     spec:
       template:
         spec:
+          volumes:
+            - $patch: replace
+            - name: custom-config
+              configMap:
+                name: my-custom-config
+            # What you don't want is the following, because it will not give
+            # you custom-config and instead delete every volume, leaving no
+            # volumes:
+            # - $patch: replace
+            #   name: custom-config
+            #   configMap:
+            #     name: my-custom-config
           containers:
             - name: agent-gateway
-              volumes:
-                # DLC or:
-                # - $patch: replace
-                # - name: custom-config
-                #   configMap:
-                #     name: my-custom-config
-                - $patch: replace
-                  name: custom-config
-                  configMap:
-                    name: my-custom-config
               volumeMounts:
                 - name: custom-config
                   mountPath: /etc/custom-config
                   readOnly: true
+              $setElementOrder/args:
+                - /config/config.yaml
+                - -f
               env:
                 - name: RUST_LOG
-                  $patch: delete
-                - name: NODE_NAME
-                  # TODO(chandler): DLC: DLC audit this test case
                   $patch: delete
               securityContext: {}
   service:
