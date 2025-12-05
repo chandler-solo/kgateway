@@ -601,6 +601,9 @@ spec:
                     maximum: 31536000
                     minimum: 0
                     type: integer
+                required:
+                - maxSeconds
+                - minSeconds
                 type: object
                 x-kubernetes-validations:
                 - message: The 'minSeconds' value must be less than or equal to the

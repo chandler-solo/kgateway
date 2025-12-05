@@ -8,6 +8,28 @@ spec:
     minSeconds: 61
     maxSeconds: 60
 ---
+# minSeconds and maxSeconds are required, which avoids the more confusing error
+# "AgentgatewayParameters/shutdown-min-gt-max/: spec.shutdown: Invalid value:
+# \"object\": no such key: minSeconds evaluating rule: The 'minSeconds' value
+# must be less than or equal to the 'maxSeconds' value."
+_err: "AgentgatewayParameters/shutdown-min-gt-max/: spec.shutdown.minSeconds: Required value"
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: shutdown-min-gt-max
+spec:
+  shutdown:
+    maxSeconds: 60
+---
+_err: "AgentgatewayParameters/shutdown-min-gt-max/: spec.shutdown.maxSeconds: Required value"
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: shutdown-min-gt-max
+spec:
+  shutdown:
+    minSeconds: 0
+---
 _err: "AgentgatewayParameters/shutdown-min-gt-max/: spec.logging: Invalid value: \"object\": at most one of the fields in [level levels] may be set"
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters

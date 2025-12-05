@@ -131,7 +131,7 @@ type ShutdownSpec struct {
 	// terminate. Refer to the CONNECTION_MIN_TERMINATION_DEADLINE environment
 	// variable for details.
 	//
-	// +optional
+	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
 	MinSeconds *int64 `json:"minSeconds,omitempty"`
@@ -140,7 +140,7 @@ type ShutdownSpec struct {
 	// terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
 	// variable for details.
 	//
-	// +optional
+	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
 	MaxSeconds *int64 `json:"maxSeconds,omitempty"`
