@@ -24,7 +24,7 @@ type AgentgatewayParameters struct {
 	// metadata for the object
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec defines the desired state of AgentgatewayParameters.
 	// +required
@@ -32,10 +32,10 @@ type AgentgatewayParameters struct {
 
 	// status defines the current state of AgentgatewayParameters.
 	// +optional
-	Status AgentgatewayParametersStatus `json:"status"`
+	Status AgentgatewayParametersStatus `json:"status,omitempty"`
 }
 
-// The current conditions of the GatewayParameters. This is not currently implemented.
+// The current conditions of the AgentgatewayParameters. This is not currently implemented.
 type AgentgatewayParametersStatus struct{}
 
 // +kubebuilder:object:root=true
@@ -64,6 +64,7 @@ type AgentgatewayParametersLogging struct {
 	Level string `json:"level,omitempty"`
 	// +optional
 	Levels []string `json:"levels,omitempty"`
+	// +kubebuilder:validation:Enum=Json;Plain
 	// +optional
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }
