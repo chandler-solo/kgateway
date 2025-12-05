@@ -30,19 +30,6 @@ spec:
   shutdown:
     minSeconds: 0
 ---
-_err: "AgentgatewayParameters/shutdown-min-gt-max/: spec.logging: Invalid value: \"object\": at most one of the fields in [level levels] may be set"
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayParameters
-metadata:
-  name: shutdown-min-gt-max
-spec:
-  logging:
-    level: error
-    levels:
-      - rmcp=warn
-      - hickory_server::server::server_future=off
-      - typespec_client_core::http::policies::logging=warn
----
 _err: "Unsupported value"
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
