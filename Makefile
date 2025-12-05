@@ -448,6 +448,7 @@ $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-agentgateway-$(VERSION)-$(GOARCH): $(CONT
 
 .PHONY: kgateway-docker
 kgateway-docker: $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
+
 .PHONY: kgateway-agentgateway-docker
 kgateway-agentgateway-docker: $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-agentgateway-$(VERSION)-$(GOARCH)
 
