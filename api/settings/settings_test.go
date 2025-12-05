@@ -48,7 +48,6 @@ func allEnvVarsSet() map[string]string {
 		"KGW_XDS_AUTH":                                 "false",
 		"KGW_XDS_TLS":                                  "true",
 		"KGW_ENABLE_EXPERIMENTAL_GATEWAY_API_FEATURES": "false",
-		"KGW_GWP_AGWP_COMPATIBILITY":                   "false",
 	}
 }
 
@@ -102,7 +101,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              true,
 				XdsTLS:                               false,
 				EnableExperimentalGatewayAPIFeatures: true,
-				GwpAgwpCompatibility:                 true,
 			},
 		},
 		{
@@ -141,7 +139,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              false,
 				XdsTLS:                               true,
 				EnableExperimentalGatewayAPIFeatures: false,
-				GwpAgwpCompatibility:                 false,
 			},
 		},
 		{
@@ -209,7 +206,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              true,
 				XdsTLS:                               false,
 				EnableExperimentalGatewayAPIFeatures: true,
-				GwpAgwpCompatibility:                 true,
 			},
 		},
 	}
