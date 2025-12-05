@@ -1,7 +1,3 @@
-// NOTE(chandler): This is my illuminated manuscript for PR 13007, which is
-// much better than the way that kgateway 2.1.0 specifies many Kubernetes
-// fields, but never the one you need, in its GatewayParameters.
-
 package agentgateway
 
 import (
