@@ -67,21 +67,23 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) error {
 // applyOverlay applies a KubernetesResourceOverlay to a single object.
 func applyOverlay(obj client.Object, overlay *agentgateway.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
 	// Apply metadata first
-	if overlay.Metadata.Labels != nil {
-		existingLabels := obj.GetLabels()
-		if existingLabels == nil {
-			existingLabels = make(map[string]string)
+	if overlay.Metadata != nil {
+		if overlay.Metadata.Labels != nil {
+			existingLabels := obj.GetLabels()
+			if existingLabels == nil {
+				existingLabels = make(map[string]string)
+			}
+			maps.Copy(existingLabels, overlay.Metadata.Labels)
+			obj.SetLabels(existingLabels)
 		}
-		maps.Copy(existingLabels, overlay.Metadata.Labels)
-		obj.SetLabels(existingLabels)
-	}
-	if overlay.Metadata.Annotations != nil {
-		existingAnnotations := obj.GetAnnotations()
-		if existingAnnotations == nil {
-			existingAnnotations = make(map[string]string)
+		if overlay.Metadata.Annotations != nil {
+			existingAnnotations := obj.GetAnnotations()
+			if existingAnnotations == nil {
+				existingAnnotations = make(map[string]string)
+			}
+			maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
+			obj.SetAnnotations(existingAnnotations)
 		}
-		maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
-		obj.SetAnnotations(existingAnnotations)
 	}
 
 	// Apply spec overlay using strategic merge patch if present

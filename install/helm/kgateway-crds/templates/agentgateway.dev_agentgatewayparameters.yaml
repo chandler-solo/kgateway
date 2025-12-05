@@ -96,6 +96,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first. TODO(chandler): DLC: not true yet
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -135,9 +138,9 @@ spec:
                           template:
                             spec:
                               containers:
-                              - name: my-only-container
+                              - $patch: replace
+                                name: my-only-container
                                 image: alpine
-                              $patch: replace
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
@@ -453,6 +456,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first. TODO(chandler): DLC: not true yet
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -492,9 +498,9 @@ spec:
                           template:
                             spec:
                               containers:
-                              - name: my-only-container
+                              - $patch: replace
+                                name: my-only-container
                                 image: alpine
-                              $patch: replace
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
@@ -531,6 +537,9 @@ spec:
                       This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
                       and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
                       The patch is applied after all other fields are applied.
+                      If you merge-patch the same resource from AgentgatewayParameters on the
+                      GatewayClass and also from AgentgatewayParameters on the Gateway, then
+                      the GatewayClass merge-patch happens first. TODO(chandler): DLC: not true yet
 
                       # Strategic Merge Patch & Deletion Guide
 
@@ -570,9 +579,9 @@ spec:
                           template:
                             spec:
                               containers:
-                              - name: my-only-container
+                              - $patch: replace
+                                name: my-only-container
                                 image: alpine
-                              $patch: replace
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object

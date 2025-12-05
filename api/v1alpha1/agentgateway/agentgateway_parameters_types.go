@@ -183,12 +183,15 @@ type AgentgatewayParametersObjectMetadata struct {
 type KubernetesResourceOverlay struct {
 	// metadata defines a subset of object metadata to be customized.
 	// +optional
-	Metadata AgentgatewayParametersObjectMetadata `json:"metadata"`
+	Metadata *AgentgatewayParametersObjectMetadata `json:"metadata,omitempty"`
 
 	// Spec provides an opaque mechanism to configure the resource Spec.
 	// This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
 	// and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
 	// The patch is applied after all other fields are applied.
+	// If you merge-patch the same resource from AgentgatewayParameters on the
+	// GatewayClass and also from AgentgatewayParameters on the Gateway, then
+	// the GatewayClass merge-patch happens first. TODO(chandler): DLC: not true yet
 	//
 	// # Strategic Merge Patch & Deletion Guide
 	//
@@ -228,9 +231,9 @@ type KubernetesResourceOverlay struct {
 	//     template:
 	//       spec:
 	//         containers:
-	//         - name: my-only-container
+	//         - $patch: replace
+	//           name: my-only-container
 	//           image: alpine
-	//         $patch: replace
 	//
 	// +optional
 	// +kubebuilder:validation:Type=object
