@@ -24,7 +24,7 @@ type AgentgatewayParameters struct {
 	// metadata for the object
 	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	// spec defines the desired state of AgentgatewayParameters.
 	// +required
@@ -32,7 +32,7 @@ type AgentgatewayParameters struct {
 
 	// status defines the current state of AgentgatewayParameters.
 	// +optional
-	Status AgentgatewayParametersStatus `json:"status,omitempty"`
+	Status AgentgatewayParametersStatus `json:"status"`
 }
 
 // The current conditions of the AgentgatewayParameters. This is not currently implemented.
