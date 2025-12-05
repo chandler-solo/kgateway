@@ -241,31 +241,13 @@ func defaultGatewayParameters(imageInfo *ImageInfo, omitDefaultSecurityContext b
 						IstioMetaClusterId:    ptr.To("Kubernetes"),
 					},
 				},
-				Agentgateway: &kgateway.Agentgateway{
-					Enabled:  ptr.To(false),
-					LogLevel: ptr.To("info"),
-					Image: &kgateway.Image{
-						Registry:   ptr.To(AgentgatewayRegistry),
-						Tag:        ptr.To(AgentgatewayDefaultTag),
-						Repository: ptr.To(AgentgatewayImage),
-						PullPolicy: (*corev1.PullPolicy)(ptr.To(imageInfo.PullPolicy)),
-					},
-					SecurityContext: &corev1.SecurityContext{
-						AllowPrivilegeEscalation: ptr.To(false),
-						ReadOnlyRootFilesystem:   ptr.To(true),
-						RunAsNonRoot:             ptr.To(true),
-						RunAsUser:                ptr.To[int64](10101),
-						Capabilities: &corev1.Capabilities{
-							Drop: []corev1.Capability{"ALL"},
-						},
-					},
-				},
+				// Note: Agentgateway config is only added for agentgateway controller gateways
+				// via defaultAgentgatewayParameters(). For envoy gateways, we leave this nil.
 			},
 		},
 	}
 	if omitDefaultSecurityContext {
 		gwp.Spec.Kube.EnvoyContainer.SecurityContext = nil
-		gwp.Spec.Kube.Agentgateway.SecurityContext = nil
 	}
 	return gwp.DeepCopy()
 }
