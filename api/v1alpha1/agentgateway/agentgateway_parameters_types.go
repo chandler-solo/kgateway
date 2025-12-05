@@ -191,7 +191,7 @@ type KubernetesResourceOverlay struct {
 	// The patch is applied after all other fields are applied.
 	// If you merge-patch the same resource from AgentgatewayParameters on the
 	// GatewayClass and also from AgentgatewayParameters on the Gateway, then
-	// the GatewayClass merge-patch happens first. TODO(chandler): DLC: not true yet
+	// the GatewayClass merge-patch happens first.
 	//
 	// # Strategic Merge Patch & Deletion Guide
 	//

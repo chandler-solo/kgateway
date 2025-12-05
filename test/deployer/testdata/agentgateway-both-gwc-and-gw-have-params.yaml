@@ -1,13 +1,13 @@
-# This tests the scenario where both GWC and GW specify parametersRef,
-# and verifies that the Gateway's parametersRef takes over completely.
+# This tests the scenario where both GWC and GW specify parametersRef, and
+# verifies that the Gateway's parametersRef merges in instead of replacing GWC
+# params.
 #
-# Expected behavior: Gateway's parametersRef REPLACES GatewayClass's
-# parametersRef entirely.  The AgentgatewayParameters on the Gateway takes full
-# precedence; AgentgatewayParameters from GatewayClass is ignored.  This
-# follows the Gateway API spec which states merging is implementation-specific,
-# and we choose replacement semantics for clarity and predictability.
+# Expected behavior: Gateway's parametersRef takes precedence over and merges
+# with GatewayClass's parametersRef. This follows the Gateway API spec, but so
+# would any other behavior since this decision is left to the implementation.
 #
-# Note that inlined parameters on the Gateway will merge with parameters in the
+# In the same fashion, inlined labels and annotations on the Gateway (in the
+# 'infrastructure' block) will merge with labels and annotations on the
 # GatewayClass's parametersRef; see ./agentgateway-infrastructure.yaml for an
 # example.
 apiVersion: agentgateway.dev/v1alpha1
@@ -18,12 +18,10 @@ metadata:
 spec:
   # From AgentgatewayParametersConfigs:
   labels:
-    # MUST NOT be found in the output:
     from-gwc: "true"
   # From AgentgatewayParametersOverlays:
   deployment:
     spec:
-      # MUST NOT be found in the output:
       replicas: 3
 ---
 apiVersion: agentgateway.dev/v1alpha1

@@ -58,6 +58,11 @@ spec:
           containers:
             - name: agent-gateway
               volumes:
+                # DLC or:
+                # - $patch: replace
+                # - name: custom-config
+                #   configMap:
+                #     name: my-custom-config
                 - $patch: replace
                   name: custom-config
                   configMap:
