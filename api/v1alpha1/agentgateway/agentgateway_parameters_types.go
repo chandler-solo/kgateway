@@ -210,10 +210,10 @@ type KubernetesResourceOverlay struct {
 	// the special `$patch: delete` directive.
 	//
 	//   spec:
-	//     template:
-	//       spec:
-	//         containers:
-	//         - name: unwanted-sidecar
+	//     containers:
+	//       - name: agent-gateway
+	//         # Delete the securityContext using $patch: delete
+	//         securityContext:
 	//           $patch: delete
 	//
 	// **4. Deleting/Clearing Map Fields (null):**
@@ -227,13 +227,18 @@ type KubernetesResourceOverlay struct {
 	// **5. Replacing Lists Entirely ($patch: replace):**
 	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 	//
-	//   spec:
-	//     template:
-	//       spec:
-	//         containers:
+	//   service:
+	//     spec:
+	//       ports:
 	//         - $patch: replace
-	//           name: my-only-container
-	//           image: alpine
+	//         - name: http
+	//           port: 80
+	//           targetPort: 8080
+	//           protocol: TCP
+	//         - name: https
+	//           port: 443
+	//           targetPort: 8443
+	//           protocol: TCP
 	//
 	// +optional
 	// +kubebuilder:validation:Type=object

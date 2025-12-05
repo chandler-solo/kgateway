@@ -180,7 +180,7 @@ func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects(t *testing.T) {
 		Spec: agentgateway.AgentgatewayParametersSpec{
 			AgentgatewayParametersOverlays: agentgateway.AgentgatewayParametersOverlays{
 				Deployment: &agentgateway.KubernetesResourceOverlay{
-					Metadata: agentgateway.AgentgatewayParametersObjectMetadata{
+					Metadata: &agentgateway.AgentgatewayParametersObjectMetadata{
 						Labels: map[string]string{
 							"overlay-label": "overlay-value",
 						},
