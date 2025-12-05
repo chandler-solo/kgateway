@@ -134,8 +134,10 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Logging(t *testing.T) {
 
 	applier.ApplyToHelmValues(vals)
 
-	require.NotNil(t, vals.Gateway.LogLevel)
-	assert.Equal(t, "debug", *vals.Gateway.LogLevel)
+	// Level should be set as RUST_LOG env var
+	require.Len(t, vals.Gateway.Env, 1)
+	assert.Equal(t, "RUST_LOG", vals.Gateway.Env[0].Name)
+	assert.Equal(t, "debug", vals.Gateway.Env[0].Value)
 }
 
 func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects(t *testing.T) {

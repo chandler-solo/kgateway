@@ -187,16 +187,13 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		vals.Gateway.Resources = configs.Resources
 	}
 
-	// Apply environment variables
-	// The Helm template handles deduplication - if user specifies an env var,
-	// the template skips the default with the same name.
-	if len(configs.Env) > 0 {
-		vals.Gateway.Env = append(vals.Gateway.Env, configs.Env...)
-	}
-
+	// Apply logging.level as RUST_LOG first, then merge explicit env vars on top.
+	// This ensures explicit env vars override logging.level if both specify RUST_LOG.
 	if configs.Logging != nil {
 		if configs.Logging.Level != "" {
-			vals.Gateway.LogLevel = &configs.Logging.Level
+			vals.Gateway.Env = mergeEnvVars(vals.Gateway.Env, []corev1.EnvVar{
+				{Name: "RUST_LOG", Value: configs.Logging.Level},
+			})
 		}
 		if configs.Logging.Format != "" {
 			format := string(configs.Logging.Format)
@@ -209,6 +206,9 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		}
 	}
 
+	// Apply explicit environment variables last so they can override logging.level.
+	vals.Gateway.Env = mergeEnvVars(vals.Gateway.Env, configs.Env)
+
 	if configs.Shutdown != nil {
 		vals.Gateway.TerminationGracePeriodSeconds = ptr.To(configs.Shutdown.MaxSeconds)
 		if vals.Gateway.GracefulShutdown == nil {
@@ -216,6 +216,36 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		}
 		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.MinSeconds)
 	}
+}
+
+// mergeEnvVars merges two slices of environment variables.
+// Variables in 'override' take precedence over variables in 'base' with the same name.
+// The order is preserved: base vars first (minus overridden ones), then override vars.
+func mergeEnvVars(base, override []corev1.EnvVar) []corev1.EnvVar {
+	if len(override) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return override
+	}
+
+	// Build a set of names in override
+	overrideNames := make(map[string]struct{}, len(override))
+	for _, env := range override {
+		overrideNames[env.Name] = struct{}{}
+	}
+
+	// Keep base vars that are not overridden
+	result := make([]corev1.EnvVar, 0, len(base)+len(override))
+	for _, env := range base {
+		if _, exists := overrideNames[env.Name]; !exists {
+			result = append(result, env)
+		}
+	}
+
+	// Append all override vars
+	result = append(result, override...)
+	return result
 }
 
 // ApplyOverlaysToObjects applies the strategic-merge-patch overlays to rendered k8s objects.

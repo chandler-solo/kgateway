@@ -64,12 +64,12 @@ const (
 	AgentgatewayParametersLoggingText AgentgatewayParametersLoggingFormat = "Text"
 )
 
-// +kubebuilder:validation:AtMostOneOf=level;levels
 type AgentgatewayParametersLogging struct {
+	// Logging level in standard RUST_LOG syntax, e.g. 'info', the default, or
+	// by module, comma-separated. E.g.,
+	// "rmcp=warn,hickory_server::server::server_future=off,typespec_client_core::http::policies::logging=warn"
 	// +optional
 	Level string `json:"level,omitempty"`
-	// +optional
-	Levels []string `json:"levels,omitempty"`
 	// +optional
 	Format AgentgatewayParametersLoggingFormat `json:"format,omitempty"`
 }

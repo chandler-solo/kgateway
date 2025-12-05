@@ -116,10 +116,6 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-shutdown",
 		},
 		{
-			Name:      "agentgateway with logging levels",
-			InputFile: "agentgateway-logging-levels",
-		},
-		{
 			Name:      "agentgateway with logging format Json",
 			InputFile: "agentgateway-logging-format",
 		},

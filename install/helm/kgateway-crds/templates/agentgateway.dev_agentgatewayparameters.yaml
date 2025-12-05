@@ -347,16 +347,11 @@ spec:
                     - Text
                     type: string
                   level:
+                    description: |-
+                      Logging levels by component, comma-separated. E.g.,
+                      "rmcp=warn,hickory_server::server::server_future=off,typespec_client_core::http::policies::logging=warn"
                     type: string
-                  levels:
-                    items:
-                      type: string
-                    type: array
                 type: object
-                x-kubernetes-validations:
-                - message: at most one of the fields in [level levels] may be set
-                  rule: '[has(self.level),has(self.levels)].filter(x,x==true).size()
-                    <= 1'
               resources:
                 description: |-
                   The compute resources required by this container. See
