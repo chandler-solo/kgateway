@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
 // OverlayApplier applies AgentgatewayParameters overlays to rendered k8s objects
@@ -40,11 +41,11 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) error {
 		var overlay *agentgateway.KubernetesResourceOverlay
 
 		switch gvk.Kind {
-		case "Deployment":
+		case wellknown.DeploymentGVK.Kind:
 			overlay = overlays.Deployment
-		case "Service":
+		case wellknown.ServiceGVK.Kind:
 			overlay = overlays.Service
-		case "ServiceAccount":
+		case wellknown.ServiceAccountGVK.Kind:
 			overlay = overlays.ServiceAccount
 		default:
 			continue
@@ -136,11 +137,11 @@ func applySpecOverlay(obj client.Object, patchBytes []byte, gvk schema.GroupVers
 // getDataObjectForGVK returns an empty object of the appropriate type for strategic merge patch.
 func getDataObjectForGVK(gvk schema.GroupVersionKind) (runtime.Object, error) {
 	switch gvk.Kind {
-	case "Deployment":
+	case wellknown.DeploymentGVK.Kind:
 		return &appsv1.Deployment{}, nil
-	case "Service":
+	case wellknown.ServiceGVK.Kind:
 		return &corev1.Service{}, nil
-	case "ServiceAccount":
+	case wellknown.ServiceAccountGVK.Kind:
 		return &corev1.ServiceAccount{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", gvk.Kind)

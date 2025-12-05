@@ -348,7 +348,8 @@ spec:
                     type: string
                   level:
                     description: |-
-                      Logging levels by component, comma-separated. E.g.,
+                      Logging level in standard RUST_LOG syntax, e.g. 'info', the default, or
+                      by module, comma-separated. E.g.,
                       "rmcp=warn,hickory_server::server::server_future=off,typespec_client_core::http::policies::logging=warn"
                     type: string
                 type: object
