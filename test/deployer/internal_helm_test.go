@@ -90,10 +90,11 @@ func TestRenderHelmChart(t *testing.T) {
 		{
 			// The GW parametersRef is meant to merge with the GWC
 			// parametersRef, not to replace it, but there's a
-			// bug. TODO(chandler): fix the bug, but be careful since it's a
-			// breaking change for Envoy data planes and creates the complex
-			// scenario on the AgentgatewayParameters side where, in the
-			// general case, two strategic-merge-patch overlays must be done.
+			// bug. TODO(chandler): Issue #13065: fix the bug, but be careful
+			// since it's a breaking change for Envoy data planes and creates
+			// the complex scenario on the AgentgatewayParameters side where,
+			// in the general case, two strategic-merge-patch overlays must be
+			// done.
 			Name:      "both GWC and GW have parametersRef",
 			InputFile: "both-gwc-and-gw-have-params",
 		},
