@@ -116,6 +116,10 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-shutdown",
 		},
 		{
+			Name:      "agentgateway with logging levels",
+			InputFile: "agentgateway-logging-levels",
+		},
+		{
 			// The key thing here is that ImagePullPolicy is not specified at
 			// all, allowing k8s to look at the tag to decide:
 			Name:      "agentgateway with repository only image override",
