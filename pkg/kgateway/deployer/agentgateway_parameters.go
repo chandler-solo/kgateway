@@ -216,19 +216,6 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 		}
 		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.MinSeconds)
 	}
-
-	if len(configs.Labels) > 0 {
-		if vals.Gateway.ExtraPodLabels == nil {
-			vals.Gateway.ExtraPodLabels = make(map[string]string)
-		}
-		maps.Copy(vals.Gateway.ExtraPodLabels, configs.Labels)
-	}
-	if len(configs.Annotations) > 0 {
-		if vals.Gateway.ExtraPodAnnotations == nil {
-			vals.Gateway.ExtraPodAnnotations = make(map[string]string)
-		}
-		maps.Copy(vals.Gateway.ExtraPodAnnotations, configs.Annotations)
-	}
 }
 
 // ApplyOverlaysToObjects applies the strategic-merge-patch overlays to rendered k8s objects.

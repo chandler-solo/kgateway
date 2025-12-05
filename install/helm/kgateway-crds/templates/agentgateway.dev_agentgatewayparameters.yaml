@@ -58,13 +58,6 @@ spec:
           spec:
             description: spec defines the desired state of AgentgatewayParameters.
             properties:
-              annotations:
-                additionalProperties:
-                  type: string
-                description: |-
-                  DLC delete
-                  Common set of annotations to apply to all generated resources.
-                type: object
               deployment:
                 description: deployment allows specifying overrides for the generated
                   Deployment resource.
@@ -342,13 +335,6 @@ spec:
                   tag:
                     description: The image tag.
                     type: string
-                type: object
-              labels:
-                additionalProperties:
-                  type: string
-                description: |-
-                  DLC delete
-                  Common set of labels to apply to all generated resources.
                 type: object
               logging:
                 description: logging configuration for Agentgateway. By default, all

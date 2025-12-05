@@ -138,39 +138,6 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Logging(t *testing.T) {
 	assert.Equal(t, "debug", *vals.Gateway.LogLevel)
 }
 
-func TestAgentgatewayParametersApplier_ApplyToHelmValues_LabelsAndAnnotations(t *testing.T) {
-	params := &agentgateway.AgentgatewayParameters{
-		Spec: agentgateway.AgentgatewayParametersSpec{
-			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
-				Labels: map[string]string{
-					"custom-label": "custom-value",
-				},
-				Annotations: map[string]string{
-					"custom-annotation": "custom-value",
-				},
-			},
-		},
-	}
-
-	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{
-			ExtraPodLabels: map[string]string{
-				"existing-label": "existing-value",
-			},
-		},
-	}
-
-	applier.ApplyToHelmValues(vals)
-
-	require.NotNil(t, vals.Gateway.ExtraPodLabels)
-	assert.Equal(t, "custom-value", vals.Gateway.ExtraPodLabels["custom-label"])
-	assert.Equal(t, "existing-value", vals.Gateway.ExtraPodLabels["existing-label"])
-
-	require.NotNil(t, vals.Gateway.ExtraPodAnnotations)
-	assert.Equal(t, "custom-value", vals.Gateway.ExtraPodAnnotations["custom-annotation"])
-}
-
 func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects(t *testing.T) {
 	specPatch := []byte(`{
 		"replicas": 3

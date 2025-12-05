@@ -75,16 +75,6 @@ type AgentgatewayParametersLogging struct {
 }
 
 type AgentgatewayParametersConfigs struct {
-	// DLC delete
-	// Common set of labels to apply to all generated resources.
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// DLC delete
-	// Common set of annotations to apply to all generated resources.
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-
 	// logging configuration for Agentgateway. By default, all logs are set to "info" level.
 	// +optional
 	Logging *AgentgatewayParametersLogging `json:"logging,omitempty"`
