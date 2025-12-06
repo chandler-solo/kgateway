@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient/fake"
@@ -30,6 +31,35 @@ func mockVersion(t *testing.T) {
 func TestRenderHelmChart(t *testing.T) {
 	mockVersion(t)
 
+	// Create temporary CA certificate file for TLS tests
+	caCertContent := `-----BEGIN CERTIFICATE-----
+MIICljCCAX4CCQCKSGhvPtMNGzANBgkqhkiG9w0BAQsFADANMQswCQYDVQQGEwJV
+UzAeFw0yNDA3MDEwMDAwMDBaFw0yNTA3MDEwMDAwMDBaMA0xCzAJBgNVBAYTAlVT
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890ABCDEFGHIj
+klmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ab
+cdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
+7890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTU
+VWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNO
+PQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHI
+JKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABC
+DEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz123456
+wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
+-----END CERTIFICATE-----`
+	tmpDir := t.TempDir()
+	caCertPath := tmpDir + "/ca.crt"
+	err := os.WriteFile(caCertPath, []byte(caCertContent), 0o600)
+	require.NoError(t, err)
+
+	// TLS override function for tests that need TLS enabled
+	tlsOverride := func(caCertPath string) func(inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator {
+		return func(inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator {
+			inputs.ControlPlane.XdsTLS = true
+			inputs.ControlPlane.XdsTlsCaPath = caCertPath
+			return nil
+		}
+	}
+
 	tests := []HelmTestCase{
 		{
 			Name:      "basic gateway with default gatewayclass and no gwparams",
@@ -46,10 +76,12 @@ func TestRenderHelmChart(t *testing.T) {
 		{
 			Name:      "gwparams with omitDefaultSecurityContext via GWC",
 			InputFile: "omit-default-security-context",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "gwparams with omitDefaultSecurityContext via GW",
 			InputFile: "omit-default-security-context-via-gw",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "gwparams with stats matcher inclusion",
@@ -66,18 +98,22 @@ func TestRenderHelmChart(t *testing.T) {
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-gwp",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw-gwp",
+			Validate:  NoSecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway-infrastructure with AgentgatewayParameters",
@@ -120,10 +156,13 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-logging-format",
 		},
 		{
-			// The key thing here is that ImagePullPolicy is not specified at
-			// all, allowing k8s to look at the tag to decide:
 			Name:      "agentgateway with repository only image override",
 			InputFile: "agentgateway-image-repo-only",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.NotContains(t, outputYaml, "imagePullPolicy:",
+					"output YAML should not contain imagePullPolicy, allowing k8s to look at the tag to decide")
+			},
 		},
 		{
 			// GatewayClass refs GatewayParameters, Gateway refs AgentgatewayParameters
@@ -162,6 +201,17 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway AGWP with pod scheduling fields",
 			InputFile: "agentgateway-agwp-pod-scheduling",
 		},
+		// TLS test cases
+		{
+			Name:                        "basic gateway with TLS enabled",
+			InputFile:                   "base-gateway-tls",
+			HelmValuesGeneratorOverride: tlsOverride(caCertPath),
+		},
+		{
+			Name:                        "agentgateway with TLS enabled",
+			InputFile:                   "agentgateway-tls",
+			HelmValuesGeneratorOverride: tlsOverride(caCertPath),
+		},
 	}
 
 	tester := DeployerTester{
@@ -175,74 +225,14 @@ func TestRenderHelmChart(t *testing.T) {
 	dir := fsutils.MustGetThisDir()
 	scheme := schemes.GatewayScheme()
 	crdDir := filepath.Join(testutils.GitRootDirectory(), testutils.CRDPath)
+
+	VerifyAllYAMLFilesReferenced(t, filepath.Join(dir, "testdata"), tests)
+
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
 			fakeClient := fake.NewClient(t, tester.GetObjects(t, tt, scheme, dir, crdDir)...)
-			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, nil, fakeClient)
+			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, fakeClient)
 		})
 	}
 }
 
-func TestRenderHelmChartWithTLS(t *testing.T) {
-	mockVersion(t)
-
-	// Create temporary CA certificate file for testing
-	caCertContent := `-----BEGIN CERTIFICATE-----
-MIICljCCAX4CCQCKSGhvPtMNGzANBgkqhkiG9w0BAQsFADANMQswCQYDVQQGEwJV
-UzAeFw0yNDA3MDEwMDAwMDBaFw0yNTA3MDEwMDAwMDBaMA0xCzAJBgNVBAYTAlVT
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1234567890ABCDEFGHIj
-klmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890ab
-cdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ123456
-7890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
-1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNOPQRSTU
-VWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHIJKLMNO
-PQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABCDEFGHI
-JKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz1234567890ABC
-DEFGHIJKLMNOPQRSTUVWXYZ1234567890abcdefghijklmnopqrstuvwxyz123456
-wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
------END CERTIFICATE-----`
-
-	// Create temporary directory and CA certificate file
-	tmpDir := t.TempDir()
-	caCertPath := tmpDir + "/ca.crt"
-	err := os.WriteFile(caCertPath, []byte(caCertContent), 0o600)
-	require.NoError(t, err)
-
-	tests := []HelmTestCase{
-		{
-			Name:      "basic gateway with TLS enabled",
-			InputFile: "base-gateway-tls",
-		},
-		{
-			Name:      "agentgateway with TLS enabled",
-			InputFile: "agentgateway-tls",
-		},
-	}
-
-	tester := DeployerTester{
-		ControllerName:    wellknown.DefaultGatewayControllerName,
-		AgwControllerName: wellknown.DefaultAgwControllerName,
-		ClassName:         wellknown.DefaultGatewayClassName,
-		WaypointClassName: wellknown.DefaultWaypointClassName,
-		AgwClassName:      wellknown.DefaultAgwClassName,
-	}
-
-	// ExtraGatewayParameters function that enables TLS. this is needed as TLS
-	// is injected by the control plane and not via the GWP API.
-	//nolint:unparam // tlsExtra is the fifth parameter for tester.RunHelmChartTest which should follow its signature.
-	tlsExtraParams := func(inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator {
-		inputs.ControlPlane.XdsTLS = true
-		inputs.ControlPlane.XdsTlsCaPath = caCertPath
-		return nil
-	}
-
-	dir := fsutils.MustGetThisDir()
-	scheme := schemes.GatewayScheme()
-	crdDir := filepath.Join(testutils.GitRootDirectory(), testutils.CRDPath)
-	for _, tt := range tests {
-		t.Run(tt.Name, func(t *testing.T) {
-			fakeClient := fake.NewClient(t, tester.GetObjects(t, tt, scheme, dir, crdDir)...)
-			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, tlsExtraParams, fakeClient)
-		})
-	}
-}
