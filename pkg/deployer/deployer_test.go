@@ -313,7 +313,8 @@ var _ = Describe("Deployer", func() {
 					Kube: &kgateway.KubernetesProxyConfig{
 						Agentgateway: &kgateway.Agentgateway{
 							Image: &kgateway.Image{
-								Tag: ptr.To("0.4.0"),
+								Repository: ptr.To("agentgateway"),
+								Tag:        ptr.To("0.4.0"),
 							},
 							SecurityContext: &corev1.SecurityContext{
 								RunAsUser: ptr.To(int64(333)),
@@ -600,6 +601,7 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
+				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
@@ -707,6 +709,7 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
+				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
@@ -775,6 +778,7 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
+				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,

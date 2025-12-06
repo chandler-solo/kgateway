@@ -452,6 +452,23 @@ func (g *agentgatewayParametersHelmValuesGenerator) applyGatewayParametersToHelm
 		maps.Copy(vals.Gateway.ExtraPodLabels, extraLabels)
 	}
 
+	// Apply pod scheduling fields from PodTemplate
+	if nodeSelector := podConfig.GetNodeSelector(); len(nodeSelector) > 0 {
+		vals.Gateway.NodeSelector = nodeSelector
+	}
+	if affinity := podConfig.GetAffinity(); affinity != nil {
+		vals.Gateway.Affinity = affinity
+	}
+	if tolerations := podConfig.GetTolerations(); len(tolerations) > 0 {
+		vals.Gateway.Tolerations = tolerations
+	}
+	if topologySpreadConstraints := podConfig.GetTopologySpreadConstraints(); len(topologySpreadConstraints) > 0 {
+		vals.Gateway.TopologySpreadConstraints = topologySpreadConstraints
+	}
+	if securityContext := podConfig.GetSecurityContext(); securityContext != nil {
+		vals.Gateway.PodSecurityContext = securityContext
+	}
+
 	svcConfig := gwp.Spec.Kube.GetService()
 	vals.Gateway.Service = deployer.GetServiceValues(svcConfig)
 
