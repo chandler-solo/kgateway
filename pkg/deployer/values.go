@@ -93,6 +93,8 @@ type HelmGateway struct {
 	CustomConfigMapName *string `json:"customConfigMapName,omitempty"`
 	// LogFormat specifies the logging format for agentgateway (Json or Text)
 	LogFormat *string `json:"logFormat,omitempty"`
+	// RawConfig provides opaque config to be merged into config.yaml
+	RawConfig map[string]any `json:"rawConfig,omitempty"`
 }
 
 // helmPort represents a Gateway Listener port

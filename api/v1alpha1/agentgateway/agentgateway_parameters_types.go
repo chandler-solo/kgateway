@@ -79,6 +79,40 @@ type AgentgatewayParametersConfigs struct {
 	// +optional
 	Logging *AgentgatewayParametersLogging `json:"logging,omitempty"`
 
+	// rawConfig provides an opaque mechanism to configure the agentgateway
+	// config file (the agentgateway binary has a '-f' option to specify a
+	// config file, and this is that file).  This will be merged with
+	// configuration derived from typed fields like
+	// AgentgatewayParametersLogging.Format, and those typed fields will take
+	// precedence.
+	//
+	// Example:
+	//   rawConfig:
+	//     binds:
+	//     - port: 3000
+	//       listeners:
+	//       - routes:
+	//         - policies:
+	//             cors:
+	//               allowOrigins:
+	//                 - "*"
+	//               allowHeaders:
+	//                 - mcp-protocol-version
+	//                 - content-type
+	//                 - cache-control
+	//           backends:
+	//           - mcp:
+	//               targets:
+	//               - name: everything
+	//                 stdio:
+	//                   cmd: npx
+	//                   args: ["@modelcontextprotocol/server-everything"]
+	//
+	// +optional
+	// +kubebuilder:validation:Type=object
+	// +kubebuilder:pruning:PreserveUnknownFields
+	RawConfig *apiextensionsv1.JSON `json:"rawConfig,omitempty"`
+
 	// The agentgateway container image. See
 	// https://kubernetes.io/docs/concepts/containers/images
 	// for details.

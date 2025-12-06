@@ -207,3 +207,76 @@ func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects_NilParams(t *testi
 	result := objs[0].(*appsv1.Deployment)
 	assert.Equal(t, int32(1), *result.Spec.Replicas)
 }
+
+func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfig(t *testing.T) {
+	rawConfigJSON := []byte(`{
+		"tracing": {
+			"otlpEndpoint": "http://jaeger:4317"
+		},
+		"metrics": {
+			"enabled": true
+		}
+	}`)
+
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
+				RawConfig: &apiextensionsv1.JSON{Raw: rawConfigJSON},
+			},
+		},
+	}
+
+	applier := NewAgentgatewayParametersApplier(params)
+	vals := &deployer.HelmConfig{
+		Gateway: &deployer.HelmGateway{},
+	}
+
+	applier.ApplyToHelmValues(vals)
+
+	require.NotNil(t, vals.Gateway.RawConfig)
+	tracing, ok := vals.Gateway.RawConfig["tracing"].(map[string]any)
+	require.True(t, ok, "tracing should be a map")
+	assert.Equal(t, "http://jaeger:4317", tracing["otlpEndpoint"])
+
+	metrics, ok := vals.Gateway.RawConfig["metrics"].(map[string]any)
+	require.True(t, ok, "metrics should be a map")
+	assert.Equal(t, true, metrics["enabled"])
+}
+
+func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfigWithLogging(t *testing.T) {
+	// rawConfig has logging.format, but typed Logging.Format should take precedence
+	// (merging happens in helm template, but here we test both are passed through)
+	rawConfigJSON := []byte(`{
+		"logging": {
+			"format": "Json"
+		},
+		"tracing": {
+			"otlpEndpoint": "http://jaeger:4317"
+		}
+	}`)
+
+	params := &agentgateway.AgentgatewayParameters{
+		Spec: agentgateway.AgentgatewayParametersSpec{
+			AgentgatewayParametersConfigs: agentgateway.AgentgatewayParametersConfigs{
+				Logging: &agentgateway.AgentgatewayParametersLogging{
+					Format: agentgateway.AgentgatewayParametersLoggingText,
+				},
+				RawConfig: &apiextensionsv1.JSON{Raw: rawConfigJSON},
+			},
+		},
+	}
+
+	applier := NewAgentgatewayParametersApplier(params)
+	vals := &deployer.HelmConfig{
+		Gateway: &deployer.HelmGateway{},
+	}
+
+	applier.ApplyToHelmValues(vals)
+
+	// Both should be set - merging happens in helm template
+	assert.Equal(t, "Text", *vals.Gateway.LogFormat)
+	require.NotNil(t, vals.Gateway.RawConfig)
+	tracing, ok := vals.Gateway.RawConfig["tracing"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "http://jaeger:4317", tracing["otlpEndpoint"])
+}

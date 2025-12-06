@@ -2,6 +2,7 @@ package deployer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -203,6 +204,14 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 			// Helm is an annotation on the Deployment with a hash of the
 			// ConfigMap's contents, and that's what our helm chart does. See
 			// https://helm.sh/docs/howto/charts_tips_and_tricks/#automatically-roll-deployments
+		}
+	}
+
+	// Apply rawConfig if present - this will be merged with typed config in the helm template
+	if configs.RawConfig != nil && configs.RawConfig.Raw != nil {
+		var rawConfigMap map[string]any
+		if err := json.Unmarshal(configs.RawConfig.Raw, &rawConfigMap); err == nil {
+			vals.Gateway.RawConfig = rawConfigMap
 		}
 	}
 

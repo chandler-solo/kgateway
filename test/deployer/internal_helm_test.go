@@ -156,6 +156,19 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway-logging-format",
 		},
 		{
+			Name:      "agentgateway rawConfig with typed config conflict",
+			InputFile: "agentgateway-rawconfig-typed-conflict",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "format: Text",
+					"typed logging.format: Text should take precedence over rawConfig's Json")
+				assert.NotContains(t, outputYaml, "format: Json",
+					"rawConfig's logging.format: Json should be overridden by typed config")
+				assert.Contains(t, outputYaml, "jaeger:4317",
+					"tracing config from rawConfig should be merged in")
+			},
+		},
+		{
 			Name:      "agentgateway with repository only image override",
 			InputFile: "agentgateway-image-repo-only",
 			Validate: func(t *testing.T, outputYaml string) {
@@ -235,4 +248,3 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		})
 	}
 }
-

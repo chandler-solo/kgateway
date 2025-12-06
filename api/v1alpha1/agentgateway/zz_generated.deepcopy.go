@@ -315,6 +315,11 @@ func (in *AgentgatewayParametersConfigs) DeepCopyInto(out *AgentgatewayParameter
 		*out = new(AgentgatewayParametersLogging)
 		**out = **in
 	}
+	if in.RawConfig != nil {
+		in, out := &in.RawConfig, &out.RawConfig
+		*out = new(apiextensionsv1.JSON)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Image != nil {
 		in, out := &in.Image, &out.Image
 		*out = new(Image)
