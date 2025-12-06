@@ -154,6 +154,14 @@ func TestRenderHelmChart(t *testing.T) {
 			Name:      "agentgateway strategic-merge-patch tests",
 			InputFile: "agentgateway-strategic-merge-patch",
 		},
+		{
+			Name:      "agentgateway GWP with pod scheduling fields",
+			InputFile: "agentgateway-gwp-pod-scheduling",
+		},
+		{
+			Name:      "agentgateway AGWP with pod scheduling fields",
+			InputFile: "agentgateway-agwp-pod-scheduling",
+		},
 	}
 
 	tester := DeployerTester{
