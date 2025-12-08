@@ -64,19 +64,6 @@ spec:
         custom-agw: custom-agw-label
 `
 
-var agentgatewayAGWP2 = `
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayParameters
-metadata:
-  name: custom-agwp-2
-  namespace: kgateway-test
-spec:
-  deployment:
-    metadata:
-      labels:
-        another-agw: agw-label
-`
-
 var kgatewayGateway = `
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
