@@ -333,10 +333,10 @@ spec:
                   logs are set to "info" level.
                 properties:
                   format:
-                    description: The default logging format is Text.
+                    description: The default logging format is text.
                     enum:
-                    - Json
-                    - Text
+                    - json
+                    - text
                     type: string
                   level:
                     description: |-

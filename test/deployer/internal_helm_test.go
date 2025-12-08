@@ -152,7 +152,7 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway-shutdown",
 		},
 		{
-			Name:      "agentgateway with logging format Json",
+			Name:      "agentgateway with logging format json",
 			InputFile: "agentgateway-logging-format",
 		},
 		{
@@ -160,10 +160,10 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway-rawconfig-typed-conflict",
 			Validate: func(t *testing.T, outputYaml string) {
 				t.Helper()
-				assert.Contains(t, outputYaml, "format: Text",
-					"typed logging.format: Text should take precedence over rawConfig's Json")
-				assert.NotContains(t, outputYaml, "format: Json",
-					"rawConfig's logging.format: Json should be overridden by typed config")
+				assert.Contains(t, outputYaml, "format: text",
+					"typed logging.format: text should take precedence over rawConfig's json")
+				assert.NotContains(t, outputYaml, "format: json",
+					"rawConfig's logging.format: json should be overridden by typed config")
 				assert.Contains(t, outputYaml, "jaeger:4317",
 					"tracing config from rawConfig should be merged in")
 			},

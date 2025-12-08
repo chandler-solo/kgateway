@@ -11,8 +11,8 @@ spec:
     name: my-agwp
     namespace: default
 ---
-# This tests that typed config (logging.format: Text) takes precedence over
-# rawConfig (logging.format: Json) when both are specified.
+# This tests that typed config (logging.format: text) takes precedence over
+# rawConfig (logging.format: json) when both are specified.
 # The rawConfig also includes tracing config to verify it's merged in.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
@@ -21,10 +21,10 @@ metadata:
   namespace: default
 spec:
   logging:
-    format: Text
+    format: text
   rawConfig:
     logging:
-      format: Json
+      format: json
     tracing:
       otlpEndpoint: http://jaeger:4317
 ---

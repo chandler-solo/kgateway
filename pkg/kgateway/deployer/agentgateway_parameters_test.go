@@ -248,7 +248,7 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfigWithLogging(t 
 	// (merging happens in helm template, but here we test both are passed through)
 	rawConfigJSON := []byte(`{
 		"logging": {
-			"format": "Json"
+			"format": "json"
 		},
 		"tracing": {
 			"otlpEndpoint": "http://jaeger:4317"

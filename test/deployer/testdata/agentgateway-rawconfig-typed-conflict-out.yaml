@@ -17,7 +17,7 @@ data:
   config.yaml: |
     config:
       logging:
-        format: Text
+        format: text
       tracing:
         otlpEndpoint: http://jaeger:4317
 kind: ConfigMap

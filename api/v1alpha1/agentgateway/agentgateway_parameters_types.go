@@ -53,13 +53,13 @@ type AgentgatewayParametersSpec struct {
 	AgentgatewayParametersOverlays `json:",inline"`
 }
 
-// The default logging format is Text.
-// +kubebuilder:validation:Enum=Json;Text
+// The default logging format is text.
+// +kubebuilder:validation:Enum=json;text
 type AgentgatewayParametersLoggingFormat string
 
 const (
-	AgentgatewayParametersLoggingJson AgentgatewayParametersLoggingFormat = "Json"
-	AgentgatewayParametersLoggingText AgentgatewayParametersLoggingFormat = "Text"
+	AgentgatewayParametersLoggingJson AgentgatewayParametersLoggingFormat = "json"
+	AgentgatewayParametersLoggingText AgentgatewayParametersLoggingFormat = "text"
 )
 
 type AgentgatewayParametersLogging struct {
