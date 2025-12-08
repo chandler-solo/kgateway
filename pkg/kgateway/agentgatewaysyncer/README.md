@@ -9,18 +9,18 @@ agentgateway:
 ```
 
 You can configure the agentgateway Gateway class to use a specific image by setting the image field on the
-GatewayClass:
+AgentgatewayParameters:
 ```yaml
-kind: GatewayParameters
-apiVersion: gateway.kgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+apiVersion: agentgateway.dev/v1alpha1
 metadata:
-  name: kgateway
+  name: agentgateway-params
+  namespace: default
 spec:
-  kube:
-    agentgateway:
-      logLevel: debug
-      image:
-        tag: bc92714
+  logging:
+    format: Text
+  image:
+    tag: bc92714
 ---
 kind: GatewayClass
 apiVersion: gateway.networking.k8s.io/v1
@@ -29,9 +29,9 @@ metadata:
 spec:
   controllerName: kgateway.dev/agentgateway
   parametersRef:
-    group: gateway.kgateway.dev
-    kind: GatewayParameters
-    name: kgateway
+    group: agentgateway.dev
+    kind: AgentgatewayParameters
+    name: agentgateway-params
     namespace: default
 ---
 kind: Gateway
@@ -1136,7 +1136,7 @@ For detailed information about tracing configuration and observability features,
 To enable tracing, you need to:
 
 1. **Create a custom ConfigMap** with your tracing configuration
-2. **Reference the ConfigMap** in your GatewayParameters
+2. **Reference the ConfigMap** in your AgentgatewayParameters
 3. **Deploy your Gateway** with the agentgateway class
 
 **Step 1: Create a ConfigMap**
@@ -1164,18 +1164,17 @@ data:
             gen_ai.usage.prompt_tokens: "llm.input_tokens"
 ```
 
-**Step 2: Configure GatewayParameters**
+**Step 2: Configure AgentgatewayParameters**
 
 ```yaml
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: GatewayParameters
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
 metadata:
-  name: kgateway
+  name: agentgateway-params
+  namespace: default
 spec:
-  kube:
-    agentgateway:
-      logLevel: debug
-      customConfigMapName: agent-gateway-config
+  logging:
+    format: Json
 ```
 
 **Step 3: Create Gateway with agentgateway class**
@@ -1188,9 +1187,9 @@ metadata:
 spec:
   controllerName: kgateway.dev/agentgateway
   parametersRef:
-    group: gateway.kgateway.dev
-    kind: GatewayParameters
-    name: kgateway
+    group: agentgateway.dev
+    kind: AgentgatewayParameters
+    name: agentgateway-params
     namespace: default
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1346,8 +1345,8 @@ data:
 
 #### Important Notes
 
-- **ConfigMap Updates**: The ConfigMap is only read during agentgateway pod startup. To apply ConfigMap changes, restart the agentgateway pod
-- **Namespace**: The ConfigMap must be in the same namespace as the GatewayParameters resource
+- **ConfigMap Updates**: The ConfigMap is only read during agentgateway pod startup. To apply ConfigMap changes, restart the agentgateway pod (TODO(chandler): DLC: update this README)
+- **Namespace**: The ConfigMap must be in the same namespace as the AgentgatewayParameters resource
 - **Validation**: Invalid CEL expressions in trace fields will be logged but won't prevent the gateway from starting
 - **Performance**: Be mindful of the number and complexity of custom trace fields, as they impact performance
 - **Sampling**: Use `randomSampling` to control trace volume in production environments
@@ -1356,14 +1355,16 @@ data:
 
 ```shell
 kubectl apply -f- <<'EOF'
-# ConfigMap with tracing configuration
-apiVersion: v1
-kind: ConfigMap
+# AgentgatewayParameters with inline tracing configuration via rawConfig
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
 metadata:
-  name: ai-gateway-tracing
+  name: agentgateway-params
   namespace: default
-data:
-  config.yaml: |-
+spec:
+  logging:
+    format: Text
+  rawConfig:
     config:
       tracing:
         otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4317
@@ -1380,17 +1381,6 @@ data:
             user.id: "request.headers['x-user-id'] || 'anonymous'"
             request.path: "request.path"
 ---
-# GatewayParameters referencing the ConfigMap
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: GatewayParameters
-metadata:
-  name: kgateway
-spec:
-  kube:
-    agentgateway:
-      logLevel: debug
-      customConfigMapName: ai-gateway-tracing
----
 # GatewayClass and Gateway configuration
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
@@ -1399,9 +1389,9 @@ metadata:
 spec:
   controllerName: kgateway.dev/agentgateway
   parametersRef:
-    group: gateway.kgateway.dev
-    kind: GatewayParameters
-    name: kgateway
+    group: agentgateway.dev
+    kind: AgentgatewayParameters
+    name: agentgateway-params
     namespace: default
 ---
 apiVersion: gateway.networking.k8s.io/v1
@@ -1451,14 +1441,16 @@ Here's a complete example that demonstrates tracing MCP tool calls, which genera
 
 ```shell
 kubectl apply -f- <<'EOF'
-# Tracing Configuration ConfigMap
-apiVersion: v1
-kind: ConfigMap
+# AgentgatewayParameters with inline tracing configuration via rawConfig
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
 metadata:
-  name: agentgateway-tracing-config
+  name: agentgateway-params
   namespace: default
-data:
-  config.yaml: |-
+spec:
+  logging:
+    format: Text
+  rawConfig:
     config:
       tracing:
         otlpEndpoint: http://localhost:4317
@@ -1473,18 +1465,6 @@ data:
             request.method: "request.method"
             response.status: "response.status_code"
 ---
-# Gateway Parameters with tracing configuration
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: GatewayParameters
-metadata:
-  name: agentgateway-params
-  namespace: default
-spec:
-  kube:
-    agentgateway:
-      logLevel: debug
-      customConfigMapName: agentgateway-tracing-config
----
 # Gateway Class
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
@@ -1493,8 +1473,8 @@ metadata:
 spec:
   controllerName: kgateway.dev/agentgateway
   parametersRef:
-    group: gateway.kgateway.dev
-    kind: GatewayParameters
+    group: agentgateway.dev
+    kind: AgentgatewayParameters
     name: agentgateway-params
     namespace: default
 ---
