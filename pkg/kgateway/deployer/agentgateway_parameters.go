@@ -146,14 +146,14 @@ func (a *AgentgatewayParametersApplier) ApplyOverlaysToObjects(objs []client.Obj
 	return applier.ApplyOverlays(objs)
 }
 
-type agentgatewayParametersHelmValuesGenerator struct {
+type AgentgatewayParametersHelmValuesGenerator struct {
 	agwParamClient kclient.Client[*agentgateway.AgentgatewayParameters]
 	gwClassClient  kclient.Client[*gwv1.GatewayClass]
 	inputs         *deployer.Inputs
 }
 
-func newAgentgatewayParametersHelmValuesGenerator(cli apiclient.Client, inputs *deployer.Inputs) *agentgatewayParametersHelmValuesGenerator {
-	return &agentgatewayParametersHelmValuesGenerator{
+func newAgentgatewayParametersHelmValuesGenerator(cli apiclient.Client, inputs *deployer.Inputs) *AgentgatewayHelmValuesGenerator {
+	return &AgentgatewayParametersHelmValuesGenerator{
 		agwParamClient: kclient.NewFilteredDelayed[*agentgateway.AgentgatewayParameters](cli, wellknown.AgentgatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		gwClassClient:  kclient.NewFilteredDelayed[*gwv1.GatewayClass](cli, wellknown.GatewayClassGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		inputs:         inputs,
@@ -161,7 +161,7 @@ func newAgentgatewayParametersHelmValuesGenerator(cli apiclient.Client, inputs *
 }
 
 // GetValues returns helm values derived from AgentgatewayParameters.
-func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Context, obj client.Object) (map[string]any, error) {
+func (g *AgentgatewayHelmValuesGenerator) GetValues(ctx context.Context, obj client.Object) (map[string]any, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
 		return nil, fmt.Errorf("expected a Gateway resource, got %s", obj.GetObjectKind().GroupVersionKind().String())
@@ -211,7 +211,7 @@ type resolvedParameters struct {
 // resolveParameters resolves the AgentgatewayParameters for the Gateway.
 // It returns both GatewayClass-level and Gateway-level
 // separately to support ordered overlay merging (GatewayClass first, then Gateway).
-func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.Gateway) (*resolvedParameters, error) {
+func (g *AgentgatewayHelmValuesGenerator) resolveParameters(gw *gwv1.Gateway) (*resolvedParameters, error) {
 	result := &resolvedParameters{}
 
 	// Get GatewayClass parameters first
@@ -258,22 +258,51 @@ func (g *agentgatewayParametersHelmValuesGenerator) resolveParameters(gw *gwv1.G
 	return result, nil
 }
 
-func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynced {
+func (g *AgentgatewayHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynced {
 	return []cache.InformerSynced{g.agwParamClient.HasSynced, g.gwClassClient.HasSynced}
 }
 
-func (g *agentgatewayParametersHelmValuesGenerator) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
-	return deployer.ChartTypeAgentgateway
+// PostProcessObjects implements deployer.ObjectPostProcessor.
+// It applies AgentgatewayParameters overlays to the rendered objects.
+// When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
+// are applied in order: GatewayClass first, then Gateway on top.
+func (g *AgentgatewayHelmValuesGenerator) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return nil
+	}
+
+	resolved, err := g.GetResolvedParametersForGateway(gw)
+	if err != nil {
+		return nil
+	}
+
+	// Apply overlays in order: GatewayClass first, then Gateway.
+	// This allows Gateway-level overlays to override GatewayClass-level overlays.
+	if resolved.gatewayClassAGWP != nil {
+		applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
+		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
+			return err
+		}
+	}
+	if resolved.gatewayAGWP != nil {
+		applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
+		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetResolvedParametersForGateway returns both the GatewayClass-level and Gateway-level
 // AgentgatewayParameters for the given Gateway. This allows callers to apply overlays
 // in order (GatewayClass first, then Gateway).
-func (g *agentgatewayParametersHelmValuesGenerator) GetResolvedParametersForGateway(gw *gwv1.Gateway) (*resolvedParameters, error) {
+func (g *AgentgatewayHelmValuesGenerator) GetResolvedParametersForGateway(gw *gwv1.Gateway) (*resolvedParameters, error) {
 	return g.resolveParameters(gw)
 }
 
-func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway) (*deployer.AgentgatewayHelmConfig, error) {
+func (g *AgentgatewayHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway) (*deployer.AgentgatewayHelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, g.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, nil, true) // true = agentgateway
 	if len(ports) == 0 {

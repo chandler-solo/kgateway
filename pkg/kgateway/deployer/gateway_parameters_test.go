@@ -44,10 +44,6 @@ func (thv *testHelmValuesGenerator) GetCacheSyncHandlers() []cache.InformerSynce
 	return nil
 }
 
-func (thv *testHelmValuesGenerator) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
-	return deployer.ChartTypeEnvoy
-}
-
 func TestShouldUseDefaultGatewayParameters(t *testing.T) {
 	gwc := defaultGatewayClass()
 	gwParams := emptyGatewayParameters()

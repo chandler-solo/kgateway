@@ -50,7 +50,8 @@ var logger = logging.New("gateway-controller")
 var _ manager.LeaderElectionRunnable = (*gatewayReconciler)(nil)
 
 type gatewayReconciler struct {
-	deployer           *deployer.Deployer
+	envoyDeployer      *deployer.Deployer
+	agwDeployer        *deployer.Deployer
 	gwParams           *internaldeployer.GatewayParameters
 	scheme             *runtime.Scheme
 	controllerName     string
@@ -74,13 +75,15 @@ type gatewayReconciler struct {
 
 func NewGatewayReconciler(
 	cfg GatewayConfig,
-	deployer *deployer.Deployer,
+	envoyDeployer *deployer.Deployer,
+	agwDeployer *deployer.Deployer,
 	gwParams *internaldeployer.GatewayParameters,
 	controllerExtension pluginsdk.GatewayControllerExtension,
 ) *gatewayReconciler {
 	filter := kclient.Filter{ObjectFilter: cfg.Client.ObjectFilter()}
 	r := &gatewayReconciler{
-		deployer:            deployer,
+		envoyDeployer:       envoyDeployer,
+		agwDeployer:         agwDeployer,
 		gwParams:            gwParams,
 		scheme:              cfg.Mgr.GetScheme(),
 		controllerName:      cfg.ControllerName,
@@ -298,7 +301,16 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 
 	logger.Info("reconciling Gateway", "ref", req)
 	ctx := context.Background()
-	objs, err := r.deployer.GetObjsToDeploy(ctx, gw)
+
+	// Select the appropriate deployer based on the GatewayClass controller
+	var d *deployer.Deployer
+	if isEnvoyGateway {
+		d = r.envoyDeployer
+	} else {
+		d = r.agwDeployer
+	}
+
+	objs, err := d.GetObjsToDeploy(ctx, gw)
 	if err != nil {
 		if errors.Is(err, internaldeployer.ErrNoValidPorts) {
 			// status is reported from translator, so return normally
@@ -333,8 +345,8 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 			return fmt.Errorf("failed to update status for Gateway %s: %w", req, statusErr)
 		}
 	}
-	objs = r.deployer.SetNamespaceAndOwnerWithGVK(gw, wellknown.GatewayGVK, objs)
-	err = r.deployer.DeployObjsWithSource(ctx, objs, gw)
+	objs = d.SetNamespaceAndOwnerWithGVK(gw, wellknown.GatewayGVK, objs)
+	err = d.DeployObjsWithSource(ctx, objs, gw)
 	if err != nil {
 		return err
 	}

@@ -59,7 +59,6 @@ type Deployer struct {
 	agwControllerName                    string
 	agwGatewayClassName                  string
 	chart                                *chart.Chart
-	agentgatewayChart                    *chart.Chart
 	scheme                               *runtime.Scheme
 	client                               apiclient.Client
 	helmValues                           HelmValuesGenerator
@@ -82,7 +81,7 @@ func WithGVKToGVRMapper(m map[schema.GroupVersionKind]schema.GroupVersionResourc
 	}
 }
 
-// NewDeployer creates a new gateway/inference pool/etc
+// NewDeployer creates a new gateway/inference pool/etc deployer with a single chart.
 // TODO [danehans]: Reloading the chart for every reconciliation is inefficient.
 // See https://github.com/kgateway-dev/kgateway/issues/10672 for details.
 func NewDeployer(
@@ -101,36 +100,6 @@ func NewDeployer(
 		scheme:                               scheme,
 		client:                               client,
 		chart:                                chart,
-		agentgatewayChart:                    nil,
-		helmValues:                           hvg,
-		helmReleaseNameAndNamespaceGenerator: helmReleaseNameAndNamespaceGenerator,
-		patcher:                              applyPatch,
-	}
-	for _, o := range opts {
-		o(d)
-	}
-	return d
-}
-
-// NewDeployerWithMultipleCharts creates a new gateway deployer that supports both envoy and agentgateway charts
-func NewDeployerWithMultipleCharts(
-	controllerName, agwControllerName, agwGatewayClassName string,
-	scheme *runtime.Scheme,
-	client apiclient.Client,
-	envoyChart *chart.Chart,
-	agentgatewayChart *chart.Chart,
-	hvg HelmValuesGenerator,
-	helmReleaseNameAndNamespaceGenerator func(obj client.Object) (string, string),
-	opts ...Option,
-) *Deployer {
-	d := &Deployer{
-		controllerName:                       controllerName,
-		agwControllerName:                    agwControllerName,
-		agwGatewayClassName:                  agwGatewayClassName,
-		scheme:                               scheme,
-		client:                               client,
-		chart:                                envoyChart,
-		agentgatewayChart:                    agentgatewayChart,
 		helmValues:                           hvg,
 		helmReleaseNameAndNamespaceGenerator: helmReleaseNameAndNamespaceGenerator,
 		patcher:                              applyPatch,
@@ -183,12 +152,7 @@ func (d *Deployer) RenderChartToObjects(ns, name string, vals map[string]any) ([
 // It returns the list of Objects that are rendered, and an optional error if rendering failed,
 // or converting the rendered manifests to objects failed.
 func (d *Deployer) RenderToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
-	return d.RenderToObjectsWithChartType(ns, name, vals, ChartTypeEnvoy)
-}
-
-// RenderToObjectsWithChartType renders the helm chart with the specified chart type.
-func (d *Deployer) RenderToObjectsWithChartType(ns, name string, vals map[string]any, chartType ChartType) ([]client.Object, error) {
-	manifest, err := d.RenderManifestWithChartType(ns, name, vals, chartType)
+	manifest, err := d.RenderManifest(ns, name, vals)
 	if err != nil {
 		return nil, err
 	}
@@ -201,11 +165,6 @@ func (d *Deployer) RenderToObjectsWithChartType(ns, name string, vals map[string
 }
 
 func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte, error) {
-	return d.RenderManifestWithChartType(ns, name, vals, ChartTypeEnvoy)
-}
-
-// RenderManifestWithChartType renders the helm chart with the specified chart type.
-func (d *Deployer) RenderManifestWithChartType(ns, name string, vals map[string]any, chartType ChartType) ([]byte, error) {
 	mem := driver.NewMemory()
 	mem.SetNamespace(ns)
 	cfg := &action.Configuration{
@@ -221,13 +180,7 @@ func (d *Deployer) RenderManifestWithChartType(ns, name string, vals map[string]
 	install.ClientOnly = true
 	installCtx := context.Background()
 
-	// Select the appropriate chart based on chart type
-	chartToUse := d.chart
-	if chartType == ChartTypeAgentgateway && d.agentgatewayChart != nil {
-		chartToUse = d.agentgatewayChart
-	}
-
-	release, err := install.RunWithContext(installCtx, chartToUse, vals)
+	release, err := install.RunWithContext(installCtx, d.chart, vals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render helm chart for %s.%s: %w", ns, name, err)
 	}
@@ -262,10 +215,8 @@ func (d *Deployer) GetObjsToDeploy(ctx context.Context, obj client.Object) ([]cl
 		"values", vals,
 	)
 
-	chartType := d.helmValues.GetChartType(ctx, obj)
-
 	rname, rns := d.helmReleaseNameAndNamespaceGenerator(obj)
-	objs, err := d.RenderToObjectsWithChartType(rns, rname, vals, chartType)
+	objs, err := d.RenderToObjects(rns, rname, vals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get objects to deploy %s.%s: %w", obj.GetNamespace(), obj.GetName(), err)
 	}

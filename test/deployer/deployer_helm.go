@@ -108,6 +108,18 @@ func ExtractCommonObjs(t *testing.T, objs []client.Object) ([]client.Object, *gw
 	return commonObjs, gtw
 }
 
+// isAgentgatewayClass returns true if the Gateway's GatewayClass uses the agentgateway controller.
+func (dt DeployerTester) isAgentgatewayClass(gw *gwv1.Gateway, objs []client.Object) bool {
+	for _, obj := range objs {
+		if gwc, ok := obj.(*gwv1.GatewayClass); ok {
+			if gwc.Name == string(gw.Spec.GatewayClassName) {
+				return string(gwc.Spec.ControllerName) == dt.AgwControllerName
+			}
+		}
+	}
+	return false
+}
+
 func (dt DeployerTester) GetObjects(
 	t *testing.T,
 	tt HelmTestCase,
@@ -158,14 +170,30 @@ func (dt DeployerTester) RunHelmChartTest(
 	if tt.HelmValuesGeneratorOverride != nil {
 		gwParams.WithHelmValuesGeneratorOverride(tt.HelmValuesGeneratorOverride(inputs))
 	}
-	deployer, err := internaldeployer.NewGatewayDeployer(
-		dt.ControllerName,
-		dt.AgwControllerName,
-		dt.AgwClassName,
-		scheme,
-		fakeClient,
-		gwParams,
-	)
+
+	// Determine which deployer to use based on the GatewayClass
+	var deployer *pkgdeployer.Deployer
+	var err error
+	isAgentgateway := dt.isAgentgatewayClass(gtw, commonObjs)
+	if isAgentgateway {
+		deployer, err = internaldeployer.NewAgentgatewayDeployer(
+			dt.ControllerName,
+			dt.AgwControllerName,
+			dt.AgwClassName,
+			scheme,
+			fakeClient,
+			gwParams.AgentgatewayHelmValuesGenerator(),
+		)
+	} else {
+		deployer, err = internaldeployer.NewEnvoyGatewayDeployer(
+			dt.ControllerName,
+			dt.AgwControllerName,
+			dt.AgwClassName,
+			scheme,
+			fakeClient,
+			gwParams.EnvoyHelmValuesGenerator(),
+		)
+	}
 	assert.NoError(t, err, "error creating gateway deployer")
 
 	ctx := t.Context()

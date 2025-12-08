@@ -115,17 +115,30 @@ func watchGw(
 		gwParams.WithHelmValuesGeneratorOverride(helmValuesGeneratorOverride(inputs))
 	}
 
-	d, err := internaldeployer.NewGatewayDeployer(
+	// Create separate deployers for envoy and agentgateway
+	envoyDeployer, err := internaldeployer.NewEnvoyGatewayDeployer(
 		cfg.ControllerName,
 		cfg.AgwControllerName,
 		cfg.AgentgatewayClassName,
 		cfg.Mgr.GetScheme(),
 		cfg.Client,
-		gwParams,
+		gwParams.EnvoyHelmValuesGenerator(),
 	)
 	if err != nil {
 		return err
 	}
 
-	return cfg.Mgr.Add(NewGatewayReconciler(cfg, d, gwParams, gatewayControllerExtension))
+	agwDeployer, err := internaldeployer.NewAgentgatewayDeployer(
+		cfg.ControllerName,
+		cfg.AgwControllerName,
+		cfg.AgentgatewayClassName,
+		cfg.Mgr.GetScheme(),
+		cfg.Client,
+		gwParams.AgentgatewayHelmValuesGenerator(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return cfg.Mgr.Add(NewGatewayReconciler(cfg, envoyDeployer, agwDeployer, gwParams, gatewayControllerExtension))
 }
