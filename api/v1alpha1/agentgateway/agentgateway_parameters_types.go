@@ -154,7 +154,7 @@ type AgentgatewayParametersConfigs struct {
 	Shutdown *ShutdownSpec `json:"shutdown,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="self.minSeconds <= self.maxSeconds",message="The 'minSeconds' value must be less than or equal to the 'maxSeconds' value."
+// +kubebuilder:validation:XValidation:rule="self.min <= self.max",message="The 'min' value must be less than or equal to the 'max' value."
 type ShutdownSpec struct {
 	// Minimum time (in seconds) to wait before allowing Agentgateway to
 	// terminate. Refer to the CONNECTION_MIN_TERMINATION_DEADLINE environment
@@ -163,7 +163,7 @@ type ShutdownSpec struct {
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
-	MinSeconds int64 `json:"minSeconds"`
+	Min int64 `json:"min"`
 
 	// Maximum time (in seconds) to wait before allowing Agentgateway to
 	// terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
@@ -172,7 +172,7 @@ type ShutdownSpec struct {
 	// +required
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=31536000
-	MaxSeconds int64 `json:"maxSeconds"`
+	Max int64 `json:"max"`
 }
 
 type AgentgatewayParametersOverlays struct {

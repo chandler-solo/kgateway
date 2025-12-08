@@ -4,5 +4,5 @@ metadata:
   name: shutdown-min-gt-max
 spec:
   shutdown:
-    maxSeconds: 0
-    minSeconds: 0
+    max: 0
+    min: 0

@@ -18,8 +18,8 @@ metadata:
   namespace: default
 spec:
   shutdown:
-    minSeconds: 15
-    maxSeconds: 120
+    min: 15
+    max: 120
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1

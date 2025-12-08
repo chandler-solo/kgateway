@@ -219,11 +219,11 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmCon
 	vals.Gateway.Env = mergeEnvVars(vals.Gateway.Env, configs.Env)
 
 	if configs.Shutdown != nil {
-		vals.Gateway.TerminationGracePeriodSeconds = ptr.To(configs.Shutdown.MaxSeconds)
+		vals.Gateway.TerminationGracePeriodSeconds = ptr.To(configs.Shutdown.Max)
 		if vals.Gateway.GracefulShutdown == nil {
 			vals.Gateway.GracefulShutdown = &kgateway.GracefulShutdownSpec{}
 		}
-		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.MinSeconds)
+		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.Min)
 	}
 }
 

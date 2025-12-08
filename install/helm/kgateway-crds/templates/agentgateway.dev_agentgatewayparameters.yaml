@@ -618,7 +618,7 @@ spec:
                   plane complete. How long a data plane pod must wait for shutdown to be
                   perfectly graceful depends on how you have configured your Gateways.
                 properties:
-                  maxSeconds:
+                  max:
                     description: |-
                       Maximum time (in seconds) to wait before allowing Agentgateway to
                       terminate. Refer to the TERMINATION_GRACE_PERIOD_SECONDS environment
@@ -627,7 +627,7 @@ spec:
                     maximum: 31536000
                     minimum: 0
                     type: integer
-                  minSeconds:
+                  min:
                     description: |-
                       Minimum time (in seconds) to wait before allowing Agentgateway to
                       terminate. Refer to the CONNECTION_MIN_TERMINATION_DEADLINE environment
@@ -637,13 +637,13 @@ spec:
                     minimum: 0
                     type: integer
                 required:
-                - maxSeconds
-                - minSeconds
+                - max
+                - min
                 type: object
                 x-kubernetes-validations:
-                - message: The 'minSeconds' value must be less than or equal to the
-                    'maxSeconds' value.
-                  rule: self.minSeconds <= self.maxSeconds
+                - message: The 'min' value must be less than or equal to the 'max'
+                    value.
+                  rule: self.min <= self.max
             type: object
           status:
             description: status defines the current state of AgentgatewayParameters.
