@@ -274,7 +274,7 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfigWithLogging(t 
 	applier.ApplyToHelmValues(vals)
 
 	// Both should be set - merging happens in helm template
-	assert.Equal(t, "Text", *vals.Gateway.LogFormat)
+	assert.Equal(t, "text", *vals.Gateway.LogFormat)
 	require.NotNil(t, vals.Gateway.RawConfig)
 	tracing, ok := vals.Gateway.RawConfig["tracing"].(map[string]any)
 	require.True(t, ok)
