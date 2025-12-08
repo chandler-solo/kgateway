@@ -601,7 +601,6 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
-				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
@@ -709,7 +708,6 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
-				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
@@ -778,7 +776,6 @@ var _ = Describe("Deployer", func() {
 				WaypointGatewayClassName:   wellknown.DefaultWaypointClassName,
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
-				GwpAgwpCompatibility:       true,
 			})
 			d, err := deployerinternal.NewGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,

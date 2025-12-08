@@ -105,7 +105,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              true,
 				XdsTLS:                               false,
 				EnableExperimentalGatewayAPIFeatures: true,
-				GwpAgwpCompatibility:                 true,
 				GatewayClassParametersRefs:           GatewayClassParametersRefs{},
 			},
 		},
@@ -145,7 +144,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              false,
 				XdsTLS:                               true,
 				EnableExperimentalGatewayAPIFeatures: false,
-				GwpAgwpCompatibility:                 false,
 				GatewayClassParametersRefs: GatewayClassParametersRefs{
 					"kgateway": {
 						Name:      "custom-gwp",
@@ -237,7 +235,6 @@ func TestSettings(t *testing.T) {
 				XdsAuth:                              true,
 				XdsTLS:                               false,
 				EnableExperimentalGatewayAPIFeatures: true,
-				GwpAgwpCompatibility:                 true,
 				GatewayClassParametersRefs:           GatewayClassParametersRefs{},
 			},
 		},
