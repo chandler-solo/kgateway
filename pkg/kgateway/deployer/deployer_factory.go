@@ -7,15 +7,36 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
-func NewGatewayDeployer(controllerName, agwControllerName, agwGatewayClassName string, scheme *runtime.Scheme, client apiclient.Client, gwParams *GatewayParameters, opts ...deployer.Option) (*deployer.Deployer, error) {
+// NewEnvoyGatewayDeployer creates a deployer for Envoy-based gateways.
+func NewEnvoyGatewayDeployer(
+	controllerName, agwControllerName, agwGatewayClassName string,
+	scheme *runtime.Scheme,
+	client apiclient.Client,
+	hvg deployer.HelmValuesGenerator,
+	opts ...deployer.Option,
+) (*deployer.Deployer, error) {
 	envoyChart, err := LoadEnvoyChart()
 	if err != nil {
 		return nil, err
 	}
+	return deployer.NewDeployer(
+		controllerName, agwControllerName, agwGatewayClassName,
+		scheme, client, envoyChart, hvg, GatewayReleaseNameAndNamespace, opts...), nil
+}
+
+// NewAgentgatewayDeployer creates a deployer for agentgateway-based gateways.
+func NewAgentgatewayDeployer(
+	controllerName, agwControllerName, agwGatewayClassName string,
+	scheme *runtime.Scheme,
+	client apiclient.Client,
+	hvg deployer.HelmValuesGenerator,
+	opts ...deployer.Option,
+) (*deployer.Deployer, error) {
 	agentgatewayChart, err := LoadAgentgatewayChart()
 	if err != nil {
 		return nil, err
 	}
-	return deployer.NewDeployerWithMultipleCharts(
-		controllerName, agwControllerName, agwGatewayClassName, scheme, client, envoyChart, agentgatewayChart, gwParams, GatewayReleaseNameAndNamespace, opts...), nil
+	return deployer.NewDeployer(
+		controllerName, agwControllerName, agwGatewayClassName,
+		scheme, client, agentgatewayChart, hvg, GatewayReleaseNameAndNamespace, opts...), nil
 }

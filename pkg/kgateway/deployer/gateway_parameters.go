@@ -36,8 +36,8 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 	gp := &GatewayParameters{
 		inputs: inputs,
 		// build this once versus on every getHelmValuesGenerator call
-		kgwParameters:          newkgatewayParameters(cli, inputs),
-		agwHelmValuesGenerator: newAgentgatewayParametersHelmValuesGenerator(cli, inputs),
+		kgwParameters:          NewEnvoyGatewayParameters(cli, inputs),
+		agwHelmValuesGenerator: NewAgentgatewayHelmValuesGenerator(cli, inputs),
 	}
 
 	return gp
@@ -46,11 +46,12 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 type GatewayParameters struct {
 	inputs                      *deployer.Inputs
 	helmValuesGeneratorOverride deployer.HelmValuesGenerator
-	kgwParameters               *kgatewayParameters
-	agwHelmValuesGenerator      *agentgatewayParametersHelmValuesGenerator
+	kgwParameters               *EnvoyGatewayParameters
+	agwHelmValuesGenerator      *AgentgatewayHelmValuesGenerator
 }
 
-type kgatewayParameters struct {
+// EnvoyGatewayParameters generates helm values for Envoy-based gateways.
+type EnvoyGatewayParameters struct {
 	gwParamClient kclient.Client[*kgateway.GatewayParameters]
 	gwClassClient kclient.Client[*gwv1.GatewayClass]
 	inputs        *deployer.Inputs
@@ -84,6 +85,24 @@ func (gp *GatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	}
 
 	return gp.kgwParameters.GetCacheSyncHandlers()
+}
+
+// EnvoyHelmValuesGenerator returns the helm values generator for Envoy-based gateways.
+// If a helm values generator override is set, it returns that instead.
+func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGenerator {
+	if gp.helmValuesGeneratorOverride != nil {
+		return gp.helmValuesGeneratorOverride
+	}
+	return gp.kgwParameters
+}
+
+// AgentgatewayHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
+// If a helm values generator override is set, it returns that instead.
+func (gp *GatewayParameters) AgentgatewayHelmValuesGenerator() deployer.HelmValuesGenerator {
+	if gp.helmValuesGeneratorOverride != nil {
+		return gp.helmValuesGeneratorOverride
+	}
+	return gp.agwHelmValuesGenerator
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
@@ -121,32 +140,6 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
-}
-
-// GetChartType implements deployer.ChartSelector.
-// It returns the chart type to use based on the GatewayClass controller name.
-func (gp *GatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
-	gw, ok := obj.(*gwv1.Gateway)
-	if !ok {
-		return deployer.ChartTypeEnvoy
-	}
-
-	// Check if there's an override
-	if gp.helmValuesGeneratorOverride != nil {
-		return gp.helmValuesGeneratorOverride.GetChartType(ctx, obj)
-	}
-
-	// Get the GatewayClass to check the controller name
-	gwc := gp.kgwParameters.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
-	if gwc == nil {
-		return deployer.ChartTypeEnvoy
-	}
-
-	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
-		return deployer.ChartTypeAgentgateway
-	}
-
-	return deployer.ChartTypeEnvoy
 }
 
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
@@ -187,15 +180,16 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 	return gp.kgwParameters, nil
 }
 
-func newkgatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *kgatewayParameters {
-	return &kgatewayParameters{
+// NewEnvoyGatewayParameters creates a new EnvoyGatewayParameters.
+func NewEnvoyGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *EnvoyGatewayParameters {
+	return &EnvoyGatewayParameters{
 		gwParamClient: kclient.NewFilteredDelayed[*kgateway.GatewayParameters](cli, wellknown.GatewayParametersGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		gwClassClient: kclient.NewFilteredDelayed[*gwv1.GatewayClass](cli, wellknown.GatewayClassGVR, kclient.Filter{ObjectFilter: cli.ObjectFilter()}),
 		inputs:        inputs,
 	}
 }
 
-func (h *kgatewayParameters) GetValues(ctx context.Context, obj client.Object) (map[string]any, error) {
+func (h *EnvoyGatewayParameters) GetValues(ctx context.Context, obj client.Object) (map[string]any, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
 		return nil, fmt.Errorf("expected a Gateway resource, got %s", obj.GetObjectKind().GroupVersionKind().String())
@@ -219,17 +213,13 @@ func (h *kgatewayParameters) GetValues(ctx context.Context, obj client.Object) (
 	return jsonVals, err
 }
 
-func (k *kgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
+func (k *EnvoyGatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	return []cache.InformerSynced{k.gwClassClient.HasSynced, k.gwParamClient.HasSynced}
-}
-
-func (k *kgatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
-	return deployer.ChartTypeEnvoy
 }
 
 // getGatewayParametersForGateway returns the merged GatewayParameters object resulting from the default GwParams object and
 // the GwParam object specifically associated with the given Gateway (if one exists).
-func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
+func (k *EnvoyGatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
 	// attempt to get the GatewayParameters name from the Gateway. If we can't find it,
 	// we'll check for the default GWP for the GatewayClass.
 	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
@@ -295,7 +285,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 }
 
 // gets the default GatewayParameters associated with the GatewayClass of the provided Gateway
-func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
+func (k *EnvoyGatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*kgateway.GatewayParameters, error) {
 	gwc, err := getGatewayClassFromGateway(k.gwClassClient, gw)
 	if err != nil {
 		return nil, err
@@ -304,7 +294,7 @@ func (k *kgatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (*kga
 }
 
 // Gets the GatewayParameters object associated with a given GatewayClass.
-func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
+func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
 	// Our defaults depend on OmitDefaultSecurityContext, but these are the defaults
 	// when not OmitDefaultSecurityContext:
 	defaultGwp, err := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
@@ -380,7 +370,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 	return mergedGwp, nil
 }
 
-func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
+func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, gwParam, false) // false = envoy
 	if len(ports) == 0 {

@@ -435,13 +435,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwp,
+				gwp.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -522,13 +522,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err = deployerinternal.NewGatewayDeployer(
+			d, err = deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -603,13 +603,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 				GwpAgwpCompatibility:       true,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewAgentgatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.AgentgatewayHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -711,13 +711,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 				GwpAgwpCompatibility:       true,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewAgentgatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.AgentgatewayHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -780,13 +780,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 				GwpAgwpCompatibility:       true,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewAgentgatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.AgentgatewayHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -880,13 +880,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -953,13 +953,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1042,13 +1042,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1137,13 +1137,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1228,13 +1228,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d1, err := deployerinternal.NewGatewayDeployer(
+			d1, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams1,
+				gwParams1.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1255,13 +1255,13 @@ var _ = Describe("Deployer", func() {
 				AgentgatewayClassName:      wellknown.DefaultAgwClassName,
 				AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 			})
-			d2, err := deployerinternal.NewGatewayDeployer(
+			d2, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams2,
+				gwParams2.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1328,13 +1328,13 @@ var _ = Describe("Deployer", func() {
 					Tag:      "bar",
 				},
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1376,13 +1376,13 @@ var _ = Describe("Deployer", func() {
 					Tag:      "bar",
 				},
 			})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -1437,13 +1437,13 @@ var _ = Describe("Deployer", func() {
 						Tag:      tag,
 					},
 				})
-				d, err = deployerinternal.NewGatewayDeployer(
+				d, err = deployerinternal.NewEnvoyGatewayDeployer(
 					wellknown.DefaultGatewayControllerName,
 					wellknown.DefaultAgwControllerName,
 					wellknown.DefaultAgwClassName,
 					scheme,
 					fakeClient,
-					gwParams,
+					gwParams.EnvoyHelmValuesGenerator(),
 				)
 				Expect(err).NotTo(HaveOccurred())
 				fakeClient.RunAndWait(context.Background().Done())
@@ -1528,13 +1528,13 @@ var _ = Describe("Deployer", func() {
 						Tag:      tag,
 					},
 				})
-				d, err = deployerinternal.NewGatewayDeployer(
+				d, err = deployerinternal.NewEnvoyGatewayDeployer(
 					wellknown.DefaultGatewayControllerName,
 					wellknown.DefaultAgwControllerName,
 					wellknown.DefaultAgwClassName,
 					scheme,
 					fakeClient,
-					gwParams,
+					gwParams.EnvoyHelmValuesGenerator(),
 				)
 				Expect(err).NotTo(HaveOccurred())
 				fakeClient.RunAndWait(context.Background().Done())
@@ -1623,13 +1623,13 @@ var _ = Describe("Deployer", func() {
 						Tag:      tag,
 					},
 				})
-				d, err = deployerinternal.NewGatewayDeployer(
+				d, err = deployerinternal.NewEnvoyGatewayDeployer(
 					wellknown.DefaultGatewayControllerName,
 					wellknown.DefaultAgwControllerName,
 					wellknown.DefaultAgwClassName,
 					scheme,
 					fakeClient,
-					gwParams,
+					gwParams.EnvoyHelmValuesGenerator(),
 				)
 				Expect(err).NotTo(HaveOccurred())
 				fakeClient.RunAndWait(context.Background().Done())
@@ -2250,13 +2250,13 @@ var _ = Describe("Deployer", func() {
 
 			fakeClient := fake.NewClient(GinkgoT(), gwc, defaultGwp, overrideGwp)
 			gwParams := deployerinternal.NewGatewayParameters(fakeClient, inp.dInputs)
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -2677,13 +2677,13 @@ var _ = Describe("Deployer", func() {
 						Tag:      "bar",
 					},
 				})
-			d, err := deployerinternal.NewGatewayDeployer(
+			d, err := deployerinternal.NewEnvoyGatewayDeployer(
 				wellknown.DefaultGatewayControllerName,
 				wellknown.DefaultAgwControllerName,
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams,
+				gwParams.EnvoyHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
@@ -2914,7 +2914,7 @@ var _ = Describe("DeployObjs", func() {
 	)
 
 	getDeployer := func(fc apiclient.Client, patcher deployer.Patcher) *deployer.Deployer {
-		d, err := deployerinternal.NewGatewayDeployer(
+		d, err := deployerinternal.NewEnvoyGatewayDeployer(
 			wellknown.DefaultGatewayControllerName,
 			wellknown.DefaultAgwControllerName,
 			wellknown.DefaultAgwClassName,
