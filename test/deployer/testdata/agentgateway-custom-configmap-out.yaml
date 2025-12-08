@@ -13,6 +13,22 @@ metadata:
   name: agent-gateway
 ---
 apiVersion: v1
+data:
+  config.yaml: |
+    config: {}
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: agent-gateway
+    app.kubernetes.io/managed-by: kgateway
+    app.kubernetes.io/name: agent-gateway
+    app.kubernetes.io/version: 1.0.0-ci1
+    gateway.networking.k8s.io/gateway-class-name: agentgateway
+    gateway.networking.k8s.io/gateway-name: agent-gateway
+    kgateway: kube-gateway
+  name: agent-gateway
+---
+apiVersion: v1
 kind: Service
 metadata:
   labels:

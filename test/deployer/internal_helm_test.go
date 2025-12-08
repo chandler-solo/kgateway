@@ -72,20 +72,8 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GWC",
-			InputFile: "agentgateway-omitdefaultsecuritycontext-gwp",
-		},
-		{
-			Name:      "agentgateway OmitDefaultSecurityContext true GWP via GW",
-			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw-gwp",
-		},
-		{
 			Name:      "agentgateway-infrastructure with AgentgatewayParameters",
 			InputFile: "agentgateway-infrastructure",
-		},
-		{
-			Name:      "agentgateway-infrastructure with GatewayParameters",
-			InputFile: "agentgateway-infrastructure-gwp",
 		},
 		{
 			Name:      "agentgateway-controller-but-custom-gatewayclass",
@@ -122,20 +110,6 @@ func TestRenderHelmChart(t *testing.T) {
 			InputFile: "agentgateway-image-repo-only",
 		},
 		{
-			// GatewayClass refs GatewayParameters, Gateway refs AgentgatewayParameters
-			// Tests the mixed-kind scenario where cluster defaults come from GWP
-			// but a specific Gateway overrides with AGWP.
-			Name:      "agentgateway GWC with GWP and GW with AGWP",
-			InputFile: "agentgateway-gwc-gwp-gw-agwp",
-		},
-		{
-			// TODO(chandler): perhaps this replaces the more expensive e2e
-			// test case
-			// TestAgentgatewayIntegration/ConfigMap/TestTracingConfigMap:
-			Name:      "agentgateway with custom configmap",
-			InputFile: "agentgateway-custom-configmap",
-		},
-		{
 			// The GW parametersRef is meant to override the GWC parametersRef,
 			// not to create a 'merge' of params:
 			Name:      "both GWC and GW have parametersRef",
@@ -145,6 +119,11 @@ func TestRenderHelmChart(t *testing.T) {
 			// Same as above but with AgentgatewayParameters instead of GatewayParameters:
 			Name:      "agentgateway both GWC and GW have parametersRef",
 			InputFile: "agentgateway-both-gwc-and-gw-have-params",
+		},
+		{
+			// Custom configmap name via AgentgatewayParameters deployment overlay:
+			Name:      "agentgateway with custom configmap name via overlay",
+			InputFile: "agentgateway-custom-configmap",
 		},
 	}
 

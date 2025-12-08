@@ -187,12 +187,6 @@ type Settings struct {
 
 	// EnableExperimentalGatewayAPIFeatures enables kgateway to support experimental features and APIs
 	EnableExperimentalGatewayAPIFeatures bool `split_words:"true" default:"true"`
-
-	// GwpAgwpCompatibility controls whether agentgateway data plane Gateways can use
-	// GatewayParameters. When set to false, only AgentgatewayParameters are allowed,
-	// and using GatewayParameters will result in an error. Defaults to true for
-	// backward compatibility.
-	GwpAgwpCompatibility bool `split_words:"true" default:"true"`
 }
 
 // BuildSettings returns a zero-valued Settings obj if error is encountered when parsing env
