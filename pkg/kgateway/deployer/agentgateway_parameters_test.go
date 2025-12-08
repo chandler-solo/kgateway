@@ -19,8 +19,8 @@ import (
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_NilParams(t *testing.T) {
 	applier := NewAgentgatewayParametersApplier(nil)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{
 			LogLevel: ptr.To("info"),
 		},
 	}
@@ -45,8 +45,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Image(t *testing.T) {
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{},
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{},
 	}
 
 	applier.ApplyToHelmValues(vals)
@@ -76,8 +76,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Resources(t *testing.T)
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{},
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{},
 	}
 
 	applier.ApplyToHelmValues(vals)
@@ -100,8 +100,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Env(t *testing.T) {
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{
 			Env: []corev1.EnvVar{
 				{Name: "EXISTING_VAR", Value: "existing_value"},
 			},
@@ -128,8 +128,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_Logging(t *testing.T) {
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{},
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{},
 	}
 
 	applier.ApplyToHelmValues(vals)
@@ -227,8 +227,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfig(t *testing.T)
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{},
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{},
 	}
 
 	applier.ApplyToHelmValues(vals)
@@ -267,8 +267,8 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_RawConfigWithLogging(t 
 	}
 
 	applier := NewAgentgatewayParametersApplier(params)
-	vals := &deployer.HelmConfig{
-		Gateway: &deployer.HelmGateway{},
+	vals := &deployer.AgentgatewayHelmConfig{
+		Gateway: &deployer.AgentgatewayHelmGateway{},
 	}
 
 	applier.ApplyToHelmValues(vals)

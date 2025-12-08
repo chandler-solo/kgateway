@@ -7,24 +7,14 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 )
 
-type DataPlaneType string
-
-const (
-	DataPlaneAgentgateway DataPlaneType = "agentgateway"
-	DataPlaneEnvoy        DataPlaneType = "envoy"
-)
-
-// helmConfig stores the top-level helm values used by the deployer.
+// HelmConfig stores the top-level helm values used by the deployer for Envoy deployments.
 type HelmConfig struct {
 	Gateway            *HelmGateway            `json:"gateway,omitempty"`
 	InferenceExtension *HelmInferenceExtension `json:"inferenceExtension,omitempty"`
 }
 
+// HelmGateway contains helm values specific to Envoy gateway deployments.
 type HelmGateway struct {
-	// not needed by the helm charts, but by the code that select the correct
-	// helm chart:
-	DataPlaneType DataPlaneType `json:"dataPlaneType"`
-
 	// naming
 	Name               *string           `json:"name,omitempty"`
 	GatewayName        *string           `json:"gatewayName,omitempty"`
@@ -69,12 +59,8 @@ type HelmGateway struct {
 	Istio *HelmIstio `json:"istio,omitempty"`
 
 	// envoy container values
-	ComponentLogLevel *string `json:"componentLogLevel,omitempty"`
-
-	// envoy or agentgateway container values
-	// Note: ideally, these should be mapped to container specific values, but right now they
-	// map to the proxy container
 	LogLevel          *string                      `json:"logLevel,omitempty"`
+	ComponentLogLevel *string                      `json:"componentLogLevel,omitempty"`
 	Image             *HelmImage                   `json:"image,omitempty"`
 	Resources         *corev1.ResourceRequirements `json:"resources,omitempty"`
 	SecurityContext   *corev1.SecurityContext      `json:"securityContext,omitempty"`
@@ -83,16 +69,9 @@ type HelmGateway struct {
 
 	// xds values
 	Xds *HelmXds `json:"xds,omitempty"`
-	// agentgateway xds values
-	AgwXds *HelmXds `json:"agwXds,omitempty"`
 
 	// stats values
 	Stats *HelmStatsConfig `json:"stats,omitempty"`
-
-	// LogFormat specifies the logging format for agentgateway (Json or Text)
-	LogFormat *string `json:"logFormat,omitempty"`
-	// RawConfig provides opaque config to be merged into config.yaml
-	RawConfig map[string]any `json:"rawConfig,omitempty"`
 }
 
 // helmPort represents a Gateway Listener port

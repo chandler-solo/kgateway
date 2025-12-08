@@ -122,6 +122,32 @@ func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
 }
 
+// GetChartType implements deployer.ChartSelector.
+// It returns the chart type to use based on the GatewayClass controller name.
+func (gp *GatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return deployer.ChartTypeEnvoy
+	}
+
+	// Check if there's an override
+	if gp.helmValuesGeneratorOverride != nil {
+		return gp.helmValuesGeneratorOverride.GetChartType(ctx, obj)
+	}
+
+	// Get the GatewayClass to check the controller name
+	gwc := gp.kgwParameters.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc == nil {
+		return deployer.ChartTypeEnvoy
+	}
+
+	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+		return deployer.ChartTypeAgentgateway
+	}
+
+	return deployer.ChartTypeEnvoy
+}
+
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
@@ -194,6 +220,10 @@ func (h *kgatewayParameters) GetValues(ctx context.Context, obj client.Object) (
 
 func (k *kgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	return []cache.InformerSynced{k.gwClassClient.HasSynced, k.gwParamClient.HasSynced}
+}
+
+func (k *kgatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
+	return deployer.ChartTypeEnvoy
 }
 
 // getGatewayParametersForGateway returns the merged GatewayParameters object resulting from the default GwParams object and
@@ -385,7 +415,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	// Inject xDS CA certificate into Helm values if TLS is enabled
 	if k.inputs.ControlPlane.XdsTLS {
-		if err := injectXdsCACertificate(k.inputs.ControlPlane.XdsTlsCaPath, vals); err != nil {
+		if err := injectXdsCACertificate(k.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.Xds); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
