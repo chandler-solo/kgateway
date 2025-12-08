@@ -205,6 +205,51 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		{
 			Name:      "agentgateway strategic-merge-patch tests",
 			InputFile: "agentgateway-strategic-merge-patch",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				// Deployment overlay metadata applied
+				assert.Contains(t, outputYaml, "deployment-overlay-annotation: from-overlay",
+					"deployment annotation from overlay should be present")
+				assert.Contains(t, outputYaml, "deployment-overlay-label1: from-overlay",
+					"deployment label from overlay should be present")
+
+				// $patch: delete on env var RUST_LOG
+				assert.NotContains(t, outputYaml, "RUST_LOG",
+					"RUST_LOG env var should be deleted via $patch: delete")
+
+				// $patch: replace on volumes - only custom-config volume in volumes list
+				// (volumeMounts is a separate list that still has the original mounts)
+				assert.Contains(t, outputYaml, "name: my-custom-config",
+					"custom configmap from $patch: replace should be present")
+				// Verify only one volume exists (the custom one) by checking volumes section structure
+				assert.Contains(t, outputYaml, "volumes:\n      - configMap:\n          name: my-custom-config\n        name: custom-config\nstatus:",
+					"volumes should be replaced with only custom-config")
+
+				// $patch: replace on service ports
+				assert.Contains(t, outputYaml, "port: 80",
+					"service port 80 from $patch: replace should be present")
+				assert.Contains(t, outputYaml, "port: 443",
+					"service port 443 from $patch: replace should be present")
+				// The original Gateway listener port 8080 becomes targetPort, not port
+				assert.NotContains(t, outputYaml, "port: 8080\n",
+					"default port 8080 should be replaced (only exists as targetPort now)")
+
+				// $setElementOrder/args - args reordered
+				assert.Contains(t, outputYaml, "- /config/config.yaml\n        - -f",
+					"args should be reordered via $setElementOrder")
+
+				// Service overlay annotation
+				assert.Contains(t, outputYaml, "service-overlay-annotation: from-overlay",
+					"service annotation from overlay should be present")
+
+				// Label nulled to empty string
+				assert.Contains(t, outputYaml, `app.kubernetes.io/managed-by: ""`,
+					"label should be nulled to empty string")
+
+				// Volume mount added via merge
+				assert.Contains(t, outputYaml, "mountPath: /etc/custom-config",
+					"custom volumeMount should be added via merge")
+			},
 		},
 		{
 			Name:      "agentgateway GWP with pod scheduling fields",
