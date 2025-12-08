@@ -1,11 +1,3 @@
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: kgateway
-spec:
-  controllerName: kgateway.dev/kgateway
-  description: Standard class for managing Gateway API ingress traffic.
----
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
 metadata:
