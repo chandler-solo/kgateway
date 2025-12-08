@@ -156,7 +156,7 @@ func NewAgentgatewayParametersApplier(params *agentgateway.AgentgatewayParameter
 // ApplyToHelmValues applies the AgentgatewayParameters configs to the helm
 // values.  This is called before rendering the helm chart. (We render a helm
 // chart, but we do not use helm beyond that point.)
-func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.HelmConfig) {
+func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.AgentgatewayHelmConfig) {
 	if a.params == nil || vals == nil || vals.Gateway == nil {
 		return
 	}
@@ -316,13 +316,13 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	}
 
 	if g.inputs.ControlPlane.XdsTLS {
-		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals); err != nil {
+		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.Xds, vals.Gateway.AgwXds); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
 
 	var jsonVals map[string]any
-	err = deployer.JsonConvert(vals, &jsonVals)
+	err = deployer.AgentgatewayJsonConvert(vals, &jsonVals)
 	return jsonVals, err
 }
 
@@ -441,7 +441,7 @@ func (g *agentgatewayParametersHelmValuesGenerator) shouldOmitDefaultSecurityCon
 // GatewayParameters to helm values.  This provides backward compatibility for
 // users who configure agentgateway using GatewayParameters, not
 // AgentgatewayParameters.
-func (g *agentgatewayParametersHelmValuesGenerator) applyGatewayParametersToHelmValues(gwp *kgateway.GatewayParameters, vals *deployer.HelmConfig) {
+func (g *agentgatewayParametersHelmValuesGenerator) applyGatewayParametersToHelmValues(gwp *kgateway.GatewayParameters, vals *deployer.AgentgatewayHelmConfig) {
 	if gwp == nil || gwp.Spec.Kube == nil || vals.Gateway == nil {
 		return
 	}
@@ -516,6 +516,10 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cac
 	return append(handlers, g.gwParamClient.HasSynced)
 }
 
+func (g *agentgatewayParametersHelmValuesGenerator) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
+	return deployer.ChartTypeAgentgateway
+}
+
 // GetResolvedParametersForGateway returns both the GatewayClass-level and Gateway-level
 // AgentgatewayParameters for the given Gateway. This allows callers to apply overlays
 // in order (GatewayClass first, then Gateway).
@@ -523,15 +527,14 @@ func (g *agentgatewayParametersHelmValuesGenerator) GetResolvedParametersForGate
 	return g.resolveParameters(gw)
 }
 
-func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway, omitDefaultSecurityContext bool) (*deployer.HelmConfig, error) {
+func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway, omitDefaultSecurityContext bool) (*deployer.AgentgatewayHelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, g.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, nil, true) // true = agentgateway
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
 	}
 
-	gtw := &deployer.HelmGateway{
-		DataPlaneType:    deployer.DataPlaneAgentgateway,
+	gtw := &deployer.AgentgatewayHelmGateway{
 		Name:             &gw.Name,
 		GatewayName:      &gw.Name,
 		GatewayNamespace: &gw.Namespace,
@@ -569,7 +572,6 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		Tag:        ptr.To(deployer.AgentgatewayDefaultTag),
 		PullPolicy: ptr.To(""),
 	}
-	gtw.DataPlaneType = deployer.DataPlaneAgentgateway
 
 	gtw.TerminationGracePeriodSeconds = ptr.To(int64(60))
 	gtw.GracefulShutdown = &kgateway.GracefulShutdownSpec{
@@ -619,5 +621,5 @@ func (g *agentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		}
 	}
 
-	return &deployer.HelmConfig{Gateway: gtw}, nil
+	return &deployer.AgentgatewayHelmConfig{Gateway: gtw}, nil
 }

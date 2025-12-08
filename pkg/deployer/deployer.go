@@ -158,6 +158,14 @@ func JsonConvert(in *HelmConfig, out any) error {
 	return json.Unmarshal(b, out)
 }
 
+func AgentgatewayJsonConvert(in *AgentgatewayHelmConfig, out any) error {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, out)
+}
+
 func (d *Deployer) RenderChartToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
 	objs, err := d.RenderToObjects(ns, name, vals)
 	if err != nil {
@@ -175,7 +183,12 @@ func (d *Deployer) RenderChartToObjects(ns, name string, vals map[string]any) ([
 // It returns the list of Objects that are rendered, and an optional error if rendering failed,
 // or converting the rendered manifests to objects failed.
 func (d *Deployer) RenderToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
-	manifest, err := d.RenderManifest(ns, name, vals)
+	return d.RenderToObjectsWithChartType(ns, name, vals, ChartTypeEnvoy)
+}
+
+// RenderToObjectsWithChartType renders the helm chart with the specified chart type.
+func (d *Deployer) RenderToObjectsWithChartType(ns, name string, vals map[string]any, chartType ChartType) ([]client.Object, error) {
+	manifest, err := d.RenderManifestWithChartType(ns, name, vals, chartType)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +201,11 @@ func (d *Deployer) RenderToObjects(ns, name string, vals map[string]any) ([]clie
 }
 
 func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte, error) {
+	return d.RenderManifestWithChartType(ns, name, vals, ChartTypeEnvoy)
+}
+
+// RenderManifestWithChartType renders the helm chart with the specified chart type.
+func (d *Deployer) RenderManifestWithChartType(ns, name string, vals map[string]any, chartType ChartType) ([]byte, error) {
 	mem := driver.NewMemory()
 	mem.SetNamespace(ns)
 	cfg := &action.Configuration{
@@ -203,16 +221,10 @@ func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte,
 	install.ClientOnly = true
 	installCtx := context.Background()
 
-	// Select the appropriate chart based on whether agentgateway is enabled
+	// Select the appropriate chart based on chart type
 	chartToUse := d.chart
-	if d.agentgatewayChart != nil {
-		if gateway, ok := vals["gateway"].(map[string]any); ok {
-			if dataPlaneType, ok := gateway["dataPlaneType"].(string); ok {
-				if dataPlaneType == string(DataPlaneAgentgateway) {
-					chartToUse = d.agentgatewayChart
-				}
-			}
-		}
+	if chartType == ChartTypeAgentgateway && d.agentgatewayChart != nil {
+		chartToUse = d.agentgatewayChart
 	}
 
 	release, err := install.RunWithContext(installCtx, chartToUse, vals)
@@ -250,8 +262,10 @@ func (d *Deployer) GetObjsToDeploy(ctx context.Context, obj client.Object) ([]cl
 		"values", vals,
 	)
 
+	chartType := d.helmValues.GetChartType(ctx, obj)
+
 	rname, rns := d.helmReleaseNameAndNamespaceGenerator(obj)
-	objs, err := d.RenderToObjects(rns, rname, vals)
+	objs, err := d.RenderToObjectsWithChartType(rns, rname, vals, chartType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get objects to deploy %s.%s: %w", obj.GetNamespace(), obj.GetName(), err)
 	}

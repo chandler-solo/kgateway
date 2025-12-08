@@ -123,6 +123,32 @@ func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
 }
 
+// GetChartType implements deployer.ChartSelector.
+// It returns the chart type to use based on the GatewayClass controller name.
+func (gp *GatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return deployer.ChartTypeEnvoy
+	}
+
+	// Check if there's an override
+	if gp.helmValuesGeneratorOverride != nil {
+		return gp.helmValuesGeneratorOverride.GetChartType(ctx, obj)
+	}
+
+	// Get the GatewayClass to check the controller name
+	gwc := gp.kgwParameters.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc == nil {
+		return deployer.ChartTypeEnvoy
+	}
+
+	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+		return deployer.ChartTypeAgentgateway
+	}
+
+	return deployer.ChartTypeEnvoy
+}
+
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
@@ -195,6 +221,10 @@ func (h *kgatewayParameters) GetValues(ctx context.Context, obj client.Object) (
 
 func (k *kgatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	return []cache.InformerSynced{k.gwClassClient.HasSynced, k.gwParamClient.HasSynced}
+}
+
+func (k *kgatewayParameters) GetChartType(ctx context.Context, obj client.Object) deployer.ChartType {
+	return deployer.ChartTypeEnvoy
 }
 
 // getGatewayParametersForGateway returns the merged GatewayParameters object resulting from the default GwParams object and
@@ -352,7 +382,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 
 func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
-	ports := deployer.GetPortsValues(irGW, gwParam, irGW.ControllerName == k.inputs.AgentgatewayControllerName)
+	ports := deployer.GetPortsValues(irGW, gwParam, false) // false = envoy
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
 	}
@@ -373,16 +403,6 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 				CaCert:  ptr.To(k.inputs.ControlPlane.XdsTlsCaPath),
 			},
 		},
-		AgwXds: &deployer.HelmXds{
-			// The agentgateway xds host/port MUST map to the Service definition for the Control Plane
-			// This is the socket address that the Proxy will connect to on startup, to receive xds updates
-			Host: &k.inputs.ControlPlane.XdsHost,
-			Port: &k.inputs.ControlPlane.AgwXdsPort,
-			Tls: &deployer.HelmXdsTls{
-				Enabled: ptr.To(k.inputs.ControlPlane.XdsTLS),
-				CaCert:  ptr.To(k.inputs.ControlPlane.XdsTlsCaPath),
-			},
-		},
 	}
 	if i := gw.Spec.Infrastructure; i != nil {
 		gtw.GatewayAnnotations = translateInfraMeta(i.Annotations)
@@ -395,7 +415,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	// Inject xDS CA certificate into Helm values if TLS is enabled
 	if k.inputs.ControlPlane.XdsTLS {
-		if err := injectXdsCACertificate(k.inputs.ControlPlane.XdsTlsCaPath, vals); err != nil {
+		if err := injectXdsCACertificate(k.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.Xds); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
@@ -456,37 +476,20 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 	gateway.ExtraVolumes = podConfig.GetExtraVolumes()
 	gateway.PriorityClassName = podConfig.GetPriorityClassName()
 
-	// Determine data plane type based on the Gateway's controllerName from its GatewayClass
-	// This ensures the chart selection is driven by the controller, not by GatewayParameters
-	isAgentgateway := irGW.ControllerName == k.inputs.AgentgatewayControllerName
-
-	// data plane container
-	if isAgentgateway {
-		agwConfig := kubeProxyConfig.GetAgentgateway()
-		gateway.DataPlaneType = deployer.DataPlaneAgentgateway
-		gateway.Resources = agwConfig.GetResources()
-		gateway.SecurityContext = agwConfig.GetSecurityContext()
-		gateway.Image = deployer.GetImageValues(agwConfig.GetImage())
-		gateway.Env = agwConfig.GetEnv()
-		gateway.ExtraVolumeMounts = agwConfig.ExtraVolumeMounts
-		gateway.LogLevel = agwConfig.GetLogLevel()
-		gateway.CustomConfigMapName = agwConfig.GetCustomConfigMapName()
-	} else {
-		gateway.DataPlaneType = deployer.DataPlaneEnvoy
-		logLevel := envoyContainerConfig.GetBootstrap().GetLogLevel()
-		gateway.LogLevel = logLevel
-		compLogLevels := envoyContainerConfig.GetBootstrap().GetComponentLogLevels()
-		compLogLevelStr, err := deployer.ComponentLogLevelsToString(compLogLevels)
-		if err != nil {
-			return nil, err
-		}
-		gateway.ComponentLogLevel = &compLogLevelStr
-		gateway.Resources = envoyContainerConfig.GetResources()
-		gateway.SecurityContext = envoyContainerConfig.GetSecurityContext()
-		gateway.Image = deployer.GetImageValues(envoyContainerConfig.GetImage())
-		gateway.Env = envoyContainerConfig.GetEnv()
-		gateway.ExtraVolumeMounts = envoyContainerConfig.ExtraVolumeMounts
+	// envoy container values
+	logLevel := envoyContainerConfig.GetBootstrap().GetLogLevel()
+	gateway.LogLevel = logLevel
+	compLogLevels := envoyContainerConfig.GetBootstrap().GetComponentLogLevels()
+	compLogLevelStr, err := deployer.ComponentLogLevelsToString(compLogLevels)
+	if err != nil {
+		return nil, err
 	}
+	gateway.ComponentLogLevel = &compLogLevelStr
+	gateway.Resources = envoyContainerConfig.GetResources()
+	gateway.SecurityContext = envoyContainerConfig.GetSecurityContext()
+	gateway.Image = deployer.GetImageValues(envoyContainerConfig.GetImage())
+	gateway.Env = envoyContainerConfig.GetEnv()
+	gateway.ExtraVolumeMounts = envoyContainerConfig.ExtraVolumeMounts
 
 	// istio values
 	gateway.Istio = deployer.GetIstioValues(k.inputs.IstioAutoMtlsEnabled, istioConfig)
@@ -499,8 +502,8 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 }
 
 // injectXdsCACertificate reads the CA certificate from the control plane's mounted TLS Secret
-// and injects it into the Helm values so it can be used by the proxy templates.
-func injectXdsCACertificate(caCertPath string, vals *deployer.HelmConfig) error {
+// and injects it into the provided HelmXds configurations.
+func injectXdsCACertificate(caCertPath string, xdsConfigs ...*deployer.HelmXds) error {
 	if _, err := os.Stat(caCertPath); os.IsNotExist(err) {
 		return fmt.Errorf("xDS TLS is enabled but CA certificate file not found at %s. "+
 			"Ensure the xDS TLS secret is properly mounted and contains ca.crt", caCertPath,
@@ -516,11 +519,10 @@ func injectXdsCACertificate(caCertPath string, vals *deployer.HelmConfig) error 
 	}
 
 	caCertStr := string(caCert)
-	if vals.Gateway.Xds != nil && vals.Gateway.Xds.Tls != nil {
-		vals.Gateway.Xds.Tls.CaCert = &caCertStr
-	}
-	if vals.Gateway.AgwXds != nil && vals.Gateway.AgwXds.Tls != nil {
-		vals.Gateway.AgwXds.Tls.CaCert = &caCertStr
+	for _, xds := range xdsConfigs {
+		if xds != nil && xds.Tls != nil {
+			xds.Tls.CaCert = &caCertStr
+		}
 	}
 
 	return nil

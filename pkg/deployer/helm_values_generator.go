@@ -17,6 +17,9 @@ type HelmValuesGenerator interface {
 
 	// GetCacheSyncHandlers returns the cache sync handlers for the HelmValuesGenerator controller
 	GetCacheSyncHandlers() []cache.InformerSynced
+
+	// GetChartType returns the chart type to use for rendering the given object.
+	GetChartType(ctx context.Context, obj client.Object) ChartType
 }
 
 // ObjectPostProcessor is an optional interface that can be implemented by HelmValuesGenerator
@@ -27,3 +30,14 @@ type ObjectPostProcessor interface {
 	// This is called after helm rendering but before deployment.
 	PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error
 }
+
+// ChartType indicates which helm chart to use for rendering.
+type ChartType int
+
+const (
+	// ChartTypeEnvoy indicates the Envoy proxy chart should be used.
+	ChartTypeEnvoy ChartType = iota
+	// ChartTypeAgentgateway indicates the agentgateway chart should be used.
+	ChartTypeAgentgateway
+)
+
