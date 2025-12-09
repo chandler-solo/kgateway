@@ -1,7 +1,6 @@
 package deployer
 
 import (
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
@@ -26,10 +25,9 @@ type AgentgatewayHelmGateway struct {
 	FullnameOverride   *string           `json:"fullnameOverride,omitempty"`
 
 	// deployment/service values
-	ReplicaCount *uint32                    `json:"replicaCount,omitempty"`
-	Ports        []HelmPort                 `json:"ports,omitempty"`
-	Service      *HelmService               `json:"service,omitempty"`
-	Strategy     *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
+	ReplicaCount *uint32      `json:"replicaCount,omitempty"`
+	Ports        []HelmPort   `json:"ports,omitempty"`
+	Service      *HelmService `json:"service,omitempty"`
 
 	// serviceaccount values
 	ServiceAccount *HelmServiceAccount `json:"serviceAccount,omitempty"`
@@ -49,7 +47,6 @@ type AgentgatewayHelmGateway struct {
 	GracefulShutdown              *kgateway.GracefulShutdownSpec    `json:"gracefulShutdown,omitempty"`
 	TerminationGracePeriodSeconds *int64                            `json:"terminationGracePeriodSeconds,omitempty"`
 	TopologySpreadConstraints     []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
-	PriorityClassName             *string                           `json:"priorityClassName,omitempty"`
 
 	// agentgateway container values
 	LogLevel          *string                      `json:"logLevel,omitempty"`
@@ -66,7 +63,6 @@ type AgentgatewayHelmGateway struct {
 	AgwXds *HelmXds `json:"agwXds,omitempty"`
 
 	// agentgateway-specific config
-	CustomConfigMapName *string `json:"customConfigMapName,omitempty"`
 	// LogFormat specifies the logging format for agentgateway (Json or Text)
 	LogFormat *string `json:"logFormat,omitempty"`
 	// RawConfig provides opaque config to be merged into config.yaml
