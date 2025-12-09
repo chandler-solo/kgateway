@@ -104,39 +104,6 @@ func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deploye
 	return gp.agwHelmValuesGenerator
 }
 
-// PostProcessObjects implements deployer.ObjectPostProcessor.
-// It applies AgentgatewayParameters overlays to the rendered objects.
-// When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
-// are applied in order: GatewayClass first, then Gateway on top.
-func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
-	gw, ok := obj.(*gwv1.Gateway)
-	if !ok || gp.agwHelmValuesGenerator == nil {
-		return nil
-	}
-
-	resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
-	if err != nil {
-		return nil
-	}
-
-	// Apply overlays in order: GatewayClass first, then Gateway.
-	// This allows Gateway-level overlays to override GatewayClass-level overlays.
-	if resolved.gatewayClassAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
-		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
-			return err
-		}
-	}
-	if resolved.gatewayAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
-		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
 	return obj.GetName(), obj.GetNamespace()
 }
