@@ -96,11 +96,7 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 }
 
 // AgentgatewayParametersHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
-// If a helm values generator override is set, it returns that instead.
 func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deployer.HelmValuesGenerator {
-	if gp.helmValuesGeneratorOverride != nil {
-		return gp.helmValuesGeneratorOverride
-	}
 	return gp.agwHelmValuesGenerator
 }
 
