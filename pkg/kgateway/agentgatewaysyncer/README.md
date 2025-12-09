@@ -18,7 +18,7 @@ metadata:
   namespace: default
 spec:
   logging:
-    format: Text
+    format: text
   image:
     tag: bc92714
 ---
@@ -1125,30 +1125,24 @@ Port-forward, and send a request through the gateway:
 
 ### Tracing and Observability
 
-The agentgateway data plane supports comprehensive observability through OpenTelemetry (OTEL) tracing. You can configure tracing using custom ConfigMaps to integrate with various observability platforms and add custom trace fields for enhanced monitoring of your AI/LLM traffic.
+The agentgateway data plane supports comprehensive observability through OpenTelemetry (OTEL) tracing. You can configure tracing using the `rawConfig` field in AgentgatewayParameters to integrate with various observability platforms and add custom trace fields for enhanced monitoring of your AI/LLM traffic.
 
 For detailed information about tracing configuration and observability features, see the [agentgateway observability documentation](https://agentgateway.dev/docs/reference/observability/traces/).
 
-#### Configuring Tracing with ConfigMaps
+#### Configuring Tracing with RawConfig
 
-> **Note**: This approach statically configures tracing at startup. Changes to the ConfigMap are only picked up during agentgateway pod initialization, so you must restart the pod to apply configuration updates.
-
-To enable tracing, you need to:
-
-1. **Create a custom ConfigMap** with your tracing configuration
-2. **Reference the ConfigMap** in your AgentgatewayParameters
-3. **Deploy your Gateway** with the agentgateway class
-
-**Step 1: Create a ConfigMap**
+To enable tracing, configure the `rawConfig` field in AgentgatewayParameters with your tracing settings. Changes to `rawConfig` will automatically trigger an agentgateway pod rollout.
 
 ```yaml
-apiVersion: v1
-kind: ConfigMap
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
 metadata:
-  name: agent-gateway-config
+  name: agentgateway-params
   namespace: default
-data:
-  config.yaml: |-
+spec:
+  logging:
+    format: json
+  rawConfig:
     config:
       tracing:
         otlpEndpoint: http://jaeger-collector.observability.svc.cluster.local:4317
@@ -1162,24 +1156,7 @@ data:
             gen_ai.response.model: "llm.response_model"
             gen_ai.usage.completion_tokens: "llm.output_tokens"
             gen_ai.usage.prompt_tokens: "llm.input_tokens"
-```
-
-**Step 2: Configure AgentgatewayParameters**
-
-```yaml
-apiVersion: agentgateway.dev/v1alpha1
-kind: AgentgatewayParameters
-metadata:
-  name: agentgateway-params
-  namespace: default
-spec:
-  logging:
-    format: Json
-```
-
-**Step 3: Create Gateway with agentgateway class**
-
-```yaml
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
@@ -1241,112 +1218,93 @@ config:
 
 #### Integration Examples
 
+These examples show the `rawConfig` configuration for different observability platforms.
+
 **Jaeger Integration:**
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: jaeger-tracing-config
-data:
-  config.yaml: |-
-    config:
-      tracing:
-        otlpEndpoint: http://jaeger-collector.jaeger.svc.cluster.local:4317
-        otlpProtocol: grpc
-        randomSampling: true
-        fields:
-          add:
-            gen_ai.operation.name: '"chat"'
-            gen_ai.system: "llm.provider"
-            gen_ai.request.model: "llm.request_model"
-            gen_ai.response.model: "llm.response_model"
-            gen_ai.usage.completion_tokens: "llm.output_tokens"
-            gen_ai.usage.prompt_tokens: "llm.input_tokens"
+rawConfig:
+  config:
+    tracing:
+      otlpEndpoint: http://jaeger-collector.jaeger.svc.cluster.local:4317
+      otlpProtocol: grpc
+      randomSampling: true
+      fields:
+        add:
+          gen_ai.operation.name: '"chat"'
+          gen_ai.system: "llm.provider"
+          gen_ai.request.model: "llm.request_model"
+          gen_ai.response.model: "llm.response_model"
+          gen_ai.usage.completion_tokens: "llm.output_tokens"
+          gen_ai.usage.prompt_tokens: "llm.input_tokens"
 ```
 
 **Langfuse Integration:**
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: langfuse-tracing-config
-data:
-  config.yaml: |-
-    config:
-      tracing:
-        otlpEndpoint: https://us.cloud.langfuse.com/api/public/otel
-        otlpProtocol: http
-        headers:
-          Authorization: "Basic <base64-encoded-credentials>"
-        randomSampling: true
-        fields:
-          add:
-            gen_ai.operation.name: '"chat"'
-            gen_ai.system: "llm.provider"
-            gen_ai.prompt: "llm.prompt"
-            gen_ai.completion: 'llm.completion.map(c, {"role":"assistant", "content": c})'
-            gen_ai.usage.completion_tokens: "llm.output_tokens"
-            gen_ai.usage.prompt_tokens: "llm.input_tokens"
-            gen_ai.request.model: "llm.request_model"
-            gen_ai.response.model: "llm.response_model"
-            gen_ai.request: "flatten(llm.params)"
+rawConfig:
+  config:
+    tracing:
+      otlpEndpoint: https://us.cloud.langfuse.com/api/public/otel
+      otlpProtocol: http
+      headers:
+        Authorization: "Basic <base64-encoded-credentials>"
+      randomSampling: true
+      fields:
+        add:
+          gen_ai.operation.name: '"chat"'
+          gen_ai.system: "llm.provider"
+          gen_ai.prompt: "llm.prompt"
+          gen_ai.completion: 'llm.completion.map(c, {"role":"assistant", "content": c})'
+          gen_ai.usage.completion_tokens: "llm.output_tokens"
+          gen_ai.usage.prompt_tokens: "llm.input_tokens"
+          gen_ai.request.model: "llm.request_model"
+          gen_ai.response.model: "llm.response_model"
+          gen_ai.request: "flatten(llm.params)"
 ```
 
 **Phoenix (Arize) Integration:**
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: phoenix-tracing-config
-data:
-  config.yaml: |-
-    config:
-      tracing:
-        otlpEndpoint: http://localhost:4317
-        randomSampling: true
-        fields:
-          add:
-            span.name: '"openai.chat"'
-            openinference.span.kind: '"LLM"'
-            llm.system: "llm.provider"
-            llm.input_messages: 'flatten_recursive(llm.prompt.map(c, {"message": c}))'
-            llm.output_messages: 'flatten_recursive(llm.completion.map(c, {"role":"assistant", "content": c}))'
-            llm.token_count.completion: "llm.output_tokens"
-            llm.token_count.prompt: "llm.input_tokens"
-            llm.token_count.total: "llm.total_tokens"
+rawConfig:
+  config:
+    tracing:
+      otlpEndpoint: http://localhost:4317
+      randomSampling: true
+      fields:
+        add:
+          span.name: '"openai.chat"'
+          openinference.span.kind: '"LLM"'
+          llm.system: "llm.provider"
+          llm.input_messages: 'flatten_recursive(llm.prompt.map(c, {"message": c}))'
+          llm.output_messages: 'flatten_recursive(llm.completion.map(c, {"role":"assistant", "content": c}))'
+          llm.token_count.completion: "llm.output_tokens"
+          llm.token_count.prompt: "llm.input_tokens"
+          llm.token_count.total: "llm.total_tokens"
 ```
 
 **OpenLLMetry Integration:**
 ```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: openllmetry-tracing-config
-data:
-  config.yaml: |-
-    config:
-      tracing:
-        otlpEndpoint: http://localhost:4317
-        randomSampling: true
-        fields:
-          add:
-            span.name: '"openai.chat"'
-            gen_ai.operation.name: '"chat"'
-            gen_ai.system: "llm.provider"
-            gen_ai.prompt: "flatten_recursive(llm.prompt)"
-            gen_ai.completion: 'flatten_recursive(llm.completion.map(c, {"role":"assistant", "content": c}))'
-            gen_ai.usage.completion_tokens: "llm.output_tokens"
-            gen_ai.usage.prompt_tokens: "llm.input_tokens"
-            gen_ai.request.model: "llm.request_model"
-            gen_ai.response.model: "llm.response_model"
-            gen_ai.request: "flatten(llm.params)"
-            llm.is_streaming: "llm.streaming"
+rawConfig:
+  config:
+    tracing:
+      otlpEndpoint: http://localhost:4317
+      randomSampling: true
+      fields:
+        add:
+          span.name: '"openai.chat"'
+          gen_ai.operation.name: '"chat"'
+          gen_ai.system: "llm.provider"
+          gen_ai.prompt: "flatten_recursive(llm.prompt)"
+          gen_ai.completion: 'flatten_recursive(llm.completion.map(c, {"role":"assistant", "content": c}))'
+          gen_ai.usage.completion_tokens: "llm.output_tokens"
+          gen_ai.usage.prompt_tokens: "llm.input_tokens"
+          gen_ai.request.model: "llm.request_model"
+          gen_ai.response.model: "llm.response_model"
+          gen_ai.request: "flatten(llm.params)"
+          llm.is_streaming: "llm.streaming"
 ```
 
 #### Important Notes
 
-- **ConfigMap Updates**: The ConfigMap is only read during agentgateway pod startup. To apply ConfigMap changes, restart the agentgateway pod (TODO(chandler): DLC: update this README)
-- **Namespace**: The ConfigMap must be in the same namespace as the AgentgatewayParameters resource
+- **RawConfig Updates**: Changes to `rawConfig` in AgentgatewayParameters will trigger an agentgateway pod rollout automatically
 - **Validation**: Invalid CEL expressions in trace fields will be logged but won't prevent the gateway from starting
 - **Performance**: Be mindful of the number and complexity of custom trace fields, as they impact performance
 - **Sampling**: Use `randomSampling` to control trace volume in production environments
@@ -1363,7 +1321,7 @@ metadata:
   namespace: default
 spec:
   logging:
-    format: Text
+    format: text
   rawConfig:
     config:
       tracing:
@@ -1449,7 +1407,7 @@ metadata:
   namespace: default
 spec:
   logging:
-    format: Text
+    format: text
   rawConfig:
     config:
       tracing:
