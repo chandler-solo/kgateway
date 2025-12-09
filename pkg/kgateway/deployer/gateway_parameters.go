@@ -36,7 +36,7 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 		inputs: inputs,
 		// build this once versus on every getHelmValuesGenerator call
 		kgwParameters:          NewEnvoyGatewayParameters(cli, inputs),
-		agwHelmValuesGenerator: NewAgentgatewayHelmValuesGenerator(cli, inputs),
+		agwHelmValuesGenerator: NewAgentgatewayParametersHelmValuesGenerator(cli, inputs),
 	}
 
 	return gp
@@ -46,7 +46,7 @@ type GatewayParameters struct {
 	inputs                      *deployer.Inputs
 	helmValuesGeneratorOverride deployer.HelmValuesGenerator
 	kgwParameters               *EnvoyGatewayParameters
-	agwHelmValuesGenerator      *AgentgatewayHelmValuesGenerator
+	agwHelmValuesGenerator      *AgentgatewayParametersHelmValuesGenerator
 }
 
 // EnvoyGatewayParameters generates helm values for Envoy-based gateways.
@@ -95,9 +95,9 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 	return gp.kgwParameters
 }
 
-// AgentgatewayHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
+// AgentgatewayParametersHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
 // If a helm values generator override is set, it returns that instead.
-func (gp *GatewayParameters) AgentgatewayHelmValuesGenerator() deployer.HelmValuesGenerator {
+func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deployer.HelmValuesGenerator {
 	if gp.helmValuesGeneratorOverride != nil {
 		return gp.helmValuesGeneratorOverride
 	}
@@ -371,7 +371,6 @@ func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.G
 
 func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
-	// kgatewayParameters is only used for envoy gateways (agentgateway uses agentgatewayParametersHelmValuesGenerator)
 	ports := deployer.GetPortsValues(irGW, gwParam, false)
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
@@ -466,8 +465,6 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 	gateway.ExtraVolumes = podConfig.GetExtraVolumes()
 	gateway.PriorityClassName = podConfig.GetPriorityClassName()
 
-	// kgatewayParameters is only used for envoy gateways (agentgateway uses agentgatewayParametersHelmValuesGenerator)
-	gateway.DataPlaneType = deployer.DataPlaneEnvoy
 	logLevel := envoyContainerConfig.GetBootstrap().GetLogLevel()
 	gateway.LogLevel = logLevel
 	compLogLevels := envoyContainerConfig.GetBootstrap().GetComponentLogLevels()

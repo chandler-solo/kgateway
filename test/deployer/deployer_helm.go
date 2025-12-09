@@ -182,7 +182,7 @@ func (dt DeployerTester) RunHelmChartTest(
 			dt.AgwClassName,
 			scheme,
 			fakeClient,
-			gwParams.AgentgatewayHelmValuesGenerator(),
+			gwParams.AgentgatewayParametersHelmValuesGenerator(),
 		)
 	} else {
 		deployer, err = internaldeployer.NewEnvoyGatewayDeployer(

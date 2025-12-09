@@ -134,7 +134,7 @@ func watchGw(
 		cfg.AgentgatewayClassName,
 		cfg.Mgr.GetScheme(),
 		cfg.Client,
-		gwParams.AgentgatewayHelmValuesGenerator(),
+		gwParams.AgentgatewayParametersHelmValuesGenerator(),
 	)
 	if err != nil {
 		return err

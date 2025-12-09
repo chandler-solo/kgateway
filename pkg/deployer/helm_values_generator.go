@@ -27,5 +27,3 @@ type ObjectPostProcessor interface {
 	// This is called after helm rendering but before deployment.
 	PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error
 }
-
-

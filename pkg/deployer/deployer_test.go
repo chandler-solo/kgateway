@@ -563,7 +563,7 @@ var _ = Describe("Deployer", func() {
 				wellknown.DefaultAgwClassName,
 				scheme,
 				fakeClient,
-				gwParams.AgentgatewayHelmValuesGenerator(),
+				gwParams.AgentgatewayParametersHelmValuesGenerator(),
 			)
 			Expect(err).NotTo(HaveOccurred())
 			fakeClient.RunAndWait(context.Background().Done())
