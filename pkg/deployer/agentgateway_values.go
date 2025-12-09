@@ -21,40 +21,22 @@ type AgentgatewayHelmGateway struct {
 	GatewayClassName   *string           `json:"gatewayClassName,omitempty"`
 	GatewayAnnotations map[string]string `json:"gatewayAnnotations,omitempty"`
 	GatewayLabels      map[string]string `json:"gatewayLabels,omitempty"`
-	NameOverride       *string           `json:"nameOverride,omitempty"`
-	FullnameOverride   *string           `json:"fullnameOverride,omitempty"`
 
-	// deployment/service values
-	ReplicaCount *uint32      `json:"replicaCount,omitempty"`
-	Ports        []HelmPort   `json:"ports,omitempty"`
-	Service      *HelmService `json:"service,omitempty"`
-
-	// serviceaccount values
-	ServiceAccount *HelmServiceAccount `json:"serviceAccount,omitempty"`
+	// deployment values
+	Ports []HelmPort `json:"ports,omitempty"`
 
 	// pod template values
-	ExtraPodAnnotations           map[string]string                 `json:"extraPodAnnotations,omitempty"`
-	ExtraPodLabels                map[string]string                 `json:"extraPodLabels,omitempty"`
-	ImagePullSecrets              []corev1.LocalObjectReference     `json:"imagePullSecrets,omitempty"`
-	PodSecurityContext            *corev1.PodSecurityContext        `json:"podSecurityContext,omitempty"`
-	NodeSelector                  map[string]string                 `json:"nodeSelector,omitempty"`
-	Affinity                      *corev1.Affinity                  `json:"affinity,omitempty"`
-	Tolerations                   []corev1.Toleration               `json:"tolerations,omitempty"`
-	StartupProbe                  *corev1.Probe                     `json:"startupProbe,omitempty"`
-	ReadinessProbe                *corev1.Probe                     `json:"readinessProbe,omitempty"`
-	LivenessProbe                 *corev1.Probe                     `json:"livenessProbe,omitempty"`
-	ExtraVolumes                  []corev1.Volume                   `json:"extraVolumes,omitempty"`
-	GracefulShutdown              *kgateway.GracefulShutdownSpec    `json:"gracefulShutdown,omitempty"`
-	TerminationGracePeriodSeconds *int64                            `json:"terminationGracePeriodSeconds,omitempty"`
-	TopologySpreadConstraints     []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	PodSecurityContext            *corev1.PodSecurityContext     `json:"podSecurityContext,omitempty"`
+	StartupProbe                  *corev1.Probe                  `json:"startupProbe,omitempty"`
+	ReadinessProbe                *corev1.Probe                  `json:"readinessProbe,omitempty"`
+	GracefulShutdown              *kgateway.GracefulShutdownSpec `json:"gracefulShutdown,omitempty"`
+	TerminationGracePeriodSeconds *int64                         `json:"terminationGracePeriodSeconds,omitempty"`
 
 	// agentgateway container values
-	LogLevel          *string                      `json:"logLevel,omitempty"`
-	Image             *HelmImage                   `json:"image,omitempty"`
-	Resources         *corev1.ResourceRequirements `json:"resources,omitempty"`
-	SecurityContext   *corev1.SecurityContext      `json:"securityContext,omitempty"`
-	Env               []corev1.EnvVar              `json:"env,omitempty"`
-	ExtraVolumeMounts []corev1.VolumeMount         `json:"extraVolumeMounts,omitempty"`
+	Image           *HelmImage                   `json:"image,omitempty"`
+	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
+	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
+	Env             []corev1.EnvVar              `json:"env,omitempty"`
 
 	// agentgateway xds values
 	// Note: agentgateway uses agwXds for its xds connection, but the helm template

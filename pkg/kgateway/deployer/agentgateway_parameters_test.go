@@ -21,14 +21,14 @@ func TestAgentgatewayParametersApplier_ApplyToHelmValues_NilParams(t *testing.T)
 	applier := NewAgentgatewayParametersApplier(nil)
 	vals := &deployer.AgentgatewayHelmConfig{
 		Gateway: &deployer.AgentgatewayHelmGateway{
-			LogLevel: ptr.To("info"),
+			LogFormat: ptr.To("json"),
 		},
 	}
 
 	applier.ApplyToHelmValues(vals)
 
 	// Values should be unchanged
-	assert.Equal(t, "info", *vals.Gateway.LogLevel)
+	assert.Equal(t, "json", *vals.Gateway.LogFormat)
 }
 
 func TestAgentgatewayParametersApplier_ApplyToHelmValues_Image(t *testing.T) {
