@@ -55,7 +55,7 @@ kind: GatewayClass
 metadata:
   name: agentgateway
 spec:
-  controllerName: kgateway.dev/agentgateway
+  controllerName: agentgateway.dev/agentgateway
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters

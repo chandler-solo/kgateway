@@ -142,7 +142,7 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		return nil, fmt.Errorf("failed to get GatewayClass of Gateway: %w", err)
 	}
 
-	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+	if wellknown.IsAgwControllerName(string(gwc.Spec.ControllerName)) {
 		slog.Debug("using AgentgatewayParameters HelmValuesGenerator for Gateway",
 			"gateway_name", gw.GetName(),
 			"gateway_namespace", gw.GetNamespace(),
@@ -252,8 +252,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			AgwControllerName:          k.inputs.AgentgatewayControllerName,
-			OmitDefaultSecurityContext: true,
+						OmitDefaultSecurityContext: true,
 		})
 		if err != nil {
 			return nil, err
@@ -281,8 +280,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
 		WaypointClassName:          k.inputs.WaypointGatewayClassName,
-		AgwControllerName:          k.inputs.AgentgatewayControllerName,
-		OmitDefaultSecurityContext: false,
+				OmitDefaultSecurityContext: false,
 	})
 	if err != nil {
 		return nil, err
@@ -338,8 +336,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			AgwControllerName:          k.inputs.AgentgatewayControllerName,
-			OmitDefaultSecurityContext: true,
+						OmitDefaultSecurityContext: true,
 		})
 		if err != nil {
 			return nil, err

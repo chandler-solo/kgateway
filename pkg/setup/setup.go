@@ -27,11 +27,10 @@ type Options struct {
 	ExtraInformerCacheSyncHandlers []cache.InformerSynced
 	GatewayControllerExtension     sdk.GatewayControllerExtension
 
-	GatewayControllerName      string
-	AgentgatewayControllerName string
-	GatewayClassName           string
-	WaypointGatewayClassName   string
-	AgentgatewayClassName      string
+	GatewayControllerName    string
+	GatewayClassName         string
+	WaypointGatewayClassName string
+	AgentgatewayClassName    string
 	AdditionalGatewayClasses   map[string]*deployer.GatewayClassInfo
 	ExtraPlugins               func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []sdk.Plugin
 	ExtraAgwPlugins            func(ctx context.Context, agw *agwplugins.AgwCollections) []agwplugins.AgwPlugin
@@ -66,7 +65,6 @@ func New(opts Options) (setup.Server, error) {
 		setup.WithExtraAgwPlugins(opts.ExtraAgwPlugins),
 		setup.WithHelmValuesGeneratorOverride(opts.HelmValuesGeneratorOverride),
 		setup.WithGatewayControllerName(opts.GatewayControllerName),
-		setup.WithAgwControllerName(opts.AgentgatewayControllerName),
 		setup.WithGatewayClassName(opts.GatewayClassName),
 		setup.WithWaypointClassName(opts.WaypointGatewayClassName),
 		setup.WithAgentgatewayClassName(opts.AgentgatewayClassName),

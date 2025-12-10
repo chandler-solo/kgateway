@@ -3,6 +3,8 @@ kind: GatewayClass
 metadata:
   name: agentgateway
 spec:
+  # agentgateway.dev/agentgateway is the modern controllerName; this tests that
+  # the legacy name works.
   controllerName: kgateway.dev/agentgateway
   description: Specialized class for agentgateway.
 ---

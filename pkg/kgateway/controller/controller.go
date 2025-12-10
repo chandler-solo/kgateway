@@ -99,15 +99,14 @@ func watchGw(
 	)
 
 	inputs := &deployer.Inputs{
-		Dev:                        cfg.Dev,
-		IstioAutoMtlsEnabled:       cfg.IstioAutoMtlsEnabled,
-		ControlPlane:               cfg.ControlPlane,
-		ImageInfo:                  cfg.ImageInfo,
-		CommonCollections:          cfg.CommonCollections,
-		GatewayClassName:           cfg.GatewayClassName,
-		WaypointGatewayClassName:   cfg.WaypointGatewayClassName,
-		AgentgatewayClassName:      cfg.AgentgatewayClassName,
-		AgentgatewayControllerName: cfg.AgwControllerName,
+		Dev:                      cfg.Dev,
+		IstioAutoMtlsEnabled:     cfg.IstioAutoMtlsEnabled,
+		ControlPlane:             cfg.ControlPlane,
+		ImageInfo:                cfg.ImageInfo,
+		CommonCollections:        cfg.CommonCollections,
+		GatewayClassName:         cfg.GatewayClassName,
+		WaypointGatewayClassName: cfg.WaypointGatewayClassName,
+		AgentgatewayClassName:    cfg.AgentgatewayClassName,
 	}
 
 	gwParams := internaldeployer.NewGatewayParameters(cfg.Client, inputs)

@@ -27,7 +27,7 @@ apiVersion: gateway.networking.k8s.io/v1
 metadata:
   name: agentgateway
 spec:
-  controllerName: kgateway.dev/agentgateway
+  controllerName: agentgateway.dev/agentgateway
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters
@@ -1162,7 +1162,7 @@ kind: GatewayClass
 metadata:
   name: agentgateway
 spec:
-  controllerName: kgateway.dev/agentgateway
+  controllerName: agentgateway.dev/agentgateway
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters
@@ -1345,7 +1345,7 @@ kind: GatewayClass
 metadata:
   name: agentgateway
 spec:
-  controllerName: kgateway.dev/agentgateway
+  controllerName: agentgateway.dev/agentgateway
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters
@@ -1429,7 +1429,7 @@ kind: GatewayClass
 metadata:
   name: agentgateway
 spec:
-  controllerName: kgateway.dev/agentgateway
+  controllerName: agentgateway.dev/agentgateway
   parametersRef:
     group: agentgateway.dev
     kind: AgentgatewayParameters

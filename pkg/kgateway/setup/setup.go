@@ -394,7 +394,6 @@ func (s *setup) Start(ctx context.Context) error {
 		krtOpts,
 		s.apiClient,
 		s.gatewayControllerName,
-		s.agwControllerName,
 		*s.globalSettings,
 		s.commonCollectionsOptions...,
 	)
