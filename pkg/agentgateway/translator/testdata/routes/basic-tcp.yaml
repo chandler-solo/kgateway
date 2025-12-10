@@ -5,7 +5,7 @@ metadata:
   name: tcp-gw
   namespace: default
 spec:
-  gatewayClassName: agentgateway
+  gatewayClassName: agentgateway-v2
   listeners:
     - name: foo
       protocol: TCP
