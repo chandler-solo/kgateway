@@ -530,7 +530,6 @@ func (tc TestCase) Run(
 		krtOpts,
 		fakeClient,
 		wellknown.DefaultGatewayControllerName,
-		wellknown.DefaultAgwControllerName,
 		*settings,
 	)
 	if err != nil {

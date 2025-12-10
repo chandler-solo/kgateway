@@ -822,7 +822,7 @@ func newCommonCols(ctx context.Context, kubeClient apiclient.Client) (*collectio
 	if err != nil {
 		return nil, fmt.Errorf("error building Settings: %w", err)
 	}
-	commoncol, err := collections.NewCommonCollections(ctx, krtopts, kubeClient, gatewayControllerName, agwControllerName, *settings)
+	commoncol, err := collections.NewCommonCollections(ctx, krtopts, kubeClient, gatewayControllerName, *settings)
 	if err != nil {
 		return nil, fmt.Errorf("error building CommonCollections: %w", err)
 	}

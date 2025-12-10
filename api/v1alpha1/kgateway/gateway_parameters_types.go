@@ -83,6 +83,9 @@ type KubernetesProxyConfig struct {
 	Deployment *ProxyDeployment `json:"deployment,omitempty"`
 
 	// Configuration for the container running Envoy.
+	// If the Gateway uses a GatewayClass with an agentgateway controllerName
+	// (agentgateway.dev/agentgateway or kgateway.dev/agentgateway),
+	// the EnvoyContainer values will be ignored.
 	//
 	// +optional
 	EnvoyContainer *EnvoyContainer `json:"envoyContainer,omitempty"`

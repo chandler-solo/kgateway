@@ -220,7 +220,13 @@ func (r *gatewayClassReconciler) applyGatewayClass(gwc *gwv1.GatewayClass, contr
 }
 
 func isOurGatewayClass(gwc *gwv1.GatewayClass, ourControllers sets.Set[string]) bool {
-	return ourControllers.Has(string(gwc.Spec.ControllerName))
+	controllerName := string(gwc.Spec.ControllerName)
+	// Check if it's one of our explicitly configured controllers
+	if ourControllers.Has(controllerName) {
+		return true
+	}
+	// Also accept the legacy agentgateway controller name
+	return wellknown.IsAgwControllerName(controllerName)
 }
 
 func (r *gatewayClassReconciler) getControllerName(gwc string) string {

@@ -249,7 +249,18 @@ func GatewaysTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.Handle
 			logger.Debug("gateway class not found, skipping", "gw_name", obj.GetName(), "gatewayClassName", obj.Spec.GatewayClassName)
 			return nil, nil
 		}
-		if string(class.Controller) != cfg.ControllerName {
+		// Check if this gateway belongs to our controller.
+		// If cfg.ControllerName is an agentgateway controller, accept both agentgateway controller names.
+		// Otherwise, require an exact match.
+		isOurGateway := false
+		if wellknown.IsAgwControllerName(cfg.ControllerName) {
+			// This syncer handles agentgateway - accept both controller names
+			isOurGateway = wellknown.IsAgwControllerName(string(class.Controller))
+		} else {
+			// Exact match required for non-agentgateway controllers
+			isOurGateway = string(class.Controller) == cfg.ControllerName
+		}
+		if !isOurGateway {
 			logger.Debug("skipping gateway not managed by our controller", "gw_name", obj.GetName(), "gatewayClassName", obj.Spec.GatewayClassName, "controllerName", class.Controller)
 			return nil, nil // ignore gateways not managed by our controller
 		}
@@ -420,7 +431,18 @@ func ListenerSetCollection(
 				logger.Debug("gateway class not found, skipping", "gw_name", obj.GetName(), "gatewayClassName", parentGwObj.Spec.GatewayClassName)
 				return nil, nil
 			}
-			if string(class.Controller) != controllerName {
+			// Check if this gateway belongs to our controller.
+			// If controllerName is an agentgateway controller, accept both agentgateway controller names.
+			// Otherwise, require an exact match.
+			isOurGateway := false
+			if wellknown.IsAgwControllerName(controllerName) {
+				// This syncer handles agentgateway - accept both controller names
+				isOurGateway = wellknown.IsAgwControllerName(string(class.Controller))
+			} else {
+				// Exact match required for non-agentgateway controllers
+				isOurGateway = string(class.Controller) == controllerName
+			}
+			if !isOurGateway {
 				logger.Debug("skipping gateway not managed by our controller", "gw_name", obj.GetName(), "gatewayClassName", parentGwObj.Spec.GatewayClassName, "controllerName", class.Controller)
 				return nil, nil // ignore gateways not managed by our controller
 			}

@@ -52,7 +52,6 @@ func NewCommonCols(t test.Failer, initObjs ...client.Object) *collections.Common
 	commonCols := &collections.CommonCollections{
 		GatewayIndex:               gateways,
 		ControllerName:             wellknown.DefaultGatewayControllerName,
-		AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 		Settings: apisettings.Settings{
 			EnableEnvoy:        true,
 			EnableAgentgateway: true,

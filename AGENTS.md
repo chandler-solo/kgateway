@@ -9,6 +9,7 @@ kgateway is a **dual control plane** implementing the Kubernetes Gateway API for
 kgateway supports **two independent controllers** that can run side-by-side:
 - **Envoy Controller**: `kgateway.dev/kgateway` (defined in `wellknown.DefaultGatewayControllerName`)
 - **Agentgateway Controller**: `agentgateway.dev/agentgateway` (defined in `wellknown.DefaultAgwControllerName`)
+  - Also accepts the legacy name `kgateway.dev/agentgateway` for backwards compatibility
 
 **Critical Requirements:**
 1. Controllers MUST always respect `GatewayClass.spec.controllerName` Classname can matter, in the case of waypoints, but its always more specific information
@@ -34,7 +35,7 @@ kgateway supports **two independent controllers** that can run side-by-side:
 **Deployment:**
 - Gateway reconciler checks enable flags before calling deployer
 - Deployer selects chart based on Gateway's controllerName from GatewayClass
-- Chart selection: envoy chart for `kgateway.dev/kgateway`, agentgateway chart for `agentgateway.dev/agentgateway`
+- Chart selection: envoy chart for `kgateway.dev/kgateway`, agentgateway chart for agentgateway controller names
 
 **Enable Flags:**
 - `EnableEnvoy` (default: true): Controls if envoy ProxySyncer, StatusSyncer, and GatewayClass creation run

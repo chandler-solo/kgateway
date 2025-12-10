@@ -143,7 +143,7 @@ func NewGatewayReconciler(
 		}
 		// If this GatewayClass is not ours, ignore it
 		if !(gwClass.Spec.ControllerName == gwv1.GatewayController(r.controllerName) ||
-			gwClass.Spec.ControllerName == gwv1.GatewayController(r.agwControllerName)) {
+			wellknown.IsAgwControllerName(string(gwClass.Spec.ControllerName))) {
 			return
 		}
 		for _, g := range r.gwClient.List(metav1.NamespaceAll, labels.Everything()) {
@@ -186,7 +186,7 @@ func NewGatewayReconciler(
 		for _, gc := range gwClasses {
 			// Only process GatewayClasses managed by our controllers
 			if gc.Spec.ControllerName != gwv1.GatewayController(r.controllerName) &&
-				gc.Spec.ControllerName != gwv1.GatewayController(r.agwControllerName) {
+				!wellknown.IsAgwControllerName(string(gc.Spec.ControllerName)) {
 				continue
 			}
 			if gc.Spec.ParametersRef != nil &&
@@ -345,7 +345,7 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 
 	// Only reconcile Gateways for enabled controllers
 	isEnvoyGateway := gwc.Spec.ControllerName == gwv1.GatewayController(r.controllerName)
-	isAgwGateway := gwc.Spec.ControllerName == gwv1.GatewayController(r.agwControllerName)
+	isAgwGateway := wellknown.IsAgwControllerName(string(gwc.Spec.ControllerName))
 
 	if isEnvoyGateway && !r.enableEnvoy {
 		logger.Debug("skipping gateway for disabled envoy controller", "gateway", req, "controllerName", gwc.Spec.ControllerName)
@@ -587,7 +587,7 @@ func (r *gatewayReconciler) setupTLSCertificateWatch(certWatcher *certwatcher.Ce
 				continue
 			}
 			if gwClass.Spec.ControllerName == gwv1.GatewayController(r.controllerName) ||
-				gwClass.Spec.ControllerName == gwv1.GatewayController(r.agwControllerName) {
+				wellknown.IsAgwControllerName(string(gwClass.Spec.ControllerName)) {
 				logger.Debug("enqueueing Gateway for reconciliation due to certificate change", "ref", ref)
 				r.queue.AddObject(gw)
 			}

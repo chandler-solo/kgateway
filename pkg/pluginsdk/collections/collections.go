@@ -46,9 +46,8 @@ type CommonCollections struct {
 	// static set of global Settings, non-krt based for dev speed
 	// TODO: this should be refactored to a more correct location,
 	// or even better, be removed entirely and done per Gateway (maybe in GwParams)
-	Settings                   apisettings.Settings
-	ControllerName             string
-	AgentgatewayControllerName string
+	Settings       apisettings.Settings
+	ControllerName string
 
 	options *option
 }
@@ -77,7 +76,6 @@ func NewCommonCollections(
 	krtOptions krtutil.KrtOptions,
 	client apiclient.Client,
 	controllerName string,
-	agentGatewayControllerName string,
 	settings apisettings.Settings,
 	opts ...Option,
 ) (*CommonCollections, error) {
@@ -174,8 +172,7 @@ func NewCommonCollections(
 
 		DiscoveryNamespacesFilter: discoveryNamespacesFilter,
 
-		ControllerName:             controllerName,
-		AgentgatewayControllerName: agentGatewayControllerName,
+		ControllerName: controllerName,
 
 		options: options,
 	}, nil
@@ -189,9 +186,15 @@ func (c *CommonCollections) InitPlugins(
 	mergedPlugins pluginsdk.Plugin,
 	globalSettings apisettings.Settings,
 ) {
+	// Include both agentgateway controller names to support the legacy name
+	controllerNames := smallset.New(
+		c.ControllerName,
+		wellknown.DefaultAgwControllerName,
+		wellknown.LegacyAgwControllerName,
+	)
 	gateways, routeIndex, backendIndex, endpointIRs := c.InitCollections(
 		ctx,
-		smallset.New(c.ControllerName, c.AgentgatewayControllerName),
+		controllerNames,
 		mergedPlugins,
 		globalSettings,
 	)

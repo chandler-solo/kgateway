@@ -10,20 +10,20 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 )
 
 // Inputs is the set of options used to configure gateway/inference pool deployment.
 type Inputs struct {
-	Dev                        bool
-	IstioAutoMtlsEnabled       bool
-	ControlPlane               ControlPlaneInfo
-	ImageInfo                  *ImageInfo
-	CommonCollections          *collections.CommonCollections
-	GatewayClassName           string
-	WaypointGatewayClassName   string
-	AgentgatewayClassName      string
-	AgentgatewayControllerName string
+	Dev                      bool
+	IstioAutoMtlsEnabled     bool
+	ControlPlane             ControlPlaneInfo
+	ImageInfo                *ImageInfo
+	CommonCollections        *collections.CommonCollections
+	GatewayClassName         string
+	WaypointGatewayClassName string
+	AgentgatewayClassName    string
 }
 
 // UpdateSecurityContexts updates the security contexts in the gateway parameters.
@@ -80,7 +80,6 @@ type InMemoryGatewayParametersConfig struct {
 	ClassName                  string
 	ImageInfo                  *ImageInfo
 	WaypointClassName          string
-	AgwControllerName          string
 	OmitDefaultSecurityContext bool
 }
 
@@ -97,7 +96,7 @@ type InMemoryGatewayParametersConfig struct {
 // This allows users to define their own GatewayClass that acts very much like a
 // built-in class but is not an exact name match.
 func GetInMemoryGatewayParameters(cfg InMemoryGatewayParametersConfig) (*kgateway.GatewayParameters, error) {
-	if cfg.ControllerName == cfg.AgwControllerName {
+	if wellknown.IsAgwControllerName(cfg.ControllerName) {
 		return nil, fmt.Errorf("GetInMemoryGatewayParameters must not be called for agentgateway controller %q; "+
 			"agentgateway gateways should use agwHelmValuesGenerator", cfg.ControllerName)
 	}

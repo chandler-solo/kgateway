@@ -185,7 +185,7 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		return nil, fmt.Errorf("failed to get GatewayClass of Gateway: %w", err)
 	}
 
-	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+	if wellknown.IsAgwControllerName(string(gwc.Spec.ControllerName)) {
 		if gp.agwHelmValuesGenerator == nil {
 			// this should never happen, as the controller should not let any of these GatewayClass's through if agentgateway is not enabled
 			return nil, fmt.Errorf("agentgateway is not enabled but Gateway %s/%s uses agentgateway controller", gw.GetNamespace(), gw.GetName())
@@ -303,7 +303,6 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})
 		if err != nil {
@@ -332,7 +331,6 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
 		WaypointClassName:          k.inputs.WaypointGatewayClassName,
-		AgwControllerName:          k.inputs.AgentgatewayControllerName,
 		OmitDefaultSecurityContext: false,
 	})
 	if err != nil {
@@ -389,7 +387,6 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			AgwControllerName:          k.inputs.AgentgatewayControllerName,
 			OmitDefaultSecurityContext: true,
 		})
 		if err != nil {

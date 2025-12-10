@@ -15,8 +15,12 @@ const (
 	DefaultGatewayControllerName = "kgateway.dev/kgateway"
 
 	// DefaultAgwControllerName is the name of the agentgateway controller that has implemented the Gateway API
-	// It is configured to manage GatewayClasses with the name DefaultAgwClassName
+	// It is configured to manage GatewayClasses with the name DefaultGatewayClassName
 	DefaultAgwControllerName = "agentgateway.dev/agentgateway"
+
+	// LegacyAgwControllerName is the legacy controller name for agentgateway that is still supported
+	// for backwards compatibility. Users can use either this or DefaultAgwControllerName.
+	LegacyAgwControllerName = "kgateway.dev/agentgateway"
 
 	// DefaultGatewayParametersName is the name of the GatewayParameters which is attached by
 	// parametersRef to the GatewayClass.
@@ -32,3 +36,10 @@ const (
 	// LeaderElectionID is the name of the lease that leader election will use for holding the leader lock.
 	LeaderElectionID = "kgateway"
 )
+
+// IsAgwControllerName returns true if the given controller name is an agentgateway controller.
+// This supports both the default controller name (kgateway.dev/agentgateway) and the legacy
+// controller name (agentgateway.dev/agentgateway) for backwards compatibility.
+func IsAgwControllerName(controllerName string) bool {
+	return controllerName == DefaultAgwControllerName || controllerName == LegacyAgwControllerName
+}
