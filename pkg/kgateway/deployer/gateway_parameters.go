@@ -252,7 +252,7 @@ func (k *kgatewayParameters) getGatewayParametersForGateway(gw *gwv1.Gateway) (*
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-						OmitDefaultSecurityContext: true,
+			OmitDefaultSecurityContext: true,
 		})
 		if err != nil {
 			return nil, err
@@ -280,7 +280,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
 		WaypointClassName:          k.inputs.WaypointGatewayClassName,
-				OmitDefaultSecurityContext: false,
+		OmitDefaultSecurityContext: false,
 	})
 	if err != nil {
 		return nil, err
@@ -336,7 +336,7 @@ func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.Gatew
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
 			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-						OmitDefaultSecurityContext: true,
+			OmitDefaultSecurityContext: true,
 		})
 		if err != nil {
 			return nil, err

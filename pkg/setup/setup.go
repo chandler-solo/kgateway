@@ -31,9 +31,9 @@ type Options struct {
 	GatewayClassName         string
 	WaypointGatewayClassName string
 	AgentgatewayClassName    string
-	AdditionalGatewayClasses   map[string]*deployer.GatewayClassInfo
-	ExtraPlugins               func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []sdk.Plugin
-	ExtraAgwPlugins            func(ctx context.Context, agw *agwplugins.AgwCollections) []agwplugins.AgwPlugin
+	AdditionalGatewayClasses map[string]*deployer.GatewayClassInfo
+	ExtraPlugins             func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []sdk.Plugin
+	ExtraAgwPlugins          func(ctx context.Context, agw *agwplugins.AgwCollections) []agwplugins.AgwPlugin
 	// HelmValuesGeneratorOverride allows replacing the default helm values generation logic.
 	// When set, this generator will be used instead of the built-in GatewayParameters-based generator
 	// for all Gateways. This is a 1:1 replacement - you provide one generator that handles everything.
