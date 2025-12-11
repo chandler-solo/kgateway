@@ -40,6 +40,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/listenerpolicy"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+
 	// TODO BML tests in this suite fail if this no-op import is not imported first.
 	//
 	// I know, I know, you're reading this, and you're skeptical. I can feel it.
@@ -504,7 +505,7 @@ var _ = Describe("Deployer", func() {
 			agwp = agentgatewayParam("agent-gateway-params")
 			gwc = &gwv1.GatewayClass{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "agentgateway",
+					Name: wellknown.DefaultAgwClassName,
 				},
 				Spec: gwv1.GatewayClassSpec{
 					ControllerName: wellknown.DefaultAgwControllerName,
@@ -525,7 +526,7 @@ var _ = Describe("Deployer", func() {
 					Namespace: defaultNamespace,
 				},
 				Spec: gwv1.GatewaySpec{
-					GatewayClassName: "agentgateway",
+					GatewayClassName: wellknown.DefaultAgwClassName,
 					Infrastructure: &gwv1.GatewayInfrastructure{
 						ParametersRef: &gwv1.LocalParametersReference{
 							Group: agentgatewayv1alpha1.GroupName,
