@@ -83,8 +83,6 @@ type KubernetesProxyConfig struct {
 	Deployment *ProxyDeployment `json:"deployment,omitempty"`
 
 	// Configuration for the container running Envoy.
-	// If the Gateway uses a GatewayClass with controllerName: agentgateway.dev/agentgateway,
-	// the EnvoyContainer values will be ignored.
 	//
 	// +optional
 	EnvoyContainer *EnvoyContainer `json:"envoyContainer,omitempty"`
@@ -119,13 +117,6 @@ type KubernetesProxyConfig struct {
 	//
 	// +optional
 	Stats *StatsConfig `json:"stats,omitempty"`
-
-	// Configure the agentgateway integration. If agentgateway is disabled, the
-	// EnvoyContainer values will be used by default to configure the data
-	// plane proxy.
-	//
-	// +optional
-	Agentgateway *Agentgateway `json:"agentgateway,omitempty"`
 
 	// OmitDefaultSecurityContext is used to control whether or not
 	// `securityContext` fields should be rendered for the various generated
@@ -196,13 +187,6 @@ func (in *KubernetesProxyConfig) GetStats() *StatsConfig {
 		return nil
 	}
 	return in.Stats
-}
-
-func (in *KubernetesProxyConfig) GetAgentgateway() *Agentgateway {
-	if in == nil {
-		return nil
-	}
-	return in.Agentgateway
 }
 
 func (in *KubernetesProxyConfig) GetOmitDefaultSecurityContext() *bool {
@@ -675,92 +659,4 @@ func (in *StatsMatcher) GetExclusionList() []shared.StringMatcher {
 		return nil
 	}
 	return in.ExclusionList
-}
-
-// Agentgateway configures the agentgateway dataplane integration.
-// The agentgateway dataplane is automatically used when the Gateway references a GatewayClass
-// with controllerName: agentgateway.dev/agentgateway.
-type Agentgateway struct {
-	// Log level for the agentgateway. Defaults to info.
-	// Levels include "trace", "debug", "info", "error", "warn". See: https://docs.rs/tracing/latest/tracing/struct.Level.html
-	//
-	// +optional
-	LogLevel *string `json:"logLevel,omitempty"`
-
-	// The agentgateway container image. See
-	// https://kubernetes.io/docs/concepts/containers/images
-	// for details.
-	//
-	// Default values, which may be overridden individually:
-	//
-	//	registry: ghcr.io/agentgateway
-	//	repository: agentgateway
-	//	tag: <agentgateway version>
-	//	pullPolicy: IfNotPresent
-	//
-	// +optional
-	Image *Image `json:"image,omitempty"`
-
-	// The security context for this container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
-	// for details.
-	//
-	// +optional
-	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
-
-	// The compute resources required by this container. See
-	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-	// for details.
-	//
-	// +optional
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// do not use slice of pointers: https://github.com/kubernetes/code-generator/issues/166
-
-	// The container environment variables.
-	//
-	// +optional
-	Env []corev1.EnvVar `json:"env,omitempty"`
-
-	// Additional volume mounts to add to the container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#volumemount-v1-core
-	// for details.
-	//
-	// +optional
-	ExtraVolumeMounts []corev1.VolumeMount `json:"extraVolumeMounts,omitempty"`
-}
-
-func (in *Agentgateway) GetLogLevel() *string {
-	if in == nil {
-		return nil
-	}
-	return in.LogLevel
-}
-
-func (in *Agentgateway) GetImage() *Image {
-	if in == nil {
-		return nil
-	}
-	return in.Image
-}
-
-func (in *Agentgateway) GetSecurityContext() *corev1.SecurityContext {
-	if in == nil {
-		return nil
-	}
-	return in.SecurityContext
-}
-
-func (in *Agentgateway) GetResources() *corev1.ResourceRequirements {
-	if in == nil {
-		return nil
-	}
-	return in.Resources
-}
-
-func (in *Agentgateway) GetEnv() []corev1.EnvVar {
-	if in == nil {
-		return nil
-	}
-	return in.Env
 }
