@@ -17,7 +17,7 @@ These are the steps required to add a new CRD to be used in the Kubernetes Gatew
     - A `zz_generated.register.go` file is created in the same directory as the Go types, to help with registering the Go types with the scheme.
     - CRDs are generated in the CRD helm chart template dir: [install/helm/kgateway-crds/templates](/install/helm/kgateway-crds/templates)
     - RBAC roles are generated in [install/helm/kgateway/templates/role.yaml](/install/helm/kgateway/templates/role.yaml)
-    - Updates the [api/applyconfiguration](/api/applyconfiguration), [pkg/generated](/pkg/generated) and [pkg/client](/pkg/client) folders with kube clients. These are used in plugin initialization and the fake client is used in tests.
+    - Updates the [pkg/client](/pkg/client) folder with kube clients. These are used in plugin initialization and the fake client is used in tests.
 
 ## API guidelines
 - Include documentation as well as any appropriate json and kubebuilder annotations on all fields.
