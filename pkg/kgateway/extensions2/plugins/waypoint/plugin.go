@@ -2,6 +2,7 @@ package waypoint
 
 import (
 	"context"
+	"net"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -125,6 +126,12 @@ func (t *PerClientProcessor) processBackend(kctx krt.HandlerContext, ctx context
 func processIngressUseWaypoint(in ir.BackendObjectIR, out *envoyclusterv3.Cluster) {
 	addresses := waypointquery.BackendAddresses(in)
 
+	// Prefer IPv4 addresses when available. ServiceEntry auto-allocation includes both IPv4
+	// and IPv6 addresses, but many environments (e.g., kind clusters) don't have IPv6 routing
+	// configured. Using IPv6 VIPs in a STATIC cluster causes connection failures when Envoy
+	// selects an unreachable address. Fall back to IPv6 for IPv6-only clusters.
+	addresses = preferIPv4(addresses)
+
 	// Set the output cluster to be of type STATIC and instead of the default EDS and add
 	// the addresses of the backend embedded into the CLA of this cluster config.
 	out.ClusterDiscoveryType = &envoyclusterv3.Cluster_Type{
@@ -139,6 +146,28 @@ func processIngressUseWaypoint(in ir.BackendObjectIR, out *envoyclusterv3.Cluste
 	for _, addr := range addresses {
 		out.GetLoadAssignment().Endpoints = append(out.GetLoadAssignment().GetEndpoints(), claEndpoint(addr, uint32(in.Port))) //nolint:gosec // G115: BackendObjectIR.Port is int32 representing a port number, always in valid range
 	}
+}
+
+// preferIPv4 returns IPv4 addresses if any exist, otherwise returns IPv6 addresses.
+// This handles dual-stack environments where IPv6 may not be routable (e.g., kind clusters)
+// while still supporting IPv6-only clusters.
+func preferIPv4(addresses []string) []string {
+	var ipv4, ipv6 []string
+	for _, addr := range addresses {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil {
+			ipv4 = append(ipv4, addr)
+		} else {
+			ipv6 = append(ipv6, addr)
+		}
+	}
+	if len(ipv4) > 0 {
+		return ipv4
+	}
+	return ipv6
 }
 
 func claEndpoint(address string, port uint32) *envoyendpointv3.LocalityLbEndpoints {
