@@ -38,7 +38,7 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 
 	// Only create the kgateway parameters client if Envoy is enabled
 	if inputs.CommonCollections.Settings.EnableEnvoy {
-		gp.kgwParameters = NewkgatewayParameters(cli, inputs)
+		gp.kgwParameters = NewEnvoyGatewayParameters(cli, inputs)
 	}
 
 	// Only create the agentgateway parameters client if agentgateway is enabled

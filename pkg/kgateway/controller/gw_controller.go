@@ -53,7 +53,6 @@ var _ manager.LeaderElectionRunnable = (*gatewayReconciler)(nil)
 type gatewayReconciler struct {
 	envoyDeployer     *deployer.Deployer
 	agwDeployer       *deployer.Deployer
-	deployer          *deployer.Deployer
 	gwParams          *internaldeployer.GatewayParameters
 	scheme            *runtime.Scheme
 	controllerName    string
