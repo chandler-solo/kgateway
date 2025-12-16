@@ -15,9 +15,6 @@ metadata:
   labels:
     {{- include "kgateway.gateway.allLabels" . | nindent 4 }}
 spec:
-  {{- if $gateway.replicaCount }}
-  replicas: {{ $gateway.replicaCount }}
-  {{- end }}
   selector:
     matchLabels:
       {{- include "kgateway.gateway.selectorLabels" . | nindent 6 }}
@@ -29,7 +26,6 @@ spec:
       {{- toYaml (merge
           $configChecksum
           (deepCopy ($gateway.gatewayAnnotations | default dict))
-          ($gateway.extraPodAnnotations | default dict)
           $promAnnotations
        ) | nindent 8 }}
       labels:
@@ -37,14 +33,9 @@ spec:
           (dict "gateway.networking.k8s.io/gateway-class-name" .Values.gateway.gatewayClassName)
           (include "kgateway.gateway.selectorLabels" . | fromYaml)
           ($gateway.gatewayLabels | default dict)
-          ($gateway.extraPodLabels | default dict)
         ) | nindent 8 }}
     spec:
       serviceAccountName: {{ include "kgateway.gateway.fullname" . }}
-      {{- with $gateway.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       {{- with $gateway.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
@@ -65,10 +56,6 @@ spec:
           {{- end }}
           {{- with $gateway.readinessProbe }}
           readinessProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with $gateway.livenessProbe }}
-          livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- /*  Note: this is not *all* ports, since those will be dynamically set. However, this is the static port which is useful for setting up monitoring */}}
@@ -126,10 +113,7 @@ spec:
             - name: RUST_BACKTRACE
               value: "1"
             {{- end }}
-            {{- if not (hasKey $userEnvNames "RUST_LOG") }}
-            - name: RUST_LOG
-              value: {{ $gateway.logLevel }}
-            {{- end }}
+            {{- /* RUST_LOG is set via AgentgatewayParameters.logging.level, applied through env vars */}}
             - name: XDS_ADDRESS
               {{- if and $gateway.agwXds.tls $gateway.agwXds.tls.enabled }}
               value: "https://{{ $gateway.xds.host }}:{{ $gateway.agwXds.port }}"
@@ -168,9 +152,6 @@ spec:
               mountPath: /etc/xds-tls
               readOnly: true
             {{- end }}
-            {{- with $gateway.extraVolumeMounts }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
       volumes:
         - name: config-volume
           configMap:
@@ -192,25 +173,6 @@ spec:
             - key: ca.crt
               path: ca.crt
         {{- end }}
-        {{- with $gateway.extraVolumes }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-      {{- with $gateway.affinity }}
-      affinity:
-      {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with $gateway.topologySpreadConstraints }}
-      topologySpreadConstraints:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
       {{- if $gateway.terminationGracePeriodSeconds }}
       terminationGracePeriodSeconds: {{ $gateway.terminationGracePeriodSeconds }}
-      {{- end }}
-      {{- with $gateway.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with $gateway.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
       {{- end }}
