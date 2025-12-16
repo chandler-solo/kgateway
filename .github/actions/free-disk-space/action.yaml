@@ -1,0 +1,20 @@
+name: Free Disk Space
+description: Free up disk space on GitHub Actions runners using customized settings
+
+runs:
+  using: composite
+  steps:
+    - name: Free Disk Space
+      # Note: in the future if we use remote runners, we can conditionally run this step
+      # based on CPU count.
+      uses: endersonmenezes/free-disk-space@6c4664f43348c8c7011b53488d5ca65e9fc5cd1a
+      with:
+        rm_cmd: "rmz" # Faster rustacean deletion
+        remove_dotnet: true
+        remove_haskell: true
+        # Is 12.1GB worth the time to you?
+        remove_android: true
+
+        # If 95s is worth it to you, you can free up 7.5GB with the following:
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
