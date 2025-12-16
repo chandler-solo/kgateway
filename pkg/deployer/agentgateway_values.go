@@ -12,7 +12,6 @@ type AgentgatewayHelmConfig struct {
 	Gateway *AgentgatewayHelmGateway `json:"gateway,omitempty"`
 }
 
-// AgentgatewayHelmGateway contains helm values specific to agentgateway deployments.
 type AgentgatewayHelmGateway struct {
 	// naming
 	Name               *string           `json:"name,omitempty"`
@@ -32,21 +31,18 @@ type AgentgatewayHelmGateway struct {
 	GracefulShutdown              *kgateway.GracefulShutdownSpec `json:"gracefulShutdown,omitempty"`
 	TerminationGracePeriodSeconds *int64                         `json:"terminationGracePeriodSeconds,omitempty"`
 
-	// agentgateway container values
+	// container values
 	Image           *HelmImage                   `json:"image,omitempty"`
 	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
 	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
 	Env             []corev1.EnvVar              `json:"env,omitempty"`
+	AgwXds          *HelmXds                     `json:"agwXds,omitempty"`
 
-	// agentgateway xds values
-	// Note: agentgateway uses agwXds for its xds connection, but the helm template
-	// also references xds.host for constructing the XDS_ADDRESS
-	Xds    *HelmXds `json:"xds,omitempty"`
-	AgwXds *HelmXds `json:"agwXds,omitempty"`
-
-	// agentgateway-specific config
-	// LogFormat specifies the logging format for agentgateway (Json or Text)
+	// LogFormat specifies the logging format ("json" or "text")
 	LogFormat *string `json:"logFormat,omitempty"`
-	// RawConfig provides opaque config to be merged into config.yaml
+	// RawConfig provides opaque (unvalidated) config to be merged into
+	// config.yaml. If users are often choosing to use this, it may be time to
+	// update the agentgatewayParameters API to provide validated,
+	// better-tested alternatives.
 	RawConfig map[string]any `json:"rawConfig,omitempty"`
 }

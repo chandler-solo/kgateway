@@ -368,7 +368,7 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 
 	// Select the appropriate deployer based on the GatewayClass controller
 	var d *deployer.Deployer
-	if isEnvoyGateway {
+	if isEnvoyGateway && !r.enableEnvoy {
 		d = r.envoyDeployer
 	} else {
 		d = r.agwDeployer

@@ -189,7 +189,7 @@ func (g *AgentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	}
 
 	if g.inputs.ControlPlane.XdsTLS {
-		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.Xds, vals.Gateway.AgwXds); err != nil {
+		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.AgwXds); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
@@ -318,14 +318,6 @@ func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 			return &s
 		}(),
 		Ports: ports,
-		Xds: &deployer.HelmXds{
-			Host: &g.inputs.ControlPlane.XdsHost,
-			Port: &g.inputs.ControlPlane.XdsPort,
-			Tls: &deployer.HelmXdsTls{
-				Enabled: func() *bool { b := g.inputs.ControlPlane.XdsTLS; return &b }(),
-				CaCert:  &g.inputs.ControlPlane.XdsTlsCaPath,
-			},
-		},
 		AgwXds: &deployer.HelmXds{
 			Host: &g.inputs.ControlPlane.XdsHost,
 			Port: &g.inputs.ControlPlane.AgwXdsPort,

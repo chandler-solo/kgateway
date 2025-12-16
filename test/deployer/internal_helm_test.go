@@ -128,6 +128,13 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		{
 			Name:      "agentgateway-params-primary",
 			InputFile: "agentgateway-params-primary",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "name: RUST_LOG",
+					"RUST_LOG env var should be present")
+				assert.Contains(t, outputYaml, "value: debug",
+					"RUST_LOG should be set to 'debug' from logging.level")
+			},
 		},
 		{
 			Name:      "agentgateway with full image override",

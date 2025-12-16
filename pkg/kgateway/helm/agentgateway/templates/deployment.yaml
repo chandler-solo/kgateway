@@ -132,9 +132,9 @@ spec:
             {{- end }}
             - name: XDS_ADDRESS
               {{- if and $gateway.agwXds.tls $gateway.agwXds.tls.enabled }}
-              value: "https://{{ $gateway.xds.host }}:{{ $gateway.agwXds.port }}"
+              value: "https://{{ $gateway.agwXds.host }}:{{ $gateway.agwXds.port }}"
               {{- else }}
-              value: "http://{{ $gateway.xds.host }}:{{ $gateway.agwXds.port }}"
+              value: "http://{{ $gateway.agwXds.host }}:{{ $gateway.agwXds.port }}"
               {{- end }}
             {{- if and $gateway.agwXds.tls $gateway.agwXds.tls.enabled }}
             - name: XDS_ROOT_CA

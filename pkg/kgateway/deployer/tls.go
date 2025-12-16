@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/utils/ptr"
+
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
-// injectXdsCACertificate reads the CA certificate from the control plane's mounted TLS Secret
-// and injects it into the Helm values so it can be used by the proxy templates.
-// It accepts variadic HelmXds pointers to support both Envoy (single Xds) and agentgateway (Xds + AgwXds).
-func injectXdsCACertificate(caCertPath string, xdsConfigs ...*deployer.HelmXds) error {
+// injectXdsCACertificate reads the CA certificate from the control plane's
+// mounted TLS Secret and injects it into the Helm values (xdsConfig) so it can
+// be used by the proxy templates.
+func injectXdsCACertificate(caCertPath string, xdsConfig *deployer.HelmXds) error {
 	if _, err := os.Stat(caCertPath); os.IsNotExist(err) {
 		return fmt.Errorf("xDS TLS is enabled but CA certificate file not found at %s. "+
 			"Ensure the xDS TLS secret is properly mounted and contains ca.crt", caCertPath,
@@ -25,11 +27,8 @@ func injectXdsCACertificate(caCertPath string, xdsConfigs ...*deployer.HelmXds) 
 		return fmt.Errorf("CA certificate at %s is empty", caCertPath)
 	}
 
-	caCertStr := string(caCert)
-	for _, xds := range xdsConfigs {
-		if xds != nil && xds.Tls != nil {
-			xds.Tls.CaCert = &caCertStr
-		}
+	if xdsConfig != nil && xdsConfig.Tls != nil {
+		xdsConfig.Tls.CaCert = ptr.To(string(caCert))
 	}
 
 	return nil
