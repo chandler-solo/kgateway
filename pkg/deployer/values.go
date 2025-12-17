@@ -168,4 +168,3 @@ type HelmStringMatcher struct {
 	SafeRegex  *string `json:"safeRegex,omitempty"`
 	IgnoreCase *bool   `json:"ignoreCase,omitempty"`
 }
-

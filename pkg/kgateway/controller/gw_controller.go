@@ -358,21 +358,19 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 		logger.Debug("skipping gateway for disabled agentgateway controller", "gateway", req, "controllerName", gwc.Spec.ControllerName)
 		return nil
 	}
-	if !isEnvoyGateway && !isAgwGateway {
+
+	var d *deployer.Deployer
+	if isEnvoyGateway && r.enableEnvoy {
+		d = r.envoyDeployer
+	} else if isAgwGateway && r.enableAgw {
+		d = r.agwDeployer
+	} else {
 		// Not our GatewayClass at all
 		return nil
 	}
 
 	logger.Info("reconciling Gateway", "ref", req)
 	ctx := context.Background()
-
-	// Select the appropriate deployer based on the GatewayClass controller
-	var d *deployer.Deployer
-	if isEnvoyGateway && !r.enableEnvoy {
-		d = r.envoyDeployer
-	} else {
-		d = r.agwDeployer
-	}
 
 	objs, err := d.GetObjsToDeploy(ctx, gw)
 	if err != nil {
