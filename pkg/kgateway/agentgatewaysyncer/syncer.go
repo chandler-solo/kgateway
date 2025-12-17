@@ -7,13 +7,11 @@ import (
 	"sync/atomic"
 
 	"github.com/agentgateway/agentgateway/go/api"
-	"istio.io/istio/pilot/pkg/model/kstatus"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/sets"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -28,6 +26,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/agentgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
+	agentgatewaybackend "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/agentgatewaysyncer/backend"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/agentgatewaysyncer/krtxds"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/agentgatewaysyncer/nack"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/agentgatewaysyncer/status"
@@ -241,17 +240,23 @@ func (s *Syncer) buildAgwResources(
 	binds := krt.NewManyCollection(ports, func(ctx krt.HandlerContext, object krt.IndexObject[string, *translator.GatewayListener]) []agwir.AgwResource {
 		port, _ := strconv.Atoi(object.Key)
 		uniq := sets.New[types.NamespacedName]()
+		var protocol = api.Bind_Protocol(0)
 		for _, gw := range object.Objects {
 			uniq.Insert(types.NamespacedName{
 				Namespace: gw.ParentGateway.Namespace,
 				Name:      gw.ParentGateway.Name,
 			})
+			// TODO: better handle conflicts of protocols. For now, we arbitrarily treat TLS > plain
+			if gw.Valid {
+				protocol = max(protocol, s.getBindProtocol(gw))
+			}
 		}
 		return slices.Map(uniq.UnsortedList(), func(e types.NamespacedName) agwir.AgwResource {
 			bind := translator.AgwBind{
 				Bind: &api.Bind{
-					Key:  object.Key + "/" + e.String(),
-					Port: uint32(port), //nolint:gosec // G115: port is always in valid port range
+					Key:      object.Key + "/" + e.String(),
+					Port:     uint32(port), //nolint:gosec // G115: port is always in valid port range
+					Protocol: protocol,
 				},
 			}
 			return translator.ToResourceForGateway(e, bind)
@@ -323,63 +328,20 @@ func (s *Syncer) buildListenerFromGateway(obj *translator.GatewayListener) *agwi
 	}, translator.AgwListener{l}))
 }
 
-// buildBackendFromBackendIR creates a backend resource from Backend
-func (s *Syncer) buildBackendFromBackend(ctx krt.HandlerContext, backend *agentgateway.AgentgatewayBackend) ([]agwir.AgwResource, *agentgateway.AgentgatewayBackendStatus) {
-	var results []agwir.AgwResource
-	var backendStatus *agentgateway.AgentgatewayBackendStatus
-	pc := plugins.PolicyCtx{
-		Krt:         ctx,
-		Collections: s.agwCollections,
-	}
-	backends, err := s.translator.BackendTranslator().TranslateBackend(pc, backend)
-	if err != nil {
-		logger.Error("failed to translate backend", "backend", backend.Name, "namespace", backend.Namespace, "error", err)
-		backendStatus = &agentgateway.AgentgatewayBackendStatus{
-			Conditions: kstatus.UpdateConditionIfChanged(backend.Status.Conditions, metav1.Condition{
-				Type:               "Accepted",
-				Status:             metav1.ConditionFalse,
-				Reason:             "TranslationError",
-				Message:            fmt.Sprintf("failed to translate backend %v", err),
-				ObservedGeneration: backend.Generation,
-				LastTransitionTime: metav1.Now(),
-			}),
-		}
-		return results, backendStatus
-	}
-	// handle all backends created as an MCPBackend backend may create multiple backends
-	for _, backend := range backends {
-		logger.Debug("creating backend", "backend", backend.Name)
-		resourceWrapper := translator.ToResourceGlobal(&api.Resource{
-			Kind: &api.Resource_Backend{
-				Backend: backend,
-			},
-		})
-		results = append(results, resourceWrapper)
-	}
-	backendStatus = &agentgateway.AgentgatewayBackendStatus{
-		Conditions: kstatus.UpdateConditionIfChanged(backend.Status.Conditions, metav1.Condition{
-			Type:               "Accepted",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Accepted",
-			Message:            "Backend successfully accepted",
-			ObservedGeneration: backend.Generation,
-			LastTransitionTime: metav1.Now(),
-		}),
-	}
-	return results, backendStatus
-}
-
-// newADPBackendCollection creates the ADP backend collection for agent gateway resources
+// newAgwBackendCollection creates the ADP backend collection for agent gateway resources
 func (s *Syncer) newAgwBackendCollection(finalBackends krt.Collection[*agentgateway.AgentgatewayBackend], krtopts krtutil.KrtOptions) (
 	krt.StatusCollection[*agentgateway.AgentgatewayBackend, agentgateway.AgentgatewayBackendStatus],
 	krt.Collection[agwir.AgwResource],
 ) {
-	return krt.NewStatusManyCollection(finalBackends, func(krtctx krt.HandlerContext, backend *agentgateway.AgentgatewayBackend) (
+	return krt.NewStatusManyCollection(finalBackends, func(ctx krt.HandlerContext, backend *agentgateway.AgentgatewayBackend) (
 		*agentgateway.AgentgatewayBackendStatus,
 		[]agwir.AgwResource,
 	) {
-		resources, status := s.buildBackendFromBackend(krtctx, backend)
-		return status, resources
+		pc := plugins.PolicyCtx{
+			Krt:         ctx,
+			Collections: s.agwCollections,
+		}
+		return agentgatewaybackend.TranslateAgwBackend(pc, backend)
 	}, krtopts.ToOptions("Backends")...)
 }
 
@@ -421,6 +383,22 @@ func (s *Syncer) getProtocolAndTLSConfig(obj *translator.GatewayListener) (api.P
 		return api.Protocol_TCP, nil, true
 	default:
 		return api.Protocol_HTTP, nil, false // Unsupported protocol
+	}
+}
+
+// getProtocolAndTLSConfig extracts protocol and TLS configuration from a gateway
+func (s *Syncer) getBindProtocol(obj *translator.GatewayListener) api.Bind_Protocol {
+	switch obj.ParentInfo.Protocol {
+	case gwv1.HTTPProtocolType:
+		return api.Bind_HTTP
+	case gwv1.HTTPSProtocolType:
+		return api.Bind_TLS
+	case gwv1.TLSProtocolType:
+		return api.Bind_TLS
+	case gwv1.TCPProtocolType:
+		return api.Bind_TCP
+	default:
+		return api.Bind_HTTP
 	}
 }
 

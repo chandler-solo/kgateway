@@ -540,22 +540,21 @@ type JWKS struct {
 	Inline *string `json:"inline,omitempty"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=uri;backendRef
 type RemoteJWKS struct {
-	// IdP jwks endpoint. Default tls settings are used to connect to this url.
-	// +kubebuilder:validation:Pattern=`^(https|http):\/\/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*(:\d+)?\/.*$`
-	// +optional
-	JwksUri string `json:"uri,omitempty"`
+	// Path to IdP jwks endpoint. Default tls settings are used to connect to this url.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2000
+	JwksPath string `json:"jwksPath"`
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('5m')",message="cacheDuration must be at least 5m."
 	// +kubebuilder:default="5m"
 	CacheDuration *metav1.Duration `json:"cacheDuration,omitempty"`
 	// backendRef references the remote JWKS server to reach.
-	// Not implemented yet, only jwksUri is currently supported.
 	// Supported types: Service and Backend.
-	// +optional
-	BackendRef gwv1.BackendObjectReference `json:"backendRef,omitempty"`
+	// +required
+	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 }
 
 // +kubebuilder:validation:Enum=Strict;Optional
@@ -963,6 +962,7 @@ type ExtProc struct {
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 }
 
+// +kubebuilder:validation:ExactlyOneOf=grpc;http
 type ExtAuth struct {
 	// backendRef references the External Authorization server to reach.
 	//
@@ -970,15 +970,80 @@ type ExtAuth struct {
 	// +required
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 
+	// grpc specifies that the gRPC External Authorization
+	// [protocol](https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/auth/v3/external_auth.proto) should be used.
+	// +optional
+	GRPC *AgentExtAuthGRPC `json:"grpc,omitempty"`
+
+	// http specifies that the HTTP protocol should be used for connecting to the authorization server.
+	// The authorization server must return a `200` status code, otherwise the request is considered an authorization failure.
+	// +optional
+	HTTP *AgentExtAuthHTTP `json:"http,omitempty"`
+
 	// forwardBody configures whether to include the HTTP body in the request. If enabled, the request body will be
 	// buffered.
 	// +optional
 	ForwardBody *ExtAuthBody `json:"forwardBody,omitempty"`
+}
 
-	// contextExtensions specifies additional arbitrary key-value pairs to send to the authorization server.
-	// +kubebuilder:validation:MaxProperties=64
+type AgentExtAuthHTTP struct {
+	// path specifies the path to send to the authorization server. If unset, this defaults to the original request path.
+	// This is a CEL expression, which allows customizing the path based on the incoming request.
+	// For example, to add a prefix: `path: '"/prefix/" + request.path'`.
 	// +optional
+	Path *shared.CELExpression `json:"path,omitempty"`
+
+	// redirect defines an optional expression to determine a path to redirect to on authorization failure.
+	// This is useful to redirect to a sign-in page.
+	// +optional
+	Redirect *shared.CELExpression `json:"redirect,omitempty"`
+
+	// allowedRequestHeaders specifies what additional headers from the client request
+	// will be sent to the authorization server.
+	//
+	// If unset, the following headers are sent by default: `Authorization`.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	AllowedRequestHeaders []ShortString `json:"allowedRequestHeaders,omitempty"`
+
+	// addRequestHeaders specifies what additional headers to add to the request to the authorization server.
+	// While allowedRequestHeaders just passes the original headers through, addRequestHeaders allows defining custom headers
+	// based on CEL Expressions.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	AddRequestHeaders map[string]shared.CELExpression `json:"addRequestHeaders,omitempty"`
+
+	// allowedResponseHeaders specifies what headers from the authorization response
+	// will be copied into the request to the backend.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	AllowedResponseHeaders []ShortString `json:"allowedResponseHeaders,omitempty"`
+
+	// responseMetadata specifies what metadata fields should be constructed *from* the authorization response. These will be
+	// included under the `extauthz` variable in future CEL expressions. Setting this is useful to do things like logging
+	// usernames, without needing to include them as headers to the backend (as `allowedResponseHeaders` would).
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	ResponseMetadata map[string]shared.CELExpression `json:"responseMetadata,omitempty"`
+}
+
+type AgentExtAuthGRPC struct {
+	// contextExtensions specifies additional arbitrary key-value pairs to send to the authorization server in the `context_extensions` field.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
 	ContextExtensions map[string]string `json:"contextExtensions,omitempty"`
+	// requestMetadata specifies metadata to be sent *to* the authorization server.
+	// This maps to the `metadata_context.filter_metadata` field of the request, and allows dynamic CEL expressions.
+	// If unset, by default the `envoy.filters.http.jwt_authn` key is set if the JWT policy is used as well, for compatibility.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	RequestMetadata map[string]shared.CELExpression `json:"requestMetadata,omitempty"`
 }
 
 type ExtAuthBody struct {
