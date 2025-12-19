@@ -703,7 +703,7 @@ type Agentgateway struct {
 	//
 	// Default values, which may be overridden individually:
 	//
-	//	registry: ghcr.io/agentgateway
+	//	registry: cr.agentgateway.dev
 	//	repository: agentgateway
 	//	tag: <agentgateway version>
 	//	pullPolicy: IfNotPresent

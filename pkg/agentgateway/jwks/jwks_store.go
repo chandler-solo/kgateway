@@ -12,6 +12,9 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 )
 
+// JwksStore is a top-level abstraction that relies on jwksCache and jwksFetcher to
+// retrieve and keep jwks up to date.
+
 var logger = logging.New("jwks_store")
 
 const DefaultJwksStorePrefix = "jwks-store"
@@ -21,9 +24,6 @@ var JwksConfigMapNamespacedName = func(jwksUri string) *types.NamespacedName {
 	return nil
 }
 
-// JwksStore handles initial fetching and periodic updates of jwks. Jwks are persisted
-// in ConfigMaps, a jwks per ConfigMap. The ConfigMaps are used to re-create internal
-// JwksStore state on startup and by traffic-plugins as source of remote jwks.
 type JwksStore struct {
 	storePrefix     string
 	jwksCache       *jwksCache
@@ -101,17 +101,20 @@ func (s *JwksStore) updateJwksSources(ctx context.Context) {
 		select {
 		case jwksUpdate := <-s.jwksChanges:
 			if jwksUpdate.Deleted {
-				logger.Debug("deleting keyset", "jwksUri", jwksUpdate.JwksURL, "ConfigMap", JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL))
+				logger.Debug("deleting keyset", "jwks_uri", jwksUpdate.JwksURL, "config_map", JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL))
 				s.jwksFetcher.RemoveKeyset(jwksUpdate)
+
 				s.l.Lock()
 				delete(s.cmNameToJwks, JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL))
 				s.l.Unlock()
 			} else {
-				logger.Debug("updating keyset", "jwksUri", jwksUpdate.JwksURL, "ConfigMap", JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL))
+				logger.Debug("updating keyset", "jwks_uri", jwksUpdate.JwksURL, "config_map", JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL))
 				err := s.jwksFetcher.AddOrUpdateKeyset(jwksUpdate)
 				if err != nil {
 					logger.Error("error adding/updating a jwks keyset", "error", err, "uri", jwksUpdate.JwksURL)
+					continue
 				}
+
 				s.l.Lock()
 				s.cmNameToJwks[JwksConfigMapName(s.storePrefix, jwksUpdate.JwksURL)] = jwksUpdate.JwksURL
 				s.l.Unlock()
