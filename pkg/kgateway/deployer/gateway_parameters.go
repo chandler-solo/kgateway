@@ -127,6 +127,27 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 	return gp.kgwParameters
 }
 
+// PostProcessObjects implements deployer.ObjectPostProcessor.
+// It applies AgentgatewayParameters overlays to the rendered objects.
+// When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
+// are applied in order: GatewayClass first, then Gateway on top.
+func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
+	// Check if override implements ObjectPostProcessor and delegate to it
+	if gp.helmValuesGeneratorOverride != nil {
+		if postProcessor, ok := gp.helmValuesGeneratorOverride.(deployer.ObjectPostProcessor); ok {
+			return postProcessor.PostProcessObjects(ctx, obj, rendered)
+		}
+	}
+
+	// Fall back to default implementation
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok || gp.agwHelmValuesGenerator == nil {
+		return nil
+	}
+
+	return gp.agwHelmValuesGenerator.PostProcessObjects(ctx, gw, rendered)
+}
+
 // AgentgatewayParametersHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
 func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deployer.HelmValuesGenerator {
 	return gp.agwHelmValuesGenerator

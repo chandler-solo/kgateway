@@ -32,6 +32,19 @@ func NewAgentgatewayParametersApplier(params *agentgateway.AgentgatewayParameter
 	return &AgentgatewayParametersApplier{params: params}
 }
 
+func setIfNonNil[T any](dst **T, src *T) {
+	if src != nil {
+		*dst = src
+	}
+}
+
+func setIfNonZero[T comparable](dst *T, src T) {
+	var zero T
+	if src != zero {
+		*dst = src
+	}
+}
+
 // ApplyToHelmValues applies the AgentgatewayParameters configs to the helm
 // values.  This is called before rendering the helm chart. (We render a helm
 // chart, but we do not use helm beyond that point.)
@@ -41,69 +54,40 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 	}
 
 	configs := a.params.Spec.AgentgatewayParametersConfigs
+	res := vals.Gateway
 
+	// Do a manual merge of the fields.
+	// Convert from agentgateway.Image to HelmImage
 	if configs.Image != nil {
-		if vals.Gateway.Image == nil {
-			vals.Gateway.Image = &deployer.HelmImage{}
+		if res.Image == nil {
+			res.Image = &deployer.HelmImage{}
 		}
-		if configs.Image.Registry != nil {
-			vals.Gateway.Image.Registry = configs.Image.Registry
-		}
-		if configs.Image.Repository != nil {
-			vals.Gateway.Image.Repository = configs.Image.Repository
-		}
-		if configs.Image.Tag != nil {
-			vals.Gateway.Image.Tag = configs.Image.Tag
-		}
-		if configs.Image.Digest != nil {
-			vals.Gateway.Image.Digest = configs.Image.Digest
-		}
-		if configs.Image.PullPolicy != nil {
-			vals.Gateway.Image.PullPolicy = (*string)(configs.Image.PullPolicy)
+		setIfNonNil(&res.Image.Tag, configs.Image.Tag)
+		setIfNonNil(&res.Image.Registry, configs.Image.Registry)
+		setIfNonNil(&res.Image.Repository, configs.Image.Repository)
+		setIfNonNil(&res.Image.PullPolicy, configs.Image.PullPolicy)
+		setIfNonNil(&res.Image.Digest, configs.Image.Digest)
+	}
+	setIfNonNil(&res.Resources, configs.Resources)
+
+	// Convert RawConfig from *apiextensionsv1.JSON to map[string]any
+	if configs.RawConfig != nil && len(configs.RawConfig.Raw) > 0 {
+		var rawConfigMap map[string]any
+		if err := json.Unmarshal(configs.RawConfig.Raw, &rawConfigMap); err == nil && rawConfigMap != nil {
+			res.RawConfig = rawConfigMap
 		}
 	}
 
-	if configs.Resources != nil {
-		vals.Gateway.Resources = configs.Resources
-	}
-
-	// Apply logging.level as RUST_LOG first, then merge explicit env vars on top.
-	// This ensures explicit env vars override logging.level if both specify RUST_LOG.
+	// Apply logging format
 	if configs.Logging != nil {
-		if configs.Logging.Level != "" {
-			vals.Gateway.Env = mergeEnvVars(vals.Gateway.Env, []corev1.EnvVar{
-				{Name: "RUST_LOG", Value: configs.Logging.Level},
-			})
-		}
 		if configs.Logging.Format != "" {
 			format := string(configs.Logging.Format)
-			vals.Gateway.LogFormat = &format
-			// NOTE: The Deployment needs to have a new rollout if the only
-			// thing that changes is the ConfigMap. The usual solution with
-			// Helm is an annotation on the Deployment with a hash of the
-			// ConfigMap's contents, and that's what our helm chart does. See
-			// https://helm.sh/docs/howto/charts_tips_and_tricks/#automatically-roll-deployments
-		}
-	}
-
-	// Apply rawConfig if present - this will be merged with typed config in the helm template
-	if configs.RawConfig != nil && configs.RawConfig.Raw != nil {
-		var rawConfigMap map[string]any
-		if err := json.Unmarshal(configs.RawConfig.Raw, &rawConfigMap); err == nil {
-			vals.Gateway.RawConfig = rawConfigMap
+			res.LogFormat = &format
 		}
 	}
 
 	// Apply explicit environment variables last so they can override logging.level.
-	vals.Gateway.Env = mergeEnvVars(vals.Gateway.Env, configs.Env)
-
-	if configs.Shutdown != nil {
-		vals.Gateway.TerminationGracePeriodSeconds = ptr.To(configs.Shutdown.Max)
-		if vals.Gateway.GracefulShutdown == nil {
-			vals.Gateway.GracefulShutdown = &kgateway.GracefulShutdownSpec{}
-		}
-		vals.Gateway.GracefulShutdown.SleepTimeSeconds = ptr.To(configs.Shutdown.Min)
-	}
+	res.Env = mergeEnvVars(res.Env, configs.Env)
 }
 
 // mergeEnvVars merges two slices of environment variables.

@@ -541,7 +541,7 @@ type JWKS struct {
 }
 
 type RemoteJWKS struct {
-	// Path to IdP jwks endpoint. Default tls settings are used to connect to this url.
+	// Path to IdP jwks endpoint, relative to the root, commonly ".well-known/jwks.json".
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=2000
@@ -552,7 +552,8 @@ type RemoteJWKS struct {
 	// +kubebuilder:default="5m"
 	CacheDuration *metav1.Duration `json:"cacheDuration,omitempty"`
 	// backendRef references the remote JWKS server to reach.
-	// Supported types: Service and Backend.
+	// Supported types are Service and (static) Backend. An AgentgatewayPolicy containing backend tls config
+	// can then be attached to the service/backend in order to set tls options for a connection to the remote jwks source.
 	// +required
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 }
@@ -790,7 +791,7 @@ type BackendAI struct {
 
 // RouteType specifies how the AI gateway should process incoming requests
 // based on the URL path and the API format expected.
-// +kubebuilder:validation:Enum=Completions;Messages;Models;Passthrough;Responses;AnthropicTokenCount
+// +kubebuilder:validation:Enum=Completions;Messages;Models;Passthrough;Responses;AnthropicTokenCount;Embeddings
 type RouteType string
 
 const (
@@ -811,6 +812,9 @@ const (
 
 	// RouteTypeAnthropicTokenCount processes Anthropic /v1/messages/count_tokens format requests
 	RouteTypeAnthropicTokenCount RouteType = "AnthropicTokenCount" //nolint:gosec // G101: False positive - this is a route type name, not credentials
+
+	// RouteTypeEmbeddings processes OpenAI /v1/embeddings format requests
+	RouteTypeEmbeddings RouteType = "Embeddings"
 )
 
 // +kubebuilder:validation:AtLeastOneOf=authorization;authentication
@@ -852,6 +856,10 @@ type MCPAuthentication struct {
 	// jwks defines the remote JSON Web Key used to validate the signature of the JWT.
 	// +required
 	JWKS RemoteJWKS `json:"jwks"`
+
+	// validation mode for JWT authentication.
+	// +optional
+	Mode JWTAuthenticationMode `json:"mode,omitempty"`
 }
 
 type McpIDP string

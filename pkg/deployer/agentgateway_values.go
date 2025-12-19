@@ -9,7 +9,7 @@ import (
 // AgentgatewayHelmConfig stores the top-level helm values used by the deployer
 // for agentgateway deployments.
 type AgentgatewayHelmConfig struct {
-	Gateway *AgentgatewayHelmGateway `json:"gateway,omitempty"`
+	Gateway *AgentgatewayHelmGateway `json:"agentgateway,omitempty"`
 }
 
 type AgentgatewayHelmGateway struct {
