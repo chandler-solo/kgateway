@@ -115,29 +115,36 @@ func watchGw(
 		gwParams.WithHelmValuesGeneratorOverride(helmValuesGeneratorOverride(inputs))
 	}
 
-	// Create separate deployers for envoy and agentgateway
-	envoyDeployer, err := internaldeployer.NewEnvoyGatewayDeployer(
-		cfg.ControllerName,
-		cfg.AgwControllerName,
-		cfg.AgentgatewayClassName,
-		cfg.Mgr.GetScheme(),
-		cfg.Client,
-		gwParams.EnvoyHelmValuesGenerator(),
-	)
-	if err != nil {
-		return err
+	// Create deployers only for enabled controllers
+	var envoyDeployer, agwDeployer *deployer.Deployer
+	var err error
+
+	if cfg.EnableEnvoy {
+		envoyDeployer, err = internaldeployer.NewEnvoyGatewayDeployer(
+			cfg.ControllerName,
+			cfg.AgwControllerName,
+			cfg.AgentgatewayClassName,
+			cfg.Mgr.GetScheme(),
+			cfg.Client,
+			gwParams.EnvoyHelmValuesGenerator(),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
-	agwDeployer, err := internaldeployer.NewAgentgatewayDeployer(
-		cfg.ControllerName,
-		cfg.AgwControllerName,
-		cfg.AgentgatewayClassName,
-		cfg.Mgr.GetScheme(),
-		cfg.Client,
-		gwParams.AgentgatewayParametersHelmValuesGenerator(),
-	)
-	if err != nil {
-		return err
+	if cfg.EnableAgentgateway {
+		agwDeployer, err = internaldeployer.NewAgentgatewayDeployer(
+			cfg.ControllerName,
+			cfg.AgwControllerName,
+			cfg.AgentgatewayClassName,
+			cfg.Mgr.GetScheme(),
+			cfg.Client,
+			gwParams.AgentgatewayParametersHelmValuesGenerator(),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return cfg.Mgr.Add(NewGatewayReconciler(cfg, envoyDeployer, agwDeployer, gwParams, gatewayControllerExtension))

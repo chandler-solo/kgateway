@@ -2,14 +2,12 @@ package deployer
 
 import (
 	corev1 "k8s.io/api/core/v1"
-
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 )
 
 // AgentgatewayHelmConfig stores the top-level helm values used by the deployer
 // for agentgateway deployments.
 type AgentgatewayHelmConfig struct {
-	Gateway *AgentgatewayHelmGateway `json:"agentgateway,omitempty"`
+	Agentgateway *AgentgatewayHelmGateway `json:"agentgateway,omitempty"`
 }
 
 type AgentgatewayHelmGateway struct {
@@ -25,11 +23,9 @@ type AgentgatewayHelmGateway struct {
 	Ports []HelmPort `json:"ports,omitempty"`
 
 	// pod template values
-	PodSecurityContext            *corev1.PodSecurityContext     `json:"podSecurityContext,omitempty"`
-	StartupProbe                  *corev1.Probe                  `json:"startupProbe,omitempty"`
-	ReadinessProbe                *corev1.Probe                  `json:"readinessProbe,omitempty"`
-	GracefulShutdown              *kgateway.GracefulShutdownSpec `json:"gracefulShutdown,omitempty"`
-	TerminationGracePeriodSeconds *int64                         `json:"terminationGracePeriodSeconds,omitempty"`
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	StartupProbe       *corev1.Probe              `json:"startupProbe,omitempty"`
+	ReadinessProbe     *corev1.Probe              `json:"readinessProbe,omitempty"`
 
 	// container values
 	Image           *HelmImage                   `json:"image,omitempty"`

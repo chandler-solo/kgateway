@@ -15,7 +15,6 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
-	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
@@ -42,12 +41,12 @@ func setIfNonNil[T any](dst **T, src *T) {
 // values.  This is called before rendering the helm chart. (We render a helm
 // chart, but we do not use helm beyond that point.)
 func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.AgentgatewayHelmConfig) {
-	if a.params == nil || vals == nil || vals.Gateway == nil {
+	if a.params == nil || vals == nil || vals.Agentgateway == nil {
 		return
 	}
 
 	configs := a.params.Spec.AgentgatewayParametersConfigs
-	res := vals.Gateway
+	res := vals.Agentgateway
 
 	// Do a manual merge of the fields.
 	// Convert from agentgateway.Image to HelmImage
@@ -186,7 +185,7 @@ func (g *AgentgatewayParametersHelmValuesGenerator) GetValues(ctx context.Contex
 	}
 
 	if g.inputs.ControlPlane.XdsTLS {
-		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals.Gateway.AgwXds); err != nil {
+		if err := injectXdsCACertificate(g.inputs.ControlPlane.XdsTlsCaPath, vals.Agentgateway.AgwXds); err != nil {
 			return nil, fmt.Errorf("failed to inject xDS CA certificate: %w", err)
 		}
 	}
@@ -337,12 +336,6 @@ func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		PullPolicy: ptr.To(""),
 	}
 
-	gtw.TerminationGracePeriodSeconds = ptr.To(int64(60))
-	gtw.GracefulShutdown = &kgateway.GracefulShutdownSpec{
-		Enabled:          ptr.To(true),
-		SleepTimeSeconds: ptr.To(int64(10)),
-	}
-
 	gtw.ReadinessProbe = &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
@@ -383,5 +376,5 @@ func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		RunAsUser:              ptr.To(int64(10101)),
 	}
 
-	return &deployer.AgentgatewayHelmConfig{Gateway: gtw}, nil
+	return &deployer.AgentgatewayHelmConfig{Agentgateway: gtw}, nil
 }
