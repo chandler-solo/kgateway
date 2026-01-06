@@ -12,11 +12,11 @@ data:
     {{- /* Start with rawConfig as base, then merge typed config on top */ -}}
     {{- $baseConfig := $gateway.rawConfig | default dict }}
     {{- $typedConfig := dict }}
-    {{- with ($gateway.logging).format }}
+    {{- with $gateway.logFormat }}
     {{- $typedConfig = dict "config" (dict "logging" (dict "format" .)) }}
     {{- end }}
-    {{- /* Merge: typed config takes precedence over rawConfig */ -}}
-    {{- $finalConfig := merge $typedConfig $baseConfig }}
+    {{- /* Merge: typed config takes precedence over rawConfig (mergeOverwrite gives precedence to later args) */ -}}
+    {{- $finalConfig := mergeOverwrite (deepCopy $baseConfig) $typedConfig }}
     {{- if $finalConfig }}
     {{- toYaml $finalConfig | nindent 4 }}
     {{- else }}

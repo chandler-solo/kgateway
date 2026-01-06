@@ -38,13 +38,6 @@ func setIfNonNil[T any](dst **T, src *T) {
 	}
 }
 
-func setIfNonZero[T comparable](dst *T, src T) {
-	var zero T
-	if src != zero {
-		*dst = src
-	}
-}
-
 // ApplyToHelmValues applies the AgentgatewayParameters configs to the helm
 // values.  This is called before rendering the helm chart. (We render a helm
 // chart, but we do not use helm beyond that point.)
@@ -65,7 +58,10 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 		setIfNonNil(&res.Image.Tag, configs.Image.Tag)
 		setIfNonNil(&res.Image.Registry, configs.Image.Registry)
 		setIfNonNil(&res.Image.Repository, configs.Image.Repository)
-		setIfNonNil(&res.Image.PullPolicy, configs.Image.PullPolicy)
+		if configs.Image.PullPolicy != nil {
+			pp := string(*configs.Image.PullPolicy)
+			res.Image.PullPolicy = &pp
+		}
 		setIfNonNil(&res.Image.Digest, configs.Image.Digest)
 	}
 	setIfNonNil(&res.Resources, configs.Resources)
@@ -78,11 +74,19 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 		}
 	}
 
-	// Apply logging format
+	// Apply logging configuration
 	if configs.Logging != nil {
+		// Apply logging format
 		if configs.Logging.Format != "" {
 			format := string(configs.Logging.Format)
 			res.LogFormat = &format
+		}
+
+		// Apply logging level as RUST_LOG env var
+		if configs.Logging.Level != "" {
+			// Prepend RUST_LOG so explicit env vars can override it
+			rustLogEnv := corev1.EnvVar{Name: "RUST_LOG", Value: configs.Logging.Level}
+			res.Env = append([]corev1.EnvVar{rustLogEnv}, res.Env...)
 		}
 	}
 
