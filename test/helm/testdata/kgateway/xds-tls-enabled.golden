@@ -4,7 +4,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: test-release-kgateway
-  namespace: default
+  namespace: agentgateway-system
   labels:
     helm.sh/chart: kgateway-v0.0.1
     kgateway: kgateway
@@ -17,7 +17,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kgateway-default
+  name: kgateway-agentgateway-system
 rules:
 - apiGroups:
   - ""
@@ -214,14 +214,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: kgateway-role-default
+  name: kgateway-role-agentgateway-system
 subjects:
 - kind: ServiceAccount
   name: test-release-kgateway
-  namespace: default
+  namespace: agentgateway-system
 roleRef:
   kind: ClusterRole
-  name: kgateway-default
+  name: kgateway-agentgateway-system
   apiGroup: rbac.authorization.k8s.io
 ---
 # Source: kgateway/templates/service.yaml
@@ -229,7 +229,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: test-release-kgateway
-  namespace: default
+  namespace: agentgateway-system
   labels:
     helm.sh/chart: kgateway-v0.0.1
     kgateway: kgateway
@@ -254,7 +254,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: test-release-kgateway
-  namespace: default
+  namespace: agentgateway-system
   labels:
     helm.sh/chart: kgateway-v0.0.1
     kgateway: kgateway

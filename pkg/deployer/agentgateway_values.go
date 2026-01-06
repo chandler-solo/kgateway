@@ -45,4 +45,15 @@ type AgentgatewayHelmGateway struct {
 	// update the agentgatewayParameters API to provide validated,
 	// better-tested alternatives.
 	RawConfig map[string]any `json:"rawConfig,omitempty"`
+
+	// Shutdown configures graceful shutdown timing
+	Shutdown *AgentgatewayShutdown `json:"shutdown,omitempty"`
+}
+
+// AgentgatewayShutdown configures graceful shutdown timing for agentgateway.
+type AgentgatewayShutdown struct {
+	// Min is the minimum time (in seconds) to wait before allowing termination.
+	Min *int64 `json:"min,omitempty"`
+	// Max is the maximum time (in seconds) to wait before allowing termination.
+	Max *int64 `json:"max,omitempty"`
 }

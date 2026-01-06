@@ -92,6 +92,15 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 
 	// Apply explicit environment variables last so they can override logging.level.
 	res.Env = mergeEnvVars(res.Env, configs.Env)
+
+	// Apply shutdown configuration
+	if configs.Shutdown != nil {
+		if res.Shutdown == nil {
+			res.Shutdown = &deployer.AgentgatewayShutdown{}
+		}
+		res.Shutdown.Min = ptr.To(configs.Shutdown.Min)
+		res.Shutdown.Max = ptr.To(configs.Shutdown.Max)
+	}
 }
 
 // mergeEnvVars merges two slices of environment variables.
