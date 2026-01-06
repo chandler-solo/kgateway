@@ -113,7 +113,8 @@ func TestHelmChartTemplate(t *testing.T) {
 				require.NoError(t, err, "helm chart not found at %s", absHelmChartPath)
 
 				// Build helm template command args
-				args := []string{"template", "test-release", absHelmChartPath}
+				// Explicitly set namespace to ensure deterministic output regardless of kubectl context
+				args := []string{"template", "test-release", absHelmChartPath, "--namespace", "default"}
 
 				// If we have custom values, write them to a temp file
 				if vc.valuesYAML != "" {
