@@ -894,7 +894,7 @@ func (s *DiscoveryServer) removeCon(conID string) {
 // It ensures that at minimum minQuiet time has elapsed since the last event before processing it.
 // It also ensures that at most maxDelay is elapsed between receiving an event and processing it.
 func (s *DiscoveryServer) handleUpdates(stopCh <-chan struct{}) {
-	debounce(s.pushChannel, stopCh, s.DebounceOptions, s.Push, s.CommittedUpdates)
+	debounce(s.pushChannel, stopCh, s.DebounceOptions, s.Push, s.InboundUpdates, s.CommittedUpdates)
 }
 
 func (s *DiscoveryServer) adsClientCount() int {
@@ -906,6 +906,16 @@ func (s *DiscoveryServer) adsClientCount() int {
 // Shutdown shuts down DiscoveryServer components.
 func (s *DiscoveryServer) Shutdown() {
 	s.pushQueue.ShutDown()
+}
+
+// EnsureSynced waits until all pending debounce events have been processed.
+// This is useful in tests to ensure that no spurious pushes will occur after
+// connecting a client.
+func (s *DiscoveryServer) EnsureSynced() {
+	target := s.InboundUpdates.Load()
+	for s.CommittedUpdates.Load() < target {
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func (s *DiscoveryServer) Start(stopCh <-chan struct{}) {
@@ -992,7 +1002,7 @@ type DebounceOptions struct {
 }
 
 // The debounce helper function is implemented to enable mocking
-func debounce(ch chan *PushRequest, stopCh <-chan struct{}, opts DebounceOptions, pushFn func(req *PushRequest), updateSent *atomic.Int64) {
+func debounce(ch chan *PushRequest, stopCh <-chan struct{}, opts DebounceOptions, pushFn func(req *PushRequest), updateReceived, updateSent *atomic.Int64) {
 	var timeChan <-chan time.Time
 	var startDebounce time.Time
 	var lastConfigUpdateTime time.Time
@@ -1051,6 +1061,7 @@ func debounce(ch chan *PushRequest, stopCh <-chan struct{}, opts DebounceOptions
 			free = true
 			pushWorker()
 		case r := <-ch:
+			updateReceived.Inc()
 			lastConfigUpdateTime = time.Now()
 			if debouncedEvents == 0 {
 				timeChan = time.After(opts.DebounceAfter)
