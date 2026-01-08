@@ -32,6 +32,7 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/shared"
+	"github.com/kgateway-dev/kgateway/v2/pkg/agentgateway/jwks_url"
 	"github.com/kgateway-dev/kgateway/v2/pkg/agentgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
@@ -281,7 +282,7 @@ func translatePolicyToAgw(
 	agwPolicies := make([]AgwPolicy, 0)
 	var errs []error
 
-	frontend, err := translateFrontendPolicyToAgw(policy, policyTarget)
+	frontend, err := translateFrontendPolicyToAgw(ctx, policy, policyTarget)
 	agwPolicies = append(agwPolicies, frontend...)
 	if err != nil {
 		errs = append(errs, err)
@@ -532,7 +533,12 @@ func processJWTAuthenticationPolicy(ctx PolicyCtx, jwt *agentgateway.JWTAuthenti
 			continue
 		}
 		if r := pp.JWKS.Remote; r != nil {
-			inline, err := resolveRemoteJWKSInline(ctx, pp.JWKS.Remote.JwksUri)
+			jwksUrl, _, err := jwks_url.JwksUrlBuilderFactory().BuildJwksUrlAndTlsConfig(ctx.Krt, policy.Name, policy.Namespace, pp.JWKS.Remote)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			inline, err := resolveRemoteJWKSInline(ctx, jwksUrl)
 			if err != nil {
 				errs = append(errs, err)
 				continue
@@ -825,9 +831,30 @@ func processExtAuthPolicy(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build extAuth: %v", err)
 	}
+
 	spec := &api.TrafficPolicySpec_ExternalAuth{
-		Target:  be,
-		Context: extAuth.ContextExtensions,
+		Target: be,
+	}
+	if g := extAuth.GRPC; g != nil {
+		p := &api.TrafficPolicySpec_ExternalAuth_GRPCProtocol{
+			Context:  g.ContextExtensions,
+			Metadata: castMap(g.RequestMetadata),
+		}
+		spec.Protocol = &api.TrafficPolicySpec_ExternalAuth_Grpc{
+			Grpc: p,
+		}
+	} else if h := extAuth.HTTP; h != nil {
+		p := &api.TrafficPolicySpec_ExternalAuth_HTTPProtocol{
+			Path:                   castPtr(h.Path),
+			Redirect:               castPtr(h.Redirect),
+			IncludeResponseHeaders: h.AllowedResponseHeaders,
+			AddRequestHeaders:      castMap(h.AddRequestHeaders),
+			Metadata:               castMap(h.ResponseMetadata),
+		}
+		spec.IncludeRequestHeaders = h.AllowedRequestHeaders
+		spec.Protocol = &api.TrafficPolicySpec_ExternalAuth_Http{
+			Http: p,
+		}
 	}
 	if b := extAuth.ForwardBody; b != nil {
 		spec.IncludeRequestBody = &api.TrafficPolicySpec_ExternalAuth_BodyOptions{
@@ -875,8 +902,11 @@ func processExtProcPolicy(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build extProc: %v", err)
 	}
+
 	spec := &api.TrafficPolicySpec_ExtProc{
 		Target: be,
+		// always use FAIL_CLOSED to prevent silent data loss when ExtProc is unavailable.
+		FailureMode: api.TrafficPolicySpec_ExtProc_FAIL_CLOSED,
 	}
 
 	extprocPolicy := &api.Policy{
@@ -918,6 +948,24 @@ func cast[T ~string](items []T) []string {
 	return slices.Map(items, func(item T) string {
 		return string(item)
 	})
+}
+
+func castMap[T ~string](items map[string]T) map[string]string {
+	if items == nil {
+		return nil
+	}
+	res := make(map[string]string, len(items))
+	for k, v := range items {
+		res[k] = string(v)
+	}
+	return res
+}
+
+func castPtr[T ~string](item *T) *string {
+	if item == nil {
+		return nil
+	}
+	return ptr.Of(string(*item))
 }
 
 // processAuthorizationPolicy processes Authorization configuration and creates corresponding Agw policies
@@ -1157,7 +1205,7 @@ func buildBackendRef(ctx PolicyCtx, ref gwv1.BackendObjectReference, defaultNS s
 			},
 			Port: uint32(*port), //nolint:gosec // G115: Gateway API PortNumber is int32 with validation 1-65535, always safe
 		}, nil
-	case wellknown.BackendGVK.GroupKind():
+	case wellknown.AgentgatewayBackendGVK.GroupKind():
 		key := namespace + "/" + string(ref.Name)
 		be := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.Collections.Backends, krt.FilterKey(key)))
 		if be == nil {

@@ -122,6 +122,14 @@ func (gp *GatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 // When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
 // are applied in order: GatewayClass first, then Gateway on top.
 func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
+	// Check if override implements ObjectPostProcessor and delegate to it
+	if gp.helmValuesGeneratorOverride != nil {
+		if postProcessor, ok := gp.helmValuesGeneratorOverride.(deployer.ObjectPostProcessor); ok {
+			return postProcessor.PostProcessObjects(ctx, obj, rendered)
+		}
+	}
+
+	// Fall back to default implementation
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok || gp.agwHelmValuesGenerator == nil {
 		return nil
@@ -478,6 +486,10 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	// service values
 	gateway.Service = deployer.GetServiceValues(svcConfig)
+	// Extract loadBalancerIP from Gateway.spec.addresses and set it on the service if service type is LoadBalancer
+	if err := deployer.SetLoadBalancerIPFromGateway(gw, gateway.Service); err != nil {
+		return nil, err
+	}
 	// serviceaccount values
 	gateway.ServiceAccount = deployer.GetServiceAccountValues(svcAccountConfig)
 	// pod template values

@@ -103,6 +103,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("frontendtlsconfig with verify subject alt names missing ca certificate", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "frontendtlsconfig/verify-subject-alt-names-missing-ca.yaml",
+			outputFile: "frontendtlsconfig/verify-subject-alt-names-missing-ca.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("http gateway with per connection buffer limit", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "gateway-per-conn-buf-lim/gateway.yaml",
@@ -325,6 +336,17 @@ func TestBasic(t *testing.T) {
 			outputFile: "traffic-policy/extauth-http-full-config.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "infra",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy ExtAuth with cross-namespace GatewayExtension", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "traffic-policy/extauth-cross-namespace.yaml",
+			outputFile: "traffic-policy/extauth-cross-namespace.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
 				Name:      "example-gateway",
 			},
 		})
@@ -578,6 +600,17 @@ func TestBasic(t *testing.T) {
 			outputFile: "traffic-policy/extproc-full-config.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "infra",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy ExtProc with cross-namespace GatewayExtension", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "traffic-policy/extproc-cross-namespace.yaml",
+			outputFile: "traffic-policy/extproc-cross-namespace.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
 				Name:      "example-gateway",
 			},
 		})
@@ -1305,6 +1338,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("ListenerPolicy with maxRequestHeadersKb", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/max-request-headers-kb.yaml",
+			outputFile: "listener-policy-http/max-request-headers-kb.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("Service with appProtocol=kubernetes.io/h2c", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "backend-protocol/svc-h2c.yaml",
@@ -1641,6 +1685,17 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "traffic-policy/rate-limit-full-config.yaml",
 			outputFile: "traffic-policy/rate-limit-full-config.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy RateLimit with cross-namespace GatewayExtension", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "traffic-policy/ratelimit-cross-namespace.yaml",
+			outputFile: "traffic-policy/ratelimit-cross-namespace.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
