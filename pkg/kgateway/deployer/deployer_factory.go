@@ -19,7 +19,7 @@ func NewEnvoyGatewayDeployer(
 	if err != nil {
 		return nil, err
 	}
-	return deployer.NewEnvoyDeployer(
+	return deployer.NewDeployer(
 		wellknown.DefaultGatewayControllerName,
 		scheme, client, envoyChart, gwParams.EnvoyHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
 }
@@ -35,7 +35,7 @@ func NewAgentgatewayDeployer(
 	if err != nil {
 		return nil, err
 	}
-	return deployer.NewAgentgatewayDeployer(
+	return deployer.NewDeployer(
 		wellknown.DefaultAgwControllerName,
 		scheme, client, agentgatewayChart, gwParams.AgentgatewayParametersHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
 }

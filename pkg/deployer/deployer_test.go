@@ -2663,7 +2663,7 @@ var _ = Describe("DeployObjs", func() {
 	getEnvoyDeployer := func(fc apiclient.Client, patcher deployer.Patcher) deployer.Deployer {
 		envoyChart, err := deployerinternal.LoadEnvoyChart()
 		Expect(err).ToNot(HaveOccurred())
-		return deployer.NewEnvoyDeployer(
+		return deployer.NewDeployer(
 			wellknown.DefaultGatewayControllerName,
 			scheme,
 			fc,
@@ -2677,7 +2677,7 @@ var _ = Describe("DeployObjs", func() {
 	getAgentgatewayDeployer := func(fc apiclient.Client, patcher deployer.Patcher) deployer.Deployer {
 		agwChart, err := deployerinternal.LoadAgentgatewayChart()
 		Expect(err).ToNot(HaveOccurred())
-		return deployer.NewAgentgatewayDeployer(
+		return deployer.NewDeployer(
 			wellknown.DefaultAgwControllerName,
 			scheme,
 			fc,

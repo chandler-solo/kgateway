@@ -60,6 +60,8 @@ type Deployer interface {
 	SetNamespaceAndOwnerWithGVK(owner client.Object, ownerGVK schema.GroupVersionKind, objs []client.Object) []client.Object
 }
 
+var _ Deployer = (*baseDeployer)(nil)
+
 // baseDeployer contains shared functionality for all deployer implementations.
 type baseDeployer struct {
 	controllerName                       string
@@ -87,7 +89,8 @@ func WithGVKToGVRMapper(m map[schema.GroupVersionKind]schema.GroupVersionResourc
 	}
 }
 
-func newBaseDeployer(
+// NewDeployer creates a new deployer with the given configuration.
+func NewDeployer(
 	controllerName string,
 	scheme *runtime.Scheme,
 	client apiclient.Client,
@@ -95,8 +98,8 @@ func newBaseDeployer(
 	hvg HelmValuesGenerator,
 	helmReleaseNameAndNamespaceGenerator func(obj client.Object) (string, string),
 	opts ...Option,
-) baseDeployer {
-	d := baseDeployer{
+) Deployer {
+	d := &baseDeployer{
 		controllerName:                       controllerName,
 		scheme:                               scheme,
 		client:                               client,
@@ -106,7 +109,7 @@ func newBaseDeployer(
 		patcher:                              applyPatch,
 	}
 	for _, o := range opts {
-		o(&d)
+		o(d)
 	}
 	return d
 }
