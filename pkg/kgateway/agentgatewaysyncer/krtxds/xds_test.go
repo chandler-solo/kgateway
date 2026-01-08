@@ -53,6 +53,10 @@ func NewFakeDiscoveryServer(t *testing.T, initialAddress ...agentgatewaysyncer.A
 	xdsAddress.WaitUntilSynced(stop)
 	xdsResource.WaitUntilSynced(stop)
 	kube.WaitForCacheSync("test", stop, s.IsServerReady)
+	// Wait for the initial data's debounce to complete before connecting.
+	// If we connect before it fires, the client will receive both the request
+	// response AND the debounce push, causing spurious test failures.
+	s.EnsureSynced()
 
 	buffer := 1024 * 1024
 	listener := bufconn.Listen(buffer)
@@ -122,12 +126,6 @@ func TestXDS(t *testing.T) {
 
 func TestXDSUpdate(t *testing.T) {
 	s := NewFakeDiscoveryServer(t, testWorkload1)
-
-	// Wait for the initial data's debounce to complete before connecting.
-	// If we connect before it fires, the client will receive both the request
-	// response AND the debounce push, causing spurious test failures.
-	s.EnsureSynced()
-
 	ads := s.ConnectDeltaADS().WithType(translator.TargetTypeAddressUrl)
 	ads.RequestResponseAck(nil)
 
