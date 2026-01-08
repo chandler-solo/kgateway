@@ -376,5 +376,11 @@ func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		RunAsUser:              ptr.To(int64(10101)),
 	}
 
+	gtw.Service = &deployer.AgentgatewayHelmService{}
+	// Extract loadBalancerIP from Gateway.spec.addresses and set it on the service
+	if err := deployer.SetLoadBalancerIPFromGatewayForAgentgateway(gw, gtw.Service); err != nil {
+		return nil, err
+	}
+
 	return &deployer.AgentgatewayHelmConfig{Agentgateway: gtw}, nil
 }

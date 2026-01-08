@@ -10,6 +10,10 @@ type AgentgatewayHelmConfig struct {
 	Agentgateway *AgentgatewayHelmGateway `json:"agentgateway,omitempty"`
 }
 
+type AgentgatewayHelmService struct {
+	LoadBalancerIP *string `json:"loadBalancerIP,omitempty"`
+}
+
 type AgentgatewayHelmGateway struct {
 	// naming
 	Name               *string           `json:"name,omitempty"`
@@ -19,8 +23,9 @@ type AgentgatewayHelmGateway struct {
 	GatewayAnnotations map[string]string `json:"gatewayAnnotations,omitempty"`
 	GatewayLabels      map[string]string `json:"gatewayLabels,omitempty"`
 
-	// deployment values
+	// deployment/service values
 	Ports []HelmPort `json:"ports,omitempty"`
+	Service *AgentgatewayHelmService `json:"service,omitempty"`
 
 	// pod template values
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
