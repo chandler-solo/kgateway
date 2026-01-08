@@ -172,26 +172,20 @@ func (dt DeployerTester) RunHelmChartTest(
 	}
 
 	// Determine which deployer to use based on the GatewayClass
-	var deployer *pkgdeployer.Deployer
+	var deployer pkgdeployer.Deployer
 	var err error
 	isAgentgateway := dt.isAgentgatewayClass(gtw, commonObjs)
 	if isAgentgateway {
 		deployer, err = internaldeployer.NewAgentgatewayDeployer(
-			dt.ControllerName,
-			dt.AgwControllerName,
-			dt.AgwClassName,
 			scheme,
 			fakeClient,
-			gwParams.AgentgatewayParametersHelmValuesGenerator(),
+			gwParams,
 		)
 	} else {
 		deployer, err = internaldeployer.NewEnvoyGatewayDeployer(
-			dt.ControllerName,
-			dt.AgwControllerName,
-			dt.AgwClassName,
 			scheme,
 			fakeClient,
-			gwParams.EnvoyHelmValuesGenerator(),
+			gwParams,
 		)
 	}
 	assert.NoError(t, err, "error creating gateway deployer")

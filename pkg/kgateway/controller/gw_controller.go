@@ -51,8 +51,8 @@ var logger = logging.New("gateway-controller")
 var _ manager.LeaderElectionRunnable = (*gatewayReconciler)(nil)
 
 type gatewayReconciler struct {
-	envoyDeployer     *deployer.Deployer
-	agwDeployer       *deployer.Deployer
+	envoyDeployer     deployer.Deployer
+	agwDeployer       deployer.Deployer
 	gwParams          *internaldeployer.GatewayParameters
 	scheme            *runtime.Scheme
 	controllerName    string
@@ -77,8 +77,8 @@ type gatewayReconciler struct {
 
 func NewGatewayReconciler(
 	cfg GatewayConfig,
-	envoyDeployer *deployer.Deployer,
-	agwDeployer *deployer.Deployer,
+	envoyDeployer deployer.Deployer,
+	agwDeployer deployer.Deployer,
 	gwParams *internaldeployer.GatewayParameters,
 	controllerExtension pluginsdk.GatewayControllerExtension,
 ) *gatewayReconciler {
@@ -359,7 +359,7 @@ func (r *gatewayReconciler) Reconcile(req types.NamespacedName) (rErr error) {
 		return nil
 	}
 
-	var d *deployer.Deployer
+	var d deployer.Deployer
 	if isEnvoyGateway && r.enableEnvoy {
 		d = r.envoyDeployer
 	} else if isAgwGateway && r.enableAgw {

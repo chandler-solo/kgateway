@@ -116,17 +116,14 @@ func watchGw(
 	}
 
 	// Create deployers only for enabled controllers
-	var envoyDeployer, agwDeployer *deployer.Deployer
+	var envoyDeployer, agwDeployer deployer.Deployer
 	var err error
 
 	if cfg.EnableEnvoy {
 		envoyDeployer, err = internaldeployer.NewEnvoyGatewayDeployer(
-			cfg.ControllerName,
-			cfg.AgwControllerName,
-			cfg.AgentgatewayClassName,
 			cfg.Mgr.GetScheme(),
 			cfg.Client,
-			gwParams.EnvoyHelmValuesGenerator(),
+			gwParams,
 		)
 		if err != nil {
 			return err
@@ -135,12 +132,9 @@ func watchGw(
 
 	if cfg.EnableAgentgateway {
 		agwDeployer, err = internaldeployer.NewAgentgatewayDeployer(
-			cfg.ControllerName,
-			cfg.AgwControllerName,
-			cfg.AgentgatewayClassName,
 			cfg.Mgr.GetScheme(),
 			cfg.Client,
-			gwParams.AgentgatewayParametersHelmValuesGenerator(),
+			gwParams,
 		)
 		if err != nil {
 			return err

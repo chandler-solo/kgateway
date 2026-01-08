@@ -22,8 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	inf "sigs.k8s.io/gateway-api-inference-extension/api/v1"
-	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
@@ -53,11 +51,18 @@ type ImageInfo struct {
 // Custom patcher; used for testing since SSA does not work with Dynamic fake client
 type Patcher func(client apiclient.Client, fieldManager string, gvr schema.GroupVersionResource, name string, namespace string, data []byte, subresources ...string) error
 
-// A Deployer is responsible for deploying proxies and inference extensions.
-type Deployer struct {
+// Deployer is responsible for deploying proxies and inference extensions.
+type Deployer interface {
+	GetObjsToDeploy(ctx context.Context, obj client.Object) ([]client.Object, error)
+	DeployObjs(ctx context.Context, objs []client.Object) error
+	SetNamespaceAndOwner(owner client.Object, objs []client.Object) []client.Object
+	DeployObjsWithSource(ctx context.Context, objs []client.Object, sourceObj client.Object) error
+	SetNamespaceAndOwnerWithGVK(owner client.Object, ownerGVK schema.GroupVersionKind, objs []client.Object) []client.Object
+}
+
+// baseDeployer contains shared functionality for all deployer implementations.
+type baseDeployer struct {
 	controllerName                       string
-	agwControllerName                    string
-	agwGatewayClassName                  string
 	chart                                *chart.Chart
 	scheme                               *runtime.Scheme
 	client                               apiclient.Client
@@ -67,36 +72,32 @@ type Deployer struct {
 	patcher                              Patcher
 }
 
-type Option func(*Deployer)
+// Option configures a Deployer.
+type Option func(*baseDeployer)
 
 func WithPatcher(p Patcher) Option {
-	return func(d *Deployer) {
+	return func(d *baseDeployer) {
 		d.patcher = p
 	}
 }
 
 func WithGVKToGVRMapper(m map[schema.GroupVersionKind]schema.GroupVersionResource) Option {
-	return func(d *Deployer) {
+	return func(d *baseDeployer) {
 		d.gvkToGVRMapper = m
 	}
 }
 
-// NewDeployer creates a new gateway/inference pool/etc deployer with a single chart.
-// TODO [danehans]: Reloading the chart for every reconciliation is inefficient.
-// See https://github.com/kgateway-dev/kgateway/issues/10672 for details.
-func NewDeployer(
-	controllerName, agwControllerName, agwGatewayClassName string,
+func newBaseDeployer(
+	controllerName string,
 	scheme *runtime.Scheme,
 	client apiclient.Client,
 	chart *chart.Chart,
 	hvg HelmValuesGenerator,
 	helmReleaseNameAndNamespaceGenerator func(obj client.Object) (string, string),
 	opts ...Option,
-) *Deployer {
-	d := &Deployer{
+) baseDeployer {
+	d := baseDeployer{
 		controllerName:                       controllerName,
-		agwControllerName:                    agwControllerName,
-		agwGatewayClassName:                  agwGatewayClassName,
 		scheme:                               scheme,
 		client:                               client,
 		chart:                                chart,
@@ -105,7 +106,7 @@ func NewDeployer(
 		patcher:                              applyPatch,
 	}
 	for _, o := range opts {
-		o(d)
+		o(&d)
 	}
 	return d
 }
@@ -135,7 +136,7 @@ func AgentgatewayJsonConvert(in *AgentgatewayHelmConfig, out any) error {
 	return json.Unmarshal(b, out)
 }
 
-func (d *Deployer) RenderChartToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
+func (d *baseDeployer) RenderChartToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
 	objs, err := d.RenderToObjects(ns, name, vals)
 	if err != nil {
 		return nil, err
@@ -151,7 +152,7 @@ func (d *Deployer) RenderChartToObjects(ns, name string, vals map[string]any) ([
 // RenderToObjects relies on a `helm install` to render the Chart with the injected values
 // It returns the list of Objects that are rendered, and an optional error if rendering failed,
 // or converting the rendered manifests to objects failed.
-func (d *Deployer) RenderToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
+func (d *baseDeployer) RenderToObjects(ns, name string, vals map[string]any) ([]client.Object, error) {
 	manifest, err := d.RenderManifest(ns, name, vals)
 	if err != nil {
 		return nil, err
@@ -164,7 +165,7 @@ func (d *Deployer) RenderToObjects(ns, name string, vals map[string]any) ([]clie
 	return objs, nil
 }
 
-func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte, error) {
+func (d *baseDeployer) RenderManifest(ns, name string, vals map[string]any) ([]byte, error) {
 	mem := driver.NewMemory()
 	mem.SetNamespace(ns)
 	cfg := &action.Configuration{
@@ -200,7 +201,7 @@ func (d *Deployer) RenderManifest(ns, name string, vals map[string]any) ([]byte,
 // obj can currently be a pointer to a Gateway (https://github.com/kubernetes-sigs/gateway-api/blob/main/apis/v1/gateway_types.go#L35) or
 //
 //	a pointer to an InferencePool (https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/main/api/v1alpha2/inferencepool_types.go#L30)
-func (d *Deployer) GetObjsToDeploy(ctx context.Context, obj client.Object) ([]client.Object, error) {
+func (d *baseDeployer) GetObjsToDeploy(ctx context.Context, obj client.Object) ([]client.Object, error) {
 	vals, err := d.helmValues.GetValues(ctx, obj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get helm values for object %s %s/%s: %w", obj.GetObjectKind().GroupVersionKind().String(), obj.GetNamespace(), obj.GetName(), err)
@@ -234,12 +235,12 @@ func (d *Deployer) GetObjsToDeploy(ctx context.Context, obj client.Object) ([]cl
 // Deprecated: use SetNamespaceAndOwnerWithGVK
 // Using this without specifying the GVK breaks with client-go clients which do not set the
 // GVK in the TypeMeta after the initial List()
-func (d *Deployer) SetNamespaceAndOwner(owner client.Object, objs []client.Object) []client.Object {
+func (d *baseDeployer) SetNamespaceAndOwner(owner client.Object, objs []client.Object) []client.Object {
 	return d.SetNamespaceAndOwnerWithGVK(owner, owner.GetObjectKind().GroupVersionKind(), objs)
 }
 
 // SetNamespaceAndOwnerWithGVK sets namespace and ownerRef for rendered objects using the owner GVK
-func (d *Deployer) SetNamespaceAndOwnerWithGVK(owner client.Object, ownerGVK schema.GroupVersionKind, objs []client.Object) []client.Object {
+func (d *baseDeployer) SetNamespaceAndOwnerWithGVK(owner client.Object, ownerGVK schema.GroupVersionKind, objs []client.Object) []client.Object {
 	// Ensure that each namespaced rendered object has its namespace and ownerRef set.
 	for _, renderedObj := range objs {
 		gvk := renderedObj.GetObjectKind().GroupVersionKind()
@@ -268,43 +269,11 @@ func (d *Deployer) SetNamespaceAndOwnerWithGVK(owner client.Object, ownerGVK sch
 	return objs
 }
 
-// getControllerNameForGatewayClass looks up the GatewayClass and returns the controller name
-// from its spec, falling back to class name comparison if the lookup fails.
-func (d *Deployer) getControllerNameForGatewayClass(ctx context.Context, gatewayClassName string) string {
-	gwc, err := d.client.GatewayAPI().GatewayV1().GatewayClasses().Get(ctx, gatewayClassName, metav1.GetOptions{})
-	if err != nil {
-		logger.Debug("failed to look up GatewayClass, falling back to class name comparison",
-			"gateway_class_name", gatewayClassName, "error", err)
-		if gatewayClassName == d.agwGatewayClassName {
-			return d.agwControllerName
-		}
-		return d.controllerName
-	}
-	if string(gwc.Spec.ControllerName) == d.agwControllerName {
-		return d.agwControllerName
-	}
-	return d.controllerName
-}
-
-func (d *Deployer) DeployObjs(ctx context.Context, objs []client.Object) error {
+func (d *baseDeployer) DeployObjs(ctx context.Context, objs []client.Object) error {
 	return d.DeployObjsWithSource(ctx, objs, nil)
 }
 
-func (d *Deployer) DeployObjsWithSource(ctx context.Context, objs []client.Object, sourceObj client.Object) error {
-	// Determine the correct controller name based on the source object
-	controllerName := d.controllerName
-	if sourceObj != nil {
-		if gw, ok := sourceObj.(*gwv1.Gateway); ok {
-			controllerName = d.getControllerNameForGatewayClass(ctx, string(gw.Spec.GatewayClassName))
-		}
-		// For InferencePool objects, use the agwControllerName if this deployer was configured
-		// with the agent gateway controller name as the primary controller
-		if _, ok := sourceObj.(*inf.InferencePool); ok && d.controllerName == d.agwControllerName {
-			controllerName = d.agwControllerName
-		}
-		// For other object types, use the default controllerName
-	}
-
+func (d *baseDeployer) DeployObjsWithSource(ctx context.Context, objs []client.Object, _ client.Object) error {
 	for _, obj := range objs {
 		u, err := kubeutils.ToUnstructured(obj)
 		if err != nil {
@@ -364,14 +333,14 @@ func (d *Deployer) DeployObjsWithSource(ctx context.Context, objs []client.Objec
 		if err != nil {
 			return err
 		}
-		if err := d.patcher(d.client, controllerName, gvr, u.GetName(), u.GetNamespace(), js); err != nil {
+		if err := d.patcher(d.client, d.controllerName, gvr, u.GetName(), u.GetNamespace(), js); err != nil {
 			return fmt.Errorf("failed to apply object %s %s/%s: %w", u.GetObjectKind().GroupVersionKind().String(), u.GetNamespace(), u.GetName(), err)
 		}
 	}
 	return nil
 }
 
-func (d *Deployer) gvkToGVR(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
+func (d *baseDeployer) gvkToGVR(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
 	// 1. Try our lib
 	gvr, err := wellknown.GVKToGVR(gvk)
 	if err == nil {
@@ -386,7 +355,7 @@ func (d *Deployer) gvkToGVR(gvk schema.GroupVersionKind) (schema.GroupVersionRes
 	return schema.GroupVersionResource{}, fmt.Errorf("unknown GVK: %v", gvk)
 }
 
-func (d *Deployer) GetGvksToWatch(ctx context.Context, vals map[string]any) ([]schema.GroupVersionKind, error) {
+func (d *baseDeployer) GetGvksToWatch(ctx context.Context, vals map[string]any) ([]schema.GroupVersionKind, error) {
 	// The deployer watches all resources (Deployment, Service, ServiceAccount, and ConfigMap)
 	// that it creates via the deployer helm chart.
 	//

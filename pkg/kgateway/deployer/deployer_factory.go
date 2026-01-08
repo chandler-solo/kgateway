@@ -5,38 +5,37 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
 // NewEnvoyGatewayDeployer creates a deployer for Envoy-based gateways.
 func NewEnvoyGatewayDeployer(
-	controllerName, agwControllerName, agwGatewayClassName string,
 	scheme *runtime.Scheme,
 	client apiclient.Client,
-	hvg deployer.HelmValuesGenerator,
+	gwParams *GatewayParameters,
 	opts ...deployer.Option,
-) (*deployer.Deployer, error) {
+) (deployer.Deployer, error) {
 	envoyChart, err := LoadEnvoyChart()
 	if err != nil {
 		return nil, err
 	}
-	return deployer.NewDeployer(
-		controllerName, agwControllerName, agwGatewayClassName,
-		scheme, client, envoyChart, hvg, GatewayReleaseNameAndNamespace, opts...), nil
+	return deployer.NewEnvoyDeployer(
+		wellknown.DefaultGatewayControllerName,
+		scheme, client, envoyChart, gwParams.EnvoyHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
 }
 
 // NewAgentgatewayDeployer creates a deployer for agentgateway-based gateways.
 func NewAgentgatewayDeployer(
-	controllerName, agwControllerName, agwGatewayClassName string,
 	scheme *runtime.Scheme,
 	client apiclient.Client,
-	hvg deployer.HelmValuesGenerator,
+	gwParams *GatewayParameters,
 	opts ...deployer.Option,
-) (*deployer.Deployer, error) {
+) (deployer.Deployer, error) {
 	agentgatewayChart, err := LoadAgentgatewayChart()
 	if err != nil {
 		return nil, err
 	}
-	return deployer.NewDeployer(
-		controllerName, agwControllerName, agwGatewayClassName,
-		scheme, client, agentgatewayChart, hvg, GatewayReleaseNameAndNamespace, opts...), nil
+	return deployer.NewAgentgatewayDeployer(
+		wellknown.DefaultAgwControllerName,
+		scheme, client, agentgatewayChart, gwParams.AgentgatewayParametersHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
 }
