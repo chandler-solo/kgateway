@@ -477,7 +477,7 @@ spec:
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		// Pod should be Succeeded (completed) or Running (image pulled, command ran)
 		g.Expect(pod.Status.Phase).To(gomega.BeElementOf(corev1.PodSucceeded, corev1.PodRunning, corev1.PodFailed))
-	}).WithTimeout(5 * time.Minute).WithPolling(2 * time.Second).Should(gomega.Succeed(), "waiting for image %s to be pulled", image)
+	}).WithTimeout(5*time.Minute).WithPolling(2*time.Second).Should(gomega.Succeed(), "waiting for image %s to be pulled", image)
 
 	// Clean up the puller pod
 	_ = s.TestInstallation.Actions.Kubectl().RunCommand(s.Ctx, "delete", "pod", podName, "-n", "default", "--ignore-not-found")
