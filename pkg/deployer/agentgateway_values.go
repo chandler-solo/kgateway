@@ -24,20 +24,14 @@ type AgentgatewayHelmGateway struct {
 	GatewayLabels      map[string]string `json:"gatewayLabels,omitempty"`
 
 	// deployment/service values
-	Ports []HelmPort `json:"ports,omitempty"`
+	Ports   []HelmPort               `json:"ports,omitempty"`
 	Service *AgentgatewayHelmService `json:"service,omitempty"`
 
-	// pod template values
-	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
-	StartupProbe       *corev1.Probe              `json:"startupProbe,omitempty"`
-	ReadinessProbe     *corev1.Probe              `json:"readinessProbe,omitempty"`
-
 	// container values
-	Image           *HelmImage                   `json:"image,omitempty"`
-	Resources       *corev1.ResourceRequirements `json:"resources,omitempty"`
-	SecurityContext *corev1.SecurityContext      `json:"securityContext,omitempty"`
-	Env             []corev1.EnvVar              `json:"env,omitempty"`
-	AgwXds          *HelmXds                     `json:"agwXds,omitempty"`
+	Image     *HelmImage                   `json:"image,omitempty"`
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	Env       []corev1.EnvVar              `json:"env,omitempty"`
+	AgwXds    *HelmXds                     `json:"agwXds,omitempty"`
 
 	// LogFormat specifies the logging format ("json" or "text")
 	LogFormat *string `json:"logFormat,omitempty"`

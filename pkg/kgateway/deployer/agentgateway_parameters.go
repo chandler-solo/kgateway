@@ -335,24 +335,6 @@ func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmVa
 		PullPolicy: ptr.To(""),
 	}
 
-	gtw.PodSecurityContext = &corev1.PodSecurityContext{
-		Sysctls: []corev1.Sysctl{
-			{
-				Name:  "net.ipv4.ip_unprivileged_port_start",
-				Value: "0",
-			},
-		},
-	}
-	gtw.SecurityContext = &corev1.SecurityContext{
-		AllowPrivilegeEscalation: ptr.To(false),
-		Capabilities: &corev1.Capabilities{
-			Drop: []corev1.Capability{"ALL"},
-		},
-		ReadOnlyRootFilesystem: ptr.To(true),
-		RunAsNonRoot:           ptr.To(true),
-		RunAsUser:              ptr.To(int64(10101)),
-	}
-
 	gtw.Service = &deployer.AgentgatewayHelmService{}
 	// Extract loadBalancerIP from Gateway.spec.addresses and set it on the service
 	if err := deployer.SetLoadBalancerIPFromGatewayForAgentgateway(gw, gtw.Service); err != nil {
