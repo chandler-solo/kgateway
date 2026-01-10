@@ -311,6 +311,139 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 					"HPA should have CPU utilization target from overlay spec")
 			},
 		},
+		// Envoy (kgateway) overlay test cases
+		{
+			Name:      "envoy with PodDisruptionBudget overlay",
+			InputFile: "envoy-pdb-overlay",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: PodDisruptionBudget",
+					"PDB should be created when podDisruptionBudget overlay is specified")
+				assert.Contains(t, outputYaml, "pdb-label: from-overlay",
+					"PDB should have label from overlay")
+				assert.Contains(t, outputYaml, "pdb-annotation: from-overlay",
+					"PDB should have annotation from overlay")
+				assert.Contains(t, outputYaml, "minAvailable: 1",
+					"PDB should have minAvailable from overlay spec")
+			},
+		},
+		{
+			Name:      "envoy with HorizontalPodAutoscaler overlay",
+			InputFile: "envoy-hpa-overlay",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: HorizontalPodAutoscaler",
+					"HPA should be created when horizontalPodAutoscaler overlay is specified")
+				assert.Contains(t, outputYaml, "hpa-label: from-overlay",
+					"HPA should have label from overlay")
+				assert.Contains(t, outputYaml, "hpa-annotation: from-overlay",
+					"HPA should have annotation from overlay")
+				assert.Contains(t, outputYaml, "minReplicas: 2",
+					"HPA should have minReplicas from overlay spec")
+				assert.Contains(t, outputYaml, "maxReplicas: 10",
+					"HPA should have maxReplicas from overlay spec")
+				assert.Contains(t, outputYaml, "averageUtilization: 80",
+					"HPA should have CPU utilization target from overlay spec")
+			},
+		},
+		{
+			Name:      "envoy with VerticalPodAutoscaler overlay",
+			InputFile: "envoy-vpa-overlay",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: VerticalPodAutoscaler",
+					"VPA should be created when verticalPodAutoscaler overlay is specified")
+				assert.Contains(t, outputYaml, "vpa-label: from-overlay",
+					"VPA should have label from overlay")
+				assert.Contains(t, outputYaml, "vpa-annotation: from-overlay",
+					"VPA should have annotation from overlay")
+				assert.Contains(t, outputYaml, "updateMode: Auto",
+					"VPA should have updateMode from overlay spec")
+				assert.Contains(t, outputYaml, "containerName: envoy",
+					"VPA should have containerName from overlay spec")
+			},
+		},
+		{
+			Name:      "envoy strategic-merge-patch tests",
+			InputFile: "envoy-strategic-merge-patch",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				// Deployment overlay metadata applied
+				assert.Contains(t, outputYaml, "deployment-overlay-annotation: from-overlay",
+					"deployment annotation from overlay should be present")
+				assert.Contains(t, outputYaml, "deployment-overlay-label1: from-overlay",
+					"deployment label from overlay should be present")
+
+				// Service overlay metadata applied
+				assert.Contains(t, outputYaml, "service-overlay-annotation: from-overlay",
+					"service annotation from overlay should be present")
+
+				// ServiceAccount overlay metadata applied
+				assert.Contains(t, outputYaml, "sa-overlay-annotation: from-overlay",
+					"serviceaccount annotation from overlay should be present")
+				assert.Contains(t, outputYaml, "sa-overlay-label: from-overlay",
+					"serviceaccount label from overlay should be present")
+
+				// $patch: replace on volumes - only custom-config volume in volumes list
+				assert.Contains(t, outputYaml, "name: my-custom-config",
+					"custom configmap from $patch: replace should be present")
+			},
+		},
+		{
+			Name:      "envoy both GWC and GW have overlays",
+			InputFile: "envoy-both-gwc-and-gw-have-overlays",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				// GWC annotations/labels should be present
+				assert.Contains(t, outputYaml, "gwc-annotation: from-gatewayclass",
+					"GWC annotation should be present")
+				assert.Contains(t, outputYaml, "gwc-label: from-gatewayclass",
+					"GWC label should be present")
+
+				// GW annotations/labels should be present
+				assert.Contains(t, outputYaml, "gw-annotation: from-gateway",
+					"GW annotation should be present")
+				assert.Contains(t, outputYaml, "gw-label: from-gateway",
+					"GW label should be present")
+
+				// Shared annotation/label should be from Gateway (applied second, overrides GWC)
+				assert.Contains(t, outputYaml, "shared-annotation: from-gateway",
+					"shared annotation should be from Gateway (overrides GWC)")
+				assert.Contains(t, outputYaml, "shared-label: from-gateway",
+					"shared label should be from Gateway (overrides GWC)")
+
+				// PDB from GWC should be present
+				assert.Contains(t, outputYaml, "kind: PodDisruptionBudget",
+					"PDB from GWC should be created")
+				assert.Contains(t, outputYaml, "pdb-source: gatewayclass",
+					"PDB should have label from GWC overlay")
+
+				// HPA from GW should be present
+				assert.Contains(t, outputYaml, "kind: HorizontalPodAutoscaler",
+					"HPA from GW should be created")
+				assert.Contains(t, outputYaml, "hpa-source: gateway",
+					"HPA should have label from GW overlay")
+			},
+		},
+		{
+			Name:      "envoy with all autoscalers (PDB, HPA, VPA)",
+			InputFile: "envoy-all-autoscalers",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: PodDisruptionBudget",
+					"PDB should be created")
+				assert.Contains(t, outputYaml, "kind: HorizontalPodAutoscaler",
+					"HPA should be created")
+				assert.Contains(t, outputYaml, "kind: VerticalPodAutoscaler",
+					"VPA should be created")
+				assert.Contains(t, outputYaml, "resource-type: pdb",
+					"PDB should have resource-type label")
+				assert.Contains(t, outputYaml, "resource-type: hpa",
+					"HPA should have resource-type label")
+				assert.Contains(t, outputYaml, "resource-type: vpa",
+					"VPA should have resource-type label")
+			},
+		},
 		// TLS test cases
 		{
 			Name:                        "basic gateway with TLS enabled",

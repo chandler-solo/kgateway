@@ -9,38 +9,135 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
-// OverlayApplier applies AgentgatewayParameters overlays to rendered k8s objects
-// using strategic merge patch semantics.
+// ObjectMetadata contains labels and annotations for metadata overlays.
+type ObjectMetadata struct {
+	Labels      map[string]string
+	Annotations map[string]string
+}
+
+// ResourceOverlay is a generic overlay that can be applied to a Kubernetes resource.
+type ResourceOverlay struct {
+	Metadata *ObjectMetadata
+	Spec     *apiextensionsv1.JSON
+}
+
+// ResourceOverlays contains all the overlays that can be applied to rendered objects.
+type ResourceOverlays struct {
+	Deployment              *ResourceOverlay
+	Service                 *ResourceOverlay
+	ServiceAccount          *ResourceOverlay
+	PodDisruptionBudget     *ResourceOverlay
+	HorizontalPodAutoscaler *ResourceOverlay
+	VerticalPodAutoscaler   *ResourceOverlay
+}
+
+// FromAgentgatewayParameters converts AgentgatewayParameters overlays to generic ResourceOverlays.
+func FromAgentgatewayParameters(params *agentgateway.AgentgatewayParameters) *ResourceOverlays {
+	if params == nil {
+		return nil
+	}
+	overlays := params.Spec.AgentgatewayParametersOverlays
+	return &ResourceOverlays{
+		Deployment:              convertAgentgatewayOverlay(overlays.Deployment),
+		Service:                 convertAgentgatewayOverlay(overlays.Service),
+		ServiceAccount:          convertAgentgatewayOverlay(overlays.ServiceAccount),
+		PodDisruptionBudget:     convertAgentgatewayOverlay(overlays.PodDisruptionBudget),
+		HorizontalPodAutoscaler: convertAgentgatewayOverlay(overlays.HorizontalPodAutoscaler),
+		// AgentgatewayParameters does not have VPA support
+		VerticalPodAutoscaler: nil,
+	}
+}
+
+// FromGatewayParameters converts GatewayParameters overlays to generic ResourceOverlays.
+func FromGatewayParameters(params *kgateway.GatewayParameters) *ResourceOverlays {
+	if params == nil || params.Spec.Kube == nil {
+		return nil
+	}
+	overlays := params.Spec.Kube.GatewayParametersOverlays
+	return &ResourceOverlays{
+		Deployment:              convertKgatewayOverlay(overlays.DeploymentOverlay),
+		Service:                 convertKgatewayOverlay(overlays.ServiceOverlay),
+		ServiceAccount:          convertKgatewayOverlay(overlays.ServiceAccountOverlay),
+		PodDisruptionBudget:     convertKgatewayOverlay(overlays.PodDisruptionBudget),
+		HorizontalPodAutoscaler: convertKgatewayOverlay(overlays.HorizontalPodAutoscaler),
+		VerticalPodAutoscaler:   convertKgatewayOverlay(overlays.VerticalPodAutoscaler),
+	}
+}
+
+func convertAgentgatewayOverlay(overlay *agentgateway.KubernetesResourceOverlay) *ResourceOverlay {
+	if overlay == nil {
+		return nil
+	}
+	result := &ResourceOverlay{
+		Spec: overlay.Spec,
+	}
+	if overlay.Metadata != nil {
+		result.Metadata = &ObjectMetadata{
+			Labels:      overlay.Metadata.Labels,
+			Annotations: overlay.Metadata.Annotations,
+		}
+	}
+	return result
+}
+
+func convertKgatewayOverlay(overlay *kgateway.KubernetesResourceOverlay) *ResourceOverlay {
+	if overlay == nil {
+		return nil
+	}
+	result := &ResourceOverlay{
+		Spec: overlay.Spec,
+	}
+	if overlay.Metadata != nil {
+		result.Metadata = &ObjectMetadata{
+			Labels:      overlay.Metadata.Labels,
+			Annotations: overlay.Metadata.Annotations,
+		}
+	}
+	return result
+}
+
+// OverlayApplier applies overlays to rendered k8s objects using strategic merge patch semantics.
 type OverlayApplier struct {
-	params *agentgateway.AgentgatewayParameters
+	overlays *ResourceOverlays
 }
 
-// NewOverlayApplier creates a new OverlayApplier with the given parameters.
+// NewOverlayApplier creates a new OverlayApplier from AgentgatewayParameters.
 func NewOverlayApplier(params *agentgateway.AgentgatewayParameters) *OverlayApplier {
-	return &OverlayApplier{params: params}
+	return &OverlayApplier{overlays: FromAgentgatewayParameters(params)}
 }
 
-// ApplyOverlays applies the overlays from AgentgatewayParameters to the rendered objects.
-// It modifies the objects in place and may append new objects (PDB, HPA) to the slice.
+// NewOverlayApplierFromGatewayParameters creates a new OverlayApplier from GatewayParameters.
+func NewOverlayApplierFromGatewayParameters(params *kgateway.GatewayParameters) *OverlayApplier {
+	return &OverlayApplier{overlays: FromGatewayParameters(params)}
+}
+
+// NewOverlayApplierFromOverlays creates a new OverlayApplier from ResourceOverlays directly.
+func NewOverlayApplierFromOverlays(overlays *ResourceOverlays) *OverlayApplier {
+	return &OverlayApplier{overlays: overlays}
+}
+
+// ApplyOverlays applies the overlays to the rendered objects.
+// It modifies the objects in place and may append new objects (PDB, HPA, VPA) to the slice.
 // The caller must use the returned slice as the objects list may grow.
 func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, error) {
-	if a.params == nil {
+	if a.overlays == nil {
 		return objs, nil
 	}
 
-	overlays := a.params.Spec.AgentgatewayParametersOverlays
-
-	// Find the Deployment first - we need it for PDB/HPA creation
+	// Find the Deployment first - we need it for PDB/HPA/VPA creation
 	var deployment *appsv1.Deployment
 	for _, obj := range objs {
 		if dep, ok := obj.(*appsv1.Deployment); ok {
@@ -50,16 +147,21 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	}
 
 	for i, obj := range objs {
-		gvk := obj.GetObjectKind().GroupVersionKind()
-		var overlay *agentgateway.KubernetesResourceOverlay
+		var overlay *ResourceOverlay
+		var gvk schema.GroupVersionKind
 
-		switch gvk.Kind {
-		case wellknown.DeploymentGVK.Kind:
-			overlay = overlays.Deployment
-		case wellknown.ServiceGVK.Kind:
-			overlay = overlays.Service
-		case wellknown.ServiceAccountGVK.Kind:
-			overlay = overlays.ServiceAccount
+		// Use type assertions to determine the object type, as GVK may not be set
+		// on typed structs rendered from Helm charts
+		switch obj.(type) {
+		case *appsv1.Deployment:
+			overlay = a.overlays.Deployment
+			gvk = wellknown.DeploymentGVK
+		case *corev1.Service:
+			overlay = a.overlays.Service
+			gvk = wellknown.ServiceGVK
+		case *corev1.ServiceAccount:
+			overlay = a.overlays.ServiceAccount
+			gvk = wellknown.ServiceAccountGVK
 		default:
 			continue
 		}
@@ -76,8 +178,8 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	}
 
 	// Create PDB if overlay is present
-	if overlays.PodDisruptionBudget != nil && deployment != nil {
-		pdb, err := a.createPodDisruptionBudget(deployment, overlays.PodDisruptionBudget)
+	if a.overlays.PodDisruptionBudget != nil && deployment != nil {
+		pdb, err := createPodDisruptionBudget(deployment, a.overlays.PodDisruptionBudget)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create PodDisruptionBudget: %w", err)
 		}
@@ -85,19 +187,28 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	}
 
 	// Create HPA if overlay is present
-	if overlays.HorizontalPodAutoscaler != nil && deployment != nil {
-		hpa, err := a.createHorizontalPodAutoscaler(deployment, overlays.HorizontalPodAutoscaler)
+	if a.overlays.HorizontalPodAutoscaler != nil && deployment != nil {
+		hpa, err := createHorizontalPodAutoscaler(deployment, a.overlays.HorizontalPodAutoscaler)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create HorizontalPodAutoscaler: %w", err)
 		}
 		objs = append(objs, hpa)
 	}
 
+	// Create VPA if overlay is present
+	if a.overlays.VerticalPodAutoscaler != nil && deployment != nil {
+		vpa, err := createVerticalPodAutoscaler(deployment, a.overlays.VerticalPodAutoscaler)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create VerticalPodAutoscaler: %w", err)
+		}
+		objs = append(objs, vpa)
+	}
+
 	return objs, nil
 }
 
-// applyOverlay applies a KubernetesResourceOverlay to a single object.
-func applyOverlay(obj client.Object, overlay *agentgateway.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
+// applyOverlay applies a ResourceOverlay to a single object.
+func applyOverlay(obj client.Object, overlay *ResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
 	// Apply metadata first
 	if overlay.Metadata != nil {
 		if overlay.Metadata.Labels != nil {
@@ -178,6 +289,9 @@ func getDataObjectForGVK(gvk schema.GroupVersionKind) (runtime.Object, error) {
 		return &policyv1.PodDisruptionBudget{}, nil
 	case wellknown.HorizontalPodAutoscalerGVK.Kind:
 		return &autoscalingv2.HorizontalPodAutoscaler{}, nil
+	case wellknown.VerticalPodAutoscalerGVK.Kind:
+		// VPA is a CRD, use unstructured for strategic merge
+		return &unstructured.Unstructured{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported kind: %s", gvk.Kind)
 	}
@@ -185,6 +299,16 @@ func getDataObjectForGVK(gvk schema.GroupVersionKind) (runtime.Object, error) {
 
 // deserializeToObject deserializes JSON bytes to a typed k8s object.
 func deserializeToObject(data []byte, gvk schema.GroupVersionKind) (client.Object, error) {
+	// For VPA, use unstructured since it's a CRD
+	if gvk.Kind == wellknown.VerticalPodAutoscalerGVK.Kind {
+		obj := &unstructured.Unstructured{}
+		if err := json.Unmarshal(data, obj); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal patched object: %w", err)
+		}
+		obj.SetGroupVersionKind(gvk)
+		return obj, nil
+	}
+
 	obj, err := getDataObjectForGVK(gvk)
 	if err != nil {
 		return nil, err
@@ -202,7 +326,7 @@ func deserializeToObject(data []byte, gvk schema.GroupVersionKind) (client.Objec
 
 // createPodDisruptionBudget creates a PodDisruptionBudget for the given Deployment
 // with the overlay applied.
-func (a *OverlayApplier) createPodDisruptionBudget(deployment *appsv1.Deployment, overlay *agentgateway.KubernetesResourceOverlay) (client.Object, error) {
+func createPodDisruptionBudget(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
 	// Create base PDB with selector matching the Deployment
 	pdb := &policyv1.PodDisruptionBudget{
 		TypeMeta: metav1.TypeMeta{
@@ -229,7 +353,7 @@ func (a *OverlayApplier) createPodDisruptionBudget(deployment *appsv1.Deployment
 
 // createHorizontalPodAutoscaler creates a HorizontalPodAutoscaler for the given Deployment
 // with the overlay applied.
-func (a *OverlayApplier) createHorizontalPodAutoscaler(deployment *appsv1.Deployment, overlay *agentgateway.KubernetesResourceOverlay) (client.Object, error) {
+func createHorizontalPodAutoscaler(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
 	// Create base HPA with scaleTargetRef pointing to the Deployment
 	hpa := &autoscalingv2.HorizontalPodAutoscaler{
 		TypeMeta: metav1.TypeMeta{
@@ -256,4 +380,73 @@ func (a *OverlayApplier) createHorizontalPodAutoscaler(deployment *appsv1.Deploy
 	}
 
 	return patched, nil
+}
+
+// createVerticalPodAutoscaler creates a VerticalPodAutoscaler for the given Deployment
+// with the overlay applied.
+func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
+	// Create base VPA with targetRef pointing to the Deployment
+	// VPA is a CRD, so we use unstructured
+	vpa := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": wellknown.VerticalPodAutoscalerGVK.GroupVersion().String(),
+			"kind":       wellknown.VerticalPodAutoscalerGVK.Kind,
+			"metadata": map[string]interface{}{
+				"name":      deployment.Name,
+				"namespace": deployment.Namespace,
+			},
+			"spec": map[string]interface{}{
+				"targetRef": map[string]interface{}{
+					"apiVersion": wellknown.DeploymentGVK.GroupVersion().String(),
+					"kind":       wellknown.DeploymentGVK.Kind,
+					"name":       deployment.Name,
+				},
+			},
+		},
+	}
+	vpa.SetGroupVersionKind(wellknown.VerticalPodAutoscalerGVK)
+
+	// Apply the overlay - for VPA we need to handle it specially since it's unstructured
+	if overlay.Metadata != nil {
+		if overlay.Metadata.Labels != nil {
+			existingLabels := vpa.GetLabels()
+			if existingLabels == nil {
+				existingLabels = make(map[string]string)
+			}
+			maps.Copy(existingLabels, overlay.Metadata.Labels)
+			vpa.SetLabels(existingLabels)
+		}
+		if overlay.Metadata.Annotations != nil {
+			existingAnnotations := vpa.GetAnnotations()
+			if existingAnnotations == nil {
+				existingAnnotations = make(map[string]string)
+			}
+			maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
+			vpa.SetAnnotations(existingAnnotations)
+		}
+	}
+
+	// Apply spec overlay if present
+	if overlay.Spec != nil && len(overlay.Spec.Raw) > 0 {
+		// Parse the spec overlay
+		var specPatch map[string]interface{}
+		if err := json.Unmarshal(overlay.Spec.Raw, &specPatch); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal spec patch: %w", err)
+		}
+
+		// Merge the spec patch into the VPA spec
+		existingSpec, _, _ := unstructured.NestedMap(vpa.Object, "spec")
+		if existingSpec == nil {
+			existingSpec = make(map[string]interface{})
+		}
+		// Deep merge the patch into existing spec
+		for k, v := range specPatch {
+			existingSpec[k] = v
+		}
+		if err := unstructured.SetNestedMap(vpa.Object, existingSpec, "spec"); err != nil {
+			return nil, fmt.Errorf("failed to set VPA spec: %w", err)
+		}
+	}
+
+	return vpa, nil
 }

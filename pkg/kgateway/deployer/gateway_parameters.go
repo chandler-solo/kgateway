@@ -19,6 +19,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/helm"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
@@ -118,8 +119,8 @@ func (gp *GatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
-// It applies AgentgatewayParameters overlays to the rendered objects.
-// When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
+// It applies GatewayParameters or AgentgatewayParameters overlays to the rendered objects.
+// When both GatewayClass and Gateway have parameters, the overlays
 // are applied in order: GatewayClass first, then Gateway on top.
 func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) ([]client.Object, error) {
 	// Check if override implements ObjectPostProcessor and delegate to it
@@ -129,31 +130,76 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		}
 	}
 
-	// Fall back to default implementation
 	gw, ok := obj.(*gwv1.Gateway)
-	if !ok || gp.agwHelmValuesGenerator == nil {
+	if !ok {
 		return rendered, nil
 	}
 
-	resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
+	// Determine which controller this Gateway uses
+	var gwClassClient kclient.Client[*gwv1.GatewayClass]
+	if gp.kgwParameters != nil {
+		gwClassClient = gp.kgwParameters.gwClassClient
+	} else if gp.agwHelmValuesGenerator != nil {
+		gwClassClient = gp.agwHelmValuesGenerator.gwClassClient
+	} else {
+		return rendered, nil
+	}
+
+	gwc, err := getGatewayClassFromGateway(gwClassClient, gw)
 	if err != nil {
 		return rendered, nil
 	}
 
-	// Apply overlays in order: GatewayClass first, then Gateway.
-	// This allows Gateway-level overlays to override GatewayClass-level overlays.
-	if resolved.gatewayClassAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
-		rendered, err = applier.ApplyOverlaysToObjects(rendered)
-		if err != nil {
-			return nil, err
+	// Check if this is an agentgateway or envoy gateway
+	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+		// Agentgateway overlays
+		if gp.agwHelmValuesGenerator == nil {
+			return rendered, nil
 		}
-	}
-	if resolved.gatewayAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
-		rendered, err = applier.ApplyOverlaysToObjects(rendered)
+		resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
 		if err != nil {
-			return nil, err
+			return rendered, nil
+		}
+
+		// Apply overlays in order: GatewayClass first, then Gateway.
+		if resolved.gatewayClassAGWP != nil {
+			applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
+			rendered, err = applier.ApplyOverlaysToObjects(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if resolved.gatewayAGWP != nil {
+			applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
+			rendered, err = applier.ApplyOverlaysToObjects(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Envoy (kgateway) overlays
+		if gp.kgwParameters == nil {
+			return rendered, nil
+		}
+		resolved, err := gp.kgwParameters.resolveParametersForOverlays(gw)
+		if err != nil {
+			return rendered, nil
+		}
+
+		// Apply overlays in order: GatewayClass first, then Gateway.
+		if resolved.gatewayClassGWP != nil {
+			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayClassGWP)
+			rendered, err = applier.ApplyOverlays(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if resolved.gatewayGWP != nil {
+			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayGWP)
+			rendered, err = applier.ApplyOverlays(rendered)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -526,6 +572,55 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 	gateway.Stats = deployer.GetStatsValues(statsConfig)
 
 	return vals, nil
+}
+
+// resolvedKgatewayParameters holds the resolved parameters for a Gateway, supporting
+// both GatewayClass-level and Gateway-level GatewayParameters for overlay application.
+type resolvedKgatewayParameters struct {
+	// gatewayClassGWP is the GatewayParameters from the GatewayClass (if any).
+	gatewayClassGWP *kgateway.GatewayParameters
+	// gatewayGWP is the GatewayParameters from the Gateway (if any).
+	gatewayGWP *kgateway.GatewayParameters
+}
+
+// resolveParametersForOverlays resolves the GatewayParameters for the Gateway.
+// It returns both GatewayClass-level and Gateway-level parameters separately
+// to support ordered overlay merging (GatewayClass first, then Gateway).
+// Unlike getGatewayParametersForGateway, this does NOT merge the parameters.
+func (k *kgatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) (*resolvedKgatewayParameters, error) {
+	result := &resolvedKgatewayParameters{}
+
+	// Get GatewayClass parameters first
+	gwc := k.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc != nil && gwc.Spec.ParametersRef != nil {
+		ref := gwc.Spec.ParametersRef
+
+		// Check for GatewayParameters on GatewayClass
+		if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
+			gwpNamespace := ""
+			if ref.Namespace != nil {
+				gwpNamespace = string(*ref.Namespace)
+			}
+			gwp := k.gwParamClient.Get(ref.Name, gwpNamespace)
+			if gwp != nil {
+				result.gatewayClassGWP = gwp
+			}
+		}
+	}
+
+	// Check if Gateway has its own parametersRef
+	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
+		ref := gw.Spec.Infrastructure.ParametersRef
+
+		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+			gwp := k.gwParamClient.Get(ref.Name, gw.GetNamespace())
+			if gwp != nil {
+				result.gatewayGWP = gwp
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func getGatewayClassFromGateway(cli kclient.Client[*gwv1.GatewayClass], gw *gwv1.Gateway) (*gwv1.GatewayClass, error) {

@@ -584,29 +584,6 @@ spec:
                       Use a Kubernetes deployment as the proxy workload type. Currently, this is the only
                       supported workload type.
                     properties:
-                      metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
-                        properties:
-                          annotations:
-                            additionalProperties:
-                              type: string
-                            description: |-
-                              Annotations is an unstructured key value map stored with a resource that may be
-                              set by external tools to store and retrieve arbitrary metadata. They are not
-                              queryable and should be preserved when modifying objects.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
-                            type: object
-                          labels:
-                            additionalProperties:
-                              type: string
-                            description: |-
-                              Map of string keys and values that can be used to organize and categorize
-                              (scope and select) objects. May match selectors of replication controllers
-                              and services.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
-                            type: object
-                        type: object
                       replicas:
                         description: |-
                           The number of desired pods.
@@ -616,43 +593,6 @@ spec:
                         format: int32
                         minimum: 0
                         type: integer
-                      spec:
-                        description: "Spec provides an opaque mechanism to configure
-                          the resource Spec.\nThis field accepts a complete or partial
-                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
-                          will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from GatewayParameters on the\nGatewayClass and also from
-                          GatewayParameters on the Gateway, then\nthe GatewayClass
-                          merge-patch happens first.\n\n# Strategic Merge Patch &
-                          Deletion Guide\n\nThis merge strategy allows you to override
-                          individual fields, merge lists, or delete items\nwithout
-                          needing to provide the entire resource definition.\n\n**1.
-                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                          booleans) in your config will overwrite the generated defaults.\n\n**2.
-                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
-                          (like `containers` which merges on `name`, or `tolerations`
-                          which merges on `key`)\nwill append your items to the generated
-                          list, or update existing items if keys match.\n\n**3. Deleting
-                          List Items ($patch: delete):**\nTo remove an item from a
-                          generated list (e.g., removing a default sidecar), you must
-                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
-                          \ containers:\n\t    - name: envoy\n\t      # Delete the
-                          securityContext using $patch: delete\n\t      securityContext:\n\t
-                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
-                          (null):**\nTo remove a map field or a scalar entirely, set
-                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
-                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
-                          Replacing Lists Entirely ($patch: replace):**\nIf you want
-                          to strictly define a list and ignore all generated defaults,
-                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
-                          \     - $patch: replace\n\t      - name: http\n\t        port:
-                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
-                          \     - name: https\n\t        port: 443\n\t        targetPort:
-                          8443\n\t        protocol: TCP"
-                        type: object
-                        x-kubernetes-preserve-unknown-fields: true
                       strategy:
                         description: |-
                           The deployment strategy to use to replace existing pods with new
@@ -712,6 +652,71 @@ spec:
                               "RollingUpdate". Default is RollingUpdate.
                             type: string
                         type: object
+                    type: object
+                  deploymentOverlay:
+                    description: deploymentOverlay allows specifying overrides for
+                      the generated Deployment resource.
+                    properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                   envoyContainer:
                     description: Configuration for the container running Envoy.
@@ -7418,29 +7423,6 @@ spec:
                           Additional labels to add to the Service object metadata.
                           If the same label is present on `Gateway.spec.infrastructure.labels`, the `Gateway` takes precedence.
                         type: object
-                      metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
-                        properties:
-                          annotations:
-                            additionalProperties:
-                              type: string
-                            description: |-
-                              Annotations is an unstructured key value map stored with a resource that may be
-                              set by external tools to store and retrieve arbitrary metadata. They are not
-                              queryable and should be preserved when modifying objects.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
-                            type: object
-                          labels:
-                            additionalProperties:
-                              type: string
-                            description: |-
-                              Map of string keys and values that can be used to organize and categorize
-                              (scope and select) objects. May match selectors of replication controllers
-                              and services.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
-                            type: object
-                        type: object
                       ports:
                         description: |-
                           Additional configuration for the service ports.
@@ -7465,6 +7447,60 @@ spec:
                           - port
                           type: object
                         type: array
+                      type:
+                        description: The Kubernetes Service type.
+                        enum:
+                        - ClusterIP
+                        - NodePort
+                        - LoadBalancer
+                        - ExternalName
+                        type: string
+                    type: object
+                  serviceAccount:
+                    description: Configuration for the Kubernetes ServiceAccount used
+                      by the proxy pods.
+                    properties:
+                      extraAnnotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          Additional annotations to add to the ServiceAccount object metadata.
+                          If the same annotation is present on `Gateway.spec.infrastructure.annotations`, the `Gateway` takes precedence.
+                        type: object
+                      extraLabels:
+                        additionalProperties:
+                          type: string
+                        description: Additional labels to add to the ServiceAccount
+                          object metadata.
+                        type: object
+                    type: object
+                  serviceAccountOverlay:
+                    description: serviceAccountOverlay allows specifying overrides
+                      for the generated ServiceAccount resource.
+                    properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
                       spec:
                         description: "Spec provides an opaque mechanism to configure
                           the resource Spec.\nThis field accepts a complete or partial
@@ -7502,32 +7538,11 @@ spec:
                           8443\n\t        protocol: TCP"
                         type: object
                         x-kubernetes-preserve-unknown-fields: true
-                      type:
-                        description: The Kubernetes Service type.
-                        enum:
-                        - ClusterIP
-                        - NodePort
-                        - LoadBalancer
-                        - ExternalName
-                        type: string
                     type: object
-                  serviceAccount:
-                    description: Configuration for the Kubernetes ServiceAccount used
-                      by the proxy pods.
+                  serviceOverlay:
+                    description: serviceOverlay allows specifying overrides for the
+                      generated Service resource.
                     properties:
-                      extraAnnotations:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          Additional annotations to add to the ServiceAccount object metadata.
-                          If the same annotation is present on `Gateway.spec.infrastructure.annotations`, the `Gateway` takes precedence.
-                        type: object
-                      extraLabels:
-                        additionalProperties:
-                          type: string
-                        description: Additional labels to add to the ServiceAccount
-                          object metadata.
-                        type: object
                       metadata:
                         description: metadata defines a subset of object metadata
                           to be customized.
