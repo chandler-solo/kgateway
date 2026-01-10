@@ -783,17 +783,17 @@ func (in *Agentgateway) GetEnv() []corev1.EnvVar {
 }
 
 type GatewayParametersOverlays struct {
-	// deployment allows specifying overrides for the generated Deployment resource.
+	// deploymentOverlay allows specifying overrides for the generated Deployment resource.
 	// +optional
-	Deployment *KubernetesResourceOverlay `json:"deployment,omitempty"`
+	DeploymentOverlay *KubernetesResourceOverlay `json:"deploymentOverlay,omitempty"`
 
-	// service allows specifying overrides for the generated Service resource.
+	// serviceOverlay allows specifying overrides for the generated Service resource.
 	// +optional
-	Service *KubernetesResourceOverlay `json:"service,omitempty"`
+	ServiceOverlay *KubernetesResourceOverlay `json:"serviceOverlay,omitempty"`
 
-	// serviceAccount allows specifying overrides for the generated ServiceAccount resource.
+	// serviceAccountOverlay allows specifying overrides for the generated ServiceAccount resource.
 	// +optional
-	ServiceAccount *KubernetesResourceOverlay `json:"serviceAccount,omitempty"`
+	ServiceAccountOverlay *KubernetesResourceOverlay `json:"serviceAccountOverlay,omitempty"`
 
 	// podDisruptionBudget allows creating a PodDisruptionBudget for the proxy.
 	// If absent, no PDB is created. If present, a PDB is created with its selector
