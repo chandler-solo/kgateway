@@ -808,6 +808,13 @@ type GatewayParametersOverlays struct {
 	// The metadata and spec fields from this overlay are applied to the generated HPA.
 	// +optional
 	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
+
+	// verticalPodAutoscaler allows creating a VerticalPodAutoscaler for the proxy.
+	// If absent, no VPA is created. If present, a VPA is created with its targetRef
+	// automatically configured to target the proxy Deployment.
+	// The metadata and spec fields from this overlay are applied to the generated VPA.
+	// +optional
+	VerticalPodAutoscaler *KubernetesResourceOverlay `json:"verticalPodAutoscaler,omitempty"`
 }
 
 type GatewayParametersObjectMetadata struct {
