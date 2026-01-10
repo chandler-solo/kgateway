@@ -388,15 +388,15 @@ func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *Resourc
 	// Create base VPA with targetRef pointing to the Deployment
 	// VPA is a CRD, so we use unstructured
 	vpa := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": wellknown.VerticalPodAutoscalerGVK.GroupVersion().String(),
 			"kind":       wellknown.VerticalPodAutoscalerGVK.Kind,
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name":      deployment.Name,
 				"namespace": deployment.Namespace,
 			},
-			"spec": map[string]interface{}{
-				"targetRef": map[string]interface{}{
+			"spec": map[string]any{
+				"targetRef": map[string]any{
 					"apiVersion": wellknown.DeploymentGVK.GroupVersion().String(),
 					"kind":       wellknown.DeploymentGVK.Kind,
 					"name":       deployment.Name,
@@ -429,7 +429,7 @@ func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *Resourc
 	// Apply spec overlay if present
 	if overlay.Spec != nil && len(overlay.Spec.Raw) > 0 {
 		// Parse the spec overlay
-		var specPatch map[string]interface{}
+		var specPatch map[string]any
 		if err := json.Unmarshal(overlay.Spec.Raw, &specPatch); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal spec patch: %w", err)
 		}
@@ -437,12 +437,10 @@ func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *Resourc
 		// Merge the spec patch into the VPA spec
 		existingSpec, _, _ := unstructured.NestedMap(vpa.Object, "spec")
 		if existingSpec == nil {
-			existingSpec = make(map[string]interface{})
+			existingSpec = make(map[string]any)
 		}
 		// Deep merge the patch into existing spec
-		for k, v := range specPatch {
-			existingSpec[k] = v
-		}
+		maps.Copy(existingSpec, specPatch)
 		if err := unstructured.SetNestedMap(vpa.Object, existingSpec, "spec"); err != nil {
 			return nil, fmt.Errorf("failed to set VPA spec: %w", err)
 		}

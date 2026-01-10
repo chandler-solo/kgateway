@@ -181,14 +181,12 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		if gp.kgwParameters == nil {
 			return rendered, nil
 		}
-		resolved, err := gp.kgwParameters.resolveParametersForOverlays(gw)
-		if err != nil {
-			return rendered, nil
-		}
+		resolved := gp.kgwParameters.resolveParametersForOverlays(gw)
 
 		// Apply overlays in order: GatewayClass first, then Gateway.
 		if resolved.gatewayClassGWP != nil {
 			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayClassGWP)
+			var err error
 			rendered, err = applier.ApplyOverlays(rendered)
 			if err != nil {
 				return nil, err
@@ -196,6 +194,7 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		}
 		if resolved.gatewayGWP != nil {
 			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayGWP)
+			var err error
 			rendered, err = applier.ApplyOverlays(rendered)
 			if err != nil {
 				return nil, err
@@ -587,7 +586,7 @@ type resolvedKgatewayParameters struct {
 // It returns both GatewayClass-level and Gateway-level parameters separately
 // to support ordered overlay merging (GatewayClass first, then Gateway).
 // Unlike getGatewayParametersForGateway, this does NOT merge the parameters.
-func (k *kgatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) (*resolvedKgatewayParameters, error) {
+func (k *kgatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) *resolvedKgatewayParameters {
 	result := &resolvedKgatewayParameters{}
 
 	// Get GatewayClass parameters first
@@ -620,7 +619,7 @@ func (k *kgatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) (*re
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 func getGatewayClassFromGateway(cli kclient.Client[*gwv1.GatewayClass], gw *gwv1.Gateway) (*gwv1.GatewayClass, error) {
