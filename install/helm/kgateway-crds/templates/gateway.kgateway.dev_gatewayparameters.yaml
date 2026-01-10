@@ -584,6 +584,29 @@ spec:
                       Use a Kubernetes deployment as the proxy workload type. Currently, this is the only
                       supported workload type.
                     properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
                       replicas:
                         description: |-
                           The number of desired pods.
@@ -593,6 +616,43 @@ spec:
                         format: int32
                         minimum: 0
                         type: integer
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       strategy:
                         description: |-
                           The deployment strategy to use to replace existing pods with new
@@ -1187,6 +1247,74 @@ spec:
                                 type: string
                             type: object
                         type: object
+                    type: object
+                  horizontalPodAutoscaler:
+                    description: |-
+                      horizontalPodAutoscaler allows creating a HorizontalPodAutoscaler for the proxy.
+                      If absent, no HPA is created. If present, an HPA is created with its scaleTargetRef
+                      automatically configured to target the proxy Deployment.
+                      The metadata and spec fields from this overlay are applied to the generated HPA.
+                    properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                   istio:
                     description: Configuration for the Istio integration.
@@ -3050,6 +3178,74 @@ spec:
                       `securityContext` will be dynamically added to enforce the appropriate
                       level of security.
                     type: boolean
+                  podDisruptionBudget:
+                    description: |-
+                      podDisruptionBudget allows creating a PodDisruptionBudget for the proxy.
+                      If absent, no PDB is created. If present, a PDB is created with its selector
+                      automatically configured to target the proxy Deployment.
+                      The metadata and spec fields from this overlay are applied to the generated PDB.
+                    properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
                   podTemplate:
                     description: Configuration for the pods that will be created.
                     properties:
@@ -7222,6 +7418,29 @@ spec:
                           Additional labels to add to the Service object metadata.
                           If the same label is present on `Gateway.spec.infrastructure.labels`, the `Gateway` takes precedence.
                         type: object
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
                       ports:
                         description: |-
                           Additional configuration for the service ports.
@@ -7246,6 +7465,43 @@ spec:
                           - port
                           type: object
                         type: array
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                       type:
                         description: The Kubernetes Service type.
                         enum:
@@ -7272,6 +7528,66 @@ spec:
                         description: Additional labels to add to the ServiceAccount
                           object metadata.
                         type: object
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                   stats:
                     description: Configuration for the stats server.
@@ -7397,6 +7713,74 @@ spec:
                         description: The Envoy stats endpoint with general metrics
                           for the additional stats route
                         type: string
+                    type: object
+                  verticalPodAutoscaler:
+                    description: |-
+                      verticalPodAutoscaler allows creating a VerticalPodAutoscaler for the proxy.
+                      If absent, no VPA is created. If present, a VPA is created with its targetRef
+                      automatically configured to target the proxy Deployment.
+                      The metadata and spec fields from this overlay are applied to the generated VPA.
+                    properties:
+                      metadata:
+                        description: metadata defines a subset of object metadata
+                          to be customized.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Annotations is an unstructured key value map stored with a resource that may be
+                              set by external tools to store and retrieve arbitrary metadata. They are not
+                              queryable and should be preserved when modifying objects.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              Map of string keys and values that can be used to organize and categorize
+                              (scope and select) objects. May match selectors of replication controllers
+                              and services.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
+                            type: object
+                        type: object
+                      spec:
+                        description: "Spec provides an opaque mechanism to configure
+                          the resource Spec.\nThis field accepts a complete or partial
+                          Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
+                          will be merged with the generated configuration using **Strategic
+                          Merge Patch** semantics.\nThe patch is applied after all
+                          other fields are applied.\nIf you merge-patch the same resource
+                          from GatewayParameters on the\nGatewayClass and also from
+                          GatewayParameters on the Gateway, then\nthe GatewayClass
+                          merge-patch happens first.\n\n# Strategic Merge Patch &
+                          Deletion Guide\n\nThis merge strategy allows you to override
+                          individual fields, merge lists, or delete items\nwithout
+                          needing to provide the entire resource definition.\n\n**1.
+                          Replacing Values (Scalars):**\nSimple fields (strings, integers,
+                          booleans) in your config will overwrite the generated defaults.\n\n**2.
+                          Merging Lists (Append/Merge):**\nLists with \"merge keys\"
+                          (like `containers` which merges on `name`, or `tolerations`
+                          which merges on `key`)\nwill append your items to the generated
+                          list, or update existing items if keys match.\n\n**3. Deleting
+                          List Items ($patch: delete):**\nTo remove an item from a
+                          generated list (e.g., removing a default sidecar), you must
+                          use\nthe special `$patch: delete` directive.\n\n\tspec:\n\t
+                          \ containers:\n\t    - name: envoy\n\t      # Delete the
+                          securityContext using $patch: delete\n\t      securityContext:\n\t
+                          \       $patch: delete\n\n**4. Deleting/Clearing Map Fields
+                          (null):**\nTo remove a map field or a scalar entirely, set
+                          its value to `null`.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                          \     nodeSelector: null  # Removes default nodeSelector\n\n**5.
+                          Replacing Lists Entirely ($patch: replace):**\nIf you want
+                          to strictly define a list and ignore all generated defaults,
+                          use `$patch: replace`.\n\n\tservice:\n\t  spec:\n\t    ports:\n\t
+                          \     - $patch: replace\n\t      - name: http\n\t        port:
+                          80\n\t        targetPort: 8080\n\t        protocol: TCP\n\t
+                          \     - name: https\n\t        port: 443\n\t        targetPort:
+                          8443\n\t        protocol: TCP"
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                 type: object
               selfManaged:
