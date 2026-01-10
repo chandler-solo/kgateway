@@ -3,7 +3,6 @@ package kgateway
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/shared"
@@ -785,120 +784,34 @@ func (in *Agentgateway) GetEnv() []corev1.EnvVar {
 type GatewayParametersOverlays struct {
 	// deploymentOverlay allows specifying overrides for the generated Deployment resource.
 	// +optional
-	DeploymentOverlay *KubernetesResourceOverlay `json:"deploymentOverlay,omitempty"`
+	DeploymentOverlay *shared.KubernetesResourceOverlay `json:"deploymentOverlay,omitempty"`
 
 	// serviceOverlay allows specifying overrides for the generated Service resource.
 	// +optional
-	ServiceOverlay *KubernetesResourceOverlay `json:"serviceOverlay,omitempty"`
+	ServiceOverlay *shared.KubernetesResourceOverlay `json:"serviceOverlay,omitempty"`
 
 	// serviceAccountOverlay allows specifying overrides for the generated ServiceAccount resource.
 	// +optional
-	ServiceAccountOverlay *KubernetesResourceOverlay `json:"serviceAccountOverlay,omitempty"`
+	ServiceAccountOverlay *shared.KubernetesResourceOverlay `json:"serviceAccountOverlay,omitempty"`
 
 	// podDisruptionBudget allows creating a PodDisruptionBudget for the proxy.
 	// If absent, no PDB is created. If present, a PDB is created with its selector
 	// automatically configured to target the proxy Deployment.
 	// The metadata and spec fields from this overlay are applied to the generated PDB.
 	// +optional
-	PodDisruptionBudget *KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
+	PodDisruptionBudget *shared.KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
 
 	// horizontalPodAutoscaler allows creating a HorizontalPodAutoscaler for the proxy.
 	// If absent, no HPA is created. If present, an HPA is created with its scaleTargetRef
 	// automatically configured to target the proxy Deployment.
 	// The metadata and spec fields from this overlay are applied to the generated HPA.
 	// +optional
-	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
+	HorizontalPodAutoscaler *shared.KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
 
 	// verticalPodAutoscaler allows creating a VerticalPodAutoscaler for the proxy.
 	// If absent, no VPA is created. If present, a VPA is created with its targetRef
 	// automatically configured to target the proxy Deployment.
 	// The metadata and spec fields from this overlay are applied to the generated VPA.
 	// +optional
-	VerticalPodAutoscaler *KubernetesResourceOverlay `json:"verticalPodAutoscaler,omitempty"`
-}
-
-type GatewayParametersObjectMetadata struct {
-	// Map of string keys and values that can be used to organize and categorize
-	// (scope and select) objects. May match selectors of replication controllers
-	// and services.
-	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// Annotations is an unstructured key value map stored with a resource that may be
-	// set by external tools to store and retrieve arbitrary metadata. They are not
-	// queryable and should be preserved when modifying objects.
-	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-}
-
-// KubernetesResourceOverlay provides a mechanism to customize generated
-// Kubernetes resources using [Strategic Merge
-// Patch](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-api-machinery/strategic-merge-patch.md)
-// semantics.
-type KubernetesResourceOverlay struct {
-	// metadata defines a subset of object metadata to be customized.
-	// +optional
-	Metadata *GatewayParametersObjectMetadata `json:"metadata,omitempty"`
-
-	// Spec provides an opaque mechanism to configure the resource Spec.
-	// This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
-	// and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
-	// The patch is applied after all other fields are applied.
-	// If you merge-patch the same resource from GatewayParameters on the
-	// GatewayClass and also from GatewayParameters on the Gateway, then
-	// the GatewayClass merge-patch happens first.
-	//
-	// # Strategic Merge Patch & Deletion Guide
-	//
-	// This merge strategy allows you to override individual fields, merge lists, or delete items
-	// without needing to provide the entire resource definition.
-	//
-	// **1. Replacing Values (Scalars):**
-	// Simple fields (strings, integers, booleans) in your config will overwrite the generated defaults.
-	//
-	// **2. Merging Lists (Append/Merge):**
-	// Lists with "merge keys" (like `containers` which merges on `name`, or `tolerations` which merges on `key`)
-	// will append your items to the generated list, or update existing items if keys match.
-	//
-	// **3. Deleting List Items ($patch: delete):**
-	// To remove an item from a generated list (e.g., removing a default sidecar), you must use
-	// the special `$patch: delete` directive.
-	//
-	//	spec:
-	//	  containers:
-	//	    - name: envoy
-	//	      # Delete the securityContext using $patch: delete
-	//	      securityContext:
-	//	        $patch: delete
-	//
-	// **4. Deleting/Clearing Map Fields (null):**
-	// To remove a map field or a scalar entirely, set its value to `null`.
-	//
-	//	spec:
-	//	  template:
-	//	    spec:
-	//	      nodeSelector: null  # Removes default nodeSelector
-	//
-	// **5. Replacing Lists Entirely ($patch: replace):**
-	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
-	//
-	//	service:
-	//	  spec:
-	//	    ports:
-	//	      - $patch: replace
-	//	      - name: http
-	//	        port: 80
-	//	        targetPort: 8080
-	//	        protocol: TCP
-	//	      - name: https
-	//	        port: 443
-	//	        targetPort: 8443
-	//	        protocol: TCP
-	//
-	// +optional
-	// +kubebuilder:validation:Type=object
-	// +kubebuilder:pruning:PreserveUnknownFields
-	Spec *apiextensionsv1.JSON `json:"spec,omitempty"`
+	VerticalPodAutoscaler *shared.KubernetesResourceOverlay `json:"verticalPodAutoscaler,omitempty"`
 }

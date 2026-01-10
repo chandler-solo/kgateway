@@ -9,7 +9,6 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,29 +18,18 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/shared"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
-// ObjectMetadata contains labels and annotations for metadata overlays.
-type ObjectMetadata struct {
-	Labels      map[string]string
-	Annotations map[string]string
-}
-
-// ResourceOverlay is a generic overlay that can be applied to a Kubernetes resource.
-type ResourceOverlay struct {
-	Metadata *ObjectMetadata
-	Spec     *apiextensionsv1.JSON
-}
-
 // ResourceOverlays contains all the overlays that can be applied to rendered objects.
 type ResourceOverlays struct {
-	Deployment              *ResourceOverlay
-	Service                 *ResourceOverlay
-	ServiceAccount          *ResourceOverlay
-	PodDisruptionBudget     *ResourceOverlay
-	HorizontalPodAutoscaler *ResourceOverlay
-	VerticalPodAutoscaler   *ResourceOverlay
+	Deployment              *shared.KubernetesResourceOverlay
+	Service                 *shared.KubernetesResourceOverlay
+	ServiceAccount          *shared.KubernetesResourceOverlay
+	PodDisruptionBudget     *shared.KubernetesResourceOverlay
+	HorizontalPodAutoscaler *shared.KubernetesResourceOverlay
+	VerticalPodAutoscaler   *shared.KubernetesResourceOverlay
 }
 
 // FromAgentgatewayParameters converts AgentgatewayParameters overlays to generic ResourceOverlays.
@@ -51,11 +39,11 @@ func FromAgentgatewayParameters(params *agentgateway.AgentgatewayParameters) *Re
 	}
 	overlays := params.Spec.AgentgatewayParametersOverlays
 	return &ResourceOverlays{
-		Deployment:              convertAgentgatewayOverlay(overlays.Deployment),
-		Service:                 convertAgentgatewayOverlay(overlays.Service),
-		ServiceAccount:          convertAgentgatewayOverlay(overlays.ServiceAccount),
-		PodDisruptionBudget:     convertAgentgatewayOverlay(overlays.PodDisruptionBudget),
-		HorizontalPodAutoscaler: convertAgentgatewayOverlay(overlays.HorizontalPodAutoscaler),
+		Deployment:              overlays.Deployment,
+		Service:                 overlays.Service,
+		ServiceAccount:          overlays.ServiceAccount,
+		PodDisruptionBudget:     overlays.PodDisruptionBudget,
+		HorizontalPodAutoscaler: overlays.HorizontalPodAutoscaler,
 		// AgentgatewayParameters does not have VPA support
 		VerticalPodAutoscaler: nil,
 	}
@@ -68,45 +56,13 @@ func FromGatewayParameters(params *kgateway.GatewayParameters) *ResourceOverlays
 	}
 	overlays := params.Spec.Kube.GatewayParametersOverlays
 	return &ResourceOverlays{
-		Deployment:              convertKgatewayOverlay(overlays.DeploymentOverlay),
-		Service:                 convertKgatewayOverlay(overlays.ServiceOverlay),
-		ServiceAccount:          convertKgatewayOverlay(overlays.ServiceAccountOverlay),
-		PodDisruptionBudget:     convertKgatewayOverlay(overlays.PodDisruptionBudget),
-		HorizontalPodAutoscaler: convertKgatewayOverlay(overlays.HorizontalPodAutoscaler),
-		VerticalPodAutoscaler:   convertKgatewayOverlay(overlays.VerticalPodAutoscaler),
+		Deployment:              overlays.DeploymentOverlay,
+		Service:                 overlays.ServiceOverlay,
+		ServiceAccount:          overlays.ServiceAccountOverlay,
+		PodDisruptionBudget:     overlays.PodDisruptionBudget,
+		HorizontalPodAutoscaler: overlays.HorizontalPodAutoscaler,
+		VerticalPodAutoscaler:   overlays.VerticalPodAutoscaler,
 	}
-}
-
-func convertAgentgatewayOverlay(overlay *agentgateway.KubernetesResourceOverlay) *ResourceOverlay {
-	if overlay == nil {
-		return nil
-	}
-	result := &ResourceOverlay{
-		Spec: overlay.Spec,
-	}
-	if overlay.Metadata != nil {
-		result.Metadata = &ObjectMetadata{
-			Labels:      overlay.Metadata.Labels,
-			Annotations: overlay.Metadata.Annotations,
-		}
-	}
-	return result
-}
-
-func convertKgatewayOverlay(overlay *kgateway.KubernetesResourceOverlay) *ResourceOverlay {
-	if overlay == nil {
-		return nil
-	}
-	result := &ResourceOverlay{
-		Spec: overlay.Spec,
-	}
-	if overlay.Metadata != nil {
-		result.Metadata = &ObjectMetadata{
-			Labels:      overlay.Metadata.Labels,
-			Annotations: overlay.Metadata.Annotations,
-		}
-	}
-	return result
 }
 
 // OverlayApplier applies overlays to rendered k8s objects using strategic merge patch semantics.
@@ -147,7 +103,7 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	}
 
 	for i, obj := range objs {
-		var overlay *ResourceOverlay
+		var overlay *shared.KubernetesResourceOverlay
 		var gvk schema.GroupVersionKind
 
 		// Use type assertions to determine the object type, as GVK may not be set
@@ -207,8 +163,8 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	return objs, nil
 }
 
-// applyOverlay applies a ResourceOverlay to a single object.
-func applyOverlay(obj client.Object, overlay *ResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
+// applyOverlay applies a KubernetesResourceOverlay to a single object.
+func applyOverlay(obj client.Object, overlay *shared.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
 	// Apply metadata first
 	if overlay.Metadata != nil {
 		if overlay.Metadata.Labels != nil {
@@ -326,7 +282,7 @@ func deserializeToObject(data []byte, gvk schema.GroupVersionKind) (client.Objec
 
 // createPodDisruptionBudget creates a PodDisruptionBudget for the given Deployment
 // with the overlay applied.
-func createPodDisruptionBudget(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
+func createPodDisruptionBudget(deployment *appsv1.Deployment, overlay *shared.KubernetesResourceOverlay) (client.Object, error) {
 	// Create base PDB with selector matching the Deployment
 	pdb := &policyv1.PodDisruptionBudget{
 		TypeMeta: metav1.TypeMeta{
@@ -353,7 +309,7 @@ func createPodDisruptionBudget(deployment *appsv1.Deployment, overlay *ResourceO
 
 // createHorizontalPodAutoscaler creates a HorizontalPodAutoscaler for the given Deployment
 // with the overlay applied.
-func createHorizontalPodAutoscaler(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
+func createHorizontalPodAutoscaler(deployment *appsv1.Deployment, overlay *shared.KubernetesResourceOverlay) (client.Object, error) {
 	// Create base HPA with scaleTargetRef pointing to the Deployment
 	hpa := &autoscalingv2.HorizontalPodAutoscaler{
 		TypeMeta: metav1.TypeMeta{
@@ -384,7 +340,7 @@ func createHorizontalPodAutoscaler(deployment *appsv1.Deployment, overlay *Resou
 
 // createVerticalPodAutoscaler creates a VerticalPodAutoscaler for the given Deployment
 // with the overlay applied.
-func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *ResourceOverlay) (client.Object, error) {
+func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *shared.KubernetesResourceOverlay) (client.Object, error) {
 	// Create base VPA with targetRef pointing to the Deployment
 	// VPA is a CRD, so we use unstructured
 	vpa := &unstructured.Unstructured{

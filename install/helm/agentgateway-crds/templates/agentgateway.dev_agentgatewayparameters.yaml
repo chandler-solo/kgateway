@@ -88,14 +88,14 @@ spec:
                       resource spec (e.g., PodSpec, ServiceSpec)\nand will be merged
                       with the generated configuration using **Strategic Merge Patch**
                       semantics.\nThe patch is applied after all other fields are
-                      applied.\nIf you merge-patch the same resource from AgentgatewayParameters
-                      on the\nGatewayClass and also from AgentgatewayParameters on
-                      the Gateway, then\nthe GatewayClass merge-patch happens first.\n\n#
-                      Strategic Merge Patch & Deletion Guide\n\nThis merge strategy
-                      allows you to override individual fields, merge lists, or delete
-                      items\nwithout needing to provide the entire resource definition.\n\n**1.
-                      Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                      booleans) in your config will overwrite the generated defaults.\n\n**2.
+                      applied.\nIf you merge-patch the same resource from parameters
+                      on the\nGatewayClass and also from parameters on the Gateway,
+                      then\nthe GatewayClass merge-patch happens first.\n\n# Strategic
+                      Merge Patch & Deletion Guide\n\nThis merge strategy allows you
+                      to override individual fields, merge lists, or delete items\nwithout
+                      needing to provide the entire resource definition.\n\n**1. Replacing
+                      Values (Scalars):**\nSimple fields (strings, integers, booleans)
+                      in your config will overwrite the generated defaults.\n\n**2.
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
@@ -103,8 +103,8 @@ spec:
                       Items ($patch: delete):**\nTo remove an item from a generated
                       list (e.g., removing a default sidecar), you must use\nthe special
                       `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
+                      \   - name: proxy\n\t      # Delete the securityContext using
+                      $patch: delete\n\t      securityContext:\n\t        $patch:
                       delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
                       a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
                       \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
@@ -320,14 +320,14 @@ spec:
                       resource spec (e.g., PodSpec, ServiceSpec)\nand will be merged
                       with the generated configuration using **Strategic Merge Patch**
                       semantics.\nThe patch is applied after all other fields are
-                      applied.\nIf you merge-patch the same resource from AgentgatewayParameters
-                      on the\nGatewayClass and also from AgentgatewayParameters on
-                      the Gateway, then\nthe GatewayClass merge-patch happens first.\n\n#
-                      Strategic Merge Patch & Deletion Guide\n\nThis merge strategy
-                      allows you to override individual fields, merge lists, or delete
-                      items\nwithout needing to provide the entire resource definition.\n\n**1.
-                      Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                      booleans) in your config will overwrite the generated defaults.\n\n**2.
+                      applied.\nIf you merge-patch the same resource from parameters
+                      on the\nGatewayClass and also from parameters on the Gateway,
+                      then\nthe GatewayClass merge-patch happens first.\n\n# Strategic
+                      Merge Patch & Deletion Guide\n\nThis merge strategy allows you
+                      to override individual fields, merge lists, or delete items\nwithout
+                      needing to provide the entire resource definition.\n\n**1. Replacing
+                      Values (Scalars):**\nSimple fields (strings, integers, booleans)
+                      in your config will overwrite the generated defaults.\n\n**2.
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
@@ -335,8 +335,8 @@ spec:
                       Items ($patch: delete):**\nTo remove an item from a generated
                       list (e.g., removing a default sidecar), you must use\nthe special
                       `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
+                      \   - name: proxy\n\t      # Delete the securityContext using
+                      $patch: delete\n\t      securityContext:\n\t        $patch:
                       delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
                       a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
                       \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
@@ -441,14 +441,14 @@ spec:
                       resource spec (e.g., PodSpec, ServiceSpec)\nand will be merged
                       with the generated configuration using **Strategic Merge Patch**
                       semantics.\nThe patch is applied after all other fields are
-                      applied.\nIf you merge-patch the same resource from AgentgatewayParameters
-                      on the\nGatewayClass and also from AgentgatewayParameters on
-                      the Gateway, then\nthe GatewayClass merge-patch happens first.\n\n#
-                      Strategic Merge Patch & Deletion Guide\n\nThis merge strategy
-                      allows you to override individual fields, merge lists, or delete
-                      items\nwithout needing to provide the entire resource definition.\n\n**1.
-                      Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                      booleans) in your config will overwrite the generated defaults.\n\n**2.
+                      applied.\nIf you merge-patch the same resource from parameters
+                      on the\nGatewayClass and also from parameters on the Gateway,
+                      then\nthe GatewayClass merge-patch happens first.\n\n# Strategic
+                      Merge Patch & Deletion Guide\n\nThis merge strategy allows you
+                      to override individual fields, merge lists, or delete items\nwithout
+                      needing to provide the entire resource definition.\n\n**1. Replacing
+                      Values (Scalars):**\nSimple fields (strings, integers, booleans)
+                      in your config will overwrite the generated defaults.\n\n**2.
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
@@ -456,8 +456,8 @@ spec:
                       Items ($patch: delete):**\nTo remove an item from a generated
                       list (e.g., removing a default sidecar), you must use\nthe special
                       `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
+                      \   - name: proxy\n\t      # Delete the securityContext using
+                      $patch: delete\n\t      securityContext:\n\t        $patch:
                       delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
                       a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
                       \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
@@ -581,14 +581,14 @@ spec:
                       resource spec (e.g., PodSpec, ServiceSpec)\nand will be merged
                       with the generated configuration using **Strategic Merge Patch**
                       semantics.\nThe patch is applied after all other fields are
-                      applied.\nIf you merge-patch the same resource from AgentgatewayParameters
-                      on the\nGatewayClass and also from AgentgatewayParameters on
-                      the Gateway, then\nthe GatewayClass merge-patch happens first.\n\n#
-                      Strategic Merge Patch & Deletion Guide\n\nThis merge strategy
-                      allows you to override individual fields, merge lists, or delete
-                      items\nwithout needing to provide the entire resource definition.\n\n**1.
-                      Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                      booleans) in your config will overwrite the generated defaults.\n\n**2.
+                      applied.\nIf you merge-patch the same resource from parameters
+                      on the\nGatewayClass and also from parameters on the Gateway,
+                      then\nthe GatewayClass merge-patch happens first.\n\n# Strategic
+                      Merge Patch & Deletion Guide\n\nThis merge strategy allows you
+                      to override individual fields, merge lists, or delete items\nwithout
+                      needing to provide the entire resource definition.\n\n**1. Replacing
+                      Values (Scalars):**\nSimple fields (strings, integers, booleans)
+                      in your config will overwrite the generated defaults.\n\n**2.
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
@@ -596,8 +596,8 @@ spec:
                       Items ($patch: delete):**\nTo remove an item from a generated
                       list (e.g., removing a default sidecar), you must use\nthe special
                       `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
+                      \   - name: proxy\n\t      # Delete the securityContext using
+                      $patch: delete\n\t      securityContext:\n\t        $patch:
                       delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
                       a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
                       \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
@@ -644,14 +644,14 @@ spec:
                       resource spec (e.g., PodSpec, ServiceSpec)\nand will be merged
                       with the generated configuration using **Strategic Merge Patch**
                       semantics.\nThe patch is applied after all other fields are
-                      applied.\nIf you merge-patch the same resource from AgentgatewayParameters
-                      on the\nGatewayClass and also from AgentgatewayParameters on
-                      the Gateway, then\nthe GatewayClass merge-patch happens first.\n\n#
-                      Strategic Merge Patch & Deletion Guide\n\nThis merge strategy
-                      allows you to override individual fields, merge lists, or delete
-                      items\nwithout needing to provide the entire resource definition.\n\n**1.
-                      Replacing Values (Scalars):**\nSimple fields (strings, integers,
-                      booleans) in your config will overwrite the generated defaults.\n\n**2.
+                      applied.\nIf you merge-patch the same resource from parameters
+                      on the\nGatewayClass and also from parameters on the Gateway,
+                      then\nthe GatewayClass merge-patch happens first.\n\n# Strategic
+                      Merge Patch & Deletion Guide\n\nThis merge strategy allows you
+                      to override individual fields, merge lists, or delete items\nwithout
+                      needing to provide the entire resource definition.\n\n**1. Replacing
+                      Values (Scalars):**\nSimple fields (strings, integers, booleans)
+                      in your config will overwrite the generated defaults.\n\n**2.
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
@@ -659,8 +659,8 @@ spec:
                       Items ($patch: delete):**\nTo remove an item from a generated
                       list (e.g., removing a default sidecar), you must use\nthe special
                       `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
+                      \   - name: proxy\n\t      # Delete the securityContext using
+                      $patch: delete\n\t      securityContext:\n\t        $patch:
                       delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
                       a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
                       \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
