@@ -23,18 +23,38 @@ type ObjectMetadata struct {
 // Kubernetes resources using [Strategic Merge
 // Patch](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-api-machinery/strategic-merge-patch.md)
 // semantics.
+//
+// # Overlay Application Order
+//
+// Overlays are applied **after** all other configuration fields have been processed.
+// When the same resource type has overlays defined at multiple levels, they are applied
+// in the following order:
+//
+//  1. Base resource is generated from typed configuration fields (e.g., replicas, image settings)
+//  2. GatewayClass-level overlay is applied first (from GatewayClass.spec.parametersRef)
+//  3. Gateway-level overlay is applied second (from Gateway.spec.infrastructure.parametersRef)
+//
+// This ordering means Gateway-level overlays can override values set by GatewayClass-level
+// overlays. For example, if both levels set the same label, the Gateway value wins.
 type KubernetesResourceOverlay struct {
 	// metadata defines a subset of object metadata to be customized.
+	// Labels and annotations are merged with existing values. If both GatewayClass
+	// and Gateway parameters define the same label or annotation key, the Gateway
+	// value takes precedence (applied second).
 	// +optional
 	Metadata *ObjectMetadata `json:"metadata,omitempty"`
 
 	// Spec provides an opaque mechanism to configure the resource Spec.
 	// This field accepts a complete or partial Kubernetes resource spec (e.g., PodSpec, ServiceSpec)
 	// and will be merged with the generated configuration using **Strategic Merge Patch** semantics.
-	// The patch is applied after all other fields are applied.
-	// If you merge-patch the same resource from parameters on the
-	// GatewayClass and also from parameters on the Gateway, then
-	// the GatewayClass merge-patch happens first.
+	//
+	// # Application Order
+	//
+	// Overlays are applied after all typed configuration fields. When both GatewayClass
+	// and Gateway parameters define overlays for the same resource:
+	//
+	//  1. GatewayClass overlay is applied first
+	//  2. Gateway overlay is applied second (can override GatewayClass values)
 	//
 	// # Strategic Merge Patch & Deletion Guide
 	//

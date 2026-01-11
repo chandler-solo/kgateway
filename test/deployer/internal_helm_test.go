@@ -444,6 +444,47 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 					"VPA should have resource-type label")
 			},
 		},
+		{
+			// This test proves the documented overlay ordering:
+			// 1. GatewayClass overlay is applied first
+			// 2. Gateway overlay is applied second (overrides GatewayClass values)
+			// Both metadata (labels/annotations) and spec fields demonstrate this ordering.
+			Name:      "envoy overlay ordering - GWC first then GW",
+			InputFile: "envoy-overlay-ordering",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+
+				// Test 1: Metadata ordering
+				// The shared "overlay-source" label/annotation should be "from-gateway" (GW wins)
+				assert.Contains(t, outputYaml, "overlay-source: from-gateway",
+					"shared label/annotation should be from Gateway (applied second, overrides GWC)")
+				assert.NotContains(t, outputYaml, "overlay-source: from-gatewayclass",
+					"GatewayClass value should be overridden by Gateway")
+
+				// Both GWC-only and GW-only values should be present (merged)
+				assert.Contains(t, outputYaml, "gwc-only-annotation: present",
+					"GWC-only annotation should be preserved")
+				assert.Contains(t, outputYaml, "gwc-only-label: present",
+					"GWC-only label should be preserved")
+				assert.Contains(t, outputYaml, "gw-only-annotation: present",
+					"GW-only annotation should be present")
+				assert.Contains(t, outputYaml, "gw-only-label: present",
+					"GW-only label should be present")
+
+				// Test 2: Spec ordering
+				// GWC sets terminationGracePeriodSeconds: 29
+				// GW sets terminationGracePeriodSeconds: 59
+				// GW should win (applied second)
+				assert.Contains(t, outputYaml, "terminationGracePeriodSeconds: 59",
+					"terminationGracePeriodSeconds should be 59 from Gateway (overrides GWC's 29)")
+				assert.NotContains(t, outputYaml, "terminationGracePeriodSeconds: 29",
+					"GWC's terminationGracePeriodSeconds: 29 should be overridden")
+
+				// Service overlay ordering - GW should win
+				assert.Contains(t, outputYaml, "overlay-source: from-gateway",
+					"service annotation should be from Gateway")
+			},
+		},
 		// TLS test cases
 		{
 			Name:                        "basic gateway with TLS enabled",

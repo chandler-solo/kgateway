@@ -658,8 +658,11 @@ spec:
                       the generated Deployment resource.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -685,15 +688,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
@@ -1261,8 +1265,11 @@ spec:
                       The metadata and spec fields from this overlay are applied to the generated HPA.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -1288,15 +1295,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
@@ -3191,8 +3199,11 @@ spec:
                       The metadata and spec fields from this overlay are applied to the generated PDB.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -3218,15 +3229,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
@@ -7479,8 +7491,11 @@ spec:
                       for the generated ServiceAccount resource.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -7506,15 +7521,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
@@ -7544,8 +7560,11 @@ spec:
                       generated Service resource.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -7571,15 +7590,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
@@ -7737,8 +7757,11 @@ spec:
                       The metadata and spec fields from this overlay are applied to the generated VPA.
                     properties:
                       metadata:
-                        description: metadata defines a subset of object metadata
-                          to be customized.
+                        description: |-
+                          metadata defines a subset of object metadata to be customized.
+                          Labels and annotations are merged with existing values. If both GatewayClass
+                          and Gateway parameters define the same label or annotation key, the Gateway
+                          value takes precedence (applied second).
                         properties:
                           annotations:
                             additionalProperties:
@@ -7764,15 +7787,16 @@ spec:
                           the resource Spec.\nThis field accepts a complete or partial
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
-                          Merge Patch** semantics.\nThe patch is applied after all
-                          other fields are applied.\nIf you merge-patch the same resource
-                          from parameters on the\nGatewayClass and also from parameters
-                          on the Gateway, then\nthe GatewayClass merge-patch happens
-                          first.\n\n# Strategic Merge Patch & Deletion Guide\n\nThis
-                          merge strategy allows you to override individual fields,
-                          merge lists, or delete items\nwithout needing to provide
-                          the entire resource definition.\n\n**1. Replacing Values
-                          (Scalars):**\nSimple fields (strings, integers, booleans)
+                          Merge Patch** semantics.\n\n# Application Order\n\nOverlays
+                          are applied after all typed configuration fields. When both
+                          GatewayClass\nand Gateway parameters define overlays for
+                          the same resource:\n\n 1. GatewayClass overlay is applied
+                          first\n 2. Gateway overlay is applied second (can override
+                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          Guide\n\nThis merge strategy allows you to override individual
+                          fields, merge lists, or delete items\nwithout needing to
+                          provide the entire resource definition.\n\n**1. Replacing
+                          Values (Scalars):**\nSimple fields (strings, integers, booleans)
                           in your config will overwrite the generated defaults.\n\n**2.
                           Merging Lists (Append/Merge):**\nLists with \"merge keys\"
                           (like `containers` which merges on `name`, or `tolerations`
