@@ -485,6 +485,37 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 					"service annotation should be from Gateway")
 			},
 		},
+		{
+			// This test demonstrates the recommended approach for adding sidecars:
+			// - Use sdsContainer for TLS certificate handling (built-in SDS, requires Istio)
+			// - Use deploymentOverlay for other custom sidecars
+			Name:                        "envoy with SDS container and custom sidecar via overlay",
+			InputFile:                   "envoy-sds-and-custom-sidecar",
+			HelmValuesGeneratorOverride: istioOverride,
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+
+				// SDS container should be present with custom image (requires Istio enabled)
+				assert.Contains(t, outputYaml, "name: sds",
+					"SDS container should be present when Istio is enabled")
+				assert.Contains(t, outputYaml, "ghcr.io/kgateway-dev/sds:v1.0.0",
+					"SDS container should use custom image")
+
+				// Custom sidecar added via overlay should be present
+				assert.Contains(t, outputYaml, "name: my-sidecar",
+					"custom sidecar from overlay should be present")
+				assert.Contains(t, outputYaml, "image: my-sidecar:latest",
+					"custom sidecar should use specified image")
+
+				// Main proxy container should still be present
+				assert.Contains(t, outputYaml, "name: kgateway-proxy",
+					"main proxy container should be present")
+
+				// Istio proxy container should also be present
+				assert.Contains(t, outputYaml, "name: istio-proxy",
+					"istio-proxy container should be present when Istio is enabled")
+			},
+		},
 		// TLS test cases
 		{
 			Name:                        "basic gateway with TLS enabled",
