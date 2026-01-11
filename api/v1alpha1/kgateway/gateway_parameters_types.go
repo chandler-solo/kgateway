@@ -468,8 +468,20 @@ type IstioIntegration struct {
 	// +optional
 	IstioProxyContainer *IstioContainer `json:"istioProxyContainer,omitempty"`
 
-	// do not use slice of pointers: https://github.com/kubernetes/code-generator/issues/166
-	// Override the default Istio sidecar in gateway-proxy with a custom container.
+	// Deprecated: This field was never implemented in v2 and will be deleted.
+	// If you need custom TLS certificate handling, use the built-in SDS (Secret Discovery
+	// Service) container via the sdsContainer field instead. For other sidecar needs,
+	// use a deployment overlay. Example overlay that adds a sidecar:
+	//
+	//	spec:
+	//	  kube:
+	//	    deploymentOverlay:
+	//	      spec:
+	//	        template:
+	//	          spec:
+	//	            containers:
+	//	              - name: my-sidecar
+	//	                image: my-sidecar:latest
 	//
 	// +optional
 	CustomSidecars []corev1.Container `json:"customSidecars,omitempty"`

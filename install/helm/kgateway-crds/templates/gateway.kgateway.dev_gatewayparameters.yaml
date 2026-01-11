@@ -1333,9 +1333,15 @@ spec:
                     description: Configuration for the Istio integration.
                     properties:
                       customSidecars:
-                        description: |-
-                          do not use slice of pointers: https://github.com/kubernetes/code-generator/issues/166
-                          Override the default Istio sidecar in gateway-proxy with a custom container.
+                        description: "Deprecated: This field was never implemented
+                          in v2 and will be deleted.\nIf you need custom TLS certificate
+                          handling, use the built-in SDS (Secret Discovery\nService)
+                          container via the sdsContainer field instead. For other
+                          sidecar needs,\nuse a deployment overlay. Example overlay
+                          that adds a sidecar:\n\n\tspec:\n\t  kube:\n\t    deploymentOverlay:\n\t
+                          \     spec:\n\t        template:\n\t          spec:\n\t
+                          \           containers:\n\t              - name: my-sidecar\n\t
+                          \               image: my-sidecar:latest"
                         items:
                           description: A single application container that you want
                             to run within a pod.
