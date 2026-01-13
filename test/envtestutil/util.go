@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -34,6 +36,88 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
 )
+
+// SharedEnv holds a shared envtest environment that can be reused across tests.
+type SharedEnv struct {
+	testEnv  *envtest.Environment
+	restCfg  *rest.Config
+	started  bool
+	mu       sync.Mutex
+	stopOnce sync.Once
+}
+
+// NewSharedEnv creates a new shared envtest environment. Call Start() to start it.
+func NewSharedEnv(crdDirs []string) (*SharedEnv, error) {
+	assetsDir, err := getEnvTestAssetsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	return &SharedEnv{
+		testEnv: &envtest.Environment{
+			CRDDirectoryPaths:     crdDirs,
+			ErrorIfCRDPathMissing: false,
+			BinaryAssetsDirectory: assetsDir,
+		},
+	}, nil
+}
+
+func getEnvTestAssetsDir() (string, error) {
+	assetsDir := os.Getenv("KUBEBUILDER_ASSETS")
+	if assetsDir == "" {
+		out, err := exec.Command("sh", "-c", "make -s --no-print-directory -C $(dirname $(go env GOMOD)) envtest-path").CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve envtest assets directory: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		assetsDir = strings.TrimSpace(string(out))
+	}
+	if assetsDir == "" {
+		return "", fmt.Errorf("envtest assets directory is empty")
+	}
+
+	info, err := os.Stat(assetsDir)
+	if err != nil {
+		return "", fmt.Errorf("envtest assets directory does not exist: %s: %w", assetsDir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("envtest assets path is not a directory: %s", assetsDir)
+	}
+
+	return assetsDir, nil
+}
+
+// Start starts the envtest environment if not already started.
+func (s *SharedEnv) Start() (*rest.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.started {
+		return s.restCfg, nil
+	}
+
+	cfg, err := s.testEnv.Start()
+	if err != nil {
+		return nil, fmt.Errorf("failed to start envtest: %w", err)
+	}
+
+	s.restCfg = cfg
+	s.started = true
+	return cfg, nil
+}
+
+// Stop stops the envtest environment.
+func (s *SharedEnv) Stop() error {
+	var stopErr error
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.started {
+			stopErr = s.testEnv.Stop()
+			s.started = false
+		}
+	})
+	return stopErr
+}
 
 type postStartFunc func(t *testing.T, ctx context.Context, client istiokube.CLIClient) func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []pluginsdk.Plugin
 
