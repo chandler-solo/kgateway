@@ -99,18 +99,28 @@ spec:
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
-                      or update existing items if keys match.\n\n**3. Deleting List
-                      Items ($patch: delete):**\nTo remove an item from a generated
-                      list (e.g., removing a default sidecar), you must use\nthe special
-                      `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
-                      delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
-                      a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
-                      \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
-                      default nodeSelector\n\n**5. Replacing Lists Entirely ($patch:
-                      replace):**\nIf you want to strictly define a list and ignore
-                      all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
+                      or update existing items if keys match.\n\n**3. Deleting Fields
+                      or List Items ($patch: delete):**\nTo remove a field or list
+                      item from the generated resource, use the\n`$patch: delete`
+                      directive. This works for both map fields and list items.\n\n**Important:**
+                      Do NOT use `null` to delete fields. Kubernetes strips\nnull
+                      values (no matter how deeply nested) when storing this field,
+                      so\n`securityContext: null`, e.g., is dropped by the Kubernetes
+                      API server\nbefore the controller can ever see it.  Always use
+                      `$patch: delete`\ninstead.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                      \     # Delete pod-level securityContext\n\t      securityContext:\n\t
+                      \       $patch: delete\n\t      # Delete nodeSelector\n\t      nodeSelector:\n\t
+                      \       $patch: delete\n\t      containers:\n\t        - name:
+                      agentgateway\n\t          # Delete container-level securityContext\n\t
+                      \         securityContext:\n\t            $patch: delete\n\n**4.
+                      Replacing Maps Entirely ($patch: replace):**\nTo replace an
+                      entire map with your values (instead of merging), use `$patch:
+                      replace`.\nThis removes all existing keys and replaces them
+                      with only your specified keys.\n\n\tspec:\n\t  template:\n\t
+                      \   spec:\n\t      nodeSelector:\n\t        $patch: replace\n\t
+                      \       custom-key: custom-value\n\n**5. Replacing Lists Entirely
+                      ($patch: replace):**\nIf you want to strictly define a list
+                      and ignore all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
                       \ spec:\n\t    ports:\n\t      - $patch: replace\n\t      -
                       name: http\n\t        port: 80\n\t        targetPort: 8080\n\t
                       \       protocol: TCP\n\t      - name: https\n\t        port:
@@ -331,18 +341,28 @@ spec:
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
-                      or update existing items if keys match.\n\n**3. Deleting List
-                      Items ($patch: delete):**\nTo remove an item from a generated
-                      list (e.g., removing a default sidecar), you must use\nthe special
-                      `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
-                      delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
-                      a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
-                      \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
-                      default nodeSelector\n\n**5. Replacing Lists Entirely ($patch:
-                      replace):**\nIf you want to strictly define a list and ignore
-                      all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
+                      or update existing items if keys match.\n\n**3. Deleting Fields
+                      or List Items ($patch: delete):**\nTo remove a field or list
+                      item from the generated resource, use the\n`$patch: delete`
+                      directive. This works for both map fields and list items.\n\n**Important:**
+                      Do NOT use `null` to delete fields. Kubernetes strips\nnull
+                      values (no matter how deeply nested) when storing this field,
+                      so\n`securityContext: null`, e.g., is dropped by the Kubernetes
+                      API server\nbefore the controller can ever see it.  Always use
+                      `$patch: delete`\ninstead.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                      \     # Delete pod-level securityContext\n\t      securityContext:\n\t
+                      \       $patch: delete\n\t      # Delete nodeSelector\n\t      nodeSelector:\n\t
+                      \       $patch: delete\n\t      containers:\n\t        - name:
+                      agentgateway\n\t          # Delete container-level securityContext\n\t
+                      \         securityContext:\n\t            $patch: delete\n\n**4.
+                      Replacing Maps Entirely ($patch: replace):**\nTo replace an
+                      entire map with your values (instead of merging), use `$patch:
+                      replace`.\nThis removes all existing keys and replaces them
+                      with only your specified keys.\n\n\tspec:\n\t  template:\n\t
+                      \   spec:\n\t      nodeSelector:\n\t        $patch: replace\n\t
+                      \       custom-key: custom-value\n\n**5. Replacing Lists Entirely
+                      ($patch: replace):**\nIf you want to strictly define a list
+                      and ignore all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
                       \ spec:\n\t    ports:\n\t      - $patch: replace\n\t      -
                       name: http\n\t        port: 80\n\t        targetPort: 8080\n\t
                       \       protocol: TCP\n\t      - name: https\n\t        port:
@@ -452,18 +472,28 @@ spec:
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
-                      or update existing items if keys match.\n\n**3. Deleting List
-                      Items ($patch: delete):**\nTo remove an item from a generated
-                      list (e.g., removing a default sidecar), you must use\nthe special
-                      `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
-                      delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
-                      a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
-                      \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
-                      default nodeSelector\n\n**5. Replacing Lists Entirely ($patch:
-                      replace):**\nIf you want to strictly define a list and ignore
-                      all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
+                      or update existing items if keys match.\n\n**3. Deleting Fields
+                      or List Items ($patch: delete):**\nTo remove a field or list
+                      item from the generated resource, use the\n`$patch: delete`
+                      directive. This works for both map fields and list items.\n\n**Important:**
+                      Do NOT use `null` to delete fields. Kubernetes strips\nnull
+                      values (no matter how deeply nested) when storing this field,
+                      so\n`securityContext: null`, e.g., is dropped by the Kubernetes
+                      API server\nbefore the controller can ever see it.  Always use
+                      `$patch: delete`\ninstead.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                      \     # Delete pod-level securityContext\n\t      securityContext:\n\t
+                      \       $patch: delete\n\t      # Delete nodeSelector\n\t      nodeSelector:\n\t
+                      \       $patch: delete\n\t      containers:\n\t        - name:
+                      agentgateway\n\t          # Delete container-level securityContext\n\t
+                      \         securityContext:\n\t            $patch: delete\n\n**4.
+                      Replacing Maps Entirely ($patch: replace):**\nTo replace an
+                      entire map with your values (instead of merging), use `$patch:
+                      replace`.\nThis removes all existing keys and replaces them
+                      with only your specified keys.\n\n\tspec:\n\t  template:\n\t
+                      \   spec:\n\t      nodeSelector:\n\t        $patch: replace\n\t
+                      \       custom-key: custom-value\n\n**5. Replacing Lists Entirely
+                      ($patch: replace):**\nIf you want to strictly define a list
+                      and ignore all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
                       \ spec:\n\t    ports:\n\t      - $patch: replace\n\t      -
                       name: http\n\t        port: 80\n\t        targetPort: 8080\n\t
                       \       protocol: TCP\n\t      - name: https\n\t        port:
@@ -592,18 +622,28 @@ spec:
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
-                      or update existing items if keys match.\n\n**3. Deleting List
-                      Items ($patch: delete):**\nTo remove an item from a generated
-                      list (e.g., removing a default sidecar), you must use\nthe special
-                      `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
-                      delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
-                      a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
-                      \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
-                      default nodeSelector\n\n**5. Replacing Lists Entirely ($patch:
-                      replace):**\nIf you want to strictly define a list and ignore
-                      all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
+                      or update existing items if keys match.\n\n**3. Deleting Fields
+                      or List Items ($patch: delete):**\nTo remove a field or list
+                      item from the generated resource, use the\n`$patch: delete`
+                      directive. This works for both map fields and list items.\n\n**Important:**
+                      Do NOT use `null` to delete fields. Kubernetes strips\nnull
+                      values (no matter how deeply nested) when storing this field,
+                      so\n`securityContext: null`, e.g., is dropped by the Kubernetes
+                      API server\nbefore the controller can ever see it.  Always use
+                      `$patch: delete`\ninstead.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                      \     # Delete pod-level securityContext\n\t      securityContext:\n\t
+                      \       $patch: delete\n\t      # Delete nodeSelector\n\t      nodeSelector:\n\t
+                      \       $patch: delete\n\t      containers:\n\t        - name:
+                      agentgateway\n\t          # Delete container-level securityContext\n\t
+                      \         securityContext:\n\t            $patch: delete\n\n**4.
+                      Replacing Maps Entirely ($patch: replace):**\nTo replace an
+                      entire map with your values (instead of merging), use `$patch:
+                      replace`.\nThis removes all existing keys and replaces them
+                      with only your specified keys.\n\n\tspec:\n\t  template:\n\t
+                      \   spec:\n\t      nodeSelector:\n\t        $patch: replace\n\t
+                      \       custom-key: custom-value\n\n**5. Replacing Lists Entirely
+                      ($patch: replace):**\nIf you want to strictly define a list
+                      and ignore all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
                       \ spec:\n\t    ports:\n\t      - $patch: replace\n\t      -
                       name: http\n\t        port: 80\n\t        targetPort: 8080\n\t
                       \       protocol: TCP\n\t      - name: https\n\t        port:
@@ -655,18 +695,28 @@ spec:
                       Merging Lists (Append/Merge):**\nLists with \"merge keys\" (like
                       `containers` which merges on `name`, or `tolerations` which
                       merges on `key`)\nwill append your items to the generated list,
-                      or update existing items if keys match.\n\n**3. Deleting List
-                      Items ($patch: delete):**\nTo remove an item from a generated
-                      list (e.g., removing a default sidecar), you must use\nthe special
-                      `$patch: delete` directive.\n\n\tspec:\n\t  containers:\n\t
-                      \   - name: agentgateway\n\t      # Delete the securityContext
-                      using $patch: delete\n\t      securityContext:\n\t        $patch:
-                      delete\n\n**4. Deleting/Clearing Map Fields (null):**\nTo remove
-                      a map field or a scalar entirely, set its value to `null`.\n\n\tspec:\n\t
-                      \ template:\n\t    spec:\n\t      nodeSelector: null  # Removes
-                      default nodeSelector\n\n**5. Replacing Lists Entirely ($patch:
-                      replace):**\nIf you want to strictly define a list and ignore
-                      all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
+                      or update existing items if keys match.\n\n**3. Deleting Fields
+                      or List Items ($patch: delete):**\nTo remove a field or list
+                      item from the generated resource, use the\n`$patch: delete`
+                      directive. This works for both map fields and list items.\n\n**Important:**
+                      Do NOT use `null` to delete fields. Kubernetes strips\nnull
+                      values (no matter how deeply nested) when storing this field,
+                      so\n`securityContext: null`, e.g., is dropped by the Kubernetes
+                      API server\nbefore the controller can ever see it.  Always use
+                      `$patch: delete`\ninstead.\n\n\tspec:\n\t  template:\n\t    spec:\n\t
+                      \     # Delete pod-level securityContext\n\t      securityContext:\n\t
+                      \       $patch: delete\n\t      # Delete nodeSelector\n\t      nodeSelector:\n\t
+                      \       $patch: delete\n\t      containers:\n\t        - name:
+                      agentgateway\n\t          # Delete container-level securityContext\n\t
+                      \         securityContext:\n\t            $patch: delete\n\n**4.
+                      Replacing Maps Entirely ($patch: replace):**\nTo replace an
+                      entire map with your values (instead of merging), use `$patch:
+                      replace`.\nThis removes all existing keys and replaces them
+                      with only your specified keys.\n\n\tspec:\n\t  template:\n\t
+                      \   spec:\n\t      nodeSelector:\n\t        $patch: replace\n\t
+                      \       custom-key: custom-value\n\n**5. Replacing Lists Entirely
+                      ($patch: replace):**\nIf you want to strictly define a list
+                      and ignore all generated defaults, use `$patch: replace`.\n\n\tservice:\n\t
                       \ spec:\n\t    ports:\n\t      - $patch: replace\n\t      -
                       name: http\n\t        port: 80\n\t        targetPort: 8080\n\t
                       \       protocol: TCP\n\t      - name: https\n\t        port:
