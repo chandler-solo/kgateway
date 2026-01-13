@@ -53,6 +53,34 @@ func NoSecurityContextValidator() func(t *testing.T, outputYaml string) {
 	}
 }
 
+// EmptySecurityContextValidator returns a validation function that allows
+// securityContext: {} but ensures no actual security values are
+// configured. This is used for OpenShift where $patch: delete sets
+// securityContext to empty struct (Kubernetes SMP behavior). OCP treats an
+// empty securityContext the same as a nonexistent one -- the SCC (by default,
+// `restricted-v2`) will fill in the securityContext.
+func EmptySecurityContextValidator() func(t *testing.T, outputYaml string) {
+	return func(t *testing.T, outputYaml string) {
+		t.Helper()
+		// These are actual security values that should NOT be present when using $patch: delete
+		forbiddenValues := []string{
+			"runAsUser:",
+			"runAsGroup:",
+			"runAsNonRoot:",
+			"allowPrivilegeEscalation:",
+			"capabilities:",
+			"readOnlyRootFilesystem:",
+			"privileged:",
+			"fsGroup:",
+			"supplementalGroups:",
+		}
+		for _, val := range forbiddenValues {
+			assert.NotContains(t, outputYaml, val,
+				"output YAML should not contain security values when $patch: delete is used, found: %s", val)
+		}
+	}
+}
+
 // VerifyAllYAMLFilesReferenced ensures every YAML file in testDataDir has a corresponding test case.
 // The exclude parameter allows skipping files that are tested elsewhere (e.g., TLS tests).
 func VerifyAllYAMLFilesReferenced(t *testing.T, testDataDir string, testCases []HelmTestCase, exclude ...string) {

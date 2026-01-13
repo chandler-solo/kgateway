@@ -104,12 +104,12 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GWC",
 			InputFile: "agentgateway-omitdefaultsecuritycontext",
-			Validate:  NoSecurityContextValidator(),
+			Validate:  EmptySecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
-			Validate:  NoSecurityContextValidator(),
+			Validate:  EmptySecurityContextValidator(),
 		},
 		{
 			Name:      "agentgateway-infrastructure with AgentgatewayParameters",

@@ -264,24 +264,41 @@ type KubernetesResourceOverlay struct {
 	// Lists with "merge keys" (like `containers` which merges on `name`, or `tolerations` which merges on `key`)
 	// will append your items to the generated list, or update existing items if keys match.
 	//
-	// **3. Deleting List Items ($patch: delete):**
-	// To remove an item from a generated list (e.g., removing a default sidecar), you must use
-	// the special `$patch: delete` directive.
+	// **3. Deleting Fields or List Items ($patch: delete):**
+	// To remove a field or list item from the generated resource, use the
+	// `$patch: delete` directive. This works for both map fields and list items.
 	//
-	//	spec:
-	//	  containers:
-	//	    - name: agentgateway
-	//	      # Delete the securityContext using $patch: delete
-	//	      securityContext:
-	//	        $patch: delete
-	//
-	// **4. Deleting/Clearing Map Fields (null):**
-	// To remove a map field or a scalar entirely, set its value to `null`.
+	// **Important:** Do NOT use `null` to delete fields. Kubernetes strips
+	// null values (no matter how deeply nested) when storing this field, so
+	// `securityContext: null`, e.g., is dropped by the Kubernetes API server
+	// before the controller can ever see it.  Always use `$patch: delete`
+	// instead.
 	//
 	//	spec:
 	//	  template:
 	//	    spec:
-	//	      nodeSelector: null  # Removes default nodeSelector
+	//	      # Delete pod-level securityContext
+	//	      securityContext:
+	//	        $patch: delete
+	//	      # Delete nodeSelector
+	//	      nodeSelector:
+	//	        $patch: delete
+	//	      containers:
+	//	        - name: agentgateway
+	//	          # Delete container-level securityContext
+	//	          securityContext:
+	//	            $patch: delete
+	//
+	// **4. Replacing Maps Entirely ($patch: replace):**
+	// To replace an entire map with your values (instead of merging), use `$patch: replace`.
+	// This removes all existing keys and replaces them with only your specified keys.
+	//
+	//	spec:
+	//	  template:
+	//	    spec:
+	//	      nodeSelector:
+	//	        $patch: replace
+	//	        custom-key: custom-value
 	//
 	// **5. Replacing Lists Entirely ($patch: replace):**
 	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.

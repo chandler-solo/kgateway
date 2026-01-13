@@ -2,11 +2,13 @@ package fake
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/kclient/clienttest"
 	"istio.io/istio/pkg/test"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -89,7 +91,11 @@ func fakeKgwClient(objects ...client.Object) *fake.Clientset {
 		gvr := mustGetGVR(obj, schemes.DefaultScheme())
 		// Run Create() instead of Add(), so we can pass the GVR. Otherwise, Kubernetes guesses, and it guesses wrong for 'GatewayParameters'.
 		// DeepCopy since it will mutate the managed fields/etc
-		if err := f.Tracker().Create(gvr, obj.DeepCopyObject(), obj.(metav1.ObjectMetaAccessor).GetObjectMeta().GetNamespace()); err != nil {
+		objCopy := obj.DeepCopyObject().(client.Object)
+		// Strip null values from RawExtension fields to simulate Kubernetes API
+		// server behavior. Kubernetes strips nulls from x-kubernetes-preserve-unknown-fields.
+		stripNullsFromRawExtensionFields(objCopy)
+		if err := f.Tracker().Create(gvr, objCopy, obj.(metav1.ObjectMetaAccessor).GetObjectMeta().GetNamespace()); err != nil {
 			panic("failed to create: " + err.Error())
 		}
 	}
@@ -144,4 +150,104 @@ func getGVR(obj client.Object, scheme *runtime.Scheme) (schema.GroupVersionResou
 		gvr.Group = ""
 	}
 	return gvr, nil
+}
+
+// stripNullsFromRawExtensionFields removes null values from RawExtension/JSON
+// fields. This simulates how the Kubernetes API server strips null values from
+// x-kubernetes-preserve-unknown-fields when storing CRDs. Without this, test
+// files using `securityContext: null` would not correctly simulate production
+// behavior where those nulls are stripped before the controller reads the
+// resource. (Use `$patch: delete` instead of null to delete fields.)
+func stripNullsFromRawExtensionFields(obj client.Object) {
+	if agwp, ok := obj.(*agentgateway.AgentgatewayParameters); ok {
+		stripNullsFromAGWP(agwp)
+	}
+}
+
+func stripNullsFromAGWP(agwp *agentgateway.AgentgatewayParameters) {
+	if agwp == nil {
+		return
+	}
+	// Strip nulls from overlay Spec fields
+	if agwp.Spec.Deployment != nil {
+		agwp.Spec.Deployment.Spec = stripNullsFromAPIExtJSON(agwp.Spec.Deployment.Spec)
+	}
+	if agwp.Spec.Service != nil {
+		agwp.Spec.Service.Spec = stripNullsFromAPIExtJSON(agwp.Spec.Service.Spec)
+	}
+	if agwp.Spec.ServiceAccount != nil {
+		agwp.Spec.ServiceAccount.Spec = stripNullsFromAPIExtJSON(agwp.Spec.ServiceAccount.Spec)
+	}
+	if agwp.Spec.PodDisruptionBudget != nil {
+		agwp.Spec.PodDisruptionBudget.Spec = stripNullsFromAPIExtJSON(agwp.Spec.PodDisruptionBudget.Spec)
+	}
+	if agwp.Spec.HorizontalPodAutoscaler != nil {
+		agwp.Spec.HorizontalPodAutoscaler.Spec = stripNullsFromAPIExtJSON(agwp.Spec.HorizontalPodAutoscaler.Spec)
+	}
+	// Also strip from RawConfig
+	agwp.Spec.RawConfig = stripNullsFromAPIExtJSON(agwp.Spec.RawConfig)
+}
+
+func stripNullsFromAPIExtJSON(j *apiextensionsv1.JSON) *apiextensionsv1.JSON {
+	if j == nil || len(j.Raw) == 0 {
+		return j
+	}
+	stripped := stripNullsFromJSON(j.Raw)
+	if len(stripped) == 0 {
+		return nil
+	}
+	return &apiextensionsv1.JSON{Raw: stripped}
+}
+
+func stripNullsFromJSON(raw []byte) []byte {
+	if len(raw) == 0 {
+		return raw
+	}
+	var data any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return raw
+	}
+	stripped := stripNullsRecursive(data)
+	if stripped == nil {
+		return nil
+	}
+	result, err := json.Marshal(stripped)
+	if err != nil {
+		return raw
+	}
+	return result
+}
+
+func stripNullsRecursive(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		result := make(map[string]any)
+		for k, v := range val {
+			if v == nil {
+				continue // Strip null values
+			}
+			stripped := stripNullsRecursive(v)
+			if stripped != nil {
+				result[k] = stripped
+			}
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	case []any:
+		var result []any
+		for _, item := range val {
+			if item == nil {
+				continue // Strip null values in arrays
+			}
+			stripped := stripNullsRecursive(item)
+			if stripped != nil {
+				result = append(result, stripped)
+			}
+		}
+		return result
+	default:
+		return v
+	}
 }

@@ -12,17 +12,21 @@ metadata:
   name: agwp-omit-security
   namespace: default
 spec:
-  # Use deployment overlay to delete the default securityContext using null
+  # Use deployment overlay to delete the default securityContext using $patch: delete
+  # Note: We use $patch: delete instead of null because Kubernetes strips null values from
+  # x-kubernetes-preserve-unknown-fields when storing CRDs.
   deployment:
     spec:
       template:
         spec:
           # Delete pod-level securityContext
-          securityContext: null
+          securityContext:
+            $patch: delete
           containers:
             - name: agentgateway
               # Delete container-level securityContext
-              securityContext: null
+              securityContext:
+                $patch: delete
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1
