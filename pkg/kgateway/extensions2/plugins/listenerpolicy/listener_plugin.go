@@ -110,6 +110,13 @@ func (d listenerPolicy) Equals(d2 listenerPolicy) bool {
 		return false
 	}
 
+	if (d.http == nil) != (d2.http == nil) {
+		return false
+	}
+	if d.http != nil && !d.http.Equals(d2.http) {
+		return false
+	}
+
 	return true
 }
 
@@ -326,8 +333,6 @@ func (p *listenerPolicyPluginGwPass) ApplyHCM(
 	pCtx *ir.HcmContext,
 	out *envoy_hcm.HttpConnectionManager,
 ) error {
-	logger.Debug("applying to HCM", "listener_port", pCtx.ListenerPort, "policy_type", fmt.Sprintf("%T", pCtx.Policy))
-
 	cfg := p.getPolicy(pCtx.Policy, pCtx.ListenerPort)
 	policy := cfg.http
 	if policy == nil {
@@ -353,6 +358,12 @@ func (p *listenerPolicyPluginGwPass) ApplyHCM(
 	// translate useRemoteAddress
 	if policy.useRemoteAddress != nil {
 		out.UseRemoteAddress = wrapperspb.Bool(*policy.useRemoteAddress)
+	}
+	if policy.preserveExternalRequestId != nil {
+		out.PreserveExternalRequestId = *policy.preserveExternalRequestId
+	}
+	if policy.generateRequestId != nil {
+		out.GenerateRequestId = wrapperspb.Bool(*policy.generateRequestId)
 	}
 
 	// translate xffNumTrustedHops
@@ -414,6 +425,23 @@ func (p *listenerPolicyPluginGwPass) ApplyHCM(
 			out.HttpProtocolOptions = &envoycorev3.Http1ProtocolOptions{}
 		}
 		out.HttpProtocolOptions.DefaultHostForHttp_10 = *policy.defaultHostForHttp10
+	}
+
+	// translate maxRequestHeadersKb
+	if policy.maxRequestHeadersKb != nil {
+		out.MaxRequestHeadersKb = wrapperspb.UInt32(*policy.maxRequestHeadersKb)
+	}
+
+	// translate uuidRequestIdConfig
+	if policy.uuidRequestIdConfig != nil {
+		requestIdExtensionAny, err := utils.MessageToAny(policy.uuidRequestIdConfig)
+		if err != nil {
+			logger.Error("error translating uuidRequestIdConfig", "error", err)
+			return err
+		}
+		out.RequestIdExtension = &envoy_hcm.RequestIDExtension{
+			TypedConfig: requestIdExtensionAny,
+		}
 	}
 
 	return nil

@@ -282,7 +282,7 @@ func translatePolicyToAgw(
 	agwPolicies := make([]AgwPolicy, 0)
 	var errs []error
 
-	frontend, err := translateFrontendPolicyToAgw(policy, policyTarget)
+	frontend, err := translateFrontendPolicyToAgw(ctx, policy, policyTarget)
 	agwPolicies = append(agwPolicies, frontend...)
 	if err != nil {
 		errs = append(errs, err)
@@ -827,13 +827,15 @@ func processExtAuthPolicy(
 	policy types.NamespacedName,
 	policyTarget *api.PolicyTarget,
 ) ([]AgwPolicy, error) {
+	var backendErr error
 	be, err := buildBackendRef(ctx, extAuth.BackendRef, policy.Namespace)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build extAuth: %v", err)
+		backendErr = fmt.Errorf("failed to build extAuth: %v", err)
 	}
 
 	spec := &api.TrafficPolicySpec_ExternalAuth{
-		Target: be,
+		Target:      be,
+		FailureMode: api.TrafficPolicySpec_ExternalAuth_DENY,
 	}
 	if g := extAuth.GRPC; g != nil {
 		p := &api.TrafficPolicySpec_ExternalAuth_GRPCProtocol{
@@ -886,7 +888,7 @@ func processExtAuthPolicy(
 		"agentgateway_policy", extauthPolicy.Name,
 		"target", policyTarget)
 
-	return []AgwPolicy{{Policy: extauthPolicy}}, nil
+	return []AgwPolicy{{Policy: extauthPolicy}}, backendErr
 }
 
 // processExtProcPolicy processes ExtProc configuration and creates corresponding agentgateway policies
@@ -1205,7 +1207,7 @@ func buildBackendRef(ctx PolicyCtx, ref gwv1.BackendObjectReference, defaultNS s
 			},
 			Port: uint32(*port), //nolint:gosec // G115: Gateway API PortNumber is int32 with validation 1-65535, always safe
 		}, nil
-	case wellknown.BackendGVK.GroupKind():
+	case wellknown.AgentgatewayBackendGVK.GroupKind():
 		key := namespace + "/" + string(ref.Name)
 		be := ptr.Flatten(krt.FetchOne(ctx.Krt, ctx.Collections.Backends, krt.FilterKey(key)))
 		if be == nil {

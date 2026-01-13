@@ -60,6 +60,12 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		}
 	}
 
+	// Istio override function for tests that need Istio auto mTLS enabled
+	istioOverride := func(inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator {
+		inputs.IstioAutoMtlsEnabled = true
+		return nil
+	}
+
 	tests := []HelmTestCase{
 		{
 			Name:      "basic gateway with default gatewayclass and no gwparams",
@@ -122,6 +128,25 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "envoy-infrastructure",
 		},
 		{
+			// The GW parametersRef merges with the GWC parametersRef.
+			// GWC has replicas:2, GW has omitDefaultSecurityContext:true.
+			// Both settings should appear in the output.
+			Name:      "both GWC and GW have parametersRef",
+			InputFile: "both-gwc-and-gw-have-params",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "replicas: 2",
+					"replicas from GatewayClass params should be preserved when Gateway has omitDefaultSecurityContext")
+				assert.NotContains(t, outputYaml, "securityContext",
+					"securityContext should be omitted due to Gateway's omitDefaultSecurityContext:true")
+			},
+		},
+		{
+			// Like the above, but swap the actual parameters to test the test:
+			Name:      "both GWC and GW have parametersRef reversed",
+			InputFile: "both-gwc-and-gw-have-params-reversed",
+		},
+		{
 			Name:      "gateway with static IP address",
 			InputFile: "loadbalancer-static-ip",
 		},
@@ -140,6 +165,10 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 		{
 			Name:      "agentgateway with shutdown configuration",
 			InputFile: "agentgateway-shutdown",
+		},
+		{
+			Name:      "agentgateway with Istio configuration",
+			InputFile: "agentgateway-istio",
 		},
 		{
 			Name:      "agentgateway with logging format json",
@@ -183,13 +212,7 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			},
 		},
 		{
-			// The GW parametersRef is meant to override the GWC parametersRef,
-			// not to create a 'merge' of params:
-			Name:      "both GWC and GW have parametersRef",
-			InputFile: "both-gwc-and-gw-have-params",
-		},
-		{
-			// Same as above but with AgentgatewayParameters instead of GatewayParameters:
+			// Test merging GWC and GW AgentgatewayParameters.
 			Name:      "agentgateway both GWC and GW have parametersRef",
 			InputFile: "agentgateway-both-gwc-and-gw-have-params",
 		},
@@ -246,6 +269,48 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			Name:      "agentgateway AGWP with pod scheduling fields",
 			InputFile: "agentgateway-agwp-pod-scheduling",
 		},
+		{
+			Name:      "agentgateway with static IP address via overlay",
+			InputFile: "agentgateway-loadbalancer-static-ip",
+		},
+		{
+			Name:      "agentgateway GKE with subsetting and external static IP",
+			InputFile: "agentgateway-gke-subsetting-static-ip",
+		},
+		{
+			Name:      "agentgateway with PodDisruptionBudget overlay",
+			InputFile: "agentgateway-pdb-overlay",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: PodDisruptionBudget",
+					"PDB should be created when podDisruptionBudget overlay is specified")
+				assert.Contains(t, outputYaml, "pdb-label: from-overlay",
+					"PDB should have label from overlay")
+				assert.Contains(t, outputYaml, "pdb-annotation: from-overlay",
+					"PDB should have annotation from overlay")
+				assert.Contains(t, outputYaml, "minAvailable: 1",
+					"PDB should have minAvailable from overlay spec")
+			},
+		},
+		{
+			Name:      "agentgateway with HorizontalPodAutoscaler overlay",
+			InputFile: "agentgateway-hpa-overlay",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "kind: HorizontalPodAutoscaler",
+					"HPA should be created when horizontalPodAutoscaler overlay is specified")
+				assert.Contains(t, outputYaml, "hpa-label: from-overlay",
+					"HPA should have label from overlay")
+				assert.Contains(t, outputYaml, "hpa-annotation: from-overlay",
+					"HPA should have annotation from overlay")
+				assert.Contains(t, outputYaml, "minReplicas: 2",
+					"HPA should have minReplicas from overlay spec")
+				assert.Contains(t, outputYaml, "maxReplicas: 10",
+					"HPA should have maxReplicas from overlay spec")
+				assert.Contains(t, outputYaml, "averageUtilization: 80",
+					"HPA should have CPU utilization target from overlay spec")
+			},
+		},
 		// TLS test cases
 		{
 			Name:                        "basic gateway with TLS enabled",
@@ -261,6 +326,44 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			// Custom configmap name via AgentgatewayParameters deployment overlay:
 			Name:      "agentgateway with custom configmap name via overlay",
 			InputFile: "agentgateway-custom-configmap",
+		},
+		{
+			Name:      "agentgateway with Gateway.spec.addresses",
+			InputFile: "agentgateway-gateway-addresses",
+		},
+		{
+			Name:                        "gateway with istio enabled",
+			InputFile:                   "istio-enabled",
+			HelmValuesGeneratorOverride: istioOverride,
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "name: sds",
+					"sds container should be present when istio is enabled")
+				assert.Contains(t, outputYaml, "name: istio-proxy",
+					"istio-proxy container should be present when istio is enabled")
+				assert.Contains(t, outputYaml, "ISTIO_MTLS_SDS_ENABLED",
+					"ISTIO_MTLS_SDS_ENABLED env var should be present")
+				assert.Contains(t, outputYaml, "name: istio-certs",
+					"istio-certs volume should be present")
+			},
+		},
+		{
+			Name:                        "waypoint gateway with istio enabled",
+			InputFile:                   "istio-enabled-waypoint",
+			HelmValuesGeneratorOverride: istioOverride,
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "name: sds",
+					"sds container should be present when istio is enabled")
+				assert.Contains(t, outputYaml, "name: istio-proxy",
+					"istio-proxy container should be present when istio is enabled")
+				// Waypoint-specific: ClusterIP service type
+				assert.Contains(t, outputYaml, "type: ClusterIP",
+					"waypoint should have ClusterIP service type")
+				// Waypoint-specific: port 15008 for HBONE
+				assert.Contains(t, outputYaml, "port: 15008",
+					"waypoint should have port 15008 for HBONE")
+			},
 		},
 	}
 
