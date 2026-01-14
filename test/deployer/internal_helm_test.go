@@ -102,11 +102,22 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway",
 		},
 		{
-			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GWC",
-			InputFile: "agentgateway-omitdefaultsecuritycontext",
-			Validate:  EmptySecurityContextValidator(),
+			// Testing the test machinery itself, and showing why we advise
+			// against nulling things out with Strategic-Merge-Patch: With the
+			// improved fake client that knows about null value handling (and
+			// is faster than envtest, but much less faithful to the k8s API
+			// server), securityContext appears in the output even when the end
+			// user makes the mistake of using `securityContext: null` to
+			// delete it (which is a mistake only because of how k8s stores
+			// CRDs, dropping this entirely).
+			Name:      "agentgateway buggy attempt to omit default security contexts",
+			InputFile: "agentgateway-buggy-omitdefaultsecuritycontext",
+			Validate:  SecurityContextAppearsWithImprovedFakeClientValidator(),
 		},
 		{
+			// Uses $patch: delete which produces securityContext: {} (empty
+			// struct).  OpenShift treats the empty struct like an absent
+			// struct and the SCC fills in securityContext.
 			Name:      "agentgateway OmitDefaultSecurityContext true AGWP via GW",
 			InputFile: "agentgateway-omitdefaultsecuritycontext-ref-gwp-on-gw",
 			Validate:  EmptySecurityContextValidator(),

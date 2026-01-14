@@ -81,6 +81,21 @@ func EmptySecurityContextValidator() func(t *testing.T, outputYaml string) {
 	}
 }
 
+// SecurityContextAppearsWithImprovedFakeClientValidator returns a validation
+// function that verifies securityContext IS present in the output. This tests
+// that our test machinery is using envtest or at least a more sophisticated
+// fake client than Istio's fake client, which pretends that k8s stores null
+// values in AgentgatewayParameters overlay fields.
+func SecurityContextAppearsWithImprovedFakeClientValidator() func(t *testing.T, outputYaml string) {
+	return func(t *testing.T, outputYaml string) {
+		t.Helper()
+		assert.Contains(t, outputYaml, "securityContext:",
+			"securityContext must appear in the output or we will write tests that do not match how Strategic-merge-patch works in reality. Time to switch to envtest instead of a fake client?")
+		assert.Contains(t, outputYaml, "runAsUser:",
+			"runAsUser should appear if using sophisticated k8s API server mimicry")
+	}
+}
+
 // VerifyAllYAMLFilesReferenced ensures every YAML file in testDataDir has a corresponding test case.
 // The exclude parameter allows skipping files that are tested elsewhere (e.g., TLS tests).
 func VerifyAllYAMLFilesReferenced(t *testing.T, testDataDir string, testCases []HelmTestCase, exclude ...string) {
