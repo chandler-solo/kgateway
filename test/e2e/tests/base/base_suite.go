@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	"istio.io/istio/pkg/maps"
 	"istio.io/istio/pkg/test/util/assert"
