@@ -7,15 +7,59 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/rest"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
+	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient/envtest"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient/fake"
 	pkgdeployer "github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/version"
+	"github.com/kgateway-dev/kgateway/v2/test/envtestutil"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
+
+// sharedEnvTest holds the shared envtest environment when USE_ENVTEST=true
+var sharedEnvTest *envtestutil.SharedEnv
+
+// getEnvTestConfig returns the envtest rest.Config, starting the environment if needed.
+// Returns nil if USE_ENVTEST is not set to "true".
+func getEnvTestConfig(t *testing.T) *rest.Config {
+	if !envutils.IsEnvTruthy("USE_ENVTEST") {
+		return nil
+	}
+
+	if sharedEnvTest == nil {
+		// Get CRD directories
+		gitRoot := testutils.GitRootDirectory()
+		crdDirs := []string{
+			filepath.Join(gitRoot, testutils.CRDPath),
+			filepath.Join(gitRoot, testutils.AgwCRDPath),
+		}
+		// Add Gateway API CRDs from the go module
+		gwapiDir, err := testutils.GetGatewayAPICRDDir()
+		if err != nil {
+			t.Fatalf("failed to get Gateway API CRD directory: %v", err)
+		}
+		crdDirs = append(crdDirs, gwapiDir)
+
+		sharedEnvTest = envtestutil.NewSharedEnv(crdDirs)
+		t.Cleanup(func() {
+			if err := sharedEnvTest.Stop(); err != nil {
+				t.Logf("warning: failed to stop envtest: %v", err)
+			}
+		})
+	}
+
+	cfg, err := sharedEnvTest.Start()
+	if err != nil {
+		t.Fatalf("failed to start envtest: %v", err)
+	}
+	return cfg
+}
 
 func mockVersion(t *testing.T) {
 	// Save the original version and restore it after the test
@@ -108,8 +152,8 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			// is faster than envtest, but much less faithful to the k8s API
 			// server), securityContext appears in the output even when the end
 			// user makes the mistake of using `securityContext: null` to
-			// delete it (which is a mistake only because of how k8s stores
-			// CRDs, dropping this entirely).
+			// delete it (which is a mistake only because k8s strips null
+			// values when storing any resource, not just CRDs).
 			Name:      "agentgateway buggy attempt to omit default security contexts",
 			InputFile: "agentgateway-buggy-omitdefaultsecuritycontext",
 			Validate:  SecurityContextAppearsWithImprovedFakeClientValidator(),
@@ -186,8 +230,9 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway-logging-format",
 		},
 		{
-			Name:      "agentgateway yaml injection",
-			InputFile: "agentgateway-yaml-injection",
+			Name:        "agentgateway yaml injection",
+			InputFile:   "agentgateway-yaml-injection",
+			SkipEnvTest: true, // Uses intentionally invalid data that real API servers reject
 		},
 		{
 			Name:      "agentgateway rawConfig with typed config conflict",
@@ -392,10 +437,30 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 
 	VerifyAllYAMLFilesReferenced(t, filepath.Join(dir, "testdata"), tests)
 
+	// Check if we should use envtest
+	envTestCfg := getEnvTestConfig(t)
+	useEnvTest := envTestCfg != nil
+	if useEnvTest {
+		t.Log("Using envtest for API server simulation")
+	} else {
+		t.Log("Using fake client")
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			fakeClient := fake.NewClient(t, tester.GetObjects(t, tt, scheme, dir, crdDir)...)
-			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, fakeClient)
+			if useEnvTest && tt.SkipEnvTest {
+				t.Skip("Skipping test with invalid data that envtest rejects")
+			}
+			objs := tester.GetObjects(t, tt, scheme, dir, crdDir)
+			var client apiclient.Client
+			if useEnvTest {
+				var err error
+				client, err = envtest.NewClient(envTestCfg, objs...)
+				require.NoError(t, err, "failed to create envtest client")
+			} else {
+				client = fake.NewClient(t, objs...)
+			}
+			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, client)
 		})
 	}
 }

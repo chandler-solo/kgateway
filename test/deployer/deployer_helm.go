@@ -34,6 +34,9 @@ type HelmTestCase struct {
 	// HelmValuesGeneratorOverride is an optional function to modify deployer inputs before rendering.
 	// This is useful for tests that need special configuration like TLS.
 	HelmValuesGeneratorOverride func(inputs *pkgdeployer.Inputs) pkgdeployer.HelmValuesGenerator
+	// SkipEnvTest is set to true for tests that require invalid data that a real API server rejects.
+	// These tests verify helm chart behavior with malformed inputs that only the fake client allows.
+	SkipEnvTest bool
 }
 
 type DeployerTester struct {

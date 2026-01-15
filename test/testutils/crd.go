@@ -63,6 +63,35 @@ const (
 	AgwCRDPath = "install/helm/agentgateway-crds/templates"
 )
 
+// GetGatewayAPICRDDir returns the path to Gateway API CRDs in the go module cache.
+// It looks for the experimental CRDs which include XListenerSet and other experimental features.
+func GetGatewayAPICRDDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Try to find the gateway-api module in the go module cache
+	modBase := filepath.Join(homeDir, "go", "pkg", "mod", "sigs.k8s.io")
+	matches, err := filepath.Glob(filepath.Join(modBase, "gateway-api@*"))
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("gateway-api module not found in %s", modBase)
+	}
+
+	// Use the last match (likely the most recent version)
+	modDir := matches[len(matches)-1]
+	crdDir := filepath.Join(modDir, "config", "crd", "experimental")
+
+	if _, err := os.Stat(crdDir); err != nil {
+		return "", fmt.Errorf("gateway-api CRD directory not found: %w", err)
+	}
+
+	return crdDir, nil
+}
+
 // GetStructuralSchemas returns a map of GroupVersionKind to Structural schemas for all CRDs in the given directories.
 // Deprecated: Use GetStructuralSchemasForBothCharts instead to load both kgateway and agentgateway CRDs.
 func GetStructuralSchemas(
