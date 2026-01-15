@@ -70,13 +70,9 @@ type KubernetesResourceOverlay struct {
 	//
 	// **3. Deleting Fields or List Items ($patch: delete):**
 	// To remove a field or list item from the generated resource, use the
-	// `$patch: delete` directive. This works for both map fields and list items.
-	//
-	// **Important:** Do NOT use `null` to delete fields. Kubernetes strips
-	// null values (no matter how deeply nested) when storing this field, so
-	// `securityContext: null`, e.g., is dropped by the Kubernetes API server
-	// before the controller can ever see it.  Always use `$patch: delete`
-	// instead.
+	// `$patch: delete` directive. This works for both map fields and list items,
+	// and is the recommended approach because it works with both client-side
+	// and server-side apply.
 	//
 	//	spec:
 	//	  template:
@@ -93,7 +89,19 @@ type KubernetesResourceOverlay struct {
 	//	          securityContext:
 	//	            $patch: delete
 	//
-	// **4. Replacing Maps Entirely ($patch: replace):**
+	// **4. Null Values (server-side apply only):**
+	// Setting a field to `null` can also remove it, but this ONLY works with
+	// `kubectl apply --server-side` or equivalent. With regular client-side
+	// `kubectl apply`, null values are stripped by kubectl before reaching
+	// the API server, so the deletion won't occur. Prefer `$patch: delete`
+	// for consistent behavior across both apply modes.
+	//
+	//	spec:
+	//	  template:
+	//	    spec:
+	//	      nodeSelector: null  # Removes nodeSelector (server-side apply only!)
+	//
+	// **5. Replacing Maps Entirely ($patch: replace):**
 	// To replace an entire map with your values (instead of merging), use `$patch: replace`.
 	// This removes all existing keys and replaces them with only your specified keys.
 	//
@@ -104,7 +112,7 @@ type KubernetesResourceOverlay struct {
 	//	        $patch: replace
 	//	        custom-key: custom-value
 	//
-	// **5. Replacing Lists Entirely ($patch: replace):**
+	// **6. Replacing Lists Entirely ($patch: replace):**
 	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 	//
 	//	service:
