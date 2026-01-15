@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 
@@ -17,8 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/config"
@@ -34,6 +31,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 // SharedEnv holds a shared envtest environment that can be reused across tests.
@@ -130,7 +128,7 @@ func RunController(
 	}
 	t.Cleanup(func() { testEnv.Stop() })
 
-	kubeconfig := GenerateKubeConfiguration(t, cfg)
+	kubeconfig := testutils.GenerateKubeConfiguration(t, cfg)
 	t.Log("kubeconfig:", kubeconfig)
 
 	var apiClient apiclient.Client
@@ -226,45 +224,6 @@ func RunController(
 	t.Logf("running tests, xds port: %v, agw xds port: %v", xdsPort, agwXdsPort)
 	run(t, ctx, krtDbg, client, xdsPort, agwXdsPort)
 	t.Logf("controller done. shutting down. xds port: %v, agw xds port: %v", xdsPort, agwXdsPort)
-}
-
-func GenerateKubeConfiguration(t *testing.T, restconfig *rest.Config) string {
-	clusters := make(map[string]*clientcmdapi.Cluster)
-	authinfos := make(map[string]*clientcmdapi.AuthInfo)
-	contexts := make(map[string]*clientcmdapi.Context)
-
-	clusterName := "cluster"
-	clusters[clusterName] = &clientcmdapi.Cluster{
-		Server:                   restconfig.Host,
-		CertificateAuthorityData: restconfig.CAData,
-	}
-	authinfos[clusterName] = &clientcmdapi.AuthInfo{
-		ClientKeyData:         restconfig.KeyData,
-		ClientCertificateData: restconfig.CertData,
-	}
-	contexts[clusterName] = &clientcmdapi.Context{
-		Cluster:   clusterName,
-		Namespace: "default",
-		AuthInfo:  clusterName,
-	}
-
-	clientConfig := clientcmdapi.Config{
-		Kind:       "Config",
-		APIVersion: "v1",
-		Clusters:   clusters,
-		Contexts:   contexts,
-		// current context must be mgmt cluster for now, as the api server doesn't have context configurable.
-		CurrentContext: "cluster",
-		AuthInfos:      authinfos,
-	}
-	// create temp file
-	tmpfile := filepath.Join(t.TempDir(), "kubeconfig")
-	err := clientcmd.WriteToFile(clientConfig, tmpfile)
-	if err != nil {
-		t.Fatalf("failed to write kubeconfig: %v", err)
-	}
-
-	return tmpfile
 }
 
 func addApiServerLogs(t *testing.T, testEnv *envtest.Environment) {
@@ -375,3 +334,4 @@ func BuildSettings() (*apisettings.Settings, error) {
 	s.XdsAuth = false
 	return s, nil
 }
+

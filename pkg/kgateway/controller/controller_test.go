@@ -4,10 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,8 +20,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,6 +43,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	"github.com/kgateway-dev/kgateway/v2/pkg/reports"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 const (
@@ -103,15 +98,14 @@ func (s *ControllerSuite) SetupSuite() {
 	err = rbacv1.AddToScheme(scheme)
 	s.Require().NoError(err)
 
-	assetsDir, err := getAssetsDir()
+	assetsDir, err := testutils.GetAssetsDir()
+	s.Require().NoError(err)
+
+	crdDirs, err := testutils.DefaultCRDDirs()
 	s.Require().NoError(err)
 
 	s.env = &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "crds"),
-			filepath.Join("..", "..", "..", "install", "helm", "kgateway-crds", "templates"),
-			filepath.Join("..", "..", "..", "install", "helm", "agentgateway-crds", "templates"),
-		},
+		CRDDirectoryPaths:     crdDirs,
 		ErrorIfCRDPathMissing: true,
 		// set assets dir so we can run without the makefile
 		BinaryAssetsDirectory:   assetsDir,
@@ -141,9 +135,7 @@ func (s *ControllerSuite) TearDownSuite() {
 	if err != nil {
 		s.T().Logf("error stopping Envtest after manager exit %v", err)
 	}
-
-	err = os.Remove(s.kubeconfigPath)
-	s.NoError(err)
+	// kubeconfig cleanup is handled automatically by t.TempDir()
 }
 
 // TestGatewayStatus tests the Status on Gateway creation
@@ -633,69 +625,6 @@ func (f fakeDiscoveryNamespaceFilter) Filter(obj any) bool {
 
 func (f fakeDiscoveryNamespaceFilter) AddHandler(func(selected, deselected istiosets.String)) {}
 
-func getAssetsDir() (string, error) {
-	var assets string
-	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
-		// set default if not user provided
-		out, err := exec.Command("sh", "-c", "make -s --no-print-directory -C $(dirname $(go env GOMOD)) envtest-path").CombinedOutput()
-		if err != nil {
-			return "", err
-		}
-		assets = strings.TrimSpace(string(out))
-	}
-	if assets != "" {
-		info, err := os.Stat(assets)
-		if err != nil {
-			return "", err
-		}
-		if !info.IsDir() {
-			return "", fmt.Errorf("assets path is not a directory: %s", assets)
-		}
-	}
-	return assets, nil
-}
-
-func generateKubeconfig(restconfig *rest.Config) (string, error) {
-	clusters := make(map[string]*clientcmdapi.Cluster)
-	authinfos := make(map[string]*clientcmdapi.AuthInfo)
-	contexts := make(map[string]*clientcmdapi.Context)
-
-	clusterName := "cluster"
-	clusters[clusterName] = &clientcmdapi.Cluster{
-		Server:                   restconfig.Host,
-		CertificateAuthorityData: restconfig.CAData,
-	}
-	authinfos[clusterName] = &clientcmdapi.AuthInfo{
-		ClientKeyData:         restconfig.KeyData,
-		ClientCertificateData: restconfig.CertData,
-	}
-	contexts[clusterName] = &clientcmdapi.Context{
-		Cluster:   clusterName,
-		Namespace: "default",
-		AuthInfo:  clusterName,
-	}
-
-	clientConfig := clientcmdapi.Config{
-		Kind:           "Config",
-		APIVersion:     "v1",
-		Clusters:       clusters,
-		Contexts:       contexts,
-		CurrentContext: "cluster",
-		AuthInfos:      authinfos,
-	}
-	// create temp file
-	tmpfile, err := os.CreateTemp("", "kgw*_controller_test_kubeconfig.yaml")
-	if err != nil {
-		return "", fmt.Errorf("error creating tmp kubeconfig file: %w", err)
-	}
-	tmpfile.Close()
-	err = clientcmd.WriteToFile(clientConfig, tmpfile.Name())
-	if err != nil {
-		return "", fmt.Errorf("error writing kubeconfig file: %w", err)
-	}
-	return tmpfile.Name(), nil
-}
-
 func (s *ControllerSuite) startController(
 	ctx context.Context,
 	cfg *rest.Config,
@@ -791,10 +720,7 @@ func (s *ControllerSuite) startController(
 	}
 	kubeClient.RunAndWait(ctx.Done())
 
-	s.kubeconfigPath, err = generateKubeconfig(cfg)
-	if err != nil {
-		return err
-	}
+	s.kubeconfigPath = testutils.GenerateKubeConfiguration(s.T(), cfg)
 
 	go func() {
 		mgr.GetLogger().Info("starting manager", "kubeconfig", s.kubeconfigPath)
