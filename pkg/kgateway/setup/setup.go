@@ -283,6 +283,15 @@ func New(opts ...func(*setup)) (*setup, error) {
 	if s.restConfig == nil {
 		s.restConfig = ctrl.GetConfigOrDie()
 	}
+	// Set UserAgent to the controller name so that SSA field manager uses a
+	// more meaningful identifier than the binary name (os.Args[0]):
+	if s.restConfig.UserAgent == "" {
+		if s.globalSettings.EnableAgentgateway && !s.globalSettings.EnableEnvoy {
+			s.restConfig.UserAgent = s.agwControllerName
+		} else {
+			s.restConfig.UserAgent = s.gatewayControllerName
+		}
+	}
 	if s.apiClient == nil {
 		apiClient, err := apiclient.New(s.restConfig)
 		if err != nil {
