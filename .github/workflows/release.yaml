@@ -66,17 +66,17 @@ jobs:
             # Find the previous tag for release notes generation
             PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
             NEEDS_RELEASE=true
-            GORELEASER_ARGS="--clean --skip=validate --release-notes _output/RELEASE_NOTES.md"
+            GORELEASER_ARGS="--parallelism=1 --clean --skip=validate --release-notes _output/RELEASE_NOTES.md"
           elif [[ $GITHUB_REF == refs/heads/main ]]; then
             VERSION="${MAIN_VERSION}"
             NEEDS_RELEASE=false
-            GORELEASER_ARGS="--clean --skip=validate"
+            GORELEASER_ARGS="--parallelism=1 --clean --skip=validate"
           elif [[ $GITHUB_REF == refs/pull/* ]]; then
             GIT_TAG=$(git describe --tags --abbrev=0)
             PR_NUM=$(echo "${GITHUB_REF}" | sed -E 's|refs/pull/([^/]+)/?.*|\1|')
             VERSION="${GIT_TAG}-pr.${PR_NUM}-${GIT_SHA}"
             NEEDS_RELEASE=false
-            GORELEASER_ARGS="--snapshot --clean"
+            GORELEASER_ARGS="--parallelism=1 --snapshot --clean"
           else
             echo "Unknown event type"
             exit 1

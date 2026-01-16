@@ -7,13 +7,16 @@ ARG GOARCH=amd64
 # means its not too useful
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Because we are now using the envoy-wrapper image we just build earlier as the ENVOY_IMAGE, the image
+# already did all the updates but if we are switching to some other pre-built images in the future,
+# need to uncomment these below:
 # Update our deps to make cve toil lower
 #install wget for our default probes
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install --no-install-recommends -y  ca-certificates \
-    && apt-get install wget -y \
-    && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
+#RUN apt-get update \
+#    && apt-get upgrade -y \
+#    && apt-get install --no-install-recommends -y  ca-certificates \
+#    && apt-get install wget -y \
+#    && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
 
 COPY kgateway-linux-$GOARCH /usr/local/bin/kgateway
 

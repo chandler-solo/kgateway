@@ -50,6 +50,12 @@ var (
 		"TestListenerSpecificIsolation": {
 			Manifests: []string{listenerMergeBlastRadiusManifest},
 		},
+		"TestTransformationValidPolicy": {
+			Manifests: []string{transformationValidTemplateManifest},
+		},
+		"TestTransformationInvalidPolicy": {
+			Manifests: []string{transformationInvalidTemplateManifest},
+		},
 	}
 )
 
@@ -367,6 +373,51 @@ func (s *testingSuite) TestListenerSpecificIsolation() {
 		},
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
+		},
+	)
+}
+
+func (s *testingSuite) TestTransformationValidPolicy() {
+	s.TestInstallation.Assertions.AssertEventualCurlResponse(
+		s.Ctx,
+		testdefaults.CurlPodExecOpt,
+		[]curl.Option{
+			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
+			curl.WithHostHeader("valid-template.example.com"),
+			curl.WithPort(gatewayPort),
+			curl.WithPath("/headers"),
+			curl.WithHeader("foo", "bar"),
+		},
+		&testmatchers.HttpResponse{
+			StatusCode: http.StatusOK,
+		},
+	)
+}
+
+func (s *testingSuite) TestTransformationInvalidPolicy() {
+	s.TestInstallation.Assertions.EventuallyHTTPRouteCondition(
+		s.Ctx,
+		invalidTrafficPolicyRoute.Name,
+		invalidTrafficPolicyRoute.Namespace,
+		gwv1.RouteConditionAccepted,
+		metav1.ConditionFalse,
+	)
+
+	// Verify that the route was dropped (no route should exist, so we should get 404)
+	s.TestInstallation.Assertions.AssertEventualCurlResponse(
+		s.Ctx,
+		testdefaults.CurlPodExecOpt,
+		[]curl.Option{
+			curl.WithHost(kubeutils.ServiceFQDN(proxyObjectMeta)),
+			curl.WithHostHeader("invalid-template.example.com"),
+			curl.WithPort(gatewayPort),
+			curl.WithPath("/headers"),
+			curl.WithBody("hello"),
+			curl.WithHeader("foo", "bar"),
+		},
+		&testmatchers.HttpResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       gomega.ContainSubstring(`invalid route configuration detected and replaced with a direct response.`),
 		},
 	)
 }

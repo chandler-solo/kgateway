@@ -19,6 +19,8 @@ var (
 	gatewayWideInvalidPolicyManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "gateway-wide-invalid-policy.yaml")
 	listenerSpecificInvalidPolicyManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "listener-specific-invalid-policy.yaml")
 	listenerMergeBlastRadiusManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "listener-merge-blast-radius.yaml")
+	transformationValidTemplateManifest   = filepath.Join(fsutils.MustGetThisDir(), "testdata", "transform-valid-template.yaml")
+	transformationInvalidTemplateManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "transform-invalid-template.yaml")
 
 	proxyObjectMeta = metav1.ObjectMeta{
 		Name:      "gw",
@@ -63,6 +65,12 @@ var (
 		},
 	}
 
+	invalidTrafficPolicyRoute = &gwv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "invalid-traffic-policy-route",
+			Namespace: "default",
+		},
+	}
 	gatewayWideRoute8080 = &gwv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "route-8080",

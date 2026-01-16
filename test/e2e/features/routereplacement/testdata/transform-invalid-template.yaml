@@ -1,0 +1,31 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: invalid-traffic-policy-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw
+      namespace: default
+  hostnames:
+    - "invalid-template.example.com"
+  rules:
+    - backendRefs:
+      - name: httpbin
+        port: 8000
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: invalid-traffic-policy
+  namespace: default
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: invalid-traffic-policy-route
+  transformation:
+    request:
+      body:
+        parseAs: AsJson
+        value: "{{ invalid_template }"  ## invalid template syntax that envoy will reject

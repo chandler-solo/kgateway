@@ -50,6 +50,12 @@ SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 # we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
 # For arm build, we will use upstream envoy and cannot switch back to classic transformation.
 export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
+# For now, this ENVOY_IMAGE_ARM64 is only used by goreleaser only, not the make envoy-wrapper-docker target
+export ENVOY_IMAGE_ARM64 ?= envoyproxy/envoy:v1.36.4
+# This one is used to build the control plane image. This is because now rustformation is default, we need to 
+# have both the envoy binary and the rustfromation dynamic module binary to run strict validation mode from the 
+# control plane
+export ENVOY_WRAPPER_IMAGE ?= ghcr.io/kgateway-dev/envoy-wrapper:$(VERSION)
 
 export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/pkg/version.Version=$(VERSION)' -s -w
@@ -462,7 +468,7 @@ $(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway: cmd/kgateway/Dockerfile.agentg
 $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile
 	$(BUILDX_BUILD) --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile \
 		--build-arg GOARCH=$(GOARCH) \
-		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
+		--build-arg ENVOY_IMAGE=$(ENVOY_WRAPPER_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION)
 	@touch $@
 
@@ -706,7 +712,7 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 # Release
 #----------------------------------------------------------------------------------
 
-GORELEASER_ARGS ?= --snapshot --clean
+GORELEASER_ARGS ?= --snapshot --parallelism=1 --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
 

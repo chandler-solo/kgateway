@@ -1,0 +1,31 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: valid-traffic-policy-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: gw
+      namespace: default
+  hostnames:
+    - "valid-template.example.com"
+  rules:
+    - backendRefs:
+      - name: httpbin
+        port: 8000
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: valid-traffic-policy
+  namespace: default
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: valid-traffic-policy-route
+  transformation:
+    request:
+      body:
+        parseAs: AsJson
+        value: "{{ header(\"foo\") }}"
