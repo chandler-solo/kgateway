@@ -11,6 +11,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/multiinstall"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/helper"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -30,6 +31,7 @@ func TestMultipleInstalls(t *testing.T) {
 					InstallNamespace:          "kgw-test-1",
 					ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 					ValuesManifestFile:        e2e.ManifestPath("multiple_installs_values1.yaml"),
+					ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 				},
 			),
 		},
@@ -41,6 +43,7 @@ func TestMultipleInstalls(t *testing.T) {
 					InstallNamespace:          "kgw-test-2",
 					ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 					ValuesManifestFile:        e2e.ManifestPath("multiple_installs_values2.yaml"),
+					ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 				},
 			),
 		},

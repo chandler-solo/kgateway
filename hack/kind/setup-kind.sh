@@ -30,6 +30,9 @@ LOCALSTACK="${LOCALSTACK:-false}"
 ENVOYINIT_CACHE_REF="${ENVOYINIT_CACHE_REF:-}"
 # If true, build and load agentgateway images instead of envoy
 AGENTGATEWAY="${AGENTGATEWAY:-false}"
+# If true, use goreleaser for building images (CI mode, produces VERSION-GOARCH tags)
+# If false, use buildx directly (local dev mode, produces VERSION tags)
+USE_GORELEASER="${USE_GORELEASER:-false}"
 
 # Export the variables so they are available in the environment
 export VERSION CLUSTER_NAME ENVOYINIT_CACHE_REF
@@ -84,15 +87,25 @@ function create_and_setup() {
 create_and_setup
 
 if [[ $SKIP_DOCKER == 'true' ]]; then
-  # TODO(tim): refactor the Makefile & CI scripts so we're loading local
-  # charts to real helm repos, and then we can remove this block.
-  echo "SKIP_DOCKER=true, not building images or chart"
+  # Images were pre-built and loaded into Docker, just load them into kind
+  echo "SKIP_DOCKER=true, loading pre-built images into kind"
+  if [[ $USE_GORELEASER == 'true' ]]; then
+    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make ci-kind-load
+  else
+    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-load kind-load-dummy-idp
+  fi
+  VERSION=$VERSION make package-kgateway-charts package-agentgateway-charts
 else
   # 2. Make all the docker images and load them to the kind cluster
-  if [[ $AGENTGATEWAY == 'true' ]]; then
-    # Skip expensive envoy build
+  if [[ $USE_GORELEASER == 'true' ]]; then
+    # CI mode: use goreleaser for consistent builds (produces VERSION-GOARCH tags)
+    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make ci-kind-build-and-load
+    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make dummy-idp-docker kind-load-dummy-idp
+  elif [[ $AGENTGATEWAY == 'true' ]]; then
+    # Local dev: skip expensive envoy build for agentgateway-only testing
     VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load-agentgateway-controller kind-build-and-load-dummy-idp
   else
+    # Local dev: build all images with buildx (produces VERSION tags)
     VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load kind-build-and-load-dummy-idp
   fi
 

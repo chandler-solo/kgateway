@@ -5,11 +5,13 @@ package helper
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	"helm.sh/helm/v3/pkg/repo"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/version"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
@@ -62,4 +64,24 @@ func getChartVersion(testAssetDir string, chartName string) (string, error) {
 		logger.Info("version of Helm chart", "chart", chartName, "version", version)
 		return version, nil
 	}
+}
+
+// GetLocalImageTag returns the image tag for locally-built images.
+// For snapshot/CI builds (built via goreleaser), images have architecture suffix
+// (e.g., "1.0.0-ci1-amd64") because docker manifests don't work with --load.
+// This function returns the version with the appropriate architecture suffix.
+func GetLocalImageTag() string {
+	v := version.Version
+	if v == "" || v == version.UndefinedVersion {
+		// During local development when version is not set via ldflags,
+		// fall back to a dev tag with arch suffix
+		return "dev-" + runtime.GOARCH
+	}
+	return v + "-" + runtime.GOARCH
+}
+
+// GetLocalImageHelmArgs returns the helm arguments needed to set the image tag
+// for locally-built images. This should be appended to ExtraHelmArgs in install.Context.
+func GetLocalImageHelmArgs() []string {
+	return []string{"--set", "image.tag=" + GetLocalImageTag()}
 }

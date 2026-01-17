@@ -69,6 +69,8 @@ runs:
       CONFORMANCE_VERSION: ${{ env.CONFORMANCE_VERSION }}
       CONFORMANCE_CHANNEL: ${{ env.CONFORMANCE_CHANNEL }}
       AGENTGATEWAY: ${{ inputs.test-type == 'agentgateway' && 'true' || 'false' }}
+      USE_GORELEASER: "true"
+      GOARCH: ${{ inputs.arch }}
     run: ./hack/kind/setup-kind.sh
 
   - name: Install kgateway via helm
@@ -97,16 +99,19 @@ runs:
 
       if [[ -z "${{ inputs.version }}" ]]; then
         # If inputs.version is empty, use the local chart path specified in the Makefile.
+        # For local/snapshot builds, images have arch suffix (e.g., 1.0.0-ci1-amd64) since
+        # docker manifests don't work with --load.
+        IMAGE_TAG="${VERSION}-${{ inputs.arch }}"
         helm upgrade -i -n kgateway-system kgateway-crds ./install/helm/kgateway-crds/ \
           --create-namespace \
           ${INFERENCE_EXT_FLAG}
         helm upgrade -i -n kgateway-system kgateway ./install/helm/kgateway/ \
           --create-namespace \
           ${EXPERIMENTAL_FLAG} \
-          --set image.tag=${VERSION} --set image.registry=ghcr.io/kgateway-dev \
+          --set image.tag=${IMAGE_TAG} --set image.registry=ghcr.io/kgateway-dev \
           ${INFERENCE_EXT_FLAG} \
           ${ADDITIONAL_VALUES}
-        
+
         # For agentgateway and inference-extension tests, also install the agentgateway chart
         if [[ "${{ inputs.test-type }}" == "agentgateway" || "${{ inputs.test-type }}" == "inference-extension" ]]; then
           helm upgrade -i -n agentgateway-system agentgateway-crds ./install/helm/agentgateway-crds/ \
@@ -114,7 +119,7 @@ runs:
           helm upgrade -i -n agentgateway-system agentgateway ./install/helm/agentgateway/ \
             --create-namespace \
             ${EXPERIMENTAL_FLAG} \
-            --set image.tag=${VERSION} \
+            --set image.tag=${IMAGE_TAG} \
             --set image.registry=ghcr.io/kgateway-dev \
             --set controller.image.repository=agentgateway-controller \
             --wait \

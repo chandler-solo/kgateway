@@ -734,14 +734,70 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 #----------------------------------------------------------------------------------
 # Release
 #----------------------------------------------------------------------------------
+#
+# Docker Image Build Strategy
+# ---------------------------
+# There are two ways to build Docker images in this project:
+#
+# 1. LOCAL DEVELOPMENT: Direct buildx builds (the *-docker targets above)
+#    - Fast, single-arch builds for iterating locally
+#    - Uses Make's dependency tracking to only rebuild what changed
+#    - Images tagged with VERSION (e.g., v1.0.1-dev)
+#    - Enables future migration to a local Kind registry for even faster loads
+#    - Usage: make kind-build-and-load
+#
+# 2. CI/RELEASES: goreleaser (the ci-* and release targets below)
+#    - CI uses ci-docker-images for PR validation (single-arch, VERSION-GOARCH tags)
+#    - Release uses 'make release' for multi-arch builds with manifest lists
+#    - Consistent, reproducible builds for production
+#    - Usage: USE_GORELEASER=true in setup-kind.sh, or make ci-kind-build-and-load
+#
+# We maintain both approaches because goreleaser is too slow for local iteration,
+# and buildx alone doesn't provide the multi-arch manifest support needed for releases.
+#
+# If you're modifying .goreleaser.yaml, test changes on your personal fork by
+# creating a release there and verifying the resulting images work correctly.
+#
+#----------------------------------------------------------------------------------
 
 GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
 
+GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
+
 .PHONY: release
 release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+
+#----------------------------------------------------------------------------------
+# CI Image Builds (goreleaser-based, multi-arch with VERSION-GOARCH tags)
+# ----------------------------------------------------------------------------------
+# These targets are used by CI to build images with goreleaser for consistency
+# with production releases. Images are tagged with VERSION-GOARCH suffix (e.g.,
+# 1.0.0-ci1-amd64) since docker manifests don't work with --load. NOTE: We do
+# not use envsubst to build only one (GOOS, GOARCH) platform because that would
+# complicate our code and we do value knowing in PR checks if there are any
+# failures on any platform building binaries or images.
+#
+# For local development, use the *-docker targets above which use buildx directly
+# and produce images tagged with just VERSION (e.g., v1.0.1-dev).
+#----------------------------------------------------------------------------------
+
+.PHONY: ci-docker-images
+ci-docker-images: ## Build all Docker images using goreleaser --snapshot --clean (for CI)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+# CI kind-load uses docker save | ctr import pattern for arch-suffixed images
+ci-kind-load-%:
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-$(GOARCH) | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+
+.PHONY: ci-kind-load
+ci-kind-load: ci-kind-load-kgateway ci-kind-load-agentgateway-controller ci-kind-load-envoy-wrapper ci-kind-load-sds ## Load all CI-built images into kind
+
+.PHONY: ci-kind-build-and-load
+ci-kind-build-and-load: ci-docker-images ci-kind-load ## Build images with goreleaser and load into kind (for CI)
+
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)

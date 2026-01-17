@@ -10,6 +10,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	. "github.com/kgateway-dev/kgateway/v2/test/e2e/tests"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/helper"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -23,9 +24,10 @@ func TestRouteReplacement(t *testing.T) {
 			InstallNamespace:          installNs,
 			ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 			ValuesManifestFile:        e2e.EmptyValuesManifestPath,
-			ExtraHelmArgs: []string{
+			ExtraHelmArgs: append(
+				helper.GetLocalImageHelmArgs(),
 				"--set", "validation.level=strict",
-			},
+			),
 		},
 	)
 
