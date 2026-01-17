@@ -734,6 +734,28 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 #----------------------------------------------------------------------------------
 # Release
 #----------------------------------------------------------------------------------
+#
+# Docker Image Build Strategy
+# ---------------------------
+# There are two ways to build Docker images in this project:
+#
+# 1. LOCAL DEVELOPMENT: Direct buildx builds (the *-docker targets above)
+#    - Fast, single-arch builds for iterating locally
+#    - Uses Make's dependency tracking to only rebuild what changed
+#    - Enables future migration to a local Kind registry for even faster loads
+#
+# 2. CI/RELEASES: goreleaser (the 'release' target below)
+#    - Multi-arch builds (amd64 + arm64) with manifest lists
+#    - Consistent, reproducible builds for production
+#    - CI runs 'goreleaser --snapshot --clean' on each PR to validate images
+#
+# We maintain both approaches because goreleaser is too slow for local iteration,
+# and buildx alone doesn't provide the multi-arch manifest support needed for releases.
+#
+# If you're modifying .goreleaser.yaml, test changes on your personal fork by
+# creating a release there and verifying the resulting images work correctly.
+#
+#----------------------------------------------------------------------------------
 
 GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
