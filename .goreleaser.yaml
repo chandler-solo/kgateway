@@ -59,6 +59,7 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
@@ -70,6 +71,7 @@ dockers:
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
@@ -81,6 +83,7 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
   - image_templates:
@@ -91,6 +94,7 @@ dockers:
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
   - image_templates:
@@ -101,6 +105,7 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
@@ -112,6 +117,7 @@ dockers:
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
@@ -123,6 +129,7 @@ dockers:
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
@@ -142,6 +149,7 @@ dockers:
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
