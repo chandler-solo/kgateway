@@ -616,7 +616,7 @@ deploy-kgateway-chart: ## Deploy the kgateway chart
 	$(HELM) upgrade --install kgateway $(TEST_ASSET_DIR)/kgateway-$(VERSION).tgz \
 	--namespace $(INSTALL_NAMESPACE) --create-namespace \
 	--set image.registry=$(IMAGE_REGISTRY) \
-	--set image.tag=$(VERSION) \
+	--set image.tag=$(VERSION)-$(GOARCH) \
 	-f $(HELM_ADDITIONAL_VALUES)
 
 .PHONY: deploy-agentgateway-crd-chart
@@ -628,7 +628,7 @@ deploy-agentgateway-chart: ## Deploy the agentgateway chart
 	$(HELM) upgrade --install agentgateway $(TEST_ASSET_DIR)/agentgateway-$(VERSION).tgz \
 	--namespace $(INSTALL_NAMESPACE) --create-namespace \
 	--set image.registry=$(IMAGE_REGISTRY) \
-	--set image.tag=$(VERSION) \
+	--set image.tag=$(VERSION)-$(GOARCH) \
 	--set controller.image.repository=$(AGENTGATEWAY_IMAGE_REPO) \
 	-f $(HELM_ADDITIONAL_VALUES)
 
@@ -651,11 +651,12 @@ GORELEASER_CURRENT_TAG ?= $(VERSION)
 release: ## Create a release using goreleaser
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
-# Build all Docker images using goreleaser (same as CI)
-# This is the preferred method for building Docker images locally
+# Build Docker images for local development using goreleaser
+# Uses .goreleaser.local.$(GOARCH).yaml for single-arch builds (fast local builds)
+# For multi-arch builds (CI releases), use 'make release' instead
 .PHONY: docker-images
-docker-images: ## Build all Docker images using goreleaser --snapshot --clean
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-target)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release -f .goreleaser.local.$(GOARCH).yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)
