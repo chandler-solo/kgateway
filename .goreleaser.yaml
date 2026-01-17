@@ -18,8 +18,8 @@ builds:
     goos:
       - linux
     goarch:
-      - amd64
       - arm64
+      - amd64
   - id: sds
     main: ./cmd/sds
     binary: sds-linux-{{ .Arch }}
@@ -33,8 +33,8 @@ builds:
     goos:
       - linux
     goarch:
-      - amd64
       - arm64
+      - amd64
   - id: envoyinit
     main: ./cmd/envoyinit
     binary: envoyinit-linux-{{ .Arch }}
@@ -48,81 +48,95 @@ builds:
     goos:
       - linux
     goarch:
-      - amd64
       - arm64
+      - amd64
 dockers:
   - image_templates:
       - &controller_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
+    ids: [controller]
     use: buildx
     dockerfile: &controller_dockerfile cmd/kgateway/Dockerfile
     goos: linux
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE_ARM64 }}"
   - image_templates:
       - &controller_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
+    ids: [controller]
     use: buildx
     dockerfile: *controller_dockerfile
     goos: linux
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE_AMD64 }}"
   - image_templates:
       - &agentgateway_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.AGENTGATEWAY_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
+    ids: [controller]
     use: buildx
     dockerfile: &agentgateway_dockerfile cmd/kgateway/Dockerfile.agentgateway
     goos: linux
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
   - image_templates:
       - &agentgateway_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.AGENTGATEWAY_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
+    ids: [controller]
     use: buildx
     dockerfile: *agentgateway_dockerfile
     goos: linux
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
   - image_templates:
       - &sds_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
+    ids: [sds]
     use: buildx
     dockerfile: &sds_dockerfile cmd/sds/Dockerfile
     goos: linux
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
   - image_templates:
       - &sds_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
+    ids: [sds]
     use: buildx
     dockerfile: *sds_dockerfile
     goos: linux
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
   - image_templates:
       - &envoyinit_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
+    ids: [envoyinit]
     use: buildx
     dockerfile: &envoyinit_dockerfile cmd/envoyinit/Dockerfile
     goos: linux
     goarch: arm64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
@@ -136,12 +150,14 @@ dockers:
       - internal/envoyinit
   - image_templates:
       - &envoyinit_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
+    ids: [envoyinit]
     use: buildx
     dockerfile: *envoyinit_dockerfile
     goos: linux
     goarch: amd64
     build_flag_templates:
       - "--pull"
+      - "{{ if .IsSnapshot }}--load{{ end }}"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"

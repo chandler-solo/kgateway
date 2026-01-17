@@ -12,6 +12,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	. "github.com/kgateway-dev/kgateway/v2/test/e2e/tests"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/cluster"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/helper"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
 	testruntime "github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/runtime"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -38,6 +39,7 @@ func TestInferenceExtension(t *testing.T) {
 		InstallNamespace:          infExtNs,
 		ProfileValuesManifestFile: e2e.ManifestPath("inference-extension-helm.yaml"),
 		ValuesManifestFile:        e2e.EmptyValuesManifestPath,
+		ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 	}
 
 	testInstallation := e2e.CreateTestInstallationForCluster(

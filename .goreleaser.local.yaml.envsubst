@@ -1,0 +1,115 @@
+# Single-arch goreleaser config template for local development
+# Generated via envsubst - DO NOT EDIT directly
+# Source: .goreleaser.local.yaml.envsubst
+# Usage: GOARCH=arm64 envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
+version: 2
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+builds:
+  - id: controller
+    main: ./cmd/kgateway
+    binary: kgateway-linux-{{ .Arch }}
+    gcflags: "{{ .Env.GCFLAGS }}"
+    ldflags: "{{ .Env.LDFLAGS }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ .Arch }}
+    - GOOS={{ .Os }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos:
+      - linux
+    goarch:
+      - ${GOARCH}
+  - id: sds
+    main: ./cmd/sds
+    binary: sds-linux-{{ .Arch }}
+    gcflags: "{{ .Env.GCFLAGS }}"
+    ldflags: "{{ .Env.LDFLAGS }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ .Arch }}
+    - GOOS={{ .Os }}
+    goos:
+      - linux
+    goarch:
+      - ${GOARCH}
+  - id: envoyinit
+    main: ./cmd/envoyinit
+    binary: envoyinit-linux-{{ .Arch }}
+    gcflags: "{{ .Env.GCFLAGS }}"
+    ldflags: "{{ .Env.LDFLAGS }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ .Arch }}
+    - GOOS={{ .Os }}
+    goos:
+      - linux
+    goarch:
+      - ${GOARCH}
+dockers:
+  - image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
+    ids: [controller]
+    use: buildx
+    dockerfile: cmd/kgateway/Dockerfile
+    goos: linux
+    goarch: ${GOARCH}
+    build_flag_templates:
+      - "--pull"
+      - "--load"
+      - "--platform=linux/${GOARCH}"
+      - "--build-arg=GOARCH=${GOARCH}"
+      - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+  - image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.AGENTGATEWAY_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
+    ids: [controller]
+    use: buildx
+    dockerfile: cmd/kgateway/Dockerfile.agentgateway
+    goos: linux
+    goarch: ${GOARCH}
+    build_flag_templates:
+      - "--pull"
+      - "--load"
+      - "--platform=linux/${GOARCH}"
+      - "--build-arg=GOARCH=${GOARCH}"
+  - image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
+    ids: [sds]
+    use: buildx
+    dockerfile: cmd/sds/Dockerfile
+    goos: linux
+    goarch: ${GOARCH}
+    build_flag_templates:
+      - "--pull"
+      - "--load"
+      - "--platform=linux/${GOARCH}"
+      - "--build-arg=GOARCH=${GOARCH}"
+      - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
+  - image_templates:
+      - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
+    ids: [envoyinit]
+    use: buildx
+    dockerfile: cmd/envoyinit/Dockerfile
+    goos: linux
+    goarch: ${GOARCH}
+    build_flag_templates:
+      - "--pull"
+      - "--load"
+      - "--platform=linux/${GOARCH}"
+      - "--build-arg=GOARCH=${GOARCH}"
+      - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
+      - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--build-arg=RUST_BUILD_ARCH=${RUST_BUILD_ARCH}"
+      - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit"
+    extra_files:
+      - cmd/envoyinit/docker-entrypoint.sh
+      - internal/envoyinit
+changelog:
+  disable: true
+release:
+  disable: true

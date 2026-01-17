@@ -104,6 +104,7 @@ func TestCustomGWP(t *testing.T) {
 			InstallNamespace:          installNs,
 			ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 			ValuesManifestFile:        e2e.ManifestPath("custom-gwp.yaml"),
+			ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 		},
 	)
 
@@ -234,6 +235,7 @@ func TestCustomGWP(t *testing.T) {
 			Namespace:       installNs,
 			CreateNamespace: true,
 			ValuesFiles:     []string{e2e.CommonRecommendationManifest, e2e.ManifestPath("custom-gwp-2.yaml")},
+			ExtraArgs:       helper.GetLocalImageHelmArgs(),
 			ReleaseName:     helmutils.ChartName,
 			ChartUri:        chartUri,
 		})
@@ -255,6 +257,7 @@ func TestCustomGWP(t *testing.T) {
 				e2e.ManifestPath("custom-gwp-2.yaml"),
 				e2e.ManifestPath("agent-gateway-integration.yaml"),
 			},
+			ExtraArgs:   helper.GetLocalImageHelmArgs(),
 			ReleaseName: helmutils.AgentgatewayChartName,
 			ChartUri:    chartUriAgentgateway,
 		})

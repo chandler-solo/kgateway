@@ -26,6 +26,10 @@ inputs:
   version:
     description: "Version of the kgateway and kgateway-crds charts to use"
     required: false
+  arch:
+    description: "Architecture (amd64 or arm64)"
+    required: false
+    default: "amd64"
 
 runs:
   using: "composite"
@@ -97,16 +101,19 @@ runs:
 
       if [[ -z "${{ inputs.version }}" ]]; then
         # If inputs.version is empty, use the local chart path specified in the Makefile.
+        # For local/snapshot builds, images have arch suffix (e.g., 1.0.0-ci1-amd64) since
+        # docker manifests don't work with --load. CI always runs on amd64.
+        IMAGE_TAG="${VERSION}-amd64"
         helm upgrade -i -n kgateway-system kgateway-crds ./install/helm/kgateway-crds/ \
           --create-namespace \
           ${INFERENCE_EXT_FLAG}
         helm upgrade -i -n kgateway-system kgateway ./install/helm/kgateway/ \
           --create-namespace \
           ${EXPERIMENTAL_FLAG} \
-          --set image.tag=${VERSION} --set image.registry=ghcr.io/kgateway-dev \
+          --set image.tag=${IMAGE_TAG} --set image.registry=ghcr.io/kgateway-dev \
           ${INFERENCE_EXT_FLAG} \
           ${ADDITIONAL_VALUES}
-        
+
         # For agentgateway and inference-extension tests, also install the agentgateway chart
         if [[ "${{ inputs.test-type }}" == "agentgateway" || "${{ inputs.test-type }}" == "inference-extension" ]]; then
           helm upgrade -i -n agentgateway-system agentgateway-crds ./install/helm/agentgateway-crds/ \
@@ -114,7 +121,7 @@ runs:
           helm upgrade -i -n agentgateway-system agentgateway ./install/helm/agentgateway/ \
             --create-namespace \
             ${EXPERIMENTAL_FLAG} \
-            --set image.tag=${VERSION} \
+            --set image.tag=${IMAGE_TAG} \
             --set image.registry=ghcr.io/kgateway-dev \
             --set controller.image.repository=agentgateway-controller \
             --wait \
@@ -199,15 +206,15 @@ runs:
     run: |
       case "${{ inputs.test-type }}" in
         "gateway-api")
-          echo "ARTIFACT_NAME=conformance-kgateway-gateway-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-gateway-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         "agentgateway")
-          echo "ARTIFACT_NAME=conformance-kgateway-agentgateway-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-agentgateway-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/agw-${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         "inference-extension")
-          echo "ARTIFACT_NAME=conformance-kgateway-gateway-inference-extension-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-gateway-inference-extension-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/inference-${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         *)

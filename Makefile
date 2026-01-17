@@ -478,24 +478,12 @@ $(CONTROLLER_OUTPUT_DIR)/Dockerfile: cmd/kgateway/Dockerfile
 $(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway: cmd/kgateway/Dockerfile.agentgateway
 	cp $< $@
 
-$(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile
-	$(BUILDX_BUILD) --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile \
-		--build-arg GOARCH=$(GOARCH) \
-		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
-		-t $(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION)
-	@touch $@
-
-$(CONTROLLER_OUTPUT_DIR)/.docker-stamp-agentgateway-$(VERSION)-$(GOARCH): $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway
-	$(BUILDX_BUILD) --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway \
-		--build-arg GOARCH=$(GOARCH) \
-		-t $(IMAGE_REGISTRY)/$(AGENTGATEWAY_IMAGE_REPO):$(VERSION)
-	@touch $@
-
+# Individual docker targets now use goreleaser for consistency with CI
 .PHONY: kgateway-docker
-kgateway-docker: $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
+kgateway-docker: docker-images ## Build kgateway image using goreleaser
 
 .PHONY: agentgateway-controller-docker
-agentgateway-controller-docker: $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-agentgateway-$(VERSION)-$(GOARCH)
+agentgateway-controller-docker: docker-images ## Build agentgateway image using goreleaser
 
 #----------------------------------------------------------------------------------
 # SDS Server - gRPC server for serving Secret Discovery Service config
@@ -512,18 +500,8 @@ $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH): $(SDS_SOURCES)
 .PHONY: sds
 sds: $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH)
 
-$(SDS_OUTPUT_DIR)/Dockerfile.sds: cmd/sds/Dockerfile
-	cp $< $@
-
-$(SDS_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH) $(SDS_OUTPUT_DIR)/Dockerfile.sds
-	$(BUILDX_BUILD) --load $(PLATFORM) $(SDS_OUTPUT_DIR) -f $(SDS_OUTPUT_DIR)/Dockerfile.sds \
-		--build-arg GOARCH=$(GOARCH) \
-		--build-arg BASE_IMAGE=$(ALPINE_BASE_IMAGE) \
-		-t $(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION)
-	@touch $@
-
 .PHONY: sds-docker
-sds-docker: $(SDS_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
+sds-docker: docker-images ## Build sds image using goreleaser
 
 #----------------------------------------------------------------------------------
 # Envoy init (BASE/SIDECAR)
@@ -534,50 +512,8 @@ ENVOYINIT_SOURCES=$(call get_sources,$(ENVOYINIT_DIR))
 ENVOYINIT_OUTPUT_DIR=$(OUTPUT_DIR)/$(ENVOYINIT_DIR)
 export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 
-# Registry cache for envoyinit Docker build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-wrapper-cache)
-
-# Only --cache-from is used here because --cache-to type=registry requires the
-# docker-container buildx driver, but we use --load (though a Kind local
-# registry with --push would probably be better) which requires the docker
-# driver. Cache is populated by goreleaser when a PR lands on main or a release
-# is cut.
-ENVOYINIT_CACHE_REF ?=
-ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF),)
-
-RUSTFORMATIONS_DIR := internal/envoyinit/
-# find all the files under the rustformation directory but exclude the target and pkg directory
-RUSTFORMATIONS_SRC_FILES := $(shell find $(RUSTFORMATIONS_DIR) \( -type d -name target -o -type d -name pkg \) -prune -o -type f -print)
-
-$(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH): $(ENVOYINIT_SOURCES)
-	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/envoyinit/...
-
-.PHONY: envoyinit
-envoyinit: $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH)
-
-# Allow override of Dockerfile for local development
-ENVOYINIT_DOCKERFILE ?= cmd/envoyinit/Dockerfile
-$(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(RUSTFORMATIONS_SRC_FILES)
-	@if [ "$(ENVOYINIT_DOCKERFILE)" = "cmd/envoyinit/Dockerfile" ]; then \
-		echo "syncing rustformations..."; \
-		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${RUSTFORMATIONS_DIR} $(ENVOYINIT_OUTPUT_DIR)/rustformations; \
-	fi
-	cp $< $@
-
-$(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh: cmd/envoyinit/docker-entrypoint.sh
-	cp $< $@
-
-$(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH) $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh
-	$(BUILDX_BUILD) --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
-		--build-arg GOARCH=$(GOARCH) \
-		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
-		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
-		--build-arg RUSTFORMATIONS_DIR=./rustformations \
-		$(ENVOYINIT_CACHE_FROM) \
-		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
-	@touch $@
-
 .PHONY: envoy-wrapper-docker
-envoy-wrapper-docker: $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH)
+envoy-wrapper-docker: docker-images ## Build envoy-wrapper image using goreleaser
 
 #----------------------------------------------------------------------------------
 # dummy idp (used in e2e tests)
@@ -597,19 +533,20 @@ dummy-idp: $(DUMMY_IDP_OUTPUT_DIR)/dummy-idp-linux-$(GOARCH)
 $(DUMMY_IDP_OUTPUT_DIR)/Dockerfile.dummy-idp: ./hack/dummy-idp/Dockerfile
 	cp $< $@
 
-$(DUMMY_IDP_OUTPUT_DIR)/.docker-stamp-$(DUMMY_IDP_VERSION)-$(GOARCH): $(DUMMY_IDP_OUTPUT_DIR)/dummy-idp-linux-$(GOARCH) $(DUMMY_IDP_OUTPUT_DIR)/Dockerfile.dummy-idp
+.PHONY: dummy-idp-docker
+dummy-idp-docker: $(DUMMY_IDP_OUTPUT_DIR)/dummy-idp-linux-$(GOARCH) $(DUMMY_IDP_OUTPUT_DIR)/Dockerfile.dummy-idp
 	$(BUILDX_BUILD) --load $(PLATFORM) $(DUMMY_IDP_OUTPUT_DIR) -f $(DUMMY_IDP_OUTPUT_DIR)/Dockerfile.dummy-idp \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg BASE_IMAGE=$(ALPINE_BASE_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION)
-	@touch $@
-
-.PHONY: dummy-idp-docker
-dummy-idp-docker: $(DUMMY_IDP_OUTPUT_DIR)/.docker-stamp-$(DUMMY_IDP_VERSION)-$(GOARCH)
 
 .PHONY: kind-load-dummy-idp
 kind-load-dummy-idp:
-	$(KIND) load docker-image $(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION) --name $(CLUSTER_NAME)
+	docker save $(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION) | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+
+# dummy-idp uses buildx directly (not goreleaser) since it's a test utility with fixed version
+.PHONY: kind-build-and-load-dummy-idp
+kind-build-and-load-dummy-idp: dummy-idp-docker kind-load-dummy-idp
 
 #----------------------------------------------------------------------------------
 # extproc-server (used in e2e tests)
@@ -620,18 +557,18 @@ EXTPROC_SERVER_OUTPUT_DIR=$(OUTPUT_DIR)/$(EXTPROC_SERVER_DIR)
 export EXTPROC_SERVER_IMAGE_REPO ?= extproc-server
 EXTPROC_SERVER_VERSION=0.0.1
 
-$(EXTPROC_SERVER_OUTPUT_DIR)/.docker-stamp-$(EXTPROC_SERVER_VERSION)-$(GOARCH): $(shell find $(EXTPROC_SERVER_DIR) -name '*.go') $(EXTPROC_SERVER_DIR)/Dockerfile
+.PHONY: extproc-server-docker
+extproc-server-docker:
 	$(BUILDX_BUILD) --load $(PLATFORM) $(EXTPROC_SERVER_DIR) -f $(EXTPROC_SERVER_DIR)/Dockerfile \
 		-t $(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION)
-	@mkdir -p $(dir $@)
-	@touch $@
-
-.PHONY: extproc-server-docker
-extproc-server-docker: $(EXTPROC_SERVER_OUTPUT_DIR)/.docker-stamp-$(EXTPROC_SERVER_VERSION)-$(GOARCH)
 
 .PHONY: kind-load-extproc-server
 kind-load-extproc-server:
-	$(KIND) load docker-image $(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION) --name $(CLUSTER_NAME)
+	docker save $(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION) | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+
+# extproc-server uses buildx directly (not goreleaser) since it's a test utility with fixed version
+.PHONY: kind-build-and-load-extproc-server
+kind-build-and-load-extproc-server: extproc-server-docker kind-load-extproc-server
 
 #----------------------------------------------------------------------------------
 # Helm
@@ -698,7 +635,7 @@ deploy-kgateway-chart: ## Deploy the kgateway chart
 	$(HELM) upgrade --install kgateway $(TEST_ASSET_DIR)/kgateway-$(VERSION).tgz \
 	--namespace $(INSTALL_NAMESPACE) --create-namespace \
 	--set image.registry=$(IMAGE_REGISTRY) \
-	--set image.tag=$(VERSION) \
+	--set image.tag=$(VERSION)-$(GOARCH) \
 	-f $(HELM_ADDITIONAL_VALUES)
 
 .PHONY: deploy-agentgateway-crd-chart
@@ -710,7 +647,7 @@ deploy-agentgateway-chart: ## Deploy the agentgateway chart
 	$(HELM) upgrade --install agentgateway $(TEST_ASSET_DIR)/agentgateway-$(VERSION).tgz \
 	--namespace $(INSTALL_NAMESPACE) --create-namespace \
 	--set image.registry=$(IMAGE_REGISTRY) \
-	--set image.tag=$(VERSION) \
+	--set image.tag=$(VERSION)-$(GOARCH) \
 	--set controller.image.repository=$(AGENTGATEWAY_IMAGE_REPO) \
 	-f $(HELM_ADDITIONAL_VALUES)
 
@@ -728,10 +665,29 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
+GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 
 .PHONY: release
 release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+
+# Build Docker images for local development using goreleaser (single-arch, fast)
+# Uses envsubst to generate arch-specific config from template
+# For multi-arch builds (CI releases), use 'make release' instead
+RUST_BUILD_ARCH_arm64 := aarch64
+RUST_BUILD_ARCH_amd64 := x86_64
+RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
+
+# Select the correct envoy image based on architecture (arm64 uses upstream envoy)
+ENVOY_IMAGE_FOR_BUILD_arm64 := $(ENVOY_IMAGE_ARM64)
+ENVOY_IMAGE_FOR_BUILD_amd64 := $(ENVOY_IMAGE)
+ENVOY_IMAGE_FOR_BUILD := $(ENVOY_IMAGE_FOR_BUILD_$(GOARCH))
+
+.PHONY: docker-images
+docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-arch)
+	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
+	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+	@rm -f .goreleaser.local.yaml
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)
@@ -810,12 +766,13 @@ kind-setup: ## Set up the KinD cluster. Deprecated: use kind-create instead.
 	VERSION=${VERSION} CLUSTER_NAME=${CLUSTER_NAME} ./hack/kind/setup-kind.sh
 
 kind-load-%:
-	$(KIND) load docker-image $(IMAGE_REGISTRY)/$*:$(VERSION) --name $(CLUSTER_NAME)
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-amd64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-arm64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
 
-# Build an image and load it into the KinD cluster
+# Build all images using goreleaser and load a specific one into the KinD cluster
 # Depends on: IMAGE_REGISTRY, VERSION, CLUSTER_NAME
-# Envoy image may be specified via ENVOY_IMAGE on the command line or at the top of this file
-kind-build-and-load-%: %-docker kind-load-% ; ## Use to build specified image and load it into kind
+# Uses goreleaser --snapshot --clean for consistent builds with CI
+kind-build-and-load-%: docker-images kind-load-% ; ## Use to build all images via goreleaser and load specified image into kind
 
 # Update the docker image used by a deployment
 # This works for most of our deployments because the deployment name and container name both match
@@ -825,7 +782,7 @@ kind-build-and-load-%: %-docker kind-load-% ; ## Use to build specified image an
 #	It could be a cool extension to support, but didn't feel pressing so I stopped
 kind-set-image-%:
 	kubectl rollout pause deployment $* -n $(INSTALL_NAMESPACE) || true
-	kubectl set image deployment/$* $*=$(IMAGE_REGISTRY)/$*:$(VERSION) -n $(INSTALL_NAMESPACE)
+	kubectl set image deployment/$* $*=$(IMAGE_REGISTRY)/$*:$(VERSION)-$(GOARCH) -n $(INSTALL_NAMESPACE)
 	kubectl patch deployment $* -n $(INSTALL_NAMESPACE) -p '{"spec": {"template":{"metadata":{"annotations":{"kgateway-kind-last-update":"$(shell date)"}}}} }'
 	kubectl rollout resume deployment $* -n $(INSTALL_NAMESPACE)
 

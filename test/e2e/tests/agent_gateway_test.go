@@ -14,6 +14,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	. "github.com/kgateway-dev/kgateway/v2/test/e2e/tests"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/helper"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -28,6 +29,7 @@ func TestAgentgatewayIntegration(t *testing.T) {
 			ChartType:                 "agentgateway",
 			ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 			ValuesManifestFile:        e2e.ManifestPath("agent-gateway-integration.yaml"),
+			ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 		},
 	)
 
