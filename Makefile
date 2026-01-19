@@ -50,7 +50,7 @@ SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 # we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
 # For arm build, we will use upstream envoy and cannot switch back to classic transformation.
 export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
-# For now, this ENVOY_IMAGE_ARM64 is only used by goreleaser only, not the make envoy-wrapper-docker target
+# For now, this ENVOY_IMAGE_ARM64 is only used by goreleaser, not the make envoy-wrapper-docker target
 export ENVOY_IMAGE_ARM64 ?= envoyproxy/envoy:v1.36.4
 # This one is used to build the control plane image. This is because now rustformation is default, we need to 
 # have both the envoy binary and the rustfromation dynamic module binary to run strict validation mode from the 
@@ -825,16 +825,16 @@ kind-set-image-%:
 kind-reload-%: kind-build-and-load-% kind-set-image-% ; ## Use to build specified image, load it into kind, and restart its deployment
 
 .PHONY: kind-build-and-load ## Use to build all images and load them into kind
+kind-build-and-load: kind-build-and-load-envoy-wrapper
 kind-build-and-load: kind-build-and-load-kgateway
 kind-build-and-load: kind-build-and-load-agentgateway-controller
-kind-build-and-load: kind-build-and-load-envoy-wrapper
 kind-build-and-load: kind-build-and-load-sds
 kind-build-and-load: kind-build-and-load-dummy-idp
 
 .PHONY: kind-load ## Use to load all images into kind
+kind-load: kind-load-envoy-wrapper
 kind-load: kind-load-kgateway
 kind-load: kind-load-agentgateway-controller
-kind-load: kind-load-envoy-wrapper
 kind-load: kind-load-sds
 kind-load: kind-load-dummy-idp
 
