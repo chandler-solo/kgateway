@@ -152,7 +152,7 @@ func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects(t *testing.T) {
 	}
 	objs := []client.Object{deployment}
 
-	err := applier.ApplyOverlaysToObjects(objs)
+	objs, err := applier.ApplyOverlaysToObjects(objs)
 	require.NoError(t, err)
 
 	result := objs[0].(*appsv1.Deployment)
@@ -177,7 +177,7 @@ func TestAgentgatewayParametersApplier_ApplyOverlaysToObjects_NilParams(t *testi
 	}
 	objs := []client.Object{deployment}
 
-	err := applier.ApplyOverlaysToObjects(objs)
+	objs, err := applier.ApplyOverlaysToObjects(objs)
 	require.NoError(t, err)
 
 	result := objs[0].(*appsv1.Deployment)

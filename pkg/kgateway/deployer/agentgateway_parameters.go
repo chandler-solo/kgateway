@@ -133,9 +133,11 @@ func mergeEnvVars(base, override []corev1.EnvVar) []corev1.EnvVar {
 
 // ApplyOverlaysToObjects applies the strategic-merge-patch overlays to rendered k8s objects.
 // This is called after rendering the helm chart.
-func (a *AgentgatewayParametersApplier) ApplyOverlaysToObjects(objs []client.Object) error {
+// It returns the (potentially modified) slice of objects, as new objects may be added
+// (e.g., PodDisruptionBudget, HorizontalPodAutoscaler).
+func (a *AgentgatewayParametersApplier) ApplyOverlaysToObjects(objs []client.Object) ([]client.Object, error) {
 	if a.params == nil {
-		return nil
+		return objs, nil
 	}
 	applier := strategicpatch.NewOverlayApplier(a.params)
 	return applier.ApplyOverlays(objs)
@@ -261,33 +263,35 @@ func (g *AgentgatewayParametersHelmValuesGenerator) GetCacheSyncHandlers() []cac
 // It applies AgentgatewayParameters overlays to the rendered objects.
 // When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
 // are applied in order: GatewayClass first, then Gateway on top.
-func (g *AgentgatewayParametersHelmValuesGenerator) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) error {
+func (g *AgentgatewayParametersHelmValuesGenerator) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) ([]client.Object, error) {
 	gw, ok := obj.(*gwv1.Gateway)
 	if !ok {
-		return nil
+		return rendered, nil
 	}
 
 	resolved, err := g.GetResolvedParametersForGateway(gw)
 	if err != nil {
-		return nil
+		return rendered, nil
 	}
 
 	// Apply overlays in order: GatewayClass first, then Gateway.
 	// This allows Gateway-level overlays to override GatewayClass-level overlays.
 	if resolved.gatewayClassAGWP != nil {
 		applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
-		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
-			return err
+		rendered, err = applier.ApplyOverlaysToObjects(rendered)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if resolved.gatewayAGWP != nil {
 		applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
-		if err := applier.ApplyOverlaysToObjects(rendered); err != nil {
-			return err
+		rendered, err = applier.ApplyOverlaysToObjects(rendered)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return nil
+	return rendered, nil
 }
 
 // GetResolvedParametersForGateway returns both the GatewayClass-level and Gateway-level

@@ -37,7 +37,8 @@ type backendIr struct {
 	awsIr    *AwsIr
 	staticIr *StaticIr
 	dfpIr    *DfpIr
-	errors   []error
+	// +noKrtEquals
+	errors []error
 }
 
 func (u *backendIr) Equals(other any) bool {
@@ -95,17 +96,13 @@ func NewPlugin(commoncol *collections.CommonCollections) sdk.Plugin {
 
 		return &backend
 	})
-	endpoints := krt.NewCollection(col, func(krtctx krt.HandlerContext, i *kgateway.Backend) *ir.EndpointsForBackend {
-		return processEndpoints(i)
-	})
 	return sdk.Plugin{
 		ContributesBackends: map[schema.GroupKind]sdk.BackendPlugin{
 			gk: {
 				BackendInit: ir.BackendInit{
 					InitEnvoyBackend: processBackendForEnvoy,
 				},
-				Endpoints: endpoints,
-				Backends:  bcol,
+				Backends: bcol,
 			},
 		},
 		ContributesPolicies: map[schema.GroupKind]sdk.PolicyPlugin{
@@ -127,20 +124,20 @@ func buildTranslateFunc(
 ) func(krtctx krt.HandlerContext, i *kgateway.Backend) *backendIr {
 	return func(krtctx krt.HandlerContext, i *kgateway.Backend) *backendIr {
 		var beIr backendIr
-		switch i.Spec.Type {
-		case kgateway.BackendTypeStatic:
+		switch {
+		case i.Spec.Static != nil:
 			staticIr, err := buildStaticIr(i.Spec.Static)
 			if err != nil {
 				beIr.errors = append(beIr.errors, err)
 			}
 			beIr.staticIr = staticIr
-		case kgateway.BackendTypeDynamicForwardProxy:
+		case i.Spec.DynamicForwardProxy != nil:
 			dfpIr, err := buildDfpIr(i.Spec.DynamicForwardProxy)
 			if err != nil {
 				beIr.errors = append(beIr.errors, err)
 			}
 			beIr.dfpIr = dfpIr
-		case kgateway.BackendTypeAWS:
+		case i.Spec.Aws != nil:
 			region := i.Spec.Aws.Region
 			invokeMode := getLambdaInvocationMode(i.Spec.Aws)
 
@@ -211,23 +208,22 @@ func processBackendForEnvoy(ctx context.Context, in ir.BackendObjectIR, out *env
 	// TODO: propagated error to CRD #11558.
 	// TODO(tim): do we need to do anything here for AI backends?
 	spec := be.Spec
-	switch spec.Type {
-	case kgateway.BackendTypeStatic:
+	switch {
+	case spec.Static != nil:
 		processStatic(beIr.staticIr, out)
-	case kgateway.BackendTypeAWS:
+	case spec.Aws != nil:
 		if err := processAws(beIr.awsIr, out); err != nil {
 			logger.Error("failed to process aws backend", "error", err)
 			beIr.errors = append(beIr.errors, err)
 		}
-	case kgateway.BackendTypeDynamicForwardProxy:
+	case spec.DynamicForwardProxy != nil:
 		processDynamicForwardProxy(beIr.dfpIr, out)
 	}
 	return nil
 }
 
 func parseAppProtocol(b *kgateway.Backend) ir.AppProtocol {
-	switch b.Spec.Type {
-	case kgateway.BackendTypeStatic:
+	if b.Spec.Static != nil {
 		appProtocol := b.Spec.Static.AppProtocol
 		if appProtocol != nil {
 			return ir.ParseAppProtocol(ptr.To(string(*appProtocol)))
@@ -238,24 +234,13 @@ func parseAppProtocol(b *kgateway.Backend) ir.AppProtocol {
 
 // hostname returns the hostname for the backend. Only static backends are supported.
 func hostname(in *kgateway.Backend) string {
-	if in.Spec.Type != kgateway.BackendTypeStatic {
+	if in.Spec.Static == nil {
 		return ""
 	}
 	if len(in.Spec.Static.Hosts) == 0 {
 		return ""
 	}
 	return in.Spec.Static.Hosts[0].Host
-}
-
-func processEndpoints(be *kgateway.Backend) *ir.EndpointsForBackend {
-	spec := be.Spec
-	switch {
-	case spec.Type == kgateway.BackendTypeStatic:
-		return processEndpointsStatic(spec.Static)
-	case spec.Type == kgateway.BackendTypeAWS:
-		return processEndpointsAws(spec.Aws)
-	}
-	return nil
 }
 
 type backendPlugin struct {
@@ -275,14 +260,11 @@ func (p *backendPlugin) Name() string {
 
 func (p *backendPlugin) ApplyForBackend(pCtx *ir.RouteBackendContext, in ir.HttpBackend, out *envoyroutev3.Route) error {
 	backend := pCtx.Backend.Obj.(*kgateway.Backend)
-	switch backend.Spec.Type {
-	case kgateway.BackendTypeDynamicForwardProxy:
+	if backend.Spec.DynamicForwardProxy != nil {
 		if p.needsDfpFilter == nil {
 			p.needsDfpFilter = make(map[string]bool)
 		}
 		p.needsDfpFilter[pCtx.FilterChainName] = true
-	default:
-		return nil
 	}
 
 	return nil

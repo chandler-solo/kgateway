@@ -137,6 +137,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
         - name: RUST_LOG
           value: debug
         image: cr.agentgateway.dev/custom-agentgateway:v1.0.0

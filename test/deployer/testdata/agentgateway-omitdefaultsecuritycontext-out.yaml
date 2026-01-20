@@ -128,7 +128,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        image: cr.agentgateway.dev/agentgateway:0.11.1
+        - name: SERVICE_ACCOUNT
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.serviceAccountName
+        image: cr.agentgateway.dev/agentgateway:99.99.99
         name: agentgateway
         ports:
         - containerPort: 15020
@@ -156,6 +160,7 @@ spec:
         - mountPath: /var/run/secrets/xds-tokens
           name: xds-token
           readOnly: true
+      securityContext: {}
       serviceAccountName: gw
       terminationGracePeriodSeconds: 60
       volumes:

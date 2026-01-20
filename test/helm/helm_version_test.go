@@ -25,7 +25,7 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 	_, err = os.Stat(absHelmChartPath)
 	require.NoError(t, err, "helm chart not found at %s", absHelmChartPath)
 
-	helmCmd := exec.Command("helm", "template", "foobar", absHelmChartPath)
+	helmCmd := exec.Command("helm", "template", "foobar", absHelmChartPath, "--namespace", "default")
 	grepCmd := exec.Command("grep", "-E", "-w", "-B", "1", "v0\\.0\\.[12]")
 
 	helmOutput, err := helmCmd.StdoutPipe()
@@ -97,6 +97,81 @@ func TestHelmChartTemplate(t *testing.T) {
   xds:
     tls:
       enabled: true
+`,
+		},
+		{
+			name: "pdb-min-available",
+			valuesYAML: `controller:
+  podDisruptionBudget:
+    minAvailable: 1
+`,
+		},
+		{
+			name: "pdb-max-unavailable",
+			valuesYAML: `controller:
+  podDisruptionBudget:
+    maxUnavailable: 25%
+`,
+		},
+		{
+			name: "service-full-config",
+			valuesYAML: `controller:
+  service:
+    type: LoadBalancer
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    extraLabels:
+      custom-label: custom-value
+      environment: test
+    clusterIP: ""
+    clusterIPs:
+      - 10.96.0.100
+    externalIPs:
+      - 203.0.113.10
+      - 203.0.113.11
+    loadBalancerIP: 198.51.100.1
+    loadBalancerSourceRanges:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+    loadBalancerClass: service.k8s.aws/nlb
+    externalTrafficPolicy: Local
+    internalTrafficPolicy: Cluster
+    healthCheckNodePort: 32100
+    sessionAffinity: ClientIP
+    sessionAffinityConfig:
+      clientIP:
+        timeoutSeconds: 10800
+    ipFamilies:
+      - IPv4
+    ipFamilyPolicy: SingleStack
+    publishNotReadyAddresses: true
+    allocateLoadBalancerNodePorts: false
+    trafficDistribution: PreferClose
+`,
+		},
+		{
+			name: "hpa-and-vpa",
+			valuesYAML: `controller:
+  horizontalPodAutoscaler:
+    minReplicas: 1
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+  verticalPodAutoscaler:
+    updatePolicy:
+      updateMode: Auto
+    resourcePolicy:
+      containerPolicies:
+        - containerName: "*"
+          minAllowed:
+            cpu: 100m
+            memory: 128Mi
 `,
 		},
 	}
