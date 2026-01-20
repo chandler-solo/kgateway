@@ -3,6 +3,13 @@ before:
   hooks:
     - go mod tidy
     - go mod download
+    # Build rustformations for both architectures using cargo-zigbuild
+    - cargo zigbuild --manifest-path internal/envoyinit/Cargo.toml --target x86_64-unknown-linux-gnu --release
+    - cargo zigbuild --manifest-path internal/envoyinit/Cargo.toml --target aarch64-unknown-linux-gnu --release
+    # Copy built artifacts to predictable locations for docker builds
+    - mkdir -p _output/rustformations
+    - cp internal/envoyinit/target/x86_64-unknown-linux-gnu/release/librust_module.so _output/rustformations/librust_module-amd64.so
+    - cp internal/envoyinit/target/aarch64-unknown-linux-gnu/release/librust_module.so _output/rustformations/librust_module-arm64.so
 builds:
   - id: controller
     main: ./cmd/kgateway
@@ -55,24 +62,34 @@ dockers:
       - &controller_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
     dockerfile: &controller_dockerfile cmd/kgateway/Dockerfile
+    ids:
+      - controller
+      - envoyinit
     goos: linux
     goarch: arm64
     build_flag_templates:
       - "--pull"
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
-      - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--build-arg=RUST_LIB_PATH=_output/rustformations/librust_module-arm64.so"
+    extra_files:
+      - _output/rustformations/librust_module-arm64.so
   - image_templates:
       - &controller_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
     use: buildx
     dockerfile: *controller_dockerfile
+    ids:
+      - controller
+      - envoyinit
     goos: linux
     goarch: amd64
     build_flag_templates:
       - "--pull"
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
-      - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--build-arg=RUST_LIB_PATH=_output/rustformations/librust_module-amd64.so"
+    extra_files:
+      - _output/rustformations/librust_module-amd64.so
   - image_templates:
       - &agentgateway_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.AGENTGATEWAY_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
@@ -127,13 +144,10 @@ dockers:
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
-      - "--build-arg=RUST_BUILD_ARCH=aarch64"
-      - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64,mode=max,ignore-error=true"
+      - "--build-arg=RUST_LIB_PATH=_output/rustformations/librust_module-arm64.so"
     extra_files:
       - cmd/envoyinit/docker-entrypoint.sh
-      - internal/envoyinit
+      - _output/rustformations/librust_module-arm64.so
   - image_templates:
       - &envoyinit_amd_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-amd64"
     use: buildx
@@ -146,12 +160,10 @@ dockers:
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
-      - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64,mode=max,ignore-error=true"
+      - "--build-arg=RUST_LIB_PATH=_output/rustformations/librust_module-amd64.so"
     extra_files:
       - cmd/envoyinit/docker-entrypoint.sh
-      - internal/envoyinit
+      - _output/rustformations/librust_module-amd64.so
 docker_manifests:
   - name_template: "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}"
     image_templates:
