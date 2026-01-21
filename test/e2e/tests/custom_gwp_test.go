@@ -104,6 +104,7 @@ func TestCustomGWP(t *testing.T) {
 			InstallNamespace:          installNs,
 			ProfileValuesManifestFile: e2e.CommonRecommendationManifest,
 			ValuesManifestFile:        e2e.ManifestPath("custom-gwp.yaml"),
+			ExtraHelmArgs:             helper.GetLocalImageHelmArgs(),
 		},
 	)
 
