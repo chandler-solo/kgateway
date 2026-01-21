@@ -742,7 +742,8 @@ kind-setup: ## Set up the KinD cluster. Deprecated: use kind-create instead.
 	VERSION=${VERSION} CLUSTER_NAME=${CLUSTER_NAME} ./hack/kind/setup-kind.sh
 
 kind-load-%:
-	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-$(GOARCH) | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-amd64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-arm64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import -
 
 # Build all images using goreleaser and load a specific one into the KinD cluster
 # Depends on: IMAGE_REGISTRY, VERSION, CLUSTER_NAME
