@@ -43,6 +43,17 @@ type AgentgatewayHelmGateway struct {
 
 	// Shutdown configures graceful shutdown timing
 	Shutdown *AgentgatewayShutdown `json:"shutdown,omitempty"`
+
+	// Istio configures Istio integration
+	Istio *AgentgatewayHelmIstio `json:"istio,omitempty"`
+}
+
+// AgentgatewayHelmIstio configures Istio integration for agentgateway.
+type AgentgatewayHelmIstio struct {
+	// CaAddress is the address of the Istio CA.
+	CaAddress *string `json:"caAddress,omitempty"`
+	// TrustDomain is the Istio trust domain.
+	TrustDomain *string `json:"trustDomain,omitempty"`
 }
 
 // AgentgatewayShutdown configures graceful shutdown timing for agentgateway.

@@ -91,6 +91,14 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 	// Apply explicit environment variables last so they can override logging.level.
 	res.Env = mergeEnvVars(res.Env, configs.Env)
 
+	// Apply Istio configuration
+	if configs.Istio != nil {
+		res.Istio = &deployer.AgentgatewayHelmIstio{
+			CaAddress:   ptr.To(configs.Istio.CaAddress),
+			TrustDomain: ptr.To(configs.Istio.TrustDomain),
+		}
+	}
+
 	// Apply shutdown configuration
 	if configs.Shutdown != nil {
 		if res.Shutdown == nil {
