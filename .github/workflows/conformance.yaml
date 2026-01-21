@@ -16,8 +16,8 @@ concurrency:
 
 jobs:
   gw_api_conformance_tests:
-    name: K8s Gw Api Conformance Tests (${{ matrix.test-type }}, ${{ matrix.gateway-api-channel }}, ${{ matrix.runner }})
-    runs-on: ${{ matrix.runner }}
+    name: K8s Gw Api Conformance Tests (${{ matrix.test-type }}, ${{ matrix.gateway-api-channel }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
     timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
     strategy:
@@ -25,7 +25,8 @@ jobs:
       matrix:
         gateway-api-channel: [ 'experimental', 'standard' ]
         test-type: [ gateway-api, agentgateway ]
-        runner: [ ubuntu-22.04, ubuntu-22.04-arm ]
+        # Run arm64 only on pull_request events, not on merge_group
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64", "arm64"]' || '["amd64"]') }}
     steps:
     - uses: actions/checkout@v4
     - name: Dotenv Action
@@ -41,6 +42,7 @@ jobs:
         api-channel: ${{ matrix.gateway-api-channel }}
         kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
         kind-node-version: ${{ steps.dotenv.outputs.node_version }}
+        arch: ${{ matrix.arch }}
 
   # gie_conformance_tests:
   #   name: Kubernetes Gateway API Inference Extension Conformance Tests
