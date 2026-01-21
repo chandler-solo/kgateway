@@ -102,8 +102,8 @@ runs:
       if [[ -z "${{ inputs.version }}" ]]; then
         # If inputs.version is empty, use the local chart path specified in the Makefile.
         # For local/snapshot builds, images have arch suffix (e.g., 1.0.0-ci1-amd64) since
-        # docker manifests don't work with --load. CI always runs on amd64.
-        IMAGE_TAG="${VERSION}-amd64"
+        # docker manifests don't work with --load.
+        IMAGE_TAG="${VERSION}-${{ inputs.arch }}"
         helm upgrade -i -n kgateway-system kgateway-crds ./install/helm/kgateway-crds/ \
           --create-namespace \
           ${INFERENCE_EXT_FLAG}
