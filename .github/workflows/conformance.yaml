@@ -17,7 +17,7 @@ concurrency:
 jobs:
   gw_api_conformance_tests:
     name: K8s Gw Api Conformance Tests (${{ matrix.test-type }}, ${{ matrix.gateway-api-channel }})
-    runs-on: ubuntu-22.04
+    runs-on: {{ matrix.runner }}
     timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
     strategy:
@@ -25,6 +25,7 @@ jobs:
       matrix:
         gateway-api-channel: [ 'experimental', 'standard' ]
         test-type: [ gateway-api, agentgateway ]
+        runner: [ ubuntu-22.04, ubuntu-22.04-arm ]
     steps:
     - uses: actions/checkout@v4
     - name: Dotenv Action
@@ -64,7 +65,10 @@ jobs:
   conformance:
     if: always()
     name: Kubernetes Gateway API Conformance Tests
-    runs-on: ubuntu-22.04
+    runs-on: {{ matrix.runner }}
+    strategy:
+      matrix:
+        runner: [ ubuntu-22.04, ubuntu-22.04-arm ]
     needs: [gw_api_conformance_tests]
     steps:
     - name: Check e2e matrix status
