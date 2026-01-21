@@ -26,6 +26,10 @@ inputs:
   version:
     description: "Version of the kgateway and kgateway-crds charts to use"
     required: false
+  arch:
+    description: "Architecture (amd64 or arm64)"
+    required: false
+    default: "amd64"
 
 runs:
   using: "composite"
@@ -204,15 +208,15 @@ runs:
     run: |
       case "${{ inputs.test-type }}" in
         "gateway-api")
-          echo "ARTIFACT_NAME=conformance-kgateway-gateway-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-gateway-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         "agentgateway")
-          echo "ARTIFACT_NAME=conformance-kgateway-agentgateway-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-agentgateway-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/agw-${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         "inference-extension")
-          echo "ARTIFACT_NAME=conformance-kgateway-gateway-inference-extension-report@k8s${{ inputs.kubectl-version }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=conformance-kgateway-gateway-inference-extension-report@k8s${{ inputs.kubectl-version }}-${{ inputs.arch }}" >> $GITHUB_ENV
           echo "ARTIFACT_PATH=_test/conformance/inference-${{ env.VERSION }}-report.yaml" >> $GITHUB_ENV
           ;;
         *)
