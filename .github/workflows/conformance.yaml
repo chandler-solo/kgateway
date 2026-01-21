@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   gw_api_conformance_tests:
-    name: K8s Gw Api Conformance Tests (${{ matrix.test-type }}, ${{ matrix.gateway-api-channel }})
+    name: K8s Gw Api Conformance Tests (${{ matrix.test-type }}, ${{ matrix.gateway-api-channel }}, ${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     if: ${{ !github.event.pull_request.draft }}
@@ -65,10 +65,7 @@ jobs:
   conformance:
     if: always()
     name: Kubernetes Gateway API Conformance Tests
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      matrix:
-        runner: [ ubuntu-22.04, ubuntu-22.04-arm ]
+    runs-on: ubuntu-22.04
     needs: [gw_api_conformance_tests]
     steps:
     - name: Check e2e matrix status
