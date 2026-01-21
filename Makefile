@@ -50,6 +50,8 @@ SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 # we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
 # For arm build, we will use upstream envoy and cannot switch back to classic transformation.
 export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
+# ARM64 uses upstream envoy since envoy-gloo doesn't have arm64 images
+export ENVOY_IMAGE_ARM64 ?= envoyproxy/envoy:v1.36.4
 
 export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/pkg/version.Version=$(VERSION)' -s -w
@@ -659,10 +661,15 @@ RUST_BUILD_ARCH_arm64 := aarch64
 RUST_BUILD_ARCH_amd64 := x86_64
 RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
 
+# Select the correct envoy image based on architecture (arm64 uses upstream envoy)
+ENVOY_IMAGE_FOR_BUILD_arm64 := $(ENVOY_IMAGE_ARM64)
+ENVOY_IMAGE_FOR_BUILD_amd64 := $(ENVOY_IMAGE)
+ENVOY_IMAGE_FOR_BUILD := $(ENVOY_IMAGE_FOR_BUILD_$(GOARCH))
+
 .PHONY: docker-images
 docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-arch)
 	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 	@rm -f .goreleaser.local.yaml
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
