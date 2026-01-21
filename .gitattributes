@@ -1,8 +1,8 @@
-**/zz_generated.*.go binary linguist-generated=true
-install/helm/*-crds/templates/*.yaml binary linguist-generated=true
-install/helm/**/role.yaml binary linguist-generated=true
-pkg/agentgateway/jwks/mocks/mock_jwks_http_client.go binary linguist-generated=true
-pkg/client/** binary linguist-generated=true
-pkg/generated/** binary linguist-generated=true
-pkg/kgateway/query/mocks/mock_queries.go binary linguist-generated=true
-pkg/utils/filter_types/filter_types.gen.go binary linguist-generated=true
+**/zz_generated.*.go -merge linguist-generated=true
+install/helm/*-crds/templates/*.yaml -merge linguist-generated=true
+install/helm/**/role.yaml -merge linguist-generated=true
+pkg/agentgateway/jwks/mocks/mock_jwks_http_client.go -merge linguist-generated=true
+pkg/client/** -merge linguist-generated=true
+pkg/generated/** -merge linguist-generated=true
+pkg/kgateway/query/mocks/mock_queries.go -merge linguist-generated=true
+pkg/utils/filter_types/filter_types.gen.go -merge linguist-generated=true
