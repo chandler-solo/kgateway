@@ -646,17 +646,24 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
+GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 
 .PHONY: release
 release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
-# Build Docker images for local development using goreleaser
-# Uses .goreleaser.local.$(GOARCH).yaml for single-arch builds (fast local builds)
+# Build Docker images for local development using goreleaser (single-arch, fast)
+# Uses envsubst to generate arch-specific config from template
 # For multi-arch builds (CI releases), use 'make release' instead
+RUST_BUILD_ARCH_arm64 := aarch64
+RUST_BUILD_ARCH_amd64 := x86_64
+RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
+
 .PHONY: docker-images
-docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-target)
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release -f .goreleaser.local.$(GOARCH).yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-arch)
+	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+	@rm -f .goreleaser.local.yaml
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)

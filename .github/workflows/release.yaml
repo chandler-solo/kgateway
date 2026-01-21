@@ -76,8 +76,7 @@ jobs:
             PR_NUM=$(echo "${GITHUB_REF}" | sed -E 's|refs/pull/([^/]+)/?.*|\1|')
             VERSION="${GIT_TAG}-pr.${PR_NUM}-${GIT_SHA}"
             NEEDS_RELEASE=false
-            # Use single-arch config for faster PR builds (CI runs on amd64)
-            GORELEASER_ARGS="-f .goreleaser.local.amd64.yaml --snapshot --clean"
+            GORELEASER_ARGS="--snapshot --clean"
           else
             echo "Unknown event type"
             exit 1
