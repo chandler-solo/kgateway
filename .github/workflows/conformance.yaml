@@ -42,7 +42,6 @@ jobs:
         api-channel: ${{ matrix.gateway-api-channel }}
         kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
         kind-node-version: ${{ steps.dotenv.outputs.node_version }}
-        arch: ${{ matrix.arch }}
 
   # gie_conformance_tests:
   #   name: Kubernetes Gateway API Inference Extension Conformance Tests
