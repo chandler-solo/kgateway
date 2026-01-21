@@ -66,8 +66,8 @@ Selector labels
 */}}
 {{- define "kgateway.gateway.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kgateway.gateway.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-gateway.networking.k8s.io/gateway-name: {{ .Release.Name }}
+app.kubernetes.io/instance: {{ .Values.gateway.gatewayName }}
+gateway.networking.k8s.io/gateway-name: {{ .Values.gateway.gatewayName }}
 {{- end }}
 
 {{/*

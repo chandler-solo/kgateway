@@ -415,6 +415,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	gtw := &deployer.HelmGateway{
 		Name:             &gw.Name,
+		FullnameOverride: &gw.Name,
 		GatewayName:      &gw.Name,
 		GatewayNamespace: &gw.Namespace,
 		GatewayClassName: ptr.To(string(gw.Spec.GatewayClassName)),
