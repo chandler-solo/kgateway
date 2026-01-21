@@ -1,7 +1,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
-  name: agentgateway-v2
+  name: agentgateway
 spec:
   controllerName: agentgateway.dev/agentgateway
   description: Specialized class for agentgateway.
@@ -12,17 +12,18 @@ metadata:
   name: agwp-omit-security
   namespace: default
 spec:
-  # Use deployment overlay to delete the default securityContext using null
+  # Demonstrate using both null and $patch: delete to remove securityContexts
   deployment:
     spec:
       template:
         spec:
-          # Delete pod-level securityContext
+          # Delete pod-level securityContext using null (requires server-side apply)
           securityContext: null
           containers:
-            - name: agent-gateway
-              # Delete container-level securityContext
-              securityContext: null
+            - name: agentgateway
+              # Delete container-level securityContext using $patch: delete (works with any apply mode)
+              securityContext:
+                $patch: delete
 ---
 kind: Gateway
 apiVersion: gateway.networking.k8s.io/v1
@@ -35,7 +36,7 @@ spec:
       group: agentgateway.dev
       kind: AgentgatewayParameters
       name: agwp-omit-security
-  gatewayClassName: agentgateway-v2
+  gatewayClassName: agentgateway
   listeners:
     - protocol: HTTP
       port: 8080

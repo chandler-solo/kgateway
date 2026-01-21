@@ -25,6 +25,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/reporter"
 	"github.com/kgateway-dev/kgateway/v2/pkg/reports"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 )
 
 // ToAgwResource converts an internal representation to a resource for agentgateway
@@ -194,16 +195,6 @@ func (g ParentInfo) Equals(other ParentInfo) bool {
 		slices.Equal(g.Hostnames, other.Hostnames)
 }
 
-type GatewayTransformationFunction func(GatewayCollectionConfig) func(ctx krt.HandlerContext, obj *gwv1.Gateway) (*gwv1.GatewayStatus, []*GatewayListener)
-
-type GatewayCollectionConfigOption func(o *GatewayCollectionConfig)
-
-func WithGatewayTransformationFunc(f GatewayTransformationFunction) GatewayCollectionConfigOption {
-	return func(o *GatewayCollectionConfig) {
-		o.transformationFunc = f
-	}
-}
-
 type GatewayCollectionConfig struct {
 	ControllerName string
 	Gateways       krt.Collection[*gwv1.Gateway]
@@ -227,22 +218,12 @@ func GatewayCollection(
 	krt.StatusCollection[*gwv1.Gateway, gwv1.GatewayStatus],
 	krt.Collection[*GatewayListener],
 ) {
-	for _, fn := range opts {
-		fn(&cfg)
-	}
-	cfg.listenerIndex = krt.NewIndex(cfg.ListenerSets, "gatewayParent", func(o ListenerSet) []types.NamespacedName {
-		return []types.NamespacedName{o.GatewayParent}
-	})
-	if cfg.transformationFunc == nil {
-		cfg.transformationFunc = GatewaysTransformationFunc
-	}
-
+	processGatewayCollectionOptions(&cfg, opts...)
 	statusCol, gw := krt.NewStatusManyCollection(cfg.Gateways, cfg.transformationFunc(cfg), cfg.KrtOpts.ToOptions("KubernetesGateway")...)
-
 	return statusCol, gw
 }
 
-func GatewaysTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.HandlerContext, obj *gwv1.Gateway) (*gwv1.GatewayStatus, []*GatewayListener) {
+func GatewayTransformationFunc(cfg GatewayCollectionConfig) func(ctx krt.HandlerContext, obj *gwv1.Gateway) (*gwv1.GatewayStatus, []*GatewayListener) {
 	return func(ctx krt.HandlerContext, obj *gwv1.Gateway) (*gwv1.GatewayStatus, []*GatewayListener) {
 		class := krt.FetchOne(ctx, cfg.GatewayClasses, krt.FilterKey(string(obj.Spec.GatewayClassName)))
 		if class == nil {
@@ -404,7 +385,7 @@ func ListenerSetCollection(
 			status := obj.Status.DeepCopy()
 
 			p := ls.ParentRef
-			if normalizeReference(p.Group, p.Kind, wellknown.GatewayGVK) != wellknown.GatewayGVK {
+			if NormalizeReference(p.Group, p.Kind, wellknown.GatewayGVK) != wellknown.GatewayGVK {
 				// Cannot report status since we don't know if it is for us
 				return nil, nil
 			}
@@ -427,7 +408,7 @@ func ListenerSetCollection(
 
 			controllerName := class.Controller
 
-			if !namespaceAcceptedByAllowListeners(obj.Namespace, parentGwObj, func(s string) *corev1.Namespace {
+			if !NamespaceAcceptedByAllowListeners(obj.Namespace, parentGwObj, func(s string) *corev1.Namespace {
 				return ptr.Flatten(krt.FetchOne(ctx, namespaces, krt.FilterKey(s)))
 			}) {
 				//reportNotAllowedListenerSet(status, obj)
@@ -442,7 +423,7 @@ func ListenerSetCollection(
 			//}
 
 			for i, l := range ls.Listeners {
-				port, portErr := detectListenerPortNumber(l)
+				port, portErr := kubeutils.DetectListenerPortNumber(l.Protocol, l.Port)
 				l.Port = port
 				standardListener := convertListenerSetToListener(l)
 				originalStatus := slices.Map(status.Listeners, convertListenerSetStatusToStandardStatus)
@@ -511,8 +492,8 @@ func BuildRouteParents(
 	}
 }
 
-// namespaceAcceptedByAllowListeners determines a list of allowed namespaces for a given AllowedListener
-func namespaceAcceptedByAllowListeners(localNamespace string, parent *gwv1.Gateway, lookupNamespace func(string) *corev1.Namespace) bool {
+// NamespaceAcceptedByAllowListeners determines a list of allowed namespaces for a given AllowedListener
+func NamespaceAcceptedByAllowListeners(localNamespace string, parent *gwv1.Gateway, lookupNamespace func(string) *corev1.Namespace) bool {
 	lr := parent.Spec.AllowedListeners
 	// Default allows none
 	if lr == nil || lr.Namespaces == nil {
@@ -550,18 +531,6 @@ func namespaceAcceptedByAllowListeners(localNamespace string, parent *gwv1.Gatew
 	return ls.Matches(toNamespaceSet(localNamespaceObject.Name, localNamespaceObject.Labels))
 }
 
-func detectListenerPortNumber(l gatewayx.ListenerEntry) (gatewayx.PortNumber, error) {
-	if l.Port != 0 {
-		return l.Port, nil
-	}
-	switch l.Protocol {
-	case gwv1.HTTPProtocolType:
-		return 80, nil
-	case gwv1.HTTPSProtocolType:
-		return 443, nil
-	}
-	return 0, fmt.Errorf("protocol %v requires a port to be set", l.Protocol)
-}
 func convertListenerSetToListener(l gatewayx.ListenerEntry) gwv1.Listener {
 	// For now, structs are identical enough Go can cast them. I doubt this will hold up forever, but we can adjust as needed.
 	return gwv1.Listener(l)
@@ -599,18 +568,18 @@ func reportListenerSetStatus(
 	// Accepted: is the configuration valid. We only have errors in listeners, and the status is not supposed to
 	// be tied to listeners, so this is always accepted
 	// Programmed: is the data plane "ready" (note: eventually consistent)
-	gatewayConditions := map[string]*condition{
+	gatewayConditions := map[string]*Condition{
 		string(gwv1.GatewayConditionAccepted): {
-			reason:  string(gwv1.GatewayReasonAccepted),
-			message: "Resource accepted",
+			Reason:  string(gwv1.GatewayReasonAccepted),
+			Message: "Resource accepted",
 		},
 		string(gwv1.GatewayConditionProgrammed): {
-			reason:  string(gwv1.GatewayReasonProgrammed),
-			message: "Resource programmed",
+			Reason:  string(gwv1.GatewayReasonProgrammed),
+			Message: "Resource programmed",
 		},
 	}
 
 	//setProgrammedCondition(gatewayConditions, internal, gatewayServices, warnings, allUsable)
 
-	gs.Conditions = setConditions(obj.Generation, gs.Conditions, gatewayConditions)
+	gs.Conditions = SetConditions(obj.Generation, gs.Conditions, gatewayConditions)
 }

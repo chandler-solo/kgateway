@@ -6,20 +6,27 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/onsi/gomega"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
+	"istio.io/istio/pkg/maps"
+	"istio.io/istio/pkg/test/util/assert"
+	"istio.io/istio/pkg/test/util/yml"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiserverschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -88,6 +95,11 @@ var (
 
 	GwApiRequireSessionPersistence = map[GwApiChannel]*GwApiVersion{
 		GwApiChannelExperimental: &GwApiV1_1_0,
+	}
+
+	// Gateway.spec.tls.frontend was added in 1.4.0 experimental
+	GwApiRequireFrontendTLSConfig = map[GwApiChannel]*GwApiVersion{
+		GwApiChannelExperimental: &GwApiV1_4_0,
 	}
 )
 
@@ -320,7 +332,7 @@ func (s *BaseTestingSuite) SetupSuite() {
 	s.detectAndCacheGwApiInfo()
 
 	// Check suite-level version requirements before proceeding
-	if s.skipSuite() {
+	if s.SkipSuite() {
 		// There isn't a way to skip the whole suite, but still need to check here to avoid the setup of potentially incompatible resources.
 		s.T().Logf("Suite requires Gateway API %s, but current is %s/%s", s.MinGwApiVersion, s.getCurrentGwApiChannel(), s.getCurrentGwApiVersion())
 		return
@@ -335,7 +347,7 @@ func (s *BaseTestingSuite) SetupSuite() {
 }
 
 func (s *BaseTestingSuite) TearDownSuite() {
-	if testutils.ShouldSkipCleanup(s.T()) || s.skipSuite() {
+	if testutils.ShouldSkipCleanup(s.T()) || s.SkipSuite() {
 		return
 	}
 
@@ -346,7 +358,7 @@ func (s *BaseTestingSuite) TearDownSuite() {
 
 func (s *BaseTestingSuite) BeforeTest(suiteName, testName string) {
 	// Check first if the suite should be skipped due to version requirements to cover cases when the testcase is not defined.
-	if s.skipSuite() {
+	if s.SkipSuite() {
 		s.T().Skip("Skipping all tests in suite due to gateway API version requirements")
 	}
 
@@ -379,7 +391,7 @@ func (s *BaseTestingSuite) AfterTest(suiteName, testName string) {
 
 	// Check if the test was skipped due to version requirements
 	// If so, don't try to delete resources that were never applied
-	if s.skipTest(testCase) || s.skipSuite() {
+	if s.skipTest(testCase) || s.SkipSuite() {
 		return
 	}
 
@@ -396,24 +408,105 @@ func (s *BaseTestingSuite) GetKubectlOutput(command ...string) string {
 	return out
 }
 
+// prePullImages extracts container images from the test case manifests and pre-pulls them
+// with a long timeout to avoid flakiness due to slow image pulls or rate limiting.
+func (s *BaseTestingSuite) prePullImages(testCase *TestCase) {
+	// First load the manifest resources so we can extract images
+	s.loadManifestResources(testCase)
+
+	// Extract unique images from pods and deployments
+	images := make(map[string]struct{})
+	for _, obj := range testCase.manifestResources {
+		if pod, ok := obj.(*corev1.Pod); ok {
+			for _, container := range pod.Spec.Containers {
+				images[container.Image] = struct{}{}
+			}
+			for _, container := range pod.Spec.InitContainers {
+				images[container.Image] = struct{}{}
+			}
+		} else if deployment, ok := obj.(*appsv1.Deployment); ok {
+			for _, container := range deployment.Spec.Template.Spec.Containers {
+				images[container.Image] = struct{}{}
+			}
+			for _, container := range deployment.Spec.Template.Spec.InitContainers {
+				images[container.Image] = struct{}{}
+			}
+		}
+	}
+
+	if len(images) == 0 {
+		return
+	}
+
+	// Create temporary pods to pull images
+	for image := range images {
+		s.pullImage(image)
+	}
+}
+
+// pullImage creates a temporary pod to pull the given image with a long timeout.
+func (s *BaseTestingSuite) pullImage(image string) {
+	// Create a unique name for the puller pod based on image name
+	// Replace invalid characters for kubernetes names
+	safeName := strings.ReplaceAll(image, "/", "-")
+	safeName = strings.ReplaceAll(safeName, ":", "-")
+	safeName = strings.ReplaceAll(safeName, ".", "-")
+	if len(safeName) > 50 {
+		safeName = safeName[:50]
+	}
+	podName := fmt.Sprintf("image-puller-%s", safeName)
+
+	pullerPod := fmt.Sprintf(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  namespace: default
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  containers:
+  - name: puller
+    image: %s
+    command: ["true"]
+`, podName, image)
+
+	// Apply the puller pod
+	err := s.TestInstallation.Actions.Kubectl().Apply(s.Ctx, []byte(pullerPod))
+	if err != nil {
+		s.T().Logf("Warning: failed to create image puller pod for %s: %v", image, err)
+		return
+	}
+
+	// Wait for the pod to complete (image pulled) with a long timeout (5 minutes)
+	s.TestInstallation.Assertions.Gomega.Eventually(func(g gomega.Gomega) {
+		pod, err := s.TestInstallation.ClusterContext.Clientset.CoreV1().Pods("default").Get(s.Ctx, podName, metav1.GetOptions{})
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		// Pod should be Succeeded (completed) or Running (image pulled, command ran)
+		g.Expect(pod.Status.Phase).To(gomega.BeElementOf(corev1.PodSucceeded, corev1.PodRunning, corev1.PodFailed))
+	}).WithTimeout(5*time.Minute).WithPolling(2*time.Second).Should(gomega.Succeed(), "waiting for image %s to be pulled", image)
+
+	// Clean up the puller pod
+	_ = s.TestInstallation.Actions.Kubectl().RunCommand(s.Ctx, "delete", "pod", podName, "-n", "default", "--ignore-not-found")
+}
+
 // ApplyManifests applies the manifests and waits until the resources are created and ready.
 func (s *BaseTestingSuite) ApplyManifests(testCase *TestCase) {
+	// Pre-pull images to avoid flakiness from slow image pulls or rate
+	// limiting. Any remaining flakes will be more obvious as to the root
+	// cause.
+	s.prePullImages(testCase)
+
 	// apply the manifests
-	for _, manifest := range testCase.Manifests {
-		gomega.Eventually(func() error {
-			err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, manifest)
-			return err
-		}, 10*time.Second, 1*time.Second).Should(gomega.Succeed(), "can apply "+manifest)
-	}
+	err := s.TestInstallation.ClusterContext.IstioClient.ApplyYAMLFiles("", testCase.Manifests...)
+	s.Require().NoError(err, "manifests %v", testCase.Manifests)
 
 	for manifest, transform := range testCase.ManifestsWithTransform {
 		cur, err := os.ReadFile(manifest)
 		s.Require().NoError(err)
 		transformed := transform(string(cur))
-		s.Require().EventuallyWithT(func(c *assert.CollectT) {
-			err := s.TestInstallation.Actions.Kubectl().Apply(s.Ctx, []byte(transformed))
-			assert.NoError(c, err)
-		}, 10*time.Second, 1*time.Second)
+		err = s.TestInstallation.ClusterContext.IstioClient.ApplyYAMLContents("", transformed)
+		s.Require().NoError(err)
 	}
 
 	// parse the expected resources and dynamic resources from the manifests, and wait until the resources are created.
@@ -442,46 +535,47 @@ func (s *BaseTestingSuite) ApplyManifests(testCase *TestCase) {
 		s.TestInstallation.Assertions.EventuallyPodsRunning(s.Ctx, ns, metav1.ListOptions{
 			LabelSelector: fmt.Sprintf("%s=%s", defaults.WellKnownAppLabel, name),
 			// Provide a longer timeout as the pod needs to be pulled and pass HCs
-		}, time.Second*60, time.Second)
+		}, time.Second*60, time.Millisecond*500)
 	}
+}
+
+var decUnstructured = yaml.NewDecodingSerializer(unstructured.UnstructuredJSONScheme)
+
+// Deleting namespaces is super super super slow. Avoid deleting them, ever
+func stripNamespaceResources(t *testing.T, manifests ...string) string {
+	cfgs := []string{}
+	for _, manifest := range manifests {
+		d, err := os.ReadFile(manifest)
+		assert.NoError(t, err)
+		for _, yml := range yml.SplitString(string(d)) {
+			obj := &unstructured.Unstructured{}
+			_, gvk, err := decUnstructured.Decode([]byte(yml), nil, obj)
+			if runtime.IsMissingKind(err) {
+				// Not a k8s object, skip
+				continue
+			}
+			assert.NoError(t, err)
+			if gvk.Kind != "Namespace" {
+				cfgs = append(cfgs, yml)
+			}
+		}
+	}
+
+	return strings.Join(cfgs, "\n---\n")
 }
 
 // DeleteManifests deletes the manifests and waits until the resources are deleted.
 func (s *BaseTestingSuite) DeleteManifests(testCase *TestCase) {
-	// parse the expected resources and dynamic resources from the manifests (this normally would already
-	// have been done via ApplyManifests, but we check again here just in case ApplyManifests was not called).
-	// we need to do this before calling delete on the manifests, so we can accurately determine which dynamic
-	// resources need to be deleted.
-	s.loadManifestResources(testCase)
-	s.loadDynamicResources(testCase)
+	nf := stripNamespaceResources(s.T(), testCase.Manifests...)
+	fp := filepath.Join(s.TestInstallation.GeneratedFiles.TempDir, "delete_manifests.yaml")
+	s.Require().NoError(os.WriteFile(fp, []byte(nf), 0o644)) //nolint:gosec // G306: Golden test file can be readable
 
-	for _, manifest := range testCase.Manifests {
-		gomega.Eventually(func() error {
-			err := s.TestInstallation.Actions.Kubectl().DeleteFileSafe(s.Ctx, manifest)
-			return err
-		}, 10*time.Second, 1*time.Second).Should(gomega.Succeed(), "can delete "+manifest)
-	}
-	for manifest := range testCase.ManifestsWithTransform {
-		// we don't need to transform the manifest here, as we are just deleting by filename
-		gomega.Eventually(func() error {
-			err := s.TestInstallation.Actions.Kubectl().DeleteFileSafe(s.Ctx, manifest)
-			return err
-		}, 10*time.Second, 1*time.Second).Should(gomega.Succeed(), "can delete "+manifest)
-	}
+	err := s.TestInstallation.ClusterContext.IstioClient.DeleteYAMLFiles("", fp)
+	s.Require().NoError(err)
 
-	// wait until the resources are deleted
-	allResources := slices.Concat(testCase.manifestResources, testCase.dynamicResources)
-	s.TestInstallation.Assertions.EventuallyObjectsNotExist(s.Ctx, allResources...)
-
-	// wait until pods created by deployments are deleted; this assumes that pods use a well-known label
-	// app.kubernetes.io/name=<name>
-	for _, resource := range allResources {
-		if deployment, ok := resource.(*appsv1.Deployment); ok {
-			s.TestInstallation.Assertions.EventuallyPodsNotExist(s.Ctx, deployment.Namespace, metav1.ListOptions{
-				LabelSelector: fmt.Sprintf("%s=%s", defaults.WellKnownAppLabel, deployment.Name),
-			}, time.Second*120, time.Second*2)
-		}
-	}
+	// we don't need to transform the manifest here, as we are just deleting by filename
+	err = s.TestInstallation.ClusterContext.IstioClient.DeleteYAMLFiles("", maps.Keys(testCase.ManifestsWithTransform)...)
+	s.Require().NoError(err)
 }
 
 func (s *BaseTestingSuite) setupHelpers() {
@@ -605,8 +699,8 @@ func (s *BaseTestingSuite) skipTest(testCase *TestCase) bool {
 	return !s.checkCompatibleWithApiVersion(testCase.MinGwApiVersion, testCase.MaxGwApiVersion, currentChannel, currentVersion)
 }
 
-// skipSuite determines if the entire suite should be skipped based on suite-level minimum version requirements.
-func (s *BaseTestingSuite) skipSuite() bool {
+// SkipSuite determines if the entire suite should be skipped based on suite-level minimum version requirements.
+func (s *BaseTestingSuite) SkipSuite() bool {
 	if len(s.MinGwApiVersion) == 0 {
 		return false // No requirements = run on any channel/version
 	}

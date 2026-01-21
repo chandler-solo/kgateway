@@ -54,8 +54,8 @@ spec:
             description: TrafficPolicySpec defines the desired state of a traffic
               policy.
             properties:
-              apiKeyAuthentication:
-                description: APIKeyAuthentication authenticates users based on a configured
+              apiKeyAuth:
+                description: APIKeyAuth authenticates users based on a configured
                   API Key.
                 properties:
                   clientIdHeader:
@@ -64,6 +64,11 @@ spec:
                       If not specified, the client identifier will not be forwarded in any header.
                       Example: "x-client-id"
                     type: string
+                  disable:
+                    description: |-
+                      Disable the API key authentication filter.
+                      Can be used to disable API key authentication policies applied at a higher level in the config hierarchy.
+                    type: object
                   forwardCredential:
                     description: |-
                       forwardCredential controls whether the API key is included in the request sent to the upstream.
@@ -211,9 +216,9 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-validations:
-                - message: exactly one of the fields in [secretRef secretSelector]
-                    must be set
-                  rule: '[has(self.secretRef),has(self.secretSelector)].filter(x,x==true).size()
+                - message: exactly one of the fields in [secretRef secretSelector
+                    disable] must be set
+                  rule: '[has(self.secretRef),has(self.secretSelector),has(self.disable)].filter(x,x==true).size()
                     == 1'
               autoHostRewrite:
                 description: |-
@@ -1144,7 +1149,7 @@ spec:
                     set
                   rule: '[has(self.request),has(self.response)].filter(x,x==true).size()
                     >= 1'
-              jwt:
+              jwtAuth:
                 description: |-
                   JWT specifies the JWT authentication configuration for the policy.
                   This defines the JWT providers and their configurations.
@@ -1318,6 +1323,20 @@ spec:
                   local:
                     description: Local defines a local rate limiting policy.
                     properties:
+                      percentEnabled:
+                        description: PercentEnabled specifies the percentage of requests
+                          for which the rate limiter is enabled.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
+                      percentEnforced:
+                        description: PercentEnforced specifies the percentage of requests
+                          for which the rate limiter is enforced.
+                        format: int32
+                        maximum: 100
+                        minimum: 0
+                        type: integer
                       tokenBucket:
                         description: |-
                           TokenBucket represents the configuration for a token bucket local rate-limiting mechanism.

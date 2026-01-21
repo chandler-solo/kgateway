@@ -5,6 +5,7 @@ package cluster
 import (
 	"os"
 
+	kubelib "istio.io/istio/pkg/kube"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +31,10 @@ func MustKindContextWithScheme(clusterName string, scheme *runtime.Scheme) *Cont
 	}
 
 	kubeCtx := os.Getenv(testutils.KubeCtx)
+	if kubeCtx == "" {
+		// Default KubeCtx used is "kind-<ClusterName>" as documented in testutils.KubeCtx
+		kubeCtx = "kind-" + clusterName
+	}
 	restCfg, err := kubeutils.GetRestConfigWithKubeContext(kubeCtx)
 	if err != nil {
 		panic(err)
@@ -49,12 +54,19 @@ func MustKindContextWithScheme(clusterName string, scheme *runtime.Scheme) *Cont
 		panic(err)
 	}
 
+	istio, err := kubelib.NewCLIClient(kubelib.NewClientConfigForRestConfig(restCfg))
+	if err != nil {
+		panic(err)
+	}
+	istio.SetDefaultApplyNamespace("default")
+
 	return &Context{
 		Name:        clusterName,
 		KubeContext: kubeCtx,
 		RestConfig:  restCfg,
 		Cli:         kubectl.NewCli().WithKubeContext(kubeCtx).WithReceiver(os.Stdout),
 		Client:      clt,
+		IstioClient: istio,
 		Clientset:   clientset,
 	}
 }

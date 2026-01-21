@@ -31,13 +31,16 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.controller.priorityClassName }}
+      priorityClassName: {{ .Values.controller.priorityClassName | quote }}
+      {{- end }}
       serviceAccountName: {{ include "kgateway.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: controller
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -121,8 +124,6 @@ spec:
             - name: KGW_XDS_TLS_ENABLED
               value: "true"
             {{- end }}
-            # TODO: Remove this once the cleanup is done. Required as the kgateway-system
-            # namespace is the default namespace and conformance will fail as a result.
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

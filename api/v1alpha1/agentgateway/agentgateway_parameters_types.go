@@ -6,16 +6,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters/status,verbs=get;update;patch
+
 // AgentgatewayParameters are configuration that is used to dynamically
 // provision the agentgateway data plane. Labels and annotations that apply to
 // all resources may be specified at a higher level; see
 // https://gateway-api.sigs.k8s.io/reference/spec/#gatewayinfrastructure
 //
-// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=agentgateway.dev,resources=agentgatewayparameters/status,verbs=get;update;patch
-
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:metadata:labels={app=kgateway,app.kubernetes.io/name=kgateway}
@@ -85,26 +84,27 @@ type AgentgatewayParametersConfigs struct {
 	// precedence.
 	//
 	// Example:
-	//   rawConfig:
-	//     binds:
-	//     - port: 3000
-	//       listeners:
-	//       - routes:
-	//         - policies:
-	//             cors:
-	//               allowOrigins:
-	//                 - "*"
-	//               allowHeaders:
-	//                 - mcp-protocol-version
-	//                 - content-type
-	//                 - cache-control
-	//           backends:
-	//           - mcp:
-	//               targets:
-	//               - name: everything
-	//                 stdio:
-	//                   cmd: npx
-	//                   args: ["@modelcontextprotocol/server-everything"]
+	//
+	//	rawConfig:
+	//	  binds:
+	//	  - port: 3000
+	//	    listeners:
+	//	    - routes:
+	//	      - policies:
+	//	          cors:
+	//	            allowOrigins:
+	//	              - "*"
+	//	            allowHeaders:
+	//	              - mcp-protocol-version
+	//	              - content-type
+	//	              - cache-control
+	//	        backends:
+	//	        - mcp:
+	//	            targets:
+	//	            - name: everything
+	//	              stdio:
+	//	                cmd: npx
+	//	                args: ["@modelcontextprotocol/server-everything"]
 	//
 	// +optional
 	// +kubebuilder:validation:Type=object
@@ -117,7 +117,7 @@ type AgentgatewayParametersConfigs struct {
 	//
 	// Default values, which may be overridden individually:
 	//
-	//	registry: ghcr.io/agentgateway
+	//	registry: cr.agentgateway.dev
 	//	repository: agentgateway
 	//	tag: <agentgateway version>
 	//	pullPolicy: <omitted, relying on Kubernetes defaults which depend on the tag>
@@ -152,6 +152,22 @@ type AgentgatewayParametersConfigs struct {
 	//
 	// +optional
 	Shutdown *ShutdownSpec `json:"shutdown,omitempty"`
+
+	// Configure Istio integration. If enabled, Agentgateway can natively connect to Istio enabled pods with mTLS.
+	//
+	// +optional
+	Istio *IstioSpec `json:"istio,omitempty"`
+}
+
+type IstioSpec struct {
+	// The address of the Istio CA. If unset, defaults to `https://istiod.istio-system.svc:15012`.
+	//
+	// +optional
+	CaAddress string `json:"caAddress,omitempty"`
+	// The Istio trust domain. If not set, defaults to `cluster.local`.
+	//
+	// +optional
+	TrustDomain string `json:"trustDomain,omitempty"`
 }
 
 // +kubebuilder:validation:XValidation:rule="self.min <= self.max",message="The 'min' value must be less than or equal to the 'max' value."
@@ -187,6 +203,20 @@ type AgentgatewayParametersOverlays struct {
 	// serviceAccount allows specifying overrides for the generated ServiceAccount resource.
 	// +optional
 	ServiceAccount *KubernetesResourceOverlay `json:"serviceAccount,omitempty"`
+
+	// podDisruptionBudget allows creating a PodDisruptionBudget for the agentgateway proxy.
+	// If absent, no PDB is created. If present, a PDB is created with its selector
+	// automatically configured to target the agentgateway proxy Deployment.
+	// The metadata and spec fields from this overlay are applied to the generated PDB.
+	// +optional
+	PodDisruptionBudget *KubernetesResourceOverlay `json:"podDisruptionBudget,omitempty"`
+
+	// horizontalPodAutoscaler allows creating a HorizontalPodAutoscaler for the agentgateway proxy.
+	// If absent, no HPA is created. If present, an HPA is created with its scaleTargetRef
+	// automatically configured to target the agentgateway proxy Deployment.
+	// The metadata and spec fields from this overlay are applied to the generated HPA.
+	// +optional
+	HorizontalPodAutoscaler *KubernetesResourceOverlay `json:"horizontalPodAutoscaler,omitempty"`
 }
 
 type AgentgatewayParametersObjectMetadata struct {
@@ -234,40 +264,65 @@ type KubernetesResourceOverlay struct {
 	// Lists with "merge keys" (like `containers` which merges on `name`, or `tolerations` which merges on `key`)
 	// will append your items to the generated list, or update existing items if keys match.
 	//
-	// **3. Deleting List Items ($patch: delete):**
-	// To remove an item from a generated list (e.g., removing a default sidecar), you must use
-	// the special `$patch: delete` directive.
+	// **3. Deleting Fields or List Items ($patch: delete):**
+	// To remove a field or list item from the generated resource, use the
+	// `$patch: delete` directive. This works for both map fields and list items,
+	// and is the recommended approach because it works with both client-side
+	// and server-side apply.
 	//
-	//   spec:
-	//     containers:
-	//       - name: agent-gateway
-	//         # Delete the securityContext using $patch: delete
-	//         securityContext:
-	//           $patch: delete
+	//	spec:
+	//	  template:
+	//	    spec:
+	//	      # Delete pod-level securityContext
+	//	      securityContext:
+	//	        $patch: delete
+	//	      # Delete nodeSelector
+	//	      nodeSelector:
+	//	        $patch: delete
+	//	      containers:
+	//	        - name: agentgateway
+	//	          # Delete container-level securityContext
+	//	          securityContext:
+	//	            $patch: delete
 	//
-	// **4. Deleting/Clearing Map Fields (null):**
-	// To remove a map field or a scalar entirely, set its value to `null`.
+	// **4. Null Values (server-side apply only):**
+	// Setting a field to `null` can also remove it, but this ONLY works with
+	// `kubectl apply --server-side` or equivalent. With regular client-side
+	// `kubectl apply`, null values are stripped by kubectl before reaching
+	// the API server, so the deletion won't occur. Prefer `$patch: delete`
+	// for consistent behavior across both apply modes.
 	//
-	//   spec:
-	//     template:
-	//       spec:
-	//         nodeSelector: null  # Removes default nodeSelector
+	//	spec:
+	//	  template:
+	//	    spec:
+	//	      nodeSelector: null  # Removes nodeSelector (server-side apply only!)
 	//
-	// **5. Replacing Lists Entirely ($patch: replace):**
+	// **5. Replacing Maps Entirely ($patch: replace):**
+	// To replace an entire map with your values (instead of merging), use `$patch: replace`.
+	// This removes all existing keys and replaces them with only your specified keys.
+	//
+	//	spec:
+	//	  template:
+	//	    spec:
+	//	      nodeSelector:
+	//	        $patch: replace
+	//	        custom-key: custom-value
+	//
+	// **6. Replacing Lists Entirely ($patch: replace):**
 	// If you want to strictly define a list and ignore all generated defaults, use `$patch: replace`.
 	//
-	//   service:
-	//     spec:
-	//       ports:
-	//         - $patch: replace
-	//         - name: http
-	//           port: 80
-	//           targetPort: 8080
-	//           protocol: TCP
-	//         - name: https
-	//           port: 443
-	//           targetPort: 8443
-	//           protocol: TCP
+	//	service:
+	//	  spec:
+	//	    ports:
+	//	      - $patch: replace
+	//	      - name: http
+	//	        port: 80
+	//	        targetPort: 8080
+	//	        protocol: TCP
+	//	      - name: https
+	//	        port: 443
+	//	        targetPort: 8443
+	//	        protocol: TCP
 	//
 	// +optional
 	// +kubebuilder:validation:Type=object

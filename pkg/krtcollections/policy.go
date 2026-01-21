@@ -35,6 +35,7 @@ import (
 	pluginsdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/reports"
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 )
 
 var (
@@ -330,51 +331,6 @@ type GatewayIndex struct {
 	GatewaysForDeployer krt.Collection[ir.GatewayForDeployer]
 }
 
-type (
-	GatewaysForDeployerTransformationFunction func(config *GatewayIndexConfig) func(kctx krt.HandlerContext, gw *gwv1.Gateway) *ir.GatewayForDeployer
-	GatewaysForEnvoyTransformationFunction    func(config *GatewayIndexConfig) func(kctx krt.HandlerContext, gw *gwv1.Gateway) *ir.Gateway
-)
-
-type GatewayIndexConfigOption func(o *GatewayIndexConfig)
-
-func WithGatewayForDeployerTransformationFunc(f GatewaysForDeployerTransformationFunction) GatewayIndexConfigOption {
-	return func(o *GatewayIndexConfig) {
-		o.gatewaysForDeployerTransformationFunc = f
-	}
-}
-
-func WithGatewayForEnvoyTransformationFunc(f GatewaysForEnvoyTransformationFunction) GatewayIndexConfigOption {
-	return func(o *GatewayIndexConfig) {
-		o.gatewaysForEnvoyTransformationFunc = f
-	}
-}
-
-func NewGatewayIndexConfig(krtOpts krtutil.KrtOptions,
-	controllerNames smallset.Set[string],
-	envoyControllerName string,
-	policyIndex *PolicyIndex,
-	gateways krt.Collection[*gwv1.Gateway],
-	listenerSets krt.Collection[*gwxv1a1.XListenerSet],
-	gatewayClasses krt.Collection[*gwv1.GatewayClass],
-	namespaces krt.Collection[NamespaceMetadata],
-	opts ...GatewayIndexConfigOption,
-) GatewayIndexConfig {
-	gwIC := GatewayIndexConfig{
-		KrtOpts:             krtOpts,
-		ControllerNames:     controllerNames,
-		EnvoyControllerName: envoyControllerName,
-		PolicyIndex:         policyIndex,
-		Gateways:            gateways,
-		ListenerSets:        listenerSets,
-		GatewayClasses:      gatewayClasses,
-		Namespaces:          namespaces,
-	}
-	for _, fn := range opts {
-		fn(&gwIC)
-	}
-	return gwIC
-}
-
 type GatewayIndexConfig struct {
 	KrtOpts             krtutil.KrtOptions
 	ControllerNames     smallset.Set[string]
@@ -390,36 +346,10 @@ type GatewayIndexConfig struct {
 	byParentRefIndex                      krt.Index[TargetRefIndexKey, *gwxv1a1.XListenerSet]
 }
 
-func processGatewayIndexConfig(config *GatewayIndexConfig) {
-	config.byParentRefIndex = krtpkg.UnnamedIndex(config.ListenerSets, func(in *gwxv1a1.XListenerSet) []TargetRefIndexKey {
-		pRef := in.Spec.ParentRef
-		ns := strOr(pRef.Namespace, "")
-		if ns == "" {
-			ns = in.GetNamespace()
-		}
-		// lookup by the root object
-		return []TargetRefIndexKey{{
-			Group:     wellknown.GatewayGroup,
-			Kind:      wellknown.GatewayKind,
-			Name:      string(pRef.Name),
-			Namespace: ns,
-			// this index intentionally doesn't include sectionName
-		}}
-	})
-
-	if config.gatewaysForDeployerTransformationFunc == nil {
-		config.gatewaysForDeployerTransformationFunc = GatewaysForDeployerTransformationFunc
-	}
-	if config.gatewaysForEnvoyTransformationFunc == nil {
-		config.gatewaysForEnvoyTransformationFunc = GatewaysForEnvoyTransformationFunc
-	}
-}
-
-func NewGatewayIndex(config GatewayIndexConfig) *GatewayIndex {
-	processGatewayIndexConfig(&config)
+func NewGatewayIndex(config GatewayIndexConfig, opts ...GatewayIndexConfigOption) *GatewayIndex {
+	processGatewayIndexConfig(&config, opts...)
 
 	h := &GatewayIndex{}
-
 	h.GatewaysForDeployer = krt.NewCollection(config.Gateways, config.gatewaysForDeployerTransformationFunc(&config))
 	if config.PolicyIndex == nil {
 		return h
@@ -451,7 +381,12 @@ func GatewaysForDeployerTransformationFunc(config *GatewayIndexConfig) func(kctx
 
 		for _, ls := range listenerSets {
 			for _, l := range ls.Spec.Listeners {
-				ports.Insert(l.Port)
+				port, portErr := kubeutils.DetectListenerPortNumber(l.Protocol, l.Port)
+				// Don't need to log an error for the deployer as it will be reflected in the listener status during reconciliation
+				if portErr != nil {
+					continue
+				}
+				ports.Insert(port)
 			}
 		}
 		ir := &ir.GatewayForDeployer{

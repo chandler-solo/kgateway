@@ -251,7 +251,6 @@ type BackendTLS struct {
 	AlpnProtocols *[]TinyString `json:"alpnProtocols,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!has(self.tracing)",message="tracing is not currently implemented"
 type Frontend struct {
 	// tcp defines settings on managing incoming TCP connections.
 	// +optional
@@ -268,7 +267,6 @@ type Frontend struct {
 	AccessLog *AccessLog `json:"accessLog,omitempty"`
 
 	// Tracing contains various settings for OpenTelemetry tracer.
-	// TODO: not currently implemented
 	// +optional
 	Tracing *Tracing `json:"tracing,omitempty"`
 }
@@ -336,8 +334,51 @@ type FrontendTLS struct {
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
 	AlpnProtocols *[]TinyString `json:"alpnProtocols,omitempty"`
+
+	// MinTLSVersion configures the minimum TLS version to support.
+	// +optional
+	MinTLSVersion *TLSVersion `json:"minProtocolVersion,omitempty"`
+
+	// MaxTLSVersion configures the maximum TLS version to support.
+	// +optional
+	MaxTLSVersion *TLSVersion `json:"maxProtocolVersion,omitempty"`
+
+	// CipherSuites configures the list of cipher suites for a TLS listener.
+	// The value is a comma-separated list of cipher suites, e.g "TLS13_AES_256_GCM_SHA384,TLS13_AES_128_GCM_SHA256".
+	// Use in the TLS options field of a TLS listener.
+	// +optional
+	CipherSuites []CipherSuite `json:"cipherSuites,omitempty"`
+
 	// TODO: mirror the tuneables on BackendTLS
 }
+
+// +kubebuilder:validation:Enum="1.2";"1.3"
+type TLSVersion string
+
+const (
+	// agentgateway currently only supports TLS 1.2 and TLS 1.3
+	TLSVersion1_2 TLSVersion = "1.2"
+	TLSVersion1_3 TLSVersion = "1.3"
+)
+
+// +kubebuilder:validation:Enum=TLS13_AES_256_GCM_SHA384;TLS13_AES_128_GCM_SHA256;TLS13_CHACHA20_POLY1305_SHA256;TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384;TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256;TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256;TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384;TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256;TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+type CipherSuite string
+
+const (
+	// TLS 1.3 cipher suites
+	CipherSuiteTLS13_AES_256_GCM_SHA384       CipherSuite = "TLS13_AES_256_GCM_SHA384"
+	CipherSuiteTLS13_AES_128_GCM_SHA256       CipherSuite = "TLS13_AES_128_GCM_SHA256"
+	CipherSuiteTLS13_CHACHA20_POLY1305_SHA256 CipherSuite = "TLS13_CHACHA20_POLY1305_SHA256"
+
+	// TLS 1.2 cipher suites
+	CipherSuiteTLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384       CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+	CipherSuiteTLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256       CipherSuite = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+	CipherSuiteTLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 CipherSuite = "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+
+	CipherSuiteTLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384       CipherSuite = "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+	CipherSuiteTLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256       CipherSuite = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+	CipherSuiteTLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 CipherSuite = "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256"
+)
 
 // +kubebuilder:validation:AtLeastOneOf=keepalive
 type FrontendTCP struct {
@@ -540,22 +581,22 @@ type JWKS struct {
 	Inline *string `json:"inline,omitempty"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=uri;backendRef
 type RemoteJWKS struct {
-	// IdP jwks endpoint. Default tls settings are used to connect to this url.
-	// +kubebuilder:validation:Pattern=`^(https|http):\/\/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*(:\d+)?\/.*$`
-	// +optional
-	JwksUri string `json:"uri,omitempty"`
+	// Path to IdP jwks endpoint, relative to the root, commonly ".well-known/jwks.json".
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2000
+	JwksPath string `json:"jwksPath"`
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('5m')",message="cacheDuration must be at least 5m."
 	// +kubebuilder:default="5m"
 	CacheDuration *metav1.Duration `json:"cacheDuration,omitempty"`
 	// backendRef references the remote JWKS server to reach.
-	// Not implemented yet, only jwksUri is currently supported.
-	// Supported types: Service and Backend.
-	// +optional
-	BackendRef gwv1.BackendObjectReference `json:"backendRef,omitempty"`
+	// Supported types are Service and (static) Backend. An AgentgatewayPolicy containing backend tls config
+	// can then be attached to the service/backend in order to set tls options for a connection to the remote jwks source.
+	// +required
+	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 }
 
 // +kubebuilder:validation:Enum=Strict;Optional
@@ -791,7 +832,7 @@ type BackendAI struct {
 
 // RouteType specifies how the AI gateway should process incoming requests
 // based on the URL path and the API format expected.
-// +kubebuilder:validation:Enum=Completions;Messages;Models;Passthrough;Responses;AnthropicTokenCount
+// +kubebuilder:validation:Enum=Completions;Messages;Models;Passthrough;Responses;AnthropicTokenCount;Embeddings
 type RouteType string
 
 const (
@@ -812,6 +853,12 @@ const (
 
 	// RouteTypeAnthropicTokenCount processes Anthropic /v1/messages/count_tokens format requests
 	RouteTypeAnthropicTokenCount RouteType = "AnthropicTokenCount" //nolint:gosec // G101: False positive - this is a route type name, not credentials
+
+	// RouteTypeEmbeddings processes OpenAI /v1/embeddings format requests
+	RouteTypeEmbeddings RouteType = "Embeddings"
+
+	//RouteTypeRealtime processes OpenAI /v1/realtime requests
+	RouteTypeRealtime RouteType = "Realtime"
 )
 
 // +kubebuilder:validation:AtLeastOneOf=authorization;authentication
@@ -853,6 +900,10 @@ type MCPAuthentication struct {
 	// jwks defines the remote JSON Web Key used to validate the signature of the JWT.
 	// +required
 	JWKS RemoteJWKS `json:"jwks"`
+
+	// validation mode for JWT authentication.
+	// +optional
+	Mode JWTAuthenticationMode `json:"mode,omitempty"`
 }
 
 type McpIDP string
@@ -873,6 +924,12 @@ type BackendHTTP struct {
 	// +kubebuilder:validation:Enum=HTTP1;HTTP2
 	// +optional
 	Version *HTTPVersion `json:"version,omitempty"`
+
+	// requestTimeout specifies the deadline for receiving a response from the backend.
+	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
+	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('1ms')",message="requestTimeout must be at least 1ms"
+	// +optional
+	RequestTimeout *metav1.Duration `json:"requestTimeout,omitempty"`
 }
 
 type HTTPVersion string
@@ -963,6 +1020,7 @@ type ExtProc struct {
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 }
 
+// +kubebuilder:validation:ExactlyOneOf=grpc;http
 type ExtAuth struct {
 	// backendRef references the External Authorization server to reach.
 	//
@@ -970,15 +1028,80 @@ type ExtAuth struct {
 	// +required
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 
+	// grpc specifies that the gRPC External Authorization
+	// [protocol](https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/auth/v3/external_auth.proto) should be used.
+	// +optional
+	GRPC *AgentExtAuthGRPC `json:"grpc,omitempty"`
+
+	// http specifies that the HTTP protocol should be used for connecting to the authorization server.
+	// The authorization server must return a `200` status code, otherwise the request is considered an authorization failure.
+	// +optional
+	HTTP *AgentExtAuthHTTP `json:"http,omitempty"`
+
 	// forwardBody configures whether to include the HTTP body in the request. If enabled, the request body will be
 	// buffered.
 	// +optional
 	ForwardBody *ExtAuthBody `json:"forwardBody,omitempty"`
+}
 
-	// contextExtensions specifies additional arbitrary key-value pairs to send to the authorization server.
-	// +kubebuilder:validation:MaxProperties=64
+type AgentExtAuthHTTP struct {
+	// path specifies the path to send to the authorization server. If unset, this defaults to the original request path.
+	// This is a CEL expression, which allows customizing the path based on the incoming request.
+	// For example, to add a prefix: `path: '"/prefix/" + request.path'`.
 	// +optional
+	Path *shared.CELExpression `json:"path,omitempty"`
+
+	// redirect defines an optional expression to determine a path to redirect to on authorization failure.
+	// This is useful to redirect to a sign-in page.
+	// +optional
+	Redirect *shared.CELExpression `json:"redirect,omitempty"`
+
+	// allowedRequestHeaders specifies what additional headers from the client request
+	// will be sent to the authorization server.
+	//
+	// If unset, the following headers are sent by default: `Authorization`.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	AllowedRequestHeaders []ShortString `json:"allowedRequestHeaders,omitempty"`
+
+	// addRequestHeaders specifies what additional headers to add to the request to the authorization server.
+	// While allowedRequestHeaders just passes the original headers through, addRequestHeaders allows defining custom headers
+	// based on CEL Expressions.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	AddRequestHeaders map[string]shared.CELExpression `json:"addRequestHeaders,omitempty"`
+
+	// allowedResponseHeaders specifies what headers from the authorization response
+	// will be copied into the request to the backend.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxItems=64
+	AllowedResponseHeaders []ShortString `json:"allowedResponseHeaders,omitempty"`
+
+	// responseMetadata specifies what metadata fields should be constructed *from* the authorization response. These will be
+	// included under the `extauthz` variable in future CEL expressions. Setting this is useful to do things like logging
+	// usernames, without needing to include them as headers to the backend (as `allowedResponseHeaders` would).
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	ResponseMetadata map[string]shared.CELExpression `json:"responseMetadata,omitempty"`
+}
+
+type AgentExtAuthGRPC struct {
+	// contextExtensions specifies additional arbitrary key-value pairs to send to the authorization server in the `context_extensions` field.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
 	ContextExtensions map[string]string `json:"contextExtensions,omitempty"`
+	// requestMetadata specifies metadata to be sent *to* the authorization server.
+	// This maps to the `metadata_context.filter_metadata` field of the request, and allows dynamic CEL expressions.
+	// If unset, by default the `envoy.filters.http.jwt_authn` key is set if the JWT policy is used as well, for compatibility.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=64
+	RequestMetadata map[string]shared.CELExpression `json:"requestMetadata,omitempty"`
 }
 
 type ExtAuthBody struct {
@@ -1181,7 +1304,7 @@ const (
 
 type Tracing struct {
 	// backendRef references the OTLP server to reach.
-	// Supported types: Service and Backend.
+	// Supported types: Service and AgentgatewayBackend.
 	// +required
 	BackendRef gwv1.BackendObjectReference `json:"backendRef"`
 	// protocol specifies the OTLP protocol variant to use.
@@ -1190,9 +1313,13 @@ type Tracing struct {
 	// +optional
 	Protocol TracingProtocol `json:"protocol,omitempty"`
 
-	// attributes specifies customizations to the key-value pairs that are included in the trace
+	// attributes specify customizations to the key-value pairs that are included in the trace.
 	// +optional
 	Attributes *LogTracingAttributes `json:"attributes,omitempty"`
+
+	// resources describe the entity producing telemetry and specify the resources to be included in the trace.
+	// +optional
+	Resources []ResourceAdd `json:"resources,omitempty"`
 
 	// randomSampling is an expression to determine the amount of random sampling. Random sampling will initiate a new
 	// trace span if the incoming request does not have a trace initiated already. This should evaluate to a float between
@@ -1204,4 +1331,11 @@ type Tracing struct {
 	// 0.0-1.0, or a boolean (true/false) If unspecified, client sampling is 100% enabled.
 	// +optional
 	ClientSampling *shared.CELExpression `json:"clientSampling,omitempty"`
+}
+
+type ResourceAdd struct {
+	// +required
+	Name ShortString `json:"name"`
+	// +required
+	Expression shared.CELExpression `json:"expression"`
 }

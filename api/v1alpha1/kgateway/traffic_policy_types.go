@@ -122,7 +122,7 @@ type TrafficPolicySpec struct {
 	// JWT specifies the JWT authentication configuration for the policy.
 	// This defines the JWT providers and their configurations.
 	// +optional
-	JWT *JWTAuthentication `json:"jwt,omitempty"`
+	JWTAuth *JWTAuth `json:"jwtAuth,omitempty"`
 
 	// UrlRewrite specifies URL rewrite rules for matching requests.
 	// NOTE: This field is only honored for HTTPRoute targets.
@@ -140,9 +140,9 @@ type TrafficPolicySpec struct {
 	// +optional
 	BasicAuth *BasicAuthPolicy `json:"basicAuth,omitempty"`
 
-	// APIKeyAuthentication authenticates users based on a configured API Key.
+	// APIKeyAuth authenticates users based on a configured API Key.
 	// +optional
-	APIKeyAuthentication *APIKeyAuthentication `json:"apiKeyAuthentication,omitempty"`
+	APIKeyAuth *APIKeyAuth `json:"apiKeyAuth,omitempty"`
 
 	// OAuth2 specifies the configuration to use for OAuth2/OIDC.
 	// Note: the OAuth2 filter does not protect against Cross-Site-Request-Forgery attacks on domains with cached
@@ -289,6 +289,18 @@ type LocalRateLimitPolicy struct {
 	// It defines the parameters for controlling the rate at which requests are allowed.
 	// +optional
 	TokenBucket *TokenBucket `json:"tokenBucket,omitempty"`
+
+	// PercentEnabled specifies the percentage of requests for which the rate limiter is enabled.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PercentEnabled *int32 `json:"percentEnabled,omitempty"`
+
+	// PercentEnforced specifies the percentage of requests for which the rate limiter is enforced.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PercentEnforced *int32 `json:"percentEnforced,omitempty"`
 }
 
 // TokenBucket defines the configuration for a token bucket rate-limiting mechanism.
@@ -453,8 +465,8 @@ type APIKeySource struct {
 	Cookie *string `json:"cookie,omitempty"`
 }
 
-// +kubebuilder:validation:ExactlyOneOf=secretRef;secretSelector
-type APIKeyAuthentication struct {
+// +kubebuilder:validation:ExactlyOneOf=secretRef;secretSelector;disable
+type APIKeyAuth struct {
 	// keySources specifies the list of key sources to extract the API key from.
 	// Key sources are processed in array order and the first one that successfully
 	// extracts a key is used. Within each key source, if multiple types (header, query, cookie) are
@@ -530,6 +542,11 @@ type APIKeyAuthentication struct {
 	//
 	// +optional
 	SecretSelector *LabelSelector `json:"secretSelector,omitempty"`
+
+	// Disable the API key authentication filter.
+	// Can be used to disable API key authentication policies applied at a higher level in the config hierarchy.
+	// +optional
+	Disable *shared.PolicyDisable `json:"disable,omitempty"`
 }
 
 // LabelSelector selects resources using label selectors.

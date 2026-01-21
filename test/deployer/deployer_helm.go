@@ -1,7 +1,9 @@
 package deployer
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,12 +46,40 @@ type DeployerTester struct {
 	WaypointClassName string
 }
 
-// NoSecurityContextValidator returns a validation function that ensures no securityContext appears in output
+// NoSecurityContextValidator returns a validation function that ensures no securityContext appears in output.
+// Use this for null-based deletion with server-side apply, which completely removes the field.
 func NoSecurityContextValidator() func(t *testing.T, outputYaml string) {
 	return func(t *testing.T, outputYaml string) {
 		t.Helper()
 		assert.NotContains(t, outputYaml, "securityContext:",
 			"output YAML should not contain securityContext when omitDefaultSecurityContext is true")
+	}
+}
+
+// EmptySecurityContextValidator returns a validation function that allows
+// securityContext: {} but ensures no actual security values are configured.
+// Use this for $patch: delete, which sets securityContext to empty struct.
+// OpenShift treats an empty securityContext the same as a nonexistent one --
+// the SCC (by default, `restricted-v2`) will fill in the securityContext.
+func EmptySecurityContextValidator() func(t *testing.T, outputYaml string) {
+	return func(t *testing.T, outputYaml string) {
+		t.Helper()
+		// These are actual security values that should NOT be present when using $patch: delete
+		forbiddenValues := []string{
+			"runAsUser:",
+			"runAsGroup:",
+			"runAsNonRoot:",
+			"allowPrivilegeEscalation:",
+			"capabilities:",
+			"readOnlyRootFilesystem:",
+			"privileged:",
+			"fsGroup:",
+			"supplementalGroups:",
+		}
+		for _, val := range forbiddenValues {
+			assert.NotContains(t, outputYaml, val,
+				"output YAML should not contain security values when $patch: delete is used, found: %s", val)
+		}
 	}
 }
 
@@ -178,11 +208,12 @@ func (dt DeployerTester) RunHelmChartTest(
 	got, err := objectsToYAML(deployObjs)
 	assert.NoError(t, err, "error converting objects to YAML")
 
+	got = sanitizeOutput(got)
+
 	if envutils.IsEnvTruthy("REFRESH_GOLDEN") {
 		t.Log("REFRESH_GOLDEN is set, writing output file", outputFile)
 		err = os.WriteFile(outputFile, got, 0o644) //nolint:gosec // G306: Golden test file can be readable
 		assert.NoError(t, err, "error writing output file")
-		t.FailNow()
 	}
 	data, err := os.ReadFile(outputFile)
 	if err != nil {
@@ -208,6 +239,15 @@ func (dt DeployerTester) RunHelmChartTest(
 	if tt.Validate != nil {
 		tt.Validate(t, string(data))
 	}
+}
+
+// Remove things that change often but are not relevant to the tests
+func sanitizeOutput(got []byte) []byte {
+
+	old := fmt.Sprintf("%s/%s:%v", pkgdeployer.AgentgatewayRegistry, pkgdeployer.AgentgatewayImage, pkgdeployer.AgentgatewayDefaultTag)
+	now := fmt.Sprintf("%s/%s:99.99.99", pkgdeployer.AgentgatewayRegistry, pkgdeployer.AgentgatewayImage)
+
+	return bytes.Replace(got, []byte(old), []byte(now), -1)
 }
 
 // objectsToYAML converts a slice of client.Object to YAML bytes, separated by "---"

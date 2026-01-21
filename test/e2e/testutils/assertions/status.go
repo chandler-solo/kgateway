@@ -23,6 +23,28 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 )
 
+// EventuallyGatewayAddress asserts that eventually at least one of the HTTPRoute's route parent statuses contains
+// the given message substring.
+func (p *Provider) EventuallyGatewayAddress(
+	ctx context.Context,
+	gatewayName string,
+	gatewayNamespace string,
+	timeout ...time.Duration,
+) string {
+	currentTimeout, pollingInterval := helpers.GetTimeouts(timeout...)
+	var addr string
+	p.Gomega.Eventually(func(g gomega.Gomega) {
+		gw := &gwv1.Gateway{}
+		err := p.clusterContext.Client.Get(ctx, types.NamespacedName{Name: gatewayName, Namespace: gatewayNamespace}, gw)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "can get gateway")
+		if len(gw.Status.Addresses) == 0 {
+			g.Expect(true).To(gomega.BeFalse(), "gateway is not ready")
+		}
+		addr = gw.Status.Addresses[0].Value
+	}, currentTimeout, pollingInterval).Should(gomega.Succeed())
+	return addr
+}
+
 // EventuallyHTTPRouteStatusContainsMessage asserts that eventually at least one of the HTTPRoute's route parent statuses contains
 // the given message substring.
 func (p *Provider) EventuallyHTTPRouteStatusContainsMessage(
@@ -30,7 +52,8 @@ func (p *Provider) EventuallyHTTPRouteStatusContainsMessage(
 	routeName string,
 	routeNamespace string,
 	message string,
-	timeout ...time.Duration) {
+	timeout ...time.Duration,
+) {
 	currentTimeout, pollingInterval := helpers.GetTimeouts(timeout...)
 	p.Gomega.Eventually(func(g gomega.Gomega) {
 		matcher := matchers.HaveKubeGatewayRouteStatus(&matchers.KubeGatewayRouteStatus{
@@ -513,5 +536,34 @@ func (p *Provider) EventuallyAgwBackendCondition(
 		}
 		g.Expect(conditionFound).To(gomega.BeTrue(), fmt.Sprintf("%v condition is not %v for AgentgatewayBackend %s/%s. Full status: %+v",
 			condition, expect, namespace, name, backend.Status))
+	}, currentTimeout, pollingInterval).Should(gomega.Succeed())
+}
+
+// EventuallyAgwPolicyCondition checks that provided AgentgatewayPolicy condition is set to expect.
+func (p *Provider) EventuallyAgwPolicyCondition(
+	ctx context.Context,
+	name string,
+	namespace string,
+	condType string,
+	expect metav1.ConditionStatus,
+	timeout ...time.Duration,
+) {
+	ginkgo.GinkgoHelper()
+	currentTimeout, pollingInterval := helpers.GetTimeouts(timeout...)
+	p.Gomega.Eventually(func(g gomega.Gomega) {
+		policy := &agentgateway.AgentgatewayPolicy{}
+		err := p.clusterContext.Client.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, policy)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "failed to get AgentgatewayPolicy %s/%s", namespace, name)
+
+		var conditionFound bool
+		for _, parentStatus := range policy.Status.Ancestors {
+			condition := GetConditionByType(parentStatus.Conditions, condType)
+			if condition != nil && condition.Status == expect {
+				conditionFound = true
+				break
+			}
+		}
+		g.Expect(conditionFound).To(gomega.BeTrue(), fmt.Sprintf("%v condition is not %v for any ancestor of AgentgatewayPolicy %s/%s. Full status: %+v",
+			condType, expect, namespace, name, policy.Status))
 	}, currentTimeout, pollingInterval).Should(gomega.Succeed())
 }

@@ -534,25 +534,21 @@ func (s *ControllerSuite) TestGatewayClass() {
 		r := require.New(t)
 
 		for _, gwClass := range gwClasses {
-			gc := &gwv1.GatewayClass{}
+			originalGC := &gwv1.GatewayClass{}
 			r.EventuallyWithTf(func(c *assert.CollectT) {
-				err := s.client.Get(ctx, types.NamespacedName{Name: gwClass}, gc)
+				err := s.client.Get(ctx, types.NamespacedName{Name: gwClass}, originalGC)
 				assert.NoError(c, err)
 			}, defaultPollTimeout, 500*time.Millisecond, "timed out waiting for GatewayClass %s to be created", gwClass)
 
 			// Delete the GatewayClass
 			err := s.client.Delete(ctx, &gwv1.GatewayClass{ObjectMeta: metav1.ObjectMeta{Name: gwClass}})
 			r.NoError(err)
-			// Wait for deletion
-			r.EventuallyWithTf(func(c *assert.CollectT) {
-				err := s.client.Get(ctx, types.NamespacedName{Name: gwClass}, gc)
-				assert.True(c, k8serrors.IsNotFound(err), "expected GatewayClass %s to be deleted", gwClass)
-			}, defaultPollTimeout, 500*time.Millisecond, "timed out waiting for GatewayClass %s to be deleted", gwClass)
-
 			// Verify it is recreated
 			r.EventuallyWithTf(func(c *assert.CollectT) {
-				err := s.client.Get(ctx, types.NamespacedName{Name: gwClass}, gc)
+				newGC := &gwv1.GatewayClass{}
+				err := s.client.Get(ctx, types.NamespacedName{Name: gwClass}, newGC)
 				assert.NoError(c, err)
+				assert.NotEqual(c, newGC.UID, originalGC.UID, "expected GatewayClass to be recreated")
 			}, defaultPollTimeout, 500*time.Millisecond, "timed out waiting for GatewayClass %s to be recreated", gwClass)
 		}
 	})
@@ -568,9 +564,10 @@ func (s *ControllerSuite) TestGatewayClass() {
 		}, defaultPollTimeout, 500*time.Millisecond, "timed out waiting for GatewayClass %s to be created", gatewayClassName)
 
 		// Update it
+		original := gwc.DeepCopy()
 		updatedDesc := "updated description"
 		gwc.Spec.Description = ptr.To(updatedDesc)
-		err := s.client.Update(ctx, gwc)
+		err := s.client.Patch(ctx, gwc, client.MergeFrom(original))
 		r.NoError(err)
 
 		// Verify it is not overwritten
@@ -594,16 +591,16 @@ func (s *ControllerSuite) TestGatewayClass() {
 		}, defaultPollTimeout, 500*time.Millisecond, "timed out waiting for GatewayClass %s to be created", selfManagedGatewayClassName)
 
 		// Store the original ParametersRef
-		originalParamsRef := gwc.Spec.ParametersRef.DeepCopy()
+		original := gwc.DeepCopy()
 
 		// Change ParametersRef to something different
 		gwc.Spec.ParametersRef = &gwv1.ParametersReference{
-			Group:     gwv1.Group("different.group"),
-			Kind:      gwv1.Kind("DifferentKind"),
+			Group:     "different.group",
+			Kind:      "DifferentKind",
 			Name:      "different-params",
 			Namespace: ptr.To(gwv1.Namespace("different-namespace")),
 		}
-		err := s.client.Update(ctx, gwc)
+		err := s.client.Patch(ctx, gwc, client.MergeFrom(original))
 		r.NoError(err)
 
 		// Verify ParametersRef is restored to original value
@@ -611,6 +608,7 @@ func (s *ControllerSuite) TestGatewayClass() {
 			err := s.client.Get(ctx, types.NamespacedName{Name: selfManagedGatewayClassName}, gwc)
 			assert.NoError(c, err)
 			assert.NotNil(c, gwc.Spec.ParametersRef, "expected ParametersRef to be set")
+			originalParamsRef := original.Spec.ParametersRef
 			assert.Equal(c, originalParamsRef.Group, gwc.Spec.ParametersRef.Group, "ParametersRef.Group should be restored")
 			assert.Equal(c, originalParamsRef.Kind, gwc.Spec.ParametersRef.Kind, "ParametersRef.Kind should be restored")
 			assert.Equal(c, originalParamsRef.Name, gwc.Spec.ParametersRef.Name, "ParametersRef.Name should be restored")

@@ -93,8 +93,8 @@ type StartConfig struct {
 	AugmentedPods     krt.Collection[krtcollections.LocalityPod]
 	UniqueClients     krt.Collection[ir.UniqlyConnectedClient]
 
-	KrtOptions                   krtutil.KrtOptions
-	ExtraAgwPolicyStatusHandlers map[schema.GroupVersionKind]agwplugins.AgwPolicyStatusSyncHandler
+	KrtOptions                     krtutil.KrtOptions
+	ExtraAgwResourceStatusHandlers map[schema.GroupVersionKind]agwplugins.AgwResourceStatusSyncHandler
 
 	// GatewayControllerExtension is an extension that can be used to extend Gateway controller
 	GatewayControllerExtension sdk.GatewayControllerExtension
@@ -216,7 +216,7 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 
 		// Compute the extra GVKs list to provide at initialization time
 		var gvks []schema.GroupVersionKind
-		for gvk := range cfg.ExtraAgwPolicyStatusHandlers {
+		for gvk := range cfg.ExtraAgwResourceStatusHandlers {
 			gvks = append(gvks, gvk)
 		}
 
@@ -243,7 +243,7 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 			cfg.Client,
 			agwSyncer.StatusCollections(),
 			agwSyncer.CacheSyncs(),
-			cfg.ExtraAgwPolicyStatusHandlers,
+			cfg.ExtraAgwResourceStatusHandlers,
 		)
 		if err := cfg.Manager.Add(agwStatusSyncer); err != nil {
 			setupLog.Error(err, "unable to add agentgateway StatusSyncer runnable")
@@ -393,6 +393,7 @@ func GetDefaultClassInfo(
 	classInfos := map[string]*deployer.GatewayClassInfo{}
 	refOverrides := globalSettings.GatewayClassParametersRefs
 	if globalSettings.EnableEnvoy {
+		logger.Info("enabling envoy gateway class")
 		classInfos[gatewayClassName] = &deployer.GatewayClassInfo{
 			Description:       "Standard class for managing Gateway API ingress traffic.",
 			Labels:            map[string]string{},
@@ -417,6 +418,7 @@ func GetDefaultClassInfo(
 	}
 	// Only enable agentgateway gateway class if it's enabled in the settings
 	if globalSettings.EnableAgentgateway {
+		logger.Info("enabling agentgateway gateway class")
 		classInfos[agwClassName] = &deployer.GatewayClassInfo{
 			Description:       "Specialized class for agentgateway.",
 			Labels:            map[string]string{},
