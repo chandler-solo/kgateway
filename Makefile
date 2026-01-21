@@ -50,6 +50,7 @@ SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 # we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
 # For arm build, we will use upstream envoy and cannot switch back to classic transformation.
 export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
+export ENVOY_IMAGE_ARM64 ?= envoyproxy/envoy:v1.36.4
 
 export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/pkg/version.Version=$(VERSION)' -s -w
