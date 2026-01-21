@@ -44,15 +44,7 @@ export VERSION
 
 SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 
-# Note: When bumping this version, update the version in pkg/validator/validator.go as well.
-# When we switch Rustformation to be used by default, we can set ENVOY_IMAGE=envoyproxy/envoy:v1.36.4
-# if we want to switch to use upstream vanilla envoy for the multi-arch arm build. For v2.2 release,
-# we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
-# For arm build, we will use upstream envoy and cannot switch back to classic transformation.
-export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
-export ENVOY_IMAGE_ARM64 ?= envoyproxy/envoy:v1.36.4
 
-export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/pkg/version.Version=$(VERSION)' -s -w
 export GCFLAGS ?=
 
@@ -70,6 +62,31 @@ else
 		GOARCH := amd64
 	endif
 endif
+
+# Note: When bumping this version, update the version in pkg/validator/validator.go as well.
+# For v2.2, we use vanilla upstream envoy for arm build. This is used by goreleaser and the logic below to set
+# ENVOY_IMAGE properly when building envoy-wrapper-docker.
+# TODO: Consolidate to just upstream image in v2.3
+export ENVOY_IMAGE_ARM64 = envoyproxy/envoy:v1.36.4
+export ENVOY_IMAGE_X86 = quay.io/solo-io/envoy-gloo:1.36.4-patch1
+# This one is used to build the control plane image. This is because now rustformation is default, we need to
+# have both the envoy binary and the rustfromation dynamic module binary to run strict validation mode from the
+# control plane
+export ENVOY_WRAPPER_IMAGE ?= ghcr.io/kgateway-dev/envoy-wrapper:$(VERSION)
+ifeq ($(GOARCH), arm64)
+	ifeq ($(ENVOY_IMAGE), )
+		ENVOY_IMAGE := $(ENVOY_IMAGE_ARM64)
+		export ENVOY_IMAGE
+	endif
+else
+# For v2.2 release, we plan to still use envoy-gloo for x86 build (so people can switch back to
+# classic transformation if needed).
+	ifeq ($(ENVOY_IMAGE), )
+		ENVOY_IMAGE := $(ENVOY_IMAGE_X86)
+		export ENVOY_IMAGE
+	endif
+endif
+
 
 PLATFORM := --platform=linux/$(GOARCH)
 
@@ -463,7 +480,7 @@ $(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway: cmd/kgateway/Dockerfile.agentg
 $(CONTROLLER_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH) $(CONTROLLER_OUTPUT_DIR)/Dockerfile
 	$(BUILDX_BUILD) --load $(PLATFORM) $(CONTROLLER_OUTPUT_DIR) -f $(CONTROLLER_OUTPUT_DIR)/Dockerfile \
 		--build-arg GOARCH=$(GOARCH) \
-		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
+		--build-arg ENVOY_IMAGE=$(ENVOY_WRAPPER_IMAGE) \
 		-t $(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION)
 	@touch $@
 
@@ -552,7 +569,6 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 	$(BUILDX_BUILD) --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
-		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
 		--build-arg RUSTFORMATIONS_DIR=./rustformations \
 		$(ENVOYINIT_CACHE_FROM) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
