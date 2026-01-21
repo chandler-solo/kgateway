@@ -161,7 +161,11 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 }
 
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
-	return obj.GetName(), obj.GetNamespace()
+	// 'helm install' create a Helm Release. We never use that. We basically
+	// say 'helm template' and post-process with overlays. Use the same release
+	// name every time to avoid using a 54+ character name that would be too
+	// long.
+	return "this-never-becomes-a-helm-release", obj.GetNamespace()
 }
 
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
