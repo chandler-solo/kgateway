@@ -1,23 +1,21 @@
-ARG BASE_IMAGE=debian:bookworm-slim
+ARG ENVOY_IMAGE
 
-FROM --platform=$TARGETPLATFORM ${BASE_IMAGE}
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install minimal runtime dependencies and apply security updates
-# wget is used for default probes, ca-certificates for TLS
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends wget ca-certificates \
-    && rm -rf /var/lib/apt/lists/* /var/log/*log /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
+FROM $ENVOY_IMAGE
 
 ARG GOARCH=amd64
-COPY kgateway-linux-$GOARCH /usr/local/bin/kgateway
-COPY envoyinit-linux-$GOARCH /usr/local/bin/envoyinit
+# eventually may matter for now https://unix.stackexchange.com/a/701288
+# means its not too useful
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Copy pre-built rustformations dynamic module
-ENV ENVOY_DYNAMIC_MODULES_SEARCH_PATH=/usr/local/lib
-ARG RUST_LIB_PATH
-COPY ${RUST_LIB_PATH} /usr/local/lib/librust_module.so
+# Update our deps to make cve toil lower
+#install wget for our default probes
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install --no-install-recommends -y  ca-certificates \
+    && apt-get install wget -y \
+    && rm -rf  /var/log/*log /var/lib/apt/lists/* /var/log/apt/* /var/lib/dpkg/*-old /var/cache/debconf/*-old
+
+COPY kgateway-linux-$GOARCH /usr/local/bin/kgateway
 
 USER 10101
 

@@ -61,7 +61,7 @@ dockers:
   - image_templates:
       - &controller_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
-    dockerfile: &controller_dockerfile cmd/kgateway/Dockerfile
+    dockerfile: &controller_dockerfile cmd/kgateway/Dockerfile.goreleaser
     ids:
       - controller
       - envoyinit
@@ -135,7 +135,7 @@ dockers:
   - image_templates:
       - &envoyinit_arm_image "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-arm64"
     use: buildx
-    dockerfile: &envoyinit_dockerfile cmd/envoyinit/Dockerfile
+    dockerfile: &envoyinit_dockerfile cmd/envoyinit/Dockerfile.goreleaser
     goos: linux
     goarch: arm64
     build_flag_templates:
