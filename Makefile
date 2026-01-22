@@ -671,6 +671,21 @@ docker-images: ## Build all Docker images using goreleaser --snapshot --clean (s
 	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
 	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 	@rm -f .goreleaser.local.yaml
+
+.PHONY: save-images
+save-images: ## Save Docker images to tar files for artifact sharing
+	@mkdir -p $(OUTPUT_DIR)/images
+	docker save $(IMAGE_REGISTRY)/kgateway:$(VERSION)-$(GOARCH) -o $(OUTPUT_DIR)/images/kgateway-$(GOARCH).tar
+	docker save $(IMAGE_REGISTRY)/agentgateway-controller:$(VERSION)-$(GOARCH) -o $(OUTPUT_DIR)/images/agentgateway-controller-$(GOARCH).tar
+	docker save $(IMAGE_REGISTRY)/sds:$(VERSION)-$(GOARCH) -o $(OUTPUT_DIR)/images/sds-$(GOARCH).tar
+	docker save $(IMAGE_REGISTRY)/envoy-wrapper:$(VERSION)-$(GOARCH) -o $(OUTPUT_DIR)/images/envoy-wrapper-$(GOARCH).tar
+
+.PHONY: load-images
+load-images: ## Load Docker images from tar files
+	docker load -i $(OUTPUT_DIR)/images/kgateway-$(GOARCH).tar
+	docker load -i $(OUTPUT_DIR)/images/agentgateway-controller-$(GOARCH).tar
+	docker load -i $(OUTPUT_DIR)/images/sds-$(GOARCH).tar
+	docker load -i $(OUTPUT_DIR)/images/envoy-wrapper-$(GOARCH).tar
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)

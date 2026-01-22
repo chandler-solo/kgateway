@@ -31,6 +31,10 @@ inputs:
     required: false
     default: "false"
     description: Whether this test only needs agentgateway
+  skip-docker:
+    required: false
+    default: "false"
+    description: Skip docker image builds (use pre-built images)
 
 runs:
   using: "composite"
@@ -49,5 +53,6 @@ runs:
         CONFORMANCE_CHANNEL: ${{ inputs.gateway-api-channel }}
         LOCALSTACK: ${{ inputs.localstack }}
         AGENTGATEWAY: ${{ inputs.agentgateway }}
+        SKIP_DOCKER: ${{ inputs.skip-docker }}
       run: |
         ./hack/kind/setup-kind.sh
