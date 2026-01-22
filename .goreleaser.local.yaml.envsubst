@@ -65,6 +65,8 @@ dockers:
       - "--platform=linux/${GOARCH}"
       - "--build-arg=GOARCH=${GOARCH}"
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:${GOARCH}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:${GOARCH},mode=max,ignore-error=true"
   - image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.AGENTGATEWAY_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
     ids: [controller]
@@ -77,6 +79,8 @@ dockers:
       - "--load"
       - "--platform=linux/${GOARCH}"
       - "--build-arg=GOARCH=${GOARCH}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/agentgateway-cache:${GOARCH}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/agentgateway-cache:${GOARCH},mode=max,ignore-error=true"
   - image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
     ids: [sds]
@@ -90,6 +94,8 @@ dockers:
       - "--platform=linux/${GOARCH}"
       - "--build-arg=GOARCH=${GOARCH}"
       - "--build-arg=BASE_IMAGE={{ .Env.ALPINE_BASE_IMAGE }}"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:${GOARCH}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:${GOARCH},mode=max,ignore-error=true"
   - image_templates:
       - "{{ .Env.IMAGE_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}-${GOARCH}"
     ids: [envoyinit]
@@ -106,6 +112,8 @@ dockers:
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=RUST_BUILD_ARCH=${RUST_BUILD_ARCH}"
       - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:${GOARCH}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:${GOARCH},mode=max,ignore-error=true"
     extra_files:
       - cmd/envoyinit/docker-entrypoint.sh
       - internal/envoyinit
