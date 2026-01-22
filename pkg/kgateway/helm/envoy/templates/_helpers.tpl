@@ -62,12 +62,33 @@ gateway.networking.k8s.io/gateway-class-name: {{ .Values.gateway.gatewayClassNam
 
 
 {{/*
+Generate a safe label value for gateway name.
+If name > 63 chars, truncate to 50 chars and append a 12-char hash suffix.
+*/}}
+{{- define "kgateway.gateway.safeLabelValue" -}}
+{{- $name := . -}}
+{{- if gt (len $name) 63 -}}
+{{- $hash := $name | sha256sum | trunc 12 -}}
+{{- printf "%s-%s" ($name | trunc 50 | trimSuffix "-") $hash -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Selector labels
 */}}
 {{- define "kgateway.gateway.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kgateway.gateway.name" . }}
-app.kubernetes.io/instance: {{ .Values.gateway.gatewayName }}
-gateway.networking.k8s.io/gateway-name: {{ .Values.gateway.gatewayName }}
+app.kubernetes.io/instance: {{ include "kgateway.gateway.safeLabelValue" .Values.gateway.gatewayName }}
+gateway.networking.k8s.io/gateway-name: {{ include "kgateway.gateway.safeLabelValue" .Values.gateway.gatewayName }}
+{{- end }}
+
+{{/*
+Gateway name annotation - always contains the full gateway name
+*/}}
+{{- define "kgateway.gateway.gatewayNameAnnotation" -}}
+gateway.kgateway.dev/gateway-name: {{ .Values.gateway.gatewayName }}
 {{- end }}
 
 {{/*
