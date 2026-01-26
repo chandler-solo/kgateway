@@ -133,6 +133,7 @@ mod-download:  ## Download the dependencies
 mod-tidy-nested:  ## Tidy go mod files in nested modules
 	@echo "Tidying hack/utils/applier..." && cd hack/utils/applier && go mod tidy
 	@echo "Tidying tools..." && cd tools && go mod tidy
+	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
 
 .PHONY: mod-tidy
 mod-tidy: mod-download mod-tidy-nested ## Tidy the go mod file
@@ -505,7 +506,7 @@ kind-build-and-load-dummy-idp: dummy-idp-docker kind-load-dummy-idp
 # extproc-server (used in e2e tests)
 #----------------------------------------------------------------------------------
 
-EXTPROC_SERVER_DIR=test/e2e/features/agentgateway/extproc/example
+EXTPROC_SERVER_DIR=test/e2e/defaults/extproc
 EXTPROC_SERVER_OUTPUT_DIR=$(OUTPUT_DIR)/$(EXTPROC_SERVER_DIR)
 export EXTPROC_SERVER_IMAGE_REPO ?= extproc-server
 EXTPROC_SERVER_VERSION=0.0.1
@@ -684,7 +685,15 @@ CONFORMANCE_CHANNEL ?= experimental
 CONFORMANCE_VERSION ?= v1.4.1
 .PHONY: gw-api-crds
 gw-api-crds: ## Install the Gateway API CRDs. HACK: Use SSA to avoid the issue with the CRD annotations being too long.
+ifeq ($(shell echo $(CONFORMANCE_VERSION) | grep -q '^v[0-9]' && echo yes),yes)
 	kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$(CONFORMANCE_VERSION)/$(CONFORMANCE_CHANNEL)-install.yaml"
+else
+ifeq ($(CONFORMANCE_CHANNEL), standard)
+	kubectl apply --server-side --kustomize "https://github.com/kubernetes-sigs/gateway-api/config/crd?ref=$(CONFORMANCE_VERSION)"
+else
+	kubectl apply --server-side --kustomize "https://github.com/kubernetes-sigs/gateway-api/config/crd/$(CONFORMANCE_CHANNEL)?ref=$(CONFORMANCE_VERSION)"
+endif
+endif
 
 # The version of the k8s gateway api inference extension CRDs to install.
 # Managed by `make bump-gie`.
@@ -692,7 +701,11 @@ GIE_CRD_VERSION ?= v1.1.0
 
 .PHONY: gie-crds
 gie-crds: ## Install the Gateway API Inference Extension CRDs
+ifeq ($(shell echo $(GIE_CRD_VERSION) | grep -q '^v[0-9]' && echo yes),yes)
 	kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_CRD_VERSION)/manifests.yaml"
+else
+	kubectl apply --kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=$(GIE_CRD_VERSION)"
+endif
 
 .PHONY: kind-metallb
 metallb: ## Install the MetalLB load balancer
@@ -713,10 +726,7 @@ setup-base: kind-create gw-api-crds gie-crds metallb ## Setup the base infrastru
 setup: setup-base kind-build-and-load package-kgateway-charts package-agentgateway-charts dummy-idp-docker kind-load-dummy-idp  ## Setup the complete infrastructure (base setup plus images and charts)
 
 .PHONY: run
-run: setup deploy-kgateway  ## Set up complete development environment
-
-.PHONY: run-agentgateway
-run-agentgateway: setup deploy-agentgateway  ## Set up complete development environment
+run: setup deploy-kgateway deploy-agentgateway ## Set up complete development environment
 
 .PHONY: undeploy
 undeploy: undeploy-kgateway undeploy-kgateway-crds ## Undeploy the application from the cluster

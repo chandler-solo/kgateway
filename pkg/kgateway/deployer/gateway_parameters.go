@@ -161,7 +161,9 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 }
 
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
-	return obj.GetName(), obj.GetNamespace()
+	// A helm release is never installed, only a template is generated, so the name doesn't matter
+	// Use a hard-coded name to avoid going over the 53 character name limit
+	return "release-name-placeholder", obj.GetNamespace()
 }
 
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {
@@ -411,6 +413,7 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 
 	gtw := &deployer.HelmGateway{
 		Name:             &gw.Name,
+		FullnameOverride: &gw.Name,
 		GatewayName:      &gw.Name,
 		GatewayNamespace: &gw.Namespace,
 		GatewayClassName: ptr.To(string(gw.Spec.GatewayClassName)),
@@ -512,6 +515,19 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 		return nil, err
 	}
 	gateway.ComponentLogLevel = &compLogLevelStr
+
+	// Extract DNS resolver configuration
+	dnsResolverConfig := envoyContainerConfig.GetBootstrap().GetDnsResolver()
+	if dnsResolverConfig != nil {
+		var udpMaxQueries *int32
+		if maybeMaxQ := ptr.Deref(dnsResolverConfig.GetUdpMaxQueries(), 0); maybeMaxQ > 0 {
+			udpMaxQueries = &maybeMaxQ
+		}
+		gateway.DnsResolver = &deployer.HelmDnsResolver{
+			UdpMaxQueries: udpMaxQueries,
+		}
+	}
+
 	gateway.Resources = envoyContainerConfig.GetResources()
 	gateway.SecurityContext = envoyContainerConfig.GetSecurityContext()
 	gateway.Image = deployer.GetImageValues(envoyContainerConfig.GetImage())
