@@ -438,30 +438,12 @@ go-generate-mocks: $(STAMP_DIR)/go-generate-mocks  ## Runs all generate directiv
 generate-licenses: $(STAMP_DIR)/generate-licenses  ## Generate the licenses for the project
 
 #----------------------------------------------------------------------------------
-# Controller
+# Controller (built by goreleaser)
 #----------------------------------------------------------------------------------
 
-K8S_GATEWAY_SOURCES=$(call get_sources,cmd/kgateway pkg/ api/)
-CONTROLLER_OUTPUT_DIR=$(OUTPUT_DIR)/pkg/kgateway
 export CONTROLLER_IMAGE_REPO ?= kgateway
 export AGENTGATEWAY_IMAGE_REPO ?= agentgateway-controller
 
-# We include the files in K8S_GATEWAY_SOURCES as dependencies to the kgateway build
-# so changes in those directories cause the make target to rebuild
-$(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH): $(K8S_GATEWAY_SOURCES)
-	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/kgateway/...
-
-# TODO: is this target obsolete?
-.PHONY: kgateway
-kgateway: $(CONTROLLER_OUTPUT_DIR)/kgateway-linux-$(GOARCH)
-
-$(CONTROLLER_OUTPUT_DIR)/Dockerfile: cmd/kgateway/Dockerfile
-	cp $< $@
-
-$(CONTROLLER_OUTPUT_DIR)/Dockerfile.agentgateway: cmd/kgateway/Dockerfile.agentgateway
-	cp $< $@
-
-# Individual docker targets now use goreleaser for consistency with CI
 .PHONY: kgateway-docker
 kgateway-docker: docker-images ## Build kgateway image using goreleaser
 
@@ -469,30 +451,18 @@ kgateway-docker: docker-images ## Build kgateway image using goreleaser
 agentgateway-controller-docker: docker-images ## Build agentgateway image using goreleaser
 
 #----------------------------------------------------------------------------------
-# SDS Server - gRPC server for serving Secret Discovery Service config
+# SDS Server (built by goreleaser)
 #----------------------------------------------------------------------------------
 
-SDS_DIR=pkg/sds
-SDS_SOURCES=$(call get_sources,$(SDS_DIR))
-SDS_OUTPUT_DIR=$(OUTPUT_DIR)/$(SDS_DIR)
 export SDS_IMAGE_REPO ?= sds
-
-$(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH): $(SDS_SOURCES)
-	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/sds/...
-
-.PHONY: sds
-sds: $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH)
 
 .PHONY: sds-docker
 sds-docker: docker-images ## Build sds image using goreleaser
 
 #----------------------------------------------------------------------------------
-# Envoy init (BASE/SIDECAR)
+# Envoy init (built by goreleaser)
 #----------------------------------------------------------------------------------
 
-ENVOYINIT_DIR=cmd/envoyinit
-ENVOYINIT_SOURCES=$(call get_sources,$(ENVOYINIT_DIR))
-ENVOYINIT_OUTPUT_DIR=$(OUTPUT_DIR)/$(ENVOYINIT_DIR)
 export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 
 .PHONY: envoy-wrapper-docker
@@ -668,6 +638,9 @@ ENVOY_IMAGE_FOR_BUILD := $(ENVOY_IMAGE_FOR_BUILD_$(GOARCH))
 
 .PHONY: docker-images
 docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-arch)
+	@# Ensure buildx builder with docker-container driver exists (required for registry cache)
+	@docker buildx inspect goreleaser >/dev/null 2>&1 || docker buildx create --name goreleaser --driver docker-container --use
+	@docker buildx use goreleaser
 	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
 	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 	@rm -f .goreleaser.local.yaml
