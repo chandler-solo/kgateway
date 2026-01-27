@@ -104,6 +104,7 @@ spec:
       annotations:
         checksum/config: a1c83112dda602acaac811fc898dd49fe4c4736a4e4c7d895019293dc7ab1726
         extra-annotation: v1
+        gateway.kgateway.dev/gateway-full-name: gw
         infra-and-params: params-but-only-because-overlays-happen-last
         my-annotation: my-value
         prometheus.io/path: /something/else
@@ -164,7 +165,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.serviceAccountName
-        image: cr.agentgateway.dev/agentgateway:0.11.1
+        image: cr.agentgateway.dev/agentgateway:99.99.99
         name: agentgateway
         ports:
         - containerPort: 15020

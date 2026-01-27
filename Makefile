@@ -44,14 +44,7 @@ export VERSION
 
 SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 
-# Note: When bumping this version, update the version in pkg/validator/validator.go as well.
-# When we switch Rustformation to be used by default, we can set ENVOY_IMAGE=envoyproxy/envoy:v1.36.4
-# if we want to switch to use upstream vanilla envoy for the multi-arch arm build. For v2.2 release,
-# we plan to still use envoy-gloo for x86 build (so people can switch back to classic transformation if needed).
-# For arm build, we will use upstream envoy and cannot switch back to classic transformation.
-export ENVOY_IMAGE ?= quay.io/solo-io/envoy-gloo:1.36.4-patch1
 
-export RUST_BUILD_ARCH ?= x86_64 # override this to aarch64 for local arm build
 export LDFLAGS := -X 'github.com/kgateway-dev/kgateway/v2/pkg/version.Version=$(VERSION)' -s -w
 export GCFLAGS ?=
 
@@ -69,6 +62,32 @@ else
 		GOARCH := amd64
 	endif
 endif
+
+# Note: When bumping this version, update the version in pkg/validator/validator.go as well.
+# For v2.2, we use vanilla upstream envoy for arm build and envoy-gloo for x86 build. These are used by goreleaser 
+# directly when building the images for the respective architecture.
+# TODO: Consolidate to just upstream image in v2.3
+export ENVOY_IMAGE_ARM64 = envoyproxy/envoy:v1.36.4
+export ENVOY_IMAGE_AMD64 = quay.io/solo-io/envoy-gloo:1.36.4-patch1
+
+# ENVOY_IMAGE is used by some of the *-docker targets which are used by CI e2e tests, so figure out the correct image 
+# to use base on GOARCH. This doesn't affect goreleaser
+ifeq ($(GOARCH), arm64)
+	RUST_BUILD_ARCH := aarch64
+	ifeq ($(ENVOY_IMAGE), )
+		ENVOY_IMAGE := $(ENVOY_IMAGE_ARM64)
+		export ENVOY_IMAGE
+	endif
+else
+	RUST_BUILD_ARCH := x86_64
+# For v2.2 release, we plan to still use envoy-gloo for x86 build (so people can switch back to
+# classic transformation if needed).
+	ifeq ($(ENVOY_IMAGE), )
+		ENVOY_IMAGE := $(ENVOY_IMAGE_AMD64)
+		export ENVOY_IMAGE
+	endif
+endif
+
 
 PLATFORM := --platform=linux/$(GOARCH)
 
@@ -131,6 +150,7 @@ mod-download:  ## Download the dependencies
 mod-tidy-nested:  ## Tidy go mod files in nested modules
 	@echo "Tidying hack/utils/applier..." && cd hack/utils/applier && go mod tidy
 	@echo "Tidying tools..." && cd tools && go mod tidy
+	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
 
 .PHONY: mod-tidy
 mod-tidy: mod-download mod-tidy-nested ## Tidy the go mod file
@@ -596,7 +616,7 @@ kind-load-dummy-idp:
 # extproc-server (used in e2e tests)
 #----------------------------------------------------------------------------------
 
-EXTPROC_SERVER_DIR=test/e2e/features/agentgateway/extproc/example
+EXTPROC_SERVER_DIR=test/e2e/defaults/extproc
 EXTPROC_SERVER_OUTPUT_DIR=$(OUTPUT_DIR)/$(EXTPROC_SERVER_DIR)
 export EXTPROC_SERVER_IMAGE_REPO ?= extproc-server
 EXTPROC_SERVER_VERSION=0.0.1
@@ -662,12 +682,18 @@ package-agentgateway-crd-chart: ## Package the agentgateway crd chart
 	$(HELM) package $(HELM_PACKAGE_ARGS) --destination $(TEST_ASSET_DIR) $(HELM_CHART_DIR_AGW_CRD); \
 	$(HELM) repo index $(TEST_ASSET_DIR);
 
+# VERSION_NO_V strips the leading 'v' from VERSION (e.g., v2.0.0 -> 2.0.0)
+VERSION_NO_V := $(patsubst v%,%,$(VERSION))
+CHART_NAMES := kgateway kgateway-crds agentgateway agentgateway-crds
+
 .PHONY: release-charts
-release-charts: package-kgateway-charts package-agentgateway-charts ## Release the kgateway and agentgateway charts
-	$(HELM) push $(TEST_ASSET_DIR)/kgateway-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
-	$(HELM) push $(TEST_ASSET_DIR)/kgateway-crds-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
-	$(HELM) push $(TEST_ASSET_DIR)/agentgateway-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
-	$(HELM) push $(TEST_ASSET_DIR)/agentgateway-crds-$(VERSION).tgz oci://$(IMAGE_REGISTRY)/charts
+release-charts: ## Release the kgateway and agentgateway charts (publishes both vX.Y.Z and X.Y.Z tags)
+	@for v in $(VERSION) $(VERSION_NO_V); do \
+		$(MAKE) package-kgateway-charts package-agentgateway-charts VERSION=$$v; \
+		for chart in $(CHART_NAMES); do \
+			$(HELM) push $(TEST_ASSET_DIR)/$$chart-$$v.tgz oci://$(IMAGE_REGISTRY)/charts; \
+		done; \
+	done
 
 .PHONY: deploy-kgateway-crd-chart
 deploy-kgateway-crd-chart: ## Deploy the kgateway crd chart
@@ -728,7 +754,7 @@ INSTALL_NAMESPACE ?= kgateway-system
 
 # The version of the Node Docker image to use for booting the kind cluster: https://hub.docker.com/r/kindest/node/tags
 # This version should stay in sync with `hack/kind/setup-kind.sh`.
-CLUSTER_NODE_VERSION ?= v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a
+CLUSTER_NODE_VERSION ?= v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 
 .PHONY: kind-create
 kind-create: ## Create a KinD cluster
@@ -738,7 +764,15 @@ CONFORMANCE_CHANNEL ?= experimental
 CONFORMANCE_VERSION ?= v1.4.1
 .PHONY: gw-api-crds
 gw-api-crds: ## Install the Gateway API CRDs. HACK: Use SSA to avoid the issue with the CRD annotations being too long.
+ifeq ($(shell echo $(CONFORMANCE_VERSION) | grep -q '^v[0-9]' && echo yes),yes)
 	kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$(CONFORMANCE_VERSION)/$(CONFORMANCE_CHANNEL)-install.yaml"
+else
+ifeq ($(CONFORMANCE_CHANNEL), standard)
+	kubectl apply --server-side --kustomize "https://github.com/kubernetes-sigs/gateway-api/config/crd?ref=$(CONFORMANCE_VERSION)"
+else
+	kubectl apply --server-side --kustomize "https://github.com/kubernetes-sigs/gateway-api/config/crd/$(CONFORMANCE_CHANNEL)?ref=$(CONFORMANCE_VERSION)"
+endif
+endif
 
 # The version of the k8s gateway api inference extension CRDs to install.
 # Managed by `make bump-gie`.
@@ -746,7 +780,11 @@ GIE_CRD_VERSION ?= v1.1.0
 
 .PHONY: gie-crds
 gie-crds: ## Install the Gateway API Inference Extension CRDs
+ifeq ($(shell echo $(GIE_CRD_VERSION) | grep -q '^v[0-9]' && echo yes),yes)
 	kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_CRD_VERSION)/manifests.yaml"
+else
+	kubectl apply --kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=$(GIE_CRD_VERSION)"
+endif
 
 .PHONY: kind-metallb
 metallb: ## Install the MetalLB load balancer
@@ -767,10 +805,7 @@ setup-base: kind-create gw-api-crds gie-crds metallb ## Setup the base infrastru
 setup: setup-base kind-build-and-load package-kgateway-charts package-agentgateway-charts dummy-idp-docker kind-load-dummy-idp  ## Setup the complete infrastructure (base setup plus images and charts)
 
 .PHONY: run
-run: setup deploy-kgateway  ## Set up complete development environment
-
-.PHONY: run-agentgateway
-run-agentgateway: setup deploy-agentgateway  ## Set up complete development environment
+run: setup deploy-kgateway deploy-agentgateway ## Set up complete development environment
 
 .PHONY: undeploy
 undeploy: undeploy-kgateway undeploy-kgateway-crds ## Undeploy the application from the cluster

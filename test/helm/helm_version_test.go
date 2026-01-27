@@ -26,7 +26,7 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 	require.NoError(t, err, "helm chart not found at %s", absHelmChartPath)
 
 	helmCmd := exec.Command("helm", "template", "foobar", absHelmChartPath, "--namespace", "default")
-	grepCmd := exec.Command("grep", "-E", "-w", "-B", "1", "v0\\.0\\.[12]")
+	grepCmd := exec.Command("grep", "-E", "-w", "-B", "1", "0\\.0\\.1")
 
 	helmOutput, err := helmCmd.StdoutPipe()
 	require.NoError(t, err, "failed to create stdout pipe for helm command")
@@ -148,6 +148,43 @@ func TestHelmChartTemplate(t *testing.T) {
     publishNotReadyAddresses: true
     allocateLoadBalancerNodePorts: false
     trafficDistribution: PreferClose
+`,
+		},
+		{
+			name: "hpa-and-vpa",
+			valuesYAML: `controller:
+  horizontalPodAutoscaler:
+    minReplicas: 1
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+  verticalPodAutoscaler:
+    updatePolicy:
+      updateMode: Auto
+    resourcePolicy:
+      containerPolicies:
+        - containerName: "*"
+          minAllowed:
+            cpu: 100m
+            memory: 128Mi
+`,
+		},
+		{
+			name: "priority-class-name",
+			valuesYAML: `controller:
+  priorityClassName: system-cluster-critical
+`,
+		},
+		{
+			name: "additional-labels",
+			valuesYAML: `commonLabels:
+    extra-label-key: extra-label-value
+    another-label: "true"
 `,
 		},
 	}
