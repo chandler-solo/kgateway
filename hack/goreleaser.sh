@@ -1,0 +1,204 @@
+#!/bin/bash
+
+# Wrapper script for goreleaser that uses Helm templating for configuration
+# This allows flexible selection of build targets, architectures, and images.
+#
+# Usage:
+#   ./hack/goreleaser.sh [options] [-- goreleaser-args]
+#
+# Options:
+#   --arch ARCH           Architecture to build (arm64, amd64, or both). Default: host arch
+#   --images IMAGES       Comma-separated list of images to build (controller,sds,envoyinit,agentgateway)
+#                         Default: all images
+#   --mode MODE           Build mode: local or release. Default: local
+#   --manifests           Enable docker manifest creation (multi-arch)
+#   --caching             Enable registry-based docker build caching
+#   --dry-run             Generate config only, don't run goreleaser
+#   --values FILE         Additional Helm values file
+#   --set KEY=VALUE       Set individual Helm values (can be repeated)
+#   -h, --help            Show this help message
+#
+# Examples:
+#   # Build only controller for local arch
+#   ./hack/goreleaser.sh --images controller
+#
+#   # Build all images for arm64
+#   ./hack/goreleaser.sh --arch arm64
+#
+#   # Build controller and sds for amd64 with caching
+#   ./hack/goreleaser.sh --arch amd64 --images controller,sds --caching
+#
+#   # Full release build with manifests
+#   ./hack/goreleaser.sh --arch arm64,amd64 --mode release --manifests
+#
+#   # Pass additional args to goreleaser
+#   ./hack/goreleaser.sh --images controller -- --snapshot --clean
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly CHART_DIR="${ROOT_DIR}/.goreleaser"
+readonly CONFIG_FILE="${ROOT_DIR}/.goreleaser.generated.yaml"
+
+# Default values
+ARCH=""
+IMAGES=""
+MODE="local"
+MANIFESTS="false"
+CACHING="false"
+DRY_RUN="false"
+VALUES_FILES=()
+SET_VALUES=()
+GORELEASER_ARGS=()
+
+usage() {
+    sed -n '/^# Usage:/,/^set -o errexit/p' "$0" | grep '^#' | sed 's/^# \?//'
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --arch)
+            ARCH="$2"
+            shift 2
+            ;;
+        --images)
+            IMAGES="$2"
+            shift 2
+            ;;
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
+        --manifests)
+            MANIFESTS="true"
+            shift
+            ;;
+        --caching)
+            CACHING="true"
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN="true"
+            shift
+            ;;
+        --values)
+            VALUES_FILES+=("$2")
+            shift 2
+            ;;
+        --set)
+            SET_VALUES+=("$2")
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            GORELEASER_ARGS=("$@")
+            break
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Detect host architecture if not specified
+if [[ -z "$ARCH" ]]; then
+    case "$(uname -m)" in
+        x86_64)  ARCH="amd64" ;;
+        aarch64) ARCH="arm64" ;;
+        arm64)   ARCH="arm64" ;;
+        *)
+            echo "Unable to detect architecture, please specify --arch" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Build Helm values
+HELM_ARGS=()
+
+# Add values files
+for f in "${VALUES_FILES[@]+"${VALUES_FILES[@]}"}"; do
+    HELM_ARGS+=("-f" "$f")
+done
+
+# Convert comma-separated arch to YAML list
+ARCH_YAML=""
+IFS=',' read -ra ARCH_LIST <<< "$ARCH"
+for a in "${ARCH_LIST[@]}"; do
+    ARCH_YAML+="  - $a"$'\n'
+done
+
+# Build set arguments for architectures
+# We need to use --set-string for the architectures array
+# Helm --set syntax for arrays: architectures={arm64,amd64}
+HELM_ARGS+=("--set" "architectures={$(IFS=','; echo "${ARCH_LIST[*]}")}")
+
+# Handle images selection
+if [[ -n "$IMAGES" ]]; then
+    # First disable all images
+    HELM_ARGS+=("--set" "images.controller=false")
+    HELM_ARGS+=("--set" "images.sds=false")
+    HELM_ARGS+=("--set" "images.envoyinit=false")
+    HELM_ARGS+=("--set" "images.agentgateway=false")
+
+    # Then enable requested ones
+    IFS=',' read -ra IMAGE_LIST <<< "$IMAGES"
+    for img in "${IMAGE_LIST[@]}"; do
+        case "$img" in
+            controller|sds|envoyinit|agentgateway)
+                HELM_ARGS+=("--set" "images.$img=true")
+                ;;
+            *)
+                echo "Unknown image: $img" >&2
+                echo "Valid images: controller, sds, envoyinit, agentgateway" >&2
+                exit 1
+                ;;
+        esac
+    done
+fi
+
+# Set mode
+HELM_ARGS+=("--set" "mode=$MODE")
+
+# Set manifests
+HELM_ARGS+=("--set" "createManifests=$MANIFESTS")
+
+# Set caching
+HELM_ARGS+=("--set" "caching.enabled=$CACHING")
+
+# Add any additional --set values
+for sv in "${SET_VALUES[@]+"${SET_VALUES[@]}"}"; do
+    HELM_ARGS+=("--set" "$sv")
+done
+
+# Generate the goreleaser config using Helm
+echo "Generating goreleaser config..."
+echo "  Architecture(s): ${ARCH_LIST[*]}"
+echo "  Images: ${IMAGES:-all}"
+echo "  Mode: $MODE"
+echo "  Manifests: $MANIFESTS"
+echo "  Caching: $CACHING"
+
+helm template goreleaser-config "$CHART_DIR" "${HELM_ARGS[@]}" > "$CONFIG_FILE"
+
+echo "Generated config: $CONFIG_FILE"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "Dry run mode - not running goreleaser"
+    echo "---"
+    cat "$CONFIG_FILE"
+    exit 0
+fi
+
+# Run goreleaser with the generated config
+echo "Running goreleaser..."
+exec goreleaser release --config "$CONFIG_FILE" "${GORELEASER_ARGS[@]+"${GORELEASER_ARGS[@]}"}"

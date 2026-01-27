@@ -1,0 +1,265 @@
+{{- /*
+  Goreleaser configuration template
+  This generates a goreleaser.yaml file based on the values provided.
+
+  Goreleaser uses {{ }} syntax, so we use Helm's escaping:
+  - Use "{{" to output a literal {{
+  - Use "}}" to output a literal }}
+*/ -}}
+version: 2
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+builds:
+{{- if .Values.images.controller }}
+  - id: controller
+    main: ./cmd/kgateway
+    binary: kgateway-linux-{{ "{{" }} .Arch {{ "}}" }}
+    gcflags: "{{ "{{" }} .Env.GCFLAGS {{ "}}" }}"
+    ldflags: "{{ "{{" }} .Env.LDFLAGS {{ "}}" }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ "{{" }} .Arch {{ "}}" }}
+    - GOOS={{ "{{" }} .Os {{ "}}" }}
+    mod_timestamp: "{{ "{{" }} .CommitTimestamp {{ "}}" }}"
+    goos:
+      - linux
+    goarch:
+      {{- range .Values.architectures }}
+      - {{ . }}
+      {{- end }}
+{{- end }}
+{{- if .Values.images.sds }}
+  - id: sds
+    main: ./cmd/sds
+    binary: sds-linux-{{ "{{" }} .Arch {{ "}}" }}
+    gcflags: "{{ "{{" }} .Env.GCFLAGS {{ "}}" }}"
+    ldflags: "{{ "{{" }} .Env.LDFLAGS {{ "}}" }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ "{{" }} .Arch {{ "}}" }}
+    - GOOS={{ "{{" }} .Os {{ "}}" }}
+    goos:
+      - linux
+    goarch:
+      {{- range .Values.architectures }}
+      - {{ . }}
+      {{- end }}
+{{- end }}
+{{- if .Values.images.envoyinit }}
+  - id: envoyinit
+    main: ./cmd/envoyinit
+    binary: envoyinit-linux-{{ "{{" }} .Arch {{ "}}" }}
+    gcflags: "{{ "{{" }} .Env.GCFLAGS {{ "}}" }}"
+    ldflags: "{{ "{{" }} .Env.LDFLAGS {{ "}}" }}"
+    env:
+    - CGO_ENABLED=0
+    - GO111MODULE=on
+    - GOARCH={{ "{{" }} .Arch {{ "}}" }}
+    - GOOS={{ "{{" }} .Os {{ "}}" }}
+    goos:
+      - linux
+    goarch:
+      {{- range .Values.architectures }}
+      - {{ . }}
+      {{- end }}
+{{- end }}
+dockers:
+{{- range $arch := .Values.architectures }}
+{{- if $.Values.images.controller }}
+  - image_templates:
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.CONTROLLER_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ $arch }}"
+    ids: [controller]
+    use: buildx
+    dockerfile: cmd/kgateway/Dockerfile
+    goos: linux
+    goarch: {{ $arch }}
+    build_flag_templates:
+      - "--pull"
+      {{- if eq $.Values.mode "local" }}
+      - "--load"
+      {{- else }}
+      - "{{ "{{" }} if .IsSnapshot {{ "}}" }}--load{{ "{{" }} end {{ "}}" }}"
+      {{- end }}
+      - "--platform=linux/{{ $arch }}"
+      - "--build-arg=GOARCH={{ $arch }}"
+      {{- if eq $arch "arm64" }}
+      - "--build-arg=ENVOY_IMAGE={{ "{{" }} .Env.ENVOY_IMAGE_ARM64 {{ "}}" }}"
+      {{- else }}
+      - "--build-arg=ENVOY_IMAGE={{ "{{" }} .Env.ENVOY_IMAGE {{ "}}" }}"
+      {{- end }}
+      {{- if $.Values.caching.enabled }}
+      - "--cache-from=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/kgateway-cache:{{ $arch }}"
+      - "--cache-to=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/kgateway-cache:{{ $arch }},mode=max,ignore-error=true"
+      {{- end }}
+{{- end }}
+{{- if $.Values.images.agentgateway }}
+  - image_templates:
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.AGENTGATEWAY_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ $arch }}"
+    ids: [controller]
+    use: buildx
+    dockerfile: cmd/kgateway/Dockerfile.agentgateway
+    goos: linux
+    goarch: {{ $arch }}
+    build_flag_templates:
+      - "--pull"
+      {{- if eq $.Values.mode "local" }}
+      - "--load"
+      {{- else }}
+      - "{{ "{{" }} if .IsSnapshot {{ "}}" }}--load{{ "{{" }} end {{ "}}" }}"
+      {{- end }}
+      - "--platform=linux/{{ $arch }}"
+      - "--build-arg=GOARCH={{ $arch }}"
+      {{- if $.Values.caching.enabled }}
+      - "--cache-from=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/agentgateway-cache:{{ $arch }}"
+      - "--cache-to=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/agentgateway-cache:{{ $arch }},mode=max,ignore-error=true"
+      {{- end }}
+{{- end }}
+{{- if $.Values.images.sds }}
+  - image_templates:
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.SDS_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ $arch }}"
+    ids: [sds]
+    use: buildx
+    dockerfile: cmd/sds/Dockerfile
+    goos: linux
+    goarch: {{ $arch }}
+    build_flag_templates:
+      - "--pull"
+      {{- if eq $.Values.mode "local" }}
+      - "--load"
+      {{- else }}
+      - "{{ "{{" }} if .IsSnapshot {{ "}}" }}--load{{ "{{" }} end {{ "}}" }}"
+      {{- end }}
+      - "--platform=linux/{{ $arch }}"
+      - "--build-arg=GOARCH={{ $arch }}"
+      - "--build-arg=BASE_IMAGE={{ "{{" }} .Env.ALPINE_BASE_IMAGE {{ "}}" }}"
+      {{- if $.Values.caching.enabled }}
+      - "--cache-from=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/sds-cache:{{ $arch }}"
+      - "--cache-to=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/sds-cache:{{ $arch }},mode=max,ignore-error=true"
+      {{- end }}
+{{- end }}
+{{- if $.Values.images.envoyinit }}
+  - image_templates:
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.ENVOYINIT_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ $arch }}"
+    ids: [envoyinit]
+    use: buildx
+    dockerfile: cmd/envoyinit/Dockerfile
+    goos: linux
+    goarch: {{ $arch }}
+    build_flag_templates:
+      - "--pull"
+      {{- if eq $.Values.mode "local" }}
+      - "--load"
+      {{- else }}
+      - "{{ "{{" }} if .IsSnapshot {{ "}}" }}--load{{ "{{" }} end {{ "}}" }}"
+      {{- end }}
+      - "--platform=linux/{{ $arch }}"
+      - "--build-arg=GOARCH={{ $arch }}"
+      - "--build-arg=ENTRYPOINT_SCRIPT=/cmd/envoyinit/docker-entrypoint.sh"
+      {{- if eq $arch "arm64" }}
+      - "--build-arg=ENVOY_IMAGE={{ "{{" }} .Env.ENVOY_IMAGE_ARM64 {{ "}}" }}"
+      - "--build-arg=RUST_BUILD_ARCH={{ index $.Values.rustArchMap "arm64" }}"
+      {{- else }}
+      - "--build-arg=ENVOY_IMAGE={{ "{{" }} .Env.ENVOY_IMAGE {{ "}}" }}"
+      - "--build-arg=RUST_BUILD_ARCH={{ index $.Values.rustArchMap "amd64" }}"
+      {{- end }}
+      - "--build-arg=RUSTFORMATIONS_DIR=/internal/envoyinit"
+      {{- if $.Values.caching.enabled }}
+      - "--cache-from=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/envoy-wrapper-cache:{{ $arch }}"
+      - "--cache-to=type=registry,ref={{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/envoy-wrapper-cache:{{ $arch }},mode=max,ignore-error=true"
+      {{- end }}
+    extra_files:
+      - cmd/envoyinit/docker-entrypoint.sh
+      - internal/envoyinit
+{{- end }}
+{{- end }}
+{{- if and .Values.createManifests (gt (len .Values.architectures) 1) }}
+docker_manifests:
+{{- if .Values.images.controller }}
+  - name_template: "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.CONTROLLER_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}"
+    image_templates:
+      {{- range .Values.architectures }}
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.CONTROLLER_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ . }}"
+      {{- end }}
+{{- end }}
+{{- if .Values.images.agentgateway }}
+  - name_template: "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.AGENTGATEWAY_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}"
+    image_templates:
+      {{- range .Values.architectures }}
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.AGENTGATEWAY_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ . }}"
+      {{- end }}
+{{- end }}
+{{- if .Values.images.sds }}
+  - name_template: "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.SDS_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}"
+    image_templates:
+      {{- range .Values.architectures }}
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.SDS_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ . }}"
+      {{- end }}
+{{- end }}
+{{- if .Values.images.envoyinit }}
+  - name_template: "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.ENVOYINIT_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}"
+    image_templates:
+      {{- range .Values.architectures }}
+      - "{{ "{{" }} .Env.IMAGE_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.ENVOYINIT_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}-{{ . }}"
+      {{- end }}
+{{- end }}
+{{- end }}
+changelog:
+  {{- if eq .Values.mode "local" }}
+  disable: true
+  {{- else }}
+  disable: '{{ "{{" }} if isEnvSet "GORELEASER_DISABLE_RELEASE" {{ "}}" }}{{ "{{" }} .Env.GORELEASER_DISABLE_RELEASE {{ "}}" }}{{ "{{" }} else {{ "}}" }}false{{ "{{" }} end {{ "}}" }}'
+  {{- end }}
+release:
+  {{- if eq .Values.mode "local" }}
+  disable: true
+  {{- else }}
+  disable: '{{ "{{" }} if isEnvSet "GORELEASER_DISABLE_RELEASE" {{ "}}" }}{{ "{{" }} .Env.GORELEASER_DISABLE_RELEASE {{ "}}" }}{{ "{{" }} else {{ "}}" }}false{{ "{{" }} end {{ "}}" }}'
+  prerelease: "auto"
+  mode: "replace"
+  replace_existing_artifacts: true
+  target_commitish: "{{ "{{" }} .FullCommit {{ "}}" }}"
+  header: |
+    {{ "{{" }} if eq .Env.VERSION "v2.3.0-main" {{ "}}" }}
+    Rolling main build of kgateway!
+    ---
+    It includes the latest changes but may be unstable. Use it for testing and providing feedback.
+    {{ "{{" }} else {{ "}}" }}
+    Welcome to the {{ "{{" }} .Env.VERSION {{ "}}" }} release of the kgateway project!
+    ---
+    {{ "{{" }} end {{ "}}" }}
+  footer: |
+    ## Installation
+
+    The kgateway project is available as a Helm chart and docker images.
+
+    ### Helm Charts
+
+    The Helm charts are available at:
+    * [{{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/charts/kgateway]({{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/charts/kgateway).
+    * [{{ "{{" }} .Env.AGW_VANITY_REGISTRY {{ "}}" }}/charts/agentgateway]({{ "{{" }} .Env.AGW_VANITY_REGISTRY {{ "}}" }}/charts/agentgateway).
+
+    ### Docker Images
+
+    The docker images are available at:
+
+    - {{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.CONTROLLER_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}
+    - {{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.SDS_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}
+    - {{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.ENVOYINIT_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}
+    - {{ "{{" }} .Env.AGW_VANITY_REGISTRY {{ "}}" }}/{{ "{{" }} .Env.AGENTGATEWAY_IMAGE_REPO {{ "}}" }}:{{ "{{" }} .Env.VERSION {{ "}}" }}
+
+    ## Quickstart
+
+    Try installing this release:
+    ```
+    helm install kgateway-crds oci://{{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/charts/kgateway-crds --version {{ "{{" }} .Env.VERSION {{ "}}" }} --namespace kgateway-system --create-namespace
+    helm install kgateway oci://{{ "{{" }} .Env.VANITY_REGISTRY {{ "}}" }}/charts/kgateway --version {{ "{{" }} .Env.VERSION {{ "}}" }} --namespace kgateway-system --create-namespace
+    helm install agentgateway-crds oci://{{ "{{" }} .Env.AGW_VANITY_REGISTRY {{ "}}" }}/charts/agentgateway-crds --version {{ "{{" }} .Env.VERSION {{ "}}" }} --namespace agentgateway-system --create-namespace
+    helm install agentgateway oci://{{ "{{" }} .Env.AGW_VANITY_REGISTRY {{ "}}" }}/charts/agentgateway --version {{ "{{" }} .Env.VERSION {{ "}}" }} --namespace agentgateway-system --create-namespace
+    ```
+
+    For detailed installation instructions and next steps, please visit our [quickstart guide](https://kgateway.dev/docs/quickstart/).
+  {{- end }}

@@ -1,0 +1,34 @@
+# Goreleaser configuration values
+# Use --set flags or a custom values file to override
+
+# Architecture configuration
+# Set to a single arch for local builds, or both for release builds
+architectures:
+  - arm64
+  - amd64
+
+# Images to build - set to false to skip building specific images
+images:
+  controller: true
+  sds: true
+  envoyinit: true
+  agentgateway: true
+
+# Build mode
+# local: disables release/changelog, uses --load for local docker daemon
+# release: enables release/changelog, uses snapshot detection for --load
+mode: local
+
+# Enable docker manifest creation (multi-arch images)
+# Only works when building multiple architectures
+createManifests: false
+
+# Enable docker build caching
+# Uses registry-based caching when enabled
+caching:
+  enabled: false
+
+# Rust architecture mapping for envoyinit
+rustArchMap:
+  arm64: aarch64
+  amd64: x86_64
