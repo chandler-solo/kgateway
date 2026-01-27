@@ -50,7 +50,15 @@ spec:
               the proxy will be provisioned.
             properties:
               kube:
-                description: The proxy will be deployed on Kubernetes.
+                description: |-
+                  The proxy will be deployed on Kubernetes. Overlays (fields named with
+                  the suffix 'Overlay') are applied after non-overlay configurations
+                  ("configs"). Configs on a GatewayClass (inside of GatewayParameters) are
+                  applied before configs on a Gateway (inside of GatewayParameters), which
+                  merge together. Overlays on a GatewayClass are then applied, and
+                  finally, overlays on a Gateway. It is recommended to use an overlay only
+                  if necessary (no config exists that can achieve the same goal) for
+                  smoother upgrades, readability, and earlier and improved validation.
                 properties:
                   deployment:
                     description: |-
@@ -184,7 +192,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
@@ -824,7 +834,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
@@ -2779,7 +2791,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
@@ -7094,7 +7108,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
@@ -7178,7 +7194,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
@@ -7390,7 +7408,9 @@ spec:
                           \ template:\n\t    spec:\n\t      # Delete pod-level securityContext\n\t
                           \     securityContext:\n\t        $patch: delete\n\t      #
                           Delete nodeSelector\n\t      nodeSelector:\n\t        $patch:
-                          delete\n\t      containers:\n\t        - name: proxy\n\t
+                          delete\n\t      containers:\n\t        # Be sure to use
+                          the correct proxy name here or you will add a container
+                          instead of modifying a container:\n\t        - name: proxy-name\n\t
                           \         # Delete container-level securityContext\n\t          securityContext:\n\t
                           \           $patch: delete\n\n**4. Null Values (server-side
                           apply only):**\nSetting a field to `null` can also remove
