@@ -6,7 +6,7 @@ metadata:
   name: test-release-kgateway
   namespace: default
   labels:
-    helm.sh/chart: kgateway-0.0.1
+    helm.sh/chart: kgateway-0.0.2
     kgateway: kgateway
     app.kubernetes.io/name: kgateway
     app.kubernetes.io/instance: test-release
@@ -231,7 +231,7 @@ metadata:
   name: test-release-kgateway
   namespace: default
   labels:
-    helm.sh/chart: kgateway-0.0.1
+    helm.sh/chart: kgateway-0.0.2
     kgateway: kgateway
     app.kubernetes.io/name: kgateway
     app.kubernetes.io/instance: test-release
@@ -264,7 +264,7 @@ metadata:
   name: test-release-kgateway
   namespace: default
   labels:
-    helm.sh/chart: kgateway-0.0.1
+    helm.sh/chart: kgateway-0.0.2
     kgateway: kgateway
     app.kubernetes.io/name: kgateway
     app.kubernetes.io/instance: test-release

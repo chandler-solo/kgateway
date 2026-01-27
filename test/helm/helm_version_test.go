@@ -26,7 +26,7 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 	require.NoError(t, err, "helm chart not found at %s", absHelmChartPath)
 
 	helmCmd := exec.Command("helm", "template", "foobar", absHelmChartPath, "--namespace", "default")
-	grepCmd := exec.Command("grep", "-E", "-w", "-B", "1", "0\\.0\\.1")
+	grepCmd := exec.Command("grep", "-E", "-w", "-B", "1", "0\\.0\\.[12]")
 
 	helmOutput, err := helmCmd.StdoutPipe()
 	require.NoError(t, err, "failed to create stdout pipe for helm command")
@@ -82,19 +82,22 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 // regardless of whether AppVersion or explicit image.tag values include one.
 func TestImageTagVPrefix(t *testing.T) {
 	charts := []struct {
-		name       string
-		path       string
-		repository string
+		name            string
+		path            string
+		repository      string
+		hasDefaultEnvTag bool // Whether the chart sets KGW_DEFAULT_IMAGE_TAG
 	}{
 		{
-			name:       "kgateway",
-			path:       filepath.Join("..", "..", "install", "helm", "kgateway"),
-			repository: "kgateway",
+			name:            "kgateway",
+			path:            filepath.Join("..", "..", "install", "helm", "kgateway"),
+			repository:      "kgateway",
+			hasDefaultEnvTag: true,
 		},
 		{
-			name:       "agentgateway",
-			path:       filepath.Join("..", "..", "install", "helm", "agentgateway"),
-			repository: "controller",
+			name:            "agentgateway",
+			path:            filepath.Join("..", "..", "install", "helm", "agentgateway"),
+			repository:      "controller",
+			hasDefaultEnvTag: false,
 		},
 	}
 
@@ -169,21 +172,21 @@ func TestImageTagVPrefix(t *testing.T) {
 
 				outputStr := output.String()
 
-				// Check the controller image tag
 				expectedImageSuffix := chart.repository + ":" + tc.expectedTag
 				if !strings.Contains(outputStr, expectedImageSuffix) {
 					t.Errorf("expected image tag %q not found in output.\nLooking for: %s\nOutput snippet:\n%s",
 						tc.expectedTag, expectedImageSuffix, extractImageLines(outputStr))
 				}
 
-				// Check KGW_DEFAULT_IMAGE_TAG env var
-				envTag := tc.expectedTag
-				if tc.expectedEnvTag != "" {
-					envTag = tc.expectedEnvTag
-				}
-				expectedEnvValue := "value: " + envTag
-				if !strings.Contains(outputStr, expectedEnvValue) {
-					t.Errorf("expected KGW_DEFAULT_IMAGE_TAG value %q not found in output", envTag)
+				if chart.hasDefaultEnvTag {
+					envTag := tc.expectedTag
+					if tc.expectedEnvTag != "" {
+						envTag = tc.expectedEnvTag
+					}
+					expectedEnvValue := "value: " + envTag
+					if !strings.Contains(outputStr, expectedEnvValue) {
+						t.Errorf("expected KGW_DEFAULT_IMAGE_TAG value %q not found in output", envTag)
+					}
 				}
 			})
 		}
