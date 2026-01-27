@@ -84,7 +84,8 @@ type KubernetesResourceOverlay struct {
 	//	      nodeSelector:
 	//	        $patch: delete
 	//	      containers:
-	//	        - name: proxy
+	//	        # Be sure to use the correct proxy name here or you will add a container instead of modifying a container:
+	//	        - name: proxy-name
 	//	          # Delete container-level securityContext
 	//	          securityContext:
 	//	            $patch: delete
