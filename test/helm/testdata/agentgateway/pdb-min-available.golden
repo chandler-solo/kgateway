@@ -298,7 +298,7 @@ spec:
       serviceAccountName: test-release-agentgateway
       containers:
         - name: controller
-          image: "cr.agentgateway.dev/controller:0.0.1"
+          image: "cr.agentgateway.dev/controller:v0.0.1"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9978
@@ -344,7 +344,7 @@ spec:
             - name: KGW_DEFAULT_IMAGE_REGISTRY
               value: cr.agentgateway.dev
             - name: KGW_DEFAULT_IMAGE_TAG
-              value: 0.0.1
+              value: v0.0.1
             - name: KGW_DEFAULT_IMAGE_PULL_POLICY
               value: IfNotPresent
             - name: KGW_DISCOVERY_NAMESPACE_SELECTORS
