@@ -468,7 +468,7 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			},
 		},
 		{
-			Name:      "envoy with all autoscalers (PDB, HPA, VPA)",
+			Name:      "envoy with PDB and autoscalers (HPA, VPA)",
 			InputFile: "envoy-all-autoscalers",
 			Validate: func(t *testing.T, outputYaml string) {
 				t.Helper()
@@ -525,6 +525,65 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 				// Service overlay ordering - GW should win
 				assert.Contains(t, outputYaml, "overlay-source: from-gateway",
 					"service annotation should be from Gateway")
+			},
+		},
+		{
+			// This test demonstrates:
+			// 1. Configs vs Overlays precedence: overlays are applied AFTER configs
+			//    - GWC config: replicas: 2
+			//    - GWC overlay: replicas: 5
+			//    - Result: replicas: 5 (overlay wins)
+			// 2. GatewayClass GWP vs Gateway GWP merging:
+			//    - GWC config: service.type: ClusterIP
+			//    - GW config: service.type: LoadBalancer
+			//    - Result: LoadBalancer (Gateway GWP wins)
+			// 3. Overlay merging between GWC and GW:
+			//    - shared-annotation: GW wins with "from-gateway"
+			//    - unique annotations from both are preserved
+			Name:      "envoy configs applied first then overlays on top",
+			InputFile: "envoy-configs-and-overlays",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+
+				// 1. Overlays override configs within the same GWP
+				// GWC config sets replicas: 2, GWC overlay sets replicas: 5
+				assert.Contains(t, outputYaml, "replicas: 5",
+					"overlay replicas: 5 should override config replicas: 2")
+				assert.NotContains(t, outputYaml, "replicas: 2",
+					"config replicas: 2 should be overridden by overlay")
+
+				// 2. Gateway GWP configs override GatewayClass GWP configs
+				// GWC config: ClusterIP, GW config: LoadBalancer
+				assert.Contains(t, outputYaml, "type: LoadBalancer",
+					"Gateway GWP service.type should override GatewayClass GWP")
+
+				// 3a. Deployment overlay merging - shared annotations: GW wins
+				assert.Contains(t, outputYaml, "shared-annotation: from-gateway",
+					"Gateway overlay should win for shared-annotation")
+				assert.NotContains(t, outputYaml, "shared-annotation: from-gatewayclass",
+					"GatewayClass value for shared-annotation should be overridden")
+
+				// 3b. Deployment overlay merging - unique annotations preserved
+				assert.Contains(t, outputYaml, "gwc-only-annotation: from-gatewayclass",
+					"GatewayClass-only annotation should be preserved")
+				assert.Contains(t, outputYaml, "gw-only-annotation: from-gateway",
+					"Gateway-only annotation should be present")
+
+				// 3c. Same for labels
+				assert.Contains(t, outputYaml, "shared-label: from-gateway",
+					"Gateway overlay should win for shared-label")
+				assert.Contains(t, outputYaml, "gwc-only-label: from-gatewayclass",
+					"GatewayClass-only label should be preserved")
+				assert.Contains(t, outputYaml, "gw-only-label: from-gateway",
+					"Gateway-only label should be present")
+
+				// 4. Service overlay merging
+				assert.Contains(t, outputYaml, "shared-service-annotation: from-gateway",
+					"Gateway service overlay should win for shared annotation")
+				assert.Contains(t, outputYaml, "gwc-service-annotation: from-gatewayclass",
+					"GatewayClass service annotation should be preserved")
+				assert.Contains(t, outputYaml, "gw-service-annotation: from-gateway",
+					"Gateway service annotation should be present")
 			},
 		},
 		{
