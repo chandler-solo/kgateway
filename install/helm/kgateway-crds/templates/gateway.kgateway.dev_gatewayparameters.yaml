@@ -170,11 +170,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
@@ -812,11 +812,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
@@ -2769,11 +2769,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
@@ -7086,11 +7086,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
@@ -7172,11 +7172,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
@@ -7386,11 +7386,11 @@ spec:
                           Kubernetes resource spec (e.g., PodSpec, ServiceSpec)\nand
                           will be merged with the generated configuration using **Strategic
                           Merge Patch** semantics.\n\n# Application Order\n\nOverlays
-                          are applied after all typed configuration fields. When both
-                          GatewayClass\nand Gateway parameters define overlays for
-                          the same resource:\n\n 1. GatewayClass overlay is applied
-                          first\n 2. Gateway overlay is applied second (can override
-                          GatewayClass values)\n\n# Strategic Merge Patch & Deletion
+                          are applied after all typed configuration fields from both
+                          levels.\nThe full merge order is:\n\n 1. GatewayClass typed
+                          configuration fields\n 2. Gateway typed configuration fields\n
+                          3. GatewayClass overlays\n 4. Gateway overlays (can override
+                          all previous values)\n\n# Strategic Merge Patch & Deletion
                           Guide\n\nThis merge strategy allows you to override individual
                           fields, merge lists, or delete items\nwithout needing to
                           provide the entire resource definition.\n\n**1. Replacing
