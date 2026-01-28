@@ -279,6 +279,10 @@ func TestTranslationWithExtraPlugins(
 	extraConfig ExtraConfig,
 	settingsOpts ...SettingsOpts,
 ) {
+	// Validate golden file sorting before running the test to catch stale files
+	// that were modified via find/replace instead of REFRESH_GOLDEN
+	validateGoldenFileSorting(t, outputFile)
+
 	scheme := NewScheme(extraConfig.Schemes)
 	r := require.New(t)
 
@@ -871,4 +875,51 @@ func ReadProxyFromFile(filename string) (*irtranslator.TranslationResult, error)
 		return nil, fmt.Errorf("parsing proxy from file: %w", err)
 	}
 	return &proxy, nil
+}
+
+// validateGoldenFileSorting checks that the golden file has properly sorted clusters.
+// This catches cases where golden files were modified via find/replace instead of
+// being regenerated with REFRESH_GOLDEN=true.
+func validateGoldenFileSorting(t *testing.T, goldenFile string) {
+	t.Helper()
+
+	// Skip validation when regenerating golden files
+	if os.Getenv("REFRESH_GOLDEN") != "" {
+		return
+	}
+
+	data, err := os.ReadFile(goldenFile)
+	if err != nil {
+		// File doesn't exist yet - will be created by REFRESH_GOLDEN
+		return
+	}
+
+	// Parse the YAML to extract cluster names
+	var output struct {
+		Clusters []struct {
+			Name string `yaml:"name"`
+		} `yaml:"Clusters"`
+	}
+	if err := testutils.UnmarshalAnyYaml(data, &output); err != nil {
+		t.Fatalf("failed to parse golden file %s: %v", goldenFile, err)
+	}
+
+	if len(output.Clusters) < 2 {
+		return
+	}
+
+	// Check if clusters are sorted
+	names := make([]string, len(output.Clusters))
+	for i, c := range output.Clusters {
+		names[i] = c.Name
+	}
+
+	if !sort.StringsAreSorted(names) {
+		sortedNames := make([]string, len(names))
+		copy(sortedNames, names)
+		sort.Strings(sortedNames)
+		t.Fatalf("golden file %s has unsorted clusters (found: %v, expected: %v); "+
+			"run REFRESH_GOLDEN=true go test ./test/translator/... to regenerate",
+			goldenFile, names, sortedNames)
+	}
 }
