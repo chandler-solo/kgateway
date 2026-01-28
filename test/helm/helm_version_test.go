@@ -82,21 +82,21 @@ func TestHelmChartVersionAndAppVersion(t *testing.T) {
 // regardless of whether AppVersion or explicit image.tag values include one.
 func TestImageTagVPrefix(t *testing.T) {
 	charts := []struct {
-		name            string
-		path            string
-		repository      string
+		name             string
+		path             string
+		repository       string
 		hasDefaultEnvTag bool // Whether the chart sets KGW_DEFAULT_IMAGE_TAG
 	}{
 		{
-			name:            "kgateway",
-			path:            filepath.Join("..", "..", "install", "helm", "kgateway"),
-			repository:      "kgateway",
+			name:             "kgateway",
+			path:             filepath.Join("..", "..", "install", "helm", "kgateway"),
+			repository:       "kgateway",
 			hasDefaultEnvTag: true,
 		},
 		{
-			name:            "agentgateway",
-			path:            filepath.Join("..", "..", "install", "helm", "agentgateway"),
-			repository:      "controller",
+			name:             "agentgateway",
+			path:             filepath.Join("..", "..", "install", "helm", "agentgateway"),
+			repository:       "controller",
 			hasDefaultEnvTag: false,
 		},
 	}
