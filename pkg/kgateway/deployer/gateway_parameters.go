@@ -142,23 +142,24 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 	} else if gp.agwHelmValuesGenerator != nil {
 		gwClassClient = gp.agwHelmValuesGenerator.gwClassClient
 	} else {
-		return rendered, nil
+		return nil, fmt.Errorf("no controller enabled for Gateway %s/%s", gw.GetNamespace(), gw.GetName())
 	}
 
 	gwc, err := getGatewayClassFromGateway(gwClassClient, gw)
 	if err != nil {
-		return rendered, nil
+		return nil, fmt.Errorf("failed to get GatewayClass for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
 	}
 
 	// Check if this is an agentgateway or envoy gateway
 	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
 		// Agentgateway overlays
 		if gp.agwHelmValuesGenerator == nil {
+			// Agentgateway not enabled; skip overlays (not an error since overlays are optional).
 			return rendered, nil
 		}
 		resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
 		if err != nil {
-			return rendered, nil
+			return nil, fmt.Errorf("failed to resolve AgentgatewayParameters for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
 		}
 
 		// Apply overlays in order: GatewayClass first, then Gateway.
@@ -179,6 +180,7 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 	} else {
 		// Envoy (kgateway) overlays
 		if gp.kgwParameters == nil {
+			// Envoy not enabled; skip overlays (not an error since overlays are optional).
 			return rendered, nil
 		}
 		resolved := gp.kgwParameters.resolveParametersForOverlays(gw)
