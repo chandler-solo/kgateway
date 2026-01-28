@@ -144,6 +144,17 @@ func TestImageTagVPrefix(t *testing.T) {
 			setValues:   []string{"image.tag=dev"},
 			expectedTag: "dev",
 		},
+		// CI version format tests: both 'v1.0.0-ci1' and '1.0.0-ci1' should result in 'v1.0.0-ci1'
+		{
+			name:        "CI version with v prefix",
+			setValues:   []string{"image.tag=v1.0.0-ci1"},
+			expectedTag: "v1.0.0-ci1",
+		},
+		{
+			name:        "CI version without v prefix gets v added",
+			setValues:   []string{"image.tag=1.0.0-ci1"},
+			expectedTag: "v1.0.0-ci1",
+		},
 	}
 
 	for _, chart := range charts {
@@ -196,7 +207,7 @@ func TestImageTagVPrefix(t *testing.T) {
 // extractImageLines extracts lines containing "image:" from the output for debugging
 func extractImageLines(output string) string {
 	var lines []string
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		if strings.Contains(line, "image:") {
 			lines = append(lines, strings.TrimSpace(line))
 		}
