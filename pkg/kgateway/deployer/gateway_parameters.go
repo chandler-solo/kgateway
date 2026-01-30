@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"helm.sh/helm/v3/pkg/chart"
 	"istio.io/istio/pkg/kube/kclient"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -18,7 +17,6 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
-	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/helm"
 )
 
 var (
@@ -77,10 +75,6 @@ func (gp *GatewayParameters) GetAgentgatewayParametersClient() kclient.Client[*a
 	return nil
 }
 
-func LoadAgentgatewayChart() (*chart.Chart, error) {
-	return loadChart(helm.AgentgatewayHelmChart)
-}
-
 func (gp *GatewayParameters) GetValues(ctx context.Context, obj client.Object) (map[string]any, error) {
 	generator, err := gp.getHelmValuesGenerator(obj)
 	if err != nil {
@@ -116,9 +110,7 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
-// It applies AgentgatewayParameters overlays to the rendered objects.
-// When both GatewayClass and Gateway have AgentgatewayParameters, the overlays
-// are applied in order: GatewayClass first, then Gateway on top.
+// It delegates to the appropriate post-processor based on override or agentgateway generator.
 func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) ([]client.Object, error) {
 	// Check if override implements ObjectPostProcessor and delegate to it
 	if gp.helmValuesGeneratorOverride != nil {
@@ -127,32 +119,9 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		}
 	}
 
-	// Fall back to default implementation
-	gw, ok := obj.(*gwv1.Gateway)
-	if !ok || gp.agwHelmValuesGenerator == nil {
-		return rendered, nil
-	}
-
-	resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
-	if err != nil {
-		return rendered, nil
-	}
-
-	// Apply overlays in order: GatewayClass first, then Gateway.
-	// This allows Gateway-level overlays to override GatewayClass-level overlays.
-	if resolved.gatewayClassAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
-		rendered, err = applier.ApplyOverlaysToObjects(rendered)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if resolved.gatewayAGWP != nil {
-		applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
-		rendered, err = applier.ApplyOverlaysToObjects(rendered)
-		if err != nil {
-			return nil, err
-		}
+	// Delegate to agentgateway generator if available
+	if gp.agwHelmValuesGenerator != nil {
+		return gp.agwHelmValuesGenerator.PostProcessObjects(ctx, obj, rendered)
 	}
 
 	return rendered, nil

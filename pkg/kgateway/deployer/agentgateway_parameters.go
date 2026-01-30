@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"helm.sh/helm/v3/pkg/chart"
 	"istio.io/istio/pkg/kube/kclient"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,8 +18,13 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/helm"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
+
+func LoadAgentgatewayChart() (*chart.Chart, error) {
+	return loadChart(helm.AgentgatewayHelmChart)
+}
 
 // AgentgatewayParametersApplier applies AgentgatewayParameters configurations and overlays.
 type AgentgatewayParametersApplier struct {
