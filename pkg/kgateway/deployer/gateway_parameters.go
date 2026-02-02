@@ -17,6 +17,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 )
 
 var (
@@ -110,7 +111,9 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
-// It delegates to the appropriate post-processor based on override or agentgateway generator.
+// It applies GatewayParameters or AgentgatewayParameters overlays to the rendered objects.
+// When both GatewayClass and Gateway have parameters, the overlays
+// are applied in order: GatewayClass first, then Gateway on top.
 func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.Object, rendered []client.Object) ([]client.Object, error) {
 	// Check if override implements ObjectPostProcessor and delegate to it
 	if gp.helmValuesGeneratorOverride != nil {
@@ -119,9 +122,78 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		}
 	}
 
-	// Delegate to agentgateway generator if available
-	if gp.agwHelmValuesGenerator != nil {
-		return gp.agwHelmValuesGenerator.PostProcessObjects(ctx, obj, rendered)
+	gw, ok := obj.(*gwv1.Gateway)
+	if !ok {
+		return rendered, nil
+	}
+
+	// Determine which controller this Gateway uses
+	var gwClassClient kclient.Client[*gwv1.GatewayClass]
+	if gp.kgwParameters != nil {
+		gwClassClient = gp.kgwParameters.gwClassClient
+	} else if gp.agwHelmValuesGenerator != nil {
+		gwClassClient = gp.agwHelmValuesGenerator.gwClassClient
+	} else {
+		return nil, fmt.Errorf("no controller enabled for Gateway %s/%s", gw.GetNamespace(), gw.GetName())
+	}
+
+	gwc, err := getGatewayClassFromGateway(gwClassClient, gw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get GatewayClass for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
+	}
+
+	// Check if this is an agentgateway or envoy gateway
+	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
+		// Agentgateway overlays
+		if gp.agwHelmValuesGenerator == nil {
+			// Agentgateway not enabled; skip overlays (not an error since overlays are optional).
+			return rendered, nil
+		}
+		resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve AgentgatewayParameters for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
+		}
+
+		// Apply overlays in order: GatewayClass first, then Gateway.
+		if resolved.gatewayClassAGWP != nil {
+			applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
+			rendered, err = applier.ApplyOverlaysToObjects(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if resolved.gatewayAGWP != nil {
+			applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
+			rendered, err = applier.ApplyOverlaysToObjects(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		// Envoy (kgateway) overlays
+		if gp.kgwParameters == nil {
+			// Envoy not enabled; skip overlays (not an error since overlays are optional).
+			return rendered, nil
+		}
+		resolved := gp.kgwParameters.resolveParametersForOverlays(gw)
+
+		// Apply overlays in order: GatewayClass first, then Gateway.
+		if resolved.gatewayClassGWP != nil {
+			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayClassGWP)
+			var err error
+			rendered, err = applier.ApplyOverlays(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if resolved.gatewayGWP != nil {
+			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayGWP)
+			var err error
+			rendered, err = applier.ApplyOverlays(rendered)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return rendered, nil
@@ -138,7 +210,9 @@ func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deploye
 }
 
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
-	return obj.GetName(), obj.GetNamespace()
+	// A helm release is never installed, only a template is generated, so the name doesn't matter
+	// Use a hard-coded name to avoid going over the 53 character name limit
+	return "release-name-placeholder", obj.GetNamespace()
 }
 
 func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer.HelmValuesGenerator, error) {

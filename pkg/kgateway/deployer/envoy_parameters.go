@@ -8,6 +8,7 @@ import (
 
 	"helm.sh/helm/v3/pkg/chart"
 	"istio.io/istio/pkg/kube/kclient"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -215,6 +216,7 @@ func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.G
 
 func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
+	// EnvoyGatewayParameters is only used for envoy gateways (agentgateway uses AgentgatewayParametersHelmValuesGenerator)
 	ports := deployer.GetPortsValues(irGW, gwParam, false)
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts
@@ -222,6 +224,7 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 
 	gtw := &deployer.HelmGateway{
 		Name:             &gw.Name,
+		FullnameOverride: &gw.Name,
 		GatewayName:      &gw.Name,
 		GatewayNamespace: &gw.Namespace,
 		GatewayClassName: ptr.To(string(gw.Spec.GatewayClassName)),
@@ -321,6 +324,19 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 		return nil, err
 	}
 	gateway.ComponentLogLevel = &compLogLevelStr
+
+	// Extract DNS resolver configuration
+	dnsResolverConfig := envoyContainerConfig.GetBootstrap().GetDnsResolver()
+	if dnsResolverConfig != nil {
+		var udpMaxQueries *int32
+		if maybeMaxQ := ptr.Deref(dnsResolverConfig.GetUdpMaxQueries(), 0); maybeMaxQ > 0 {
+			udpMaxQueries = &maybeMaxQ
+		}
+		gateway.DnsResolver = &deployer.HelmDnsResolver{
+			UdpMaxQueries: udpMaxQueries,
+		}
+	}
+
 	gateway.Resources = envoyContainerConfig.GetResources()
 	gateway.SecurityContext = envoyContainerConfig.GetSecurityContext()
 	gateway.Image = deployer.GetImageValues(envoyContainerConfig.GetImage())
@@ -335,4 +351,53 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 	gateway.Stats = deployer.GetStatsValues(statsConfig)
 
 	return vals, nil
+}
+
+// resolvedEnvoyParameters holds the resolved parameters for a Gateway, supporting
+// both GatewayClass-level and Gateway-level GatewayParameters for overlay application.
+type resolvedEnvoyParameters struct {
+	// gatewayClassGWP is the GatewayParameters from the GatewayClass (if any).
+	gatewayClassGWP *kgateway.GatewayParameters
+	// gatewayGWP is the GatewayParameters from the Gateway (if any).
+	gatewayGWP *kgateway.GatewayParameters
+}
+
+// resolveParametersForOverlays resolves the GatewayParameters for the Gateway.
+// It returns both GatewayClass-level and Gateway-level parameters separately
+// to support ordered overlay merging (GatewayClass first, then Gateway).
+// Unlike getGatewayParametersForGateway, this does NOT merge the parameters.
+func (k *EnvoyGatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) *resolvedEnvoyParameters {
+	result := &resolvedEnvoyParameters{}
+
+	// Get GatewayClass parameters first
+	gwc := k.gwClassClient.Get(string(gw.Spec.GatewayClassName), metav1.NamespaceNone)
+	if gwc != nil && gwc.Spec.ParametersRef != nil {
+		ref := gwc.Spec.ParametersRef
+
+		// Check for GatewayParameters on GatewayClass
+		if ref.Group == kgateway.GroupName && string(ref.Kind) == wellknown.GatewayParametersGVK.Kind {
+			gwpNamespace := ""
+			if ref.Namespace != nil {
+				gwpNamespace = string(*ref.Namespace)
+			}
+			gwp := k.gwParamClient.Get(ref.Name, gwpNamespace)
+			if gwp != nil {
+				result.gatewayClassGWP = gwp
+			}
+		}
+	}
+
+	// Check if Gateway has its own parametersRef
+	if gw.Spec.Infrastructure != nil && gw.Spec.Infrastructure.ParametersRef != nil {
+		ref := gw.Spec.Infrastructure.ParametersRef
+
+		if ref.Group == kgateway.GroupName && ref.Kind == gwv1.Kind(wellknown.GatewayParametersGVK.Kind) {
+			gwp := k.gwParamClient.Get(ref.Name, gw.GetNamespace())
+			if gwp != nil {
+				result.gatewayGWP = gwp
+			}
+		}
+	}
+
+	return result
 }

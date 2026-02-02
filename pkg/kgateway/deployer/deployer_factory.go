@@ -19,9 +19,11 @@ func NewEnvoyGatewayDeployer(
 	if err != nil {
 		return nil, err
 	}
+	// Pass gwParams directly (not EnvoyHelmValuesGenerator()) so that
+	// the deployer can call PostProcessObjects on it for overlay support.
 	return deployer.NewDeployer(
 		wellknown.DefaultGatewayControllerName,
-		scheme, client, envoyChart, gwParams.EnvoyHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
+		scheme, client, envoyChart, gwParams, GatewayReleaseNameAndNamespace, opts...), nil
 }
 
 // NewAgentgatewayDeployer creates a deployer for agentgateway-based gateways.
@@ -35,7 +37,9 @@ func NewAgentgatewayDeployer(
 	if err != nil {
 		return nil, err
 	}
+	// Pass gwParams directly (not AgentgatewayParametersHelmValuesGenerator()) so that
+	// the deployer can call PostProcessObjects on it for overlay support.
 	return deployer.NewDeployer(
 		wellknown.DefaultAgwControllerName,
-		scheme, client, agentgatewayChart, gwParams.AgentgatewayParametersHelmValuesGenerator(), GatewayReleaseNameAndNamespace, opts...), nil
+		scheme, client, agentgatewayChart, gwParams, GatewayReleaseNameAndNamespace, opts...), nil
 }
