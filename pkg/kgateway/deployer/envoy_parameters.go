@@ -217,7 +217,7 @@ func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.G
 
 func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
-	// EnvoyGatewayParameters is only used for envoy gateways (agentgateway uses AgentgatewayParametersHelmValuesGenerator)
+	// EnvoyGatewayParameters is only used for envoy gateways (agentgateway uses AgentgatewayGatewayParameters)
 	ports := deployer.GetPortsValues(irGW, gwParam, false)
 	if len(ports) == 0 {
 		return nil, ErrNoValidPorts

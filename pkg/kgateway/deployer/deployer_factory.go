@@ -37,7 +37,7 @@ func NewAgentgatewayDeployer(
 	if err != nil {
 		return nil, err
 	}
-	// Pass gwParams directly (not AgentgatewayParametersHelmValuesGenerator()) so that
+	// Pass gwParams directly (not AgentgatewayHelmValuesGenerator()) so that
 	// the deployer can call PostProcessObjects on it for overlay support.
 	return deployer.NewDeployer(
 		wellknown.DefaultAgwControllerName,

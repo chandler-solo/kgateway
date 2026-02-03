@@ -34,12 +34,12 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 
 	// Only create the kgateway parameters client if Envoy is enabled
 	if inputs.CommonCollections.Settings.EnableEnvoy {
-		gp.kgwParameters = NewEnvoyGatewayParameters(cli, inputs)
+		gp.envoyParams = NewEnvoyGatewayParameters(cli, inputs)
 	}
 
 	// Only create the agentgateway parameters client if agentgateway is enabled
 	if inputs.CommonCollections.Settings.EnableAgentgateway {
-		gp.agwHelmValuesGenerator = NewAgentgatewayParametersHelmValuesGenerator(cli, inputs)
+		gp.agwParams = NewAgentgatewayGatewayParameters(cli, inputs)
 	}
 
 	return gp
@@ -48,8 +48,8 @@ func NewGatewayParameters(cli apiclient.Client, inputs *deployer.Inputs) *Gatewa
 type GatewayParameters struct {
 	inputs                      *deployer.Inputs
 	helmValuesGeneratorOverride deployer.HelmValuesGenerator
-	kgwParameters               *EnvoyGatewayParameters
-	agwHelmValuesGenerator      *AgentgatewayParametersHelmValuesGenerator
+	envoyParams                 *EnvoyGatewayParameters
+	agwParams                   *AgentgatewayGatewayParameters
 }
 
 func (gp *GatewayParameters) WithHelmValuesGeneratorOverride(generator deployer.HelmValuesGenerator) *GatewayParameters {
@@ -60,8 +60,8 @@ func (gp *GatewayParameters) WithHelmValuesGeneratorOverride(generator deployer.
 // GetGatewayParametersClient returns the GatewayParameters client if Envoy is enabled, nil otherwise.
 // This allows the reconciler to reuse the same client for watching changes.
 func (gp *GatewayParameters) GetGatewayParametersClient() kclient.Client[*kgateway.GatewayParameters] {
-	if gp.kgwParameters != nil {
-		return gp.kgwParameters.gwParamClient
+	if gp.envoyParams != nil {
+		return gp.envoyParams.gwParamClient
 	}
 	return nil
 }
@@ -69,8 +69,8 @@ func (gp *GatewayParameters) GetGatewayParametersClient() kclient.Client[*kgatew
 // GetAgentgatewayParametersClient returns the AgentgatewayParameters client if Agentgateway is enabled, nil otherwise.
 // This allows the reconciler to reuse the same client for watching changes.
 func (gp *GatewayParameters) GetAgentgatewayParametersClient() kclient.Client[*agentgateway.AgentgatewayParameters] {
-	if gp.agwHelmValuesGenerator != nil {
-		return gp.agwHelmValuesGenerator.agwParamClient
+	if gp.agwParams != nil {
+		return gp.agwParams.agwParamClient
 	}
 	return nil
 }
@@ -90,11 +90,11 @@ func (gp *GatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
 	}
 
 	var handlers []cache.InformerSynced
-	if gp.kgwParameters != nil {
-		handlers = append(handlers, gp.kgwParameters.GetCacheSyncHandlers()...)
+	if gp.envoyParams != nil {
+		handlers = append(handlers, gp.envoyParams.GetCacheSyncHandlers()...)
 	}
-	if gp.agwHelmValuesGenerator != nil {
-		handlers = append(handlers, gp.agwHelmValuesGenerator.GetCacheSyncHandlers()...)
+	if gp.agwParams != nil {
+		handlers = append(handlers, gp.agwParams.GetCacheSyncHandlers()...)
 	}
 	return handlers
 }
@@ -106,7 +106,7 @@ func (gp *GatewayParameters) EnvoyHelmValuesGenerator() deployer.HelmValuesGener
 		slog.Debug("using override HelmValuesGenerator for envoy")
 		return gp.helmValuesGeneratorOverride
 	}
-	return gp.kgwParameters
+	return gp.envoyParams
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
@@ -128,10 +128,10 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 
 	// Determine which controller this Gateway uses
 	var gwClassClient kclient.Client[*gwv1.GatewayClass]
-	if gp.kgwParameters != nil {
-		gwClassClient = gp.kgwParameters.gwClassClient
-	} else if gp.agwHelmValuesGenerator != nil {
-		gwClassClient = gp.agwHelmValuesGenerator.gwClassClient
+	if gp.envoyParams != nil {
+		gwClassClient = gp.envoyParams.gwClassClient
+	} else if gp.agwParams != nil {
+		gwClassClient = gp.agwParams.gwClassClient
 	} else {
 		return nil, fmt.Errorf("no controller enabled for Gateway %s/%s", gw.GetNamespace(), gw.GetName())
 	}
@@ -144,9 +144,9 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 	// Select the overlay resolver based on controller
 	var resolver overlayResolver
 	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
-		resolver = gp.agwHelmValuesGenerator
+		resolver = gp.agwParams
 	} else {
-		resolver = gp.kgwParameters
+		resolver = gp.envoyParams
 	}
 	if resolver == nil {
 		return rendered, nil // Controller not enabled; skip overlays
@@ -184,14 +184,14 @@ func applyOverlaysInOrder(rendered []client.Object, appliers ...overlayApplier) 
 	return rendered, nil
 }
 
-// AgentgatewayParametersHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
+// AgentgatewayHelmValuesGenerator returns the helm values generator for agentgateway-based gateways.
 // If a helm values generator override is set, it returns that instead.
-func (gp *GatewayParameters) AgentgatewayParametersHelmValuesGenerator() deployer.HelmValuesGenerator {
+func (gp *GatewayParameters) AgentgatewayHelmValuesGenerator() deployer.HelmValuesGenerator {
 	if gp.helmValuesGeneratorOverride != nil {
 		slog.Debug("using override HelmValuesGenerator for agentgateway")
 		return gp.helmValuesGeneratorOverride
 	}
-	return gp.agwHelmValuesGenerator
+	return gp.agwParams
 }
 
 func GatewayReleaseNameAndNamespace(obj client.Object) (string, string) {
@@ -217,10 +217,10 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 	// Need a GatewayClass client to determine which controller this Gateway uses.
 	// Use whichever parameter client is available (both have gwClassClient).
 	var gwClassClient kclient.Client[*gwv1.GatewayClass]
-	if gp.kgwParameters != nil {
-		gwClassClient = gp.kgwParameters.gwClassClient
-	} else if gp.agwHelmValuesGenerator != nil {
-		gwClassClient = gp.agwHelmValuesGenerator.gwClassClient
+	if gp.envoyParams != nil {
+		gwClassClient = gp.envoyParams.gwClassClient
+	} else if gp.agwParams != nil {
+		gwClassClient = gp.agwParams.gwClassClient
 	} else {
 		return nil, fmt.Errorf("no parameter clients available")
 	}
@@ -232,7 +232,7 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 	}
 
 	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
-		if gp.agwHelmValuesGenerator == nil {
+		if gp.agwParams == nil {
 			// this should never happen, as the controller should not let any of these GatewayClass's through if agentgateway is not enabled
 			return nil, fmt.Errorf("agentgateway is not enabled but Gateway %s/%s uses agentgateway controller", gw.GetNamespace(), gw.GetName())
 		}
@@ -241,11 +241,11 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 			"gateway_namespace", gw.GetNamespace(),
 			"controller_name", gwc.Spec.ControllerName,
 		)
-		return gp.agwHelmValuesGenerator, nil
+		return gp.agwParams, nil
 	}
 
-	// Use kgwParameters for helm values generation (envoy-based gateways).
-	if gp.kgwParameters == nil {
+	// Use envoyParams for helm values generation (envoy-based gateways).
+	if gp.envoyParams == nil {
 		// this should never happen, as the controller should not let any of these GatewayClass's through if envoy is not enabled
 		return nil, fmt.Errorf("envoy is not enabled but Gateway %s/%s uses envoy controller", gw.GetNamespace(), gw.GetName())
 	}
@@ -254,7 +254,7 @@ func (gp *GatewayParameters) getHelmValuesGenerator(obj client.Object) (deployer
 		"gateway_namespace", gw.GetNamespace(),
 		"controller_name", gwc.Spec.ControllerName,
 	)
-	return gp.kgwParameters, nil
+	return gp.envoyParams, nil
 }
 
 func getGatewayClassFromGateway(cli kclient.Client[*gwv1.GatewayClass], gw *gwv1.Gateway) (*gwv1.GatewayClass, error) {

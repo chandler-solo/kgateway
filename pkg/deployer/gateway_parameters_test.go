@@ -12,7 +12,7 @@ import (
 // 2. Default gateway parameters
 //
 // Note: Agentgateway controllers are NOT supported - this function errors if called with
-// an agentgateway controllerName because agentgateway uses agwHelmValuesGenerator.
+// an agentgateway controllerName because agentgateway uses AgentgatewayGatewayParameters.
 func TestGetInMemoryGatewayParameters(t *testing.T) {
 	imageInfo := &deployer.ImageInfo{
 		Registry:   "test-registry",

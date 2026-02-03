@@ -87,7 +87,7 @@ type InMemoryGatewayParametersConfig struct {
 // GetInMemoryGatewayParameters returns an in-memory GatewayParameters for envoy-based gateways.
 //
 // This function must NOT be called for agentgateway controllers - agentgateway uses
-// agwHelmValuesGenerator which has its own defaults. Calling this with the agentgateway
+// AgentgatewayGatewayParameters which has its own defaults. Calling this with the agentgateway
 // controllerName indicates a bug in the routing logic.
 //
 // Priority order:
@@ -99,7 +99,7 @@ type InMemoryGatewayParametersConfig struct {
 func GetInMemoryGatewayParameters(cfg InMemoryGatewayParametersConfig) (*kgateway.GatewayParameters, error) {
 	if cfg.ControllerName == cfg.AgwControllerName {
 		return nil, fmt.Errorf("GetInMemoryGatewayParameters must not be called for agentgateway controller %q; "+
-			"agentgateway gateways should use agwHelmValuesGenerator", cfg.ControllerName)
+			"agentgateway gateways should use AgentgatewayGatewayParameters", cfg.ControllerName)
 	}
 	if cfg.ClassName == cfg.WaypointClassName {
 		return defaultWaypointGatewayParameters(cfg.ImageInfo, cfg.OmitDefaultSecurityContext), nil
