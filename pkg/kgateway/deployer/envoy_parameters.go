@@ -18,6 +18,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/helm"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
@@ -400,4 +401,16 @@ func (k *EnvoyGatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) 
 	}
 
 	return result
+}
+
+// resolveOverlayAppliers implements overlayResolver for Envoy gateways.
+func (k *EnvoyGatewayParameters) resolveOverlayAppliers(gw *gwv1.Gateway) (gwcApplier, gwApplier overlayApplier, err error) {
+	resolved := k.resolveParametersForOverlays(gw)
+	if resolved.gatewayClassGWP != nil {
+		gwcApplier = strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayClassGWP).ApplyOverlays
+	}
+	if resolved.gatewayGWP != nil {
+		gwApplier = strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayGWP).ApplyOverlays
+	}
+	return gwcApplier, gwApplier, nil
 }

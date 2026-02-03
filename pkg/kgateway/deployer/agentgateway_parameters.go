@@ -315,6 +315,21 @@ func (g *AgentgatewayParametersHelmValuesGenerator) GetResolvedParametersForGate
 	return g.resolveParameters(gw)
 }
 
+// resolveOverlayAppliers implements overlayResolver for Agentgateway.
+func (g *AgentgatewayParametersHelmValuesGenerator) resolveOverlayAppliers(gw *gwv1.Gateway) (gwcApplier, gwApplier overlayApplier, err error) {
+	resolved, err := g.resolveParameters(gw)
+	if err != nil {
+		return nil, nil, err
+	}
+	if resolved.gatewayClassAGWP != nil {
+		gwcApplier = NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP).ApplyOverlaysToObjects
+	}
+	if resolved.gatewayAGWP != nil {
+		gwApplier = NewAgentgatewayParametersApplier(resolved.gatewayAGWP).ApplyOverlaysToObjects
+	}
+	return gwcApplier, gwApplier, nil
+}
+
 func (g *AgentgatewayParametersHelmValuesGenerator) getDefaultAgentgatewayHelmValues(gw *gwv1.Gateway) (*deployer.AgentgatewayHelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, g.inputs.CommonCollections)
 	ports := deployer.GetPortsValues(irGW, nil, true) // true = agentgateway

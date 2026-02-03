@@ -17,7 +17,6 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
-	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 )
 
 var (
@@ -142,60 +141,46 @@ func (gp *GatewayParameters) PostProcessObjects(ctx context.Context, obj client.
 		return nil, fmt.Errorf("failed to get GatewayClass for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
 	}
 
-	// Check if this is an agentgateway or envoy gateway
+	// Select the overlay resolver based on controller
+	var resolver overlayResolver
 	if string(gwc.Spec.ControllerName) == gp.inputs.AgentgatewayControllerName {
-		// Agentgateway overlays
-		if gp.agwHelmValuesGenerator == nil {
-			// Agentgateway not enabled; skip overlays (not an error since overlays are optional).
-			return rendered, nil
-		}
-		resolved, err := gp.agwHelmValuesGenerator.GetResolvedParametersForGateway(gw)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve AgentgatewayParameters for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
-		}
-
-		// Apply overlays in order: GatewayClass first, then Gateway.
-		if resolved.gatewayClassAGWP != nil {
-			applier := NewAgentgatewayParametersApplier(resolved.gatewayClassAGWP)
-			rendered, err = applier.ApplyOverlaysToObjects(rendered)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if resolved.gatewayAGWP != nil {
-			applier := NewAgentgatewayParametersApplier(resolved.gatewayAGWP)
-			rendered, err = applier.ApplyOverlaysToObjects(rendered)
-			if err != nil {
-				return nil, err
-			}
-		}
+		resolver = gp.agwHelmValuesGenerator
 	} else {
-		// Envoy (kgateway) overlays
-		if gp.kgwParameters == nil {
-			// Envoy not enabled; skip overlays (not an error since overlays are optional).
-			return rendered, nil
-		}
-		resolved := gp.kgwParameters.resolveParametersForOverlays(gw)
+		resolver = gp.kgwParameters
+	}
+	if resolver == nil {
+		return rendered, nil // Controller not enabled; skip overlays
+	}
 
-		// Apply overlays in order: GatewayClass first, then Gateway.
-		if resolved.gatewayClassGWP != nil {
-			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayClassGWP)
-			var err error
-			rendered, err = applier.ApplyOverlays(rendered)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if resolved.gatewayGWP != nil {
-			applier := strategicpatch.NewOverlayApplierFromGatewayParameters(resolved.gatewayGWP)
-			var err error
-			rendered, err = applier.ApplyOverlays(rendered)
+	// Resolve and apply overlays in order: GatewayClass first, then Gateway
+	gwcApplier, gwApplier, err := resolver.resolveOverlayAppliers(gw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve overlays for Gateway %s/%s: %w", gw.GetNamespace(), gw.GetName(), err)
+	}
+	return applyOverlaysInOrder(rendered, gwcApplier, gwApplier)
+}
+
+// overlayApplier applies overlays to rendered objects.
+type overlayApplier func([]client.Object) ([]client.Object, error)
+
+// overlayResolver resolves overlay appliers for a Gateway.
+type overlayResolver interface {
+	// resolveOverlayAppliers returns overlay appliers for GatewayClass-level and Gateway-level parameters.
+	// Either applier may be nil if no parameters exist at that level.
+	resolveOverlayAppliers(gw *gwv1.Gateway) (gwcApplier, gwApplier overlayApplier, err error)
+}
+
+// applyOverlaysInOrder applies overlay functions in sequence (GatewayClass first, then Gateway).
+func applyOverlaysInOrder(rendered []client.Object, appliers ...overlayApplier) ([]client.Object, error) {
+	var err error
+	for _, apply := range appliers {
+		if apply != nil {
+			rendered, err = apply(rendered)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-
 	return rendered, nil
 }
 
