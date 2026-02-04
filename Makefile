@@ -766,19 +766,6 @@ release: ## Create a multi-arch release using goreleaser
 # together docker manifests, changing how we use goreleaser just to test it.
 #----------------------------------------------------------------------------------
 
-# Architecture-specific Rust build arch for goreleaser
-RUST_BUILD_ARCH_arm64 := aarch64
-RUST_BUILD_ARCH_amd64 := x86_64
-CI_RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
-
-# Select the correct envoy image based on architecture
-CI_ENVOY_IMAGE_arm64 := $(ENVOY_IMAGE_ARM64)
-CI_ENVOY_IMAGE_amd64 := $(ENVOY_IMAGE_AMD64)
-CI_ENVOY_IMAGE := $(CI_ENVOY_IMAGE_$(GOARCH))
-
-# DOCKER_OUTPUT controls whether images are loaded locally (--load) or pushed to registry (--push)
-DOCKER_OUTPUT ?= --load
-
 .PHONY: ci-docker-images
 ci-docker-images: .goreleaser.ci-$(GOARCH).yaml ## Build Docker images for current GOARCH using goreleaser (for CI)
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.ci-$(GOARCH).yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)

@@ -16,12 +16,6 @@ GOARCH="${GOARCH:-amd64}"
 SOURCE_FILE=".goreleaser.yaml"
 OUTPUT_FILE=".goreleaser.ci-${GOARCH}.yaml"
 
-case "$GOARCH" in
-  amd64) RUST_BUILD_ARCH="x86_64" ;;
-  arm64) RUST_BUILD_ARCH="aarch64" ;;
-  *) echo "Unsupported GOARCH: $GOARCH" >&2; exit 1 ;;
-esac
-
 function yq() {
     go tool -modfile "$ROOT_DIR"/tools/go.mod yq "$@"
 }
