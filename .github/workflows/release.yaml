@@ -142,13 +142,9 @@ jobs:
           retention-days: 1
 
   goreleaser:
-    name: goreleaser (${{ matrix.arch }})
+    name: goreleaser
     needs: [setup, helm, release-notes]
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -174,18 +170,11 @@ jobs:
           name: release-notes
           path: _output
 
-      # Only amd64 creates the GitHub release (to avoid duplicate releases).
-      # For pushes to main, we also disable release since it's not a real release.
-      - name: Set release disable flag
-        id: release_flag
+      # Disable GitHub release creation for pushes to main (rolling builds)
+      - name: Conditionally disable release for pushes to main
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
-          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
-            echo "disable=true" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "disable=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "disable=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "GORELEASER_DISABLE_RELEASE=true" >> "$GITHUB_ENV"
 
       - name: Run goreleaser
         run: make release
@@ -195,29 +184,6 @@ jobs:
           IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
           GORELEASER_ARGS: ${{ needs.setup.outputs.goreleaser_args }}
           GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
-          GOARCH: ${{ matrix.arch }}
-          GORELEASER_DISABLE_RELEASE: ${{ steps.release_flag.outputs.disable }}
-
-  docker-manifests:
-    name: Create Docker Manifests
-    needs: [setup, goreleaser]
-    if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-
-      - name: Log into ghcr.io
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        with:
-          registry: ${{ env.IMAGE_REGISTRY }}
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create and push manifests
-        run: make docker-manifests
-        env:
-          VERSION: ${{ needs.setup.outputs.version }}
-          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
 
   validate:
     name: Validate release artifacts
