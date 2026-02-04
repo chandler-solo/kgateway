@@ -266,6 +266,25 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "agentgateway-both-gwc-and-gw-have-params",
 		},
 		{
+			// BUG: This test exposes a bug in AgentgatewayParameters Istio field merging.
+			// When GWC sets istio.caAddress and GW sets istio.trustDomain, the GW's
+			// AGWP completely replaces the Istio struct instead of merging field-by-field.
+			// This causes caAddress to be lost.
+			//
+			// We use a non-default caAddress because the helm template has a fallback
+			// default of "https://istiod.istio-system.svc:15012" which would mask the bug.
+			Name:      "agentgateway istio merge bug - GWC caAddress lost when GW sets trustDomain",
+			InputFile: "agentgateway-istio-merge-bug",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				// Both fields should be present after proper merging
+				assert.Contains(t, outputYaml, "https://my-custom-istiod.custom-namespace.svc:15012",
+					"caAddress from GatewayClass AGWP should be preserved when Gateway AGWP sets trustDomain")
+				assert.Contains(t, outputYaml, "my-custom-trust-domain",
+					"trustDomain from Gateway AGWP should be present")
+			},
+		},
+		{
 			Name:      "agentgateway strategic-merge-patch tests",
 			InputFile: "agentgateway-strategic-merge-patch",
 			Validate: func(t *testing.T, outputYaml string) {
