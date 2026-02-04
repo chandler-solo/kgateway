@@ -35,7 +35,7 @@ AGENTGATEWAY="${AGENTGATEWAY:-false}"
 USE_GORELEASER="${USE_GORELEASER:-false}"
 
 # Export the variables so they are available in the environment
-export VERSION CLUSTER_NAME ENVOYINIT_CACHE_REF
+export VERSION CLUSTER_NAME ENVOYINIT_CACHE_REF GOARCH
 
 function create_kind_cluster_or_skip() {
   activeClusters=$($KIND get clusters)

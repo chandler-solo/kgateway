@@ -767,26 +767,56 @@ GORELEASER_CURRENT_TAG ?= $(VERSION)
 GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 
 .PHONY: release
-release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+release: ## Build and push Docker images for current GOARCH using goreleaser
+	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(CI_RUST_BUILD_ARCH) DOCKER_OUTPUT=--push envsubst < .goreleaser.ci.yaml.envsubst > .goreleaser.ci.yaml
+	ENVOY_IMAGE=$(CI_ENVOY_IMAGE) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.ci.yaml $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	@rm -f .goreleaser.ci.yaml
+
+# Image names for docker manifest creation
+MANIFEST_IMAGES := kgateway agentgateway-controller sds envoy-wrapper
+
+.PHONY: docker-manifests
+docker-manifests: ## Create and push multi-arch docker manifests (run after release for both arches)
+	@for img in $(MANIFEST_IMAGES); do \
+		echo "Creating manifest for $$img:$(VERSION)"; \
+		docker manifest create --amend $(IMAGE_REGISTRY)/$$img:$(VERSION) \
+			$(IMAGE_REGISTRY)/$$img:$(VERSION)-amd64 \
+			$(IMAGE_REGISTRY)/$$img:$(VERSION)-arm64; \
+		docker manifest push $(IMAGE_REGISTRY)/$$img:$(VERSION); \
+	done
 
 #----------------------------------------------------------------------------------
-# CI Image Builds (goreleaser-based, multi-arch with VERSION-GOARCH tags)
-# ----------------------------------------------------------------------------------
+# CI Image Builds (goreleaser-based, single-arch with VERSION-GOARCH tags)
+#----------------------------------------------------------------------------------
 # These targets are used by CI to build images with goreleaser for consistency
-# with production releases. Images are tagged with VERSION-GOARCH suffix (e.g.,
-# 1.0.0-ci1-amd64) since docker manifests don't work with --load. NOTE: We do
-# not use envsubst to build only one (GOOS, GOARCH) platform because that would
-# complicate our code and we do value knowing in PR checks if there are any
-# failures on any platform building binaries or images.
+# with production releases. Images are tagged with VERSION-GOARCH suffix
+# (e.g., 1.0.0-ci1-amd64) since docker manifests don't work with --load.
+#
+# Each runner builds only its native architecture to avoid QEMU emulation issues.
+# The envsubst template generates a single-arch goreleaser config from GOARCH.
 #
 # For local development, use the *-docker targets above which use buildx directly
 # and produce images tagged with just VERSION (e.g., v1.0.1-dev).
 #----------------------------------------------------------------------------------
 
+# Architecture-specific Rust build arch for goreleaser
+RUST_BUILD_ARCH_arm64 := aarch64
+RUST_BUILD_ARCH_amd64 := x86_64
+CI_RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
+
+# Select the correct envoy image based on architecture
+CI_ENVOY_IMAGE_arm64 := $(ENVOY_IMAGE_ARM64)
+CI_ENVOY_IMAGE_amd64 := $(ENVOY_IMAGE_AMD64)
+CI_ENVOY_IMAGE := $(CI_ENVOY_IMAGE_$(GOARCH))
+
+# DOCKER_OUTPUT controls whether images are loaded locally (--load) or pushed to registry (--push)
+DOCKER_OUTPUT ?= --load
+
 .PHONY: ci-docker-images
-ci-docker-images: ## Build all Docker images using goreleaser --snapshot --clean (for CI)
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+ci-docker-images: ## Build Docker images for current GOARCH using goreleaser (for CI)
+	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(CI_RUST_BUILD_ARCH) DOCKER_OUTPUT=$(DOCKER_OUTPUT) envsubst < .goreleaser.ci.yaml.envsubst > .goreleaser.ci.yaml
+	ENVOY_IMAGE=$(CI_ENVOY_IMAGE) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.ci.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+	@rm -f .goreleaser.ci.yaml
 
 # CI kind-load uses docker save | ctr import pattern for arch-suffixed images
 ci-kind-load-%:
