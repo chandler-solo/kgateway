@@ -152,6 +152,11 @@ jobs:
       - name: Prep Go Runner
         uses: ./.github/actions/prep-go-runner
 
+      - name: Conditionally disable release for pushes to main
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          echo "GORELEASER_DISABLE_RELEASE=true" >> "$GITHUB_ENV"
+
       - name: Log into ghcr.io
         if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
@@ -169,12 +174,6 @@ jobs:
         with:
           name: release-notes
           path: _output
-
-      # Disable GitHub release creation for pushes to main (rolling builds)
-      - name: Conditionally disable release for pushes to main
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-        run: |
-          echo "GORELEASER_DISABLE_RELEASE=true" >> "$GITHUB_ENV"
 
       - name: Run goreleaser
         run: make release
