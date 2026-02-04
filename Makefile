@@ -771,34 +771,22 @@ release: ## Create a release using goreleaser
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
 #----------------------------------------------------------------------------------
-# CI Image Builds (goreleaser-based, single-arch with VERSION-GOARCH tags)
-#----------------------------------------------------------------------------------
+# CI Image Builds (goreleaser-based, multi-arch with VERSION-GOARCH tags)
+# ----------------------------------------------------------------------------------
 # These targets are used by CI to build images with goreleaser for consistency
-# with production releases. Images are tagged with VERSION-GOARCH suffix
-# (e.g., 1.0.0-ci1-amd64) since docker manifests don't work with --load.
+# with production releases. Images are tagged with VERSION-GOARCH suffix (e.g.,
+# 1.0.0-ci1-amd64) since docker manifests don't work with --load. NOTE: We do
+# not use envsubst to build only one (GOOS, GOARCH) platform because that would
+# complicate our code and we do value knowing in PR checks if there are any
+# failures on any platform building binaries or images.
 #
 # For local development, use the *-docker targets above which use buildx directly
 # and produce images tagged with just VERSION (e.g., v1.0.1-dev).
 #----------------------------------------------------------------------------------
 
-# Architecture-specific variables for goreleaser builds
-RUST_BUILD_ARCH_arm64 := aarch64
-RUST_BUILD_ARCH_amd64 := x86_64
-GORELEASER_RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
-
-# Select the correct envoy image based on architecture (arm64 uses upstream envoy)
-ENVOY_IMAGE_FOR_BUILD_arm64 := $(ENVOY_IMAGE_ARM64)
-ENVOY_IMAGE_FOR_BUILD_amd64 := $(ENVOY_IMAGE_AMD64)
-ENVOY_IMAGE_FOR_BUILD := $(ENVOY_IMAGE_FOR_BUILD_$(GOARCH))
-
 .PHONY: ci-docker-images
-ci-docker-images: ## Build all Docker images using goreleaser (for CI, produces VERSION-GOARCH tags)
-	@# Ensure buildx builder with docker-container driver exists (required for registry cache)
-	@docker buildx inspect goreleaser >/dev/null 2>&1 || docker buildx create --name goreleaser --driver docker-container --use
-	@docker buildx use goreleaser
-	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(GORELEASER_RUST_BUILD_ARCH) envsubst < .goreleaser.ci.yaml.envsubst > .goreleaser.ci.yaml
-	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.ci.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
-	@rm -f .goreleaser.ci.yaml
+ci-docker-images: ## Build all Docker images using goreleaser --snapshot --clean (for CI)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 
 # CI kind-load uses docker save | ctr import pattern for arch-suffixed images
 ci-kind-load-%:
