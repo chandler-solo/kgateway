@@ -73,6 +73,8 @@ runs:
       CONFORMANCE_VERSION: ${{ env.CONFORMANCE_VERSION }}
       CONFORMANCE_CHANNEL: ${{ env.CONFORMANCE_CHANNEL }}
       AGENTGATEWAY: ${{ inputs.test-type == 'agentgateway' && 'true' || 'false' }}
+      USE_GORELEASER: "true"
+      GOARCH: ${{ inputs.arch }}
     run: ./hack/kind/setup-kind.sh
 
   - name: Install kgateway via helm

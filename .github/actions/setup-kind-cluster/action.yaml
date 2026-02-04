@@ -31,6 +31,10 @@ inputs:
     required: false
     default: "false"
     description: Whether this test only needs agentgateway
+  arch:
+    required: false
+    default: "amd64"
+    description: Architecture (amd64 or arm64)
 
 runs:
   using: "composite"
@@ -49,5 +53,7 @@ runs:
         CONFORMANCE_CHANNEL: ${{ inputs.gateway-api-channel }}
         LOCALSTACK: ${{ inputs.localstack }}
         AGENTGATEWAY: ${{ inputs.agentgateway }}
+        USE_GORELEASER: "true"
+        GOARCH: ${{ inputs.arch }}
       run: |
         ./hack/kind/setup-kind.sh
