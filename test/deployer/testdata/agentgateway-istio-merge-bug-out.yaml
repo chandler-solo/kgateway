@@ -136,7 +136,7 @@ spec:
             fieldRef:
               fieldPath: spec.serviceAccountName
         - name: CA_ADDRESS
-          value: https://istiod.istio-system.svc:15012
+          value: https://my-custom-istiod.custom-namespace.svc:15012
         - name: TRUST_DOMAIN
           value: my-custom-trust-domain
         image: cr.agentgateway.dev/agentgateway:99.99.99

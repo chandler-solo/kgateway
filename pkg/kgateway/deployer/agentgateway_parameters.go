@@ -68,7 +68,9 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 		}
 		setIfNonNil(&res.Image.Digest, configs.Image.Digest)
 	}
-	setIfNonNil(&res.Resources, configs.Resources)
+	// Merge resources field-by-field to preserve values from GatewayClass AGWP
+	// when Gateway AGWP only sets some fields (e.g., GWC sets limits, GW sets requests).
+	res.Resources = deployer.DeepMergeResourceRequirements(res.Resources, configs.Resources)
 
 	// Convert RawConfig from *apiextensionsv1.JSON to map[string]any
 	if configs.RawConfig != nil && len(configs.RawConfig.Raw) > 0 {
@@ -97,11 +99,17 @@ func (a *AgentgatewayParametersApplier) ApplyToHelmValues(vals *deployer.Agentga
 	// Apply explicit environment variables last so they can override logging.level.
 	res.Env = mergeEnvVars(res.Env, configs.Env)
 
-	// Apply Istio configuration
+	// Apply Istio configuration - merge field-by-field to preserve values from
+	// GatewayClass AGWP when Gateway AGWP only sets some fields.
 	if configs.Istio != nil {
-		res.Istio = &deployer.AgentgatewayHelmIstio{
-			CaAddress:   ptr.To(configs.Istio.CaAddress),
-			TrustDomain: ptr.To(configs.Istio.TrustDomain),
+		if res.Istio == nil {
+			res.Istio = &deployer.AgentgatewayHelmIstio{}
+		}
+		if configs.Istio.CaAddress != "" {
+			res.Istio.CaAddress = ptr.To(configs.Istio.CaAddress)
+		}
+		if configs.Istio.TrustDomain != "" {
+			res.Istio.TrustDomain = ptr.To(configs.Istio.TrustDomain)
 		}
 	}
 
