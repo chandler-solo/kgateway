@@ -625,26 +625,46 @@ GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 release: ## Create a release using goreleaser
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
-# Build Docker images for local development using goreleaser (single-arch, fast)
-# Uses envsubst to generate arch-specific config from template
+# Build Docker images using goreleaser wrapper script
+# The script uses Helm templating for flexible configuration and supports:
+# - Building specific images (--images controller,sds,envoyinit,agentgateway)
+# - Architecture selection (--arch arm64,amd64)
+# - Concurrent execution (safe for parallel make)
 # For multi-arch builds (CI releases), use 'make release' instead
-RUST_BUILD_ARCH_arm64 := aarch64
-RUST_BUILD_ARCH_amd64 := x86_64
-RUST_BUILD_ARCH := $(RUST_BUILD_ARCH_$(GOARCH))
-
-# Select the correct envoy image based on architecture (arm64 uses upstream envoy)
-ENVOY_IMAGE_FOR_BUILD_arm64 := $(ENVOY_IMAGE_ARM64)
-ENVOY_IMAGE_FOR_BUILD_amd64 := $(ENVOY_IMAGE)
-ENVOY_IMAGE_FOR_BUILD := $(ENVOY_IMAGE_FOR_BUILD_$(GOARCH))
 
 .PHONY: docker-images
 docker-images: ## Build all Docker images using goreleaser --snapshot --clean (single-arch)
-	@# Ensure buildx builder with docker-container driver exists (required for registry cache)
-	@docker buildx inspect goreleaser >/dev/null 2>&1 || docker buildx create --name goreleaser --driver docker-container --use
-	@docker buildx use goreleaser
-	GOARCH=$(GOARCH) RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) envsubst < .goreleaser.local.yaml.envsubst > .goreleaser.local.yaml
-	ENVOY_IMAGE=$(ENVOY_IMAGE_FOR_BUILD) GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.local.yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
-	@rm -f .goreleaser.local.yaml
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+# Individual image build targets - build only what's needed
+# These are safe to run concurrently (e.g., make -j4 docker-controller docker-sds)
+.PHONY: docker-controller
+docker-controller: ## Build only the controller (kgateway) image
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) --images controller -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+.PHONY: docker-agentgateway
+docker-agentgateway: ## Build only the agentgateway-controller image
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) --images agentgateway -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+.PHONY: docker-sds
+docker-sds: ## Build only the sds image
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) --images sds -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+.PHONY: docker-envoyinit
+docker-envoyinit: ## Build only the envoy-wrapper image
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) --images envoyinit -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+
+# Map image names to their goreleaser image identifiers
+# Used by the kind-build-% pattern rule
+GORELEASER_IMAGE_kgateway := controller
+GORELEASER_IMAGE_agentgateway-controller := agentgateway
+GORELEASER_IMAGE_sds := sds
+GORELEASER_IMAGE_envoy-wrapper := envoyinit
 
 .PHONY: save-images
 save-images: ## Save Docker images to tar files for artifact sharing
@@ -750,10 +770,22 @@ kind-load-%:
 	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-amd64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
 	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-arm64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
 
-# Build all images using goreleaser and load a specific one into the KinD cluster
+# Build a specific image using goreleaser and load it into the KinD cluster
 # Depends on: IMAGE_REGISTRY, VERSION, CLUSTER_NAME
-# Uses goreleaser --snapshot --clean for consistent builds with CI
-kind-build-and-load-%: docker-images kind-load-% ; ## Use to build all images via goreleaser and load specified image into kind
+# Uses the goreleaser wrapper script to build only the requested image
+# The GORELEASER_IMAGE_* variables map image names to goreleaser identifiers
+#
+# Note: kind-build-and-load-% must be defined BEFORE kind-build-% to take precedence
+# in Make's pattern rule matching, since both patterns could match kind-build-and-load-X
+kind-build-and-load-%: ## Build specific image via goreleaser and load into kind
+	@if [ -z "$(GORELEASER_IMAGE_$*)" ]; then \
+		echo "Unknown image: $* (no GORELEASER_IMAGE_$* mapping)"; \
+		exit 1; \
+	fi
+	GORELEASER="$(GORELEASER)" GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) \
+		./hack/goreleaser.sh --arch $(GOARCH) --images $(GORELEASER_IMAGE_$*) -- --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-amd64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
+	docker save $(IMAGE_REGISTRY)/$*:$(VERSION)-arm64 | docker exec -i $(CLUSTER_NAME)-control-plane ctr --namespace=k8s.io images import - || true
 
 # Update the docker image used by a deployment
 # This works for most of our deployments because the deployment name and container name both match

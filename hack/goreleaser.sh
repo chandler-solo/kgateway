@@ -18,15 +18,19 @@
 #   --set KEY=VALUE       Set individual Helm values (can be repeated)
 #   -h, --help            Show this help message
 #
+# Concurrency:
+#   This script is safe to run concurrently. Each invocation uses unique
+#   temporary files and a unique goreleaser dist directory.
+#
 # Examples:
 #   # Build only controller for local arch
-#   ./hack/goreleaser.sh --images controller
+#   ./hack/goreleaser.sh --images controller -- --snapshot --clean
 #
 #   # Build all images for arm64
-#   ./hack/goreleaser.sh --arch arm64
+#   ./hack/goreleaser.sh --arch arm64 -- --snapshot --clean
 #
 #   # Build controller and sds for amd64 with caching
-#   ./hack/goreleaser.sh --arch amd64 --images controller,sds --caching
+#   ./hack/goreleaser.sh --arch amd64 --images controller,sds --caching -- --snapshot --clean
 #
 #   # Full release build with manifests
 #   ./hack/goreleaser.sh --arch arm64,amd64 --mode release --manifests
@@ -40,7 +44,6 @@ set -o pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly CHART_DIR="${ROOT_DIR}/.goreleaser"
-readonly CONFIG_FILE="${ROOT_DIR}/.goreleaser.generated.yaml"
 
 # Default values
 ARCH=""
@@ -52,6 +55,26 @@ DRY_RUN="false"
 VALUES_FILES=()
 SET_VALUES=()
 GORELEASER_ARGS=()
+
+# Create unique temporary files/directories for concurrent execution safety
+# Use a combination of PID and random suffix to ensure uniqueness
+UNIQUE_ID="$$-$(date +%s)-${RANDOM}"
+CONFIG_FILE="${ROOT_DIR}/_output/goreleaser-${UNIQUE_ID}.yaml"
+DIST_DIR="${ROOT_DIR}/dist-${UNIQUE_ID}"
+
+# Cleanup function to remove temporary files
+cleanup() {
+    local exit_code=$?
+    rm -f "$CONFIG_FILE" 2>/dev/null || true
+    # Only remove dist dir if it exists and we created it
+    if [[ -d "$DIST_DIR" ]]; then
+        rm -rf "$DIST_DIR" 2>/dev/null || true
+    fi
+    exit $exit_code
+}
+
+# Set up trap to clean up on exit (success or failure)
+trap cleanup EXIT INT TERM
 
 usage() {
     sed -n '/^# Usage:/,/^set -o errexit/p' "$0" | grep '^#' | sed 's/^# \?//'
@@ -122,6 +145,9 @@ if [[ -z "$ARCH" ]]; then
     esac
 fi
 
+# Ensure output directory exists
+mkdir -p "${ROOT_DIR}/_output"
+
 # Build Helm values
 HELM_ARGS=()
 
@@ -131,14 +157,9 @@ for f in "${VALUES_FILES[@]+"${VALUES_FILES[@]}"}"; do
 done
 
 # Convert comma-separated arch to YAML list
-ARCH_YAML=""
 IFS=',' read -ra ARCH_LIST <<< "$ARCH"
-for a in "${ARCH_LIST[@]}"; do
-    ARCH_YAML+="  - $a"$'\n'
-done
 
 # Build set arguments for architectures
-# We need to use --set-string for the architectures array
 # Helm --set syntax for arrays: architectures={arm64,amd64}
 HELM_ARGS+=("--set" "architectures={$(IFS=','; echo "${ARCH_LIST[*]}")}")
 
@@ -175,6 +196,9 @@ HELM_ARGS+=("--set" "createManifests=$MANIFESTS")
 # Set caching
 HELM_ARGS+=("--set" "caching.enabled=$CACHING")
 
+# Set unique dist directory for concurrent execution safety
+HELM_ARGS+=("--set" "dist=$DIST_DIR")
+
 # Add any additional --set values
 for sv in "${SET_VALUES[@]+"${SET_VALUES[@]}"}"; do
     HELM_ARGS+=("--set" "$sv")
@@ -187,10 +211,10 @@ echo "  Images: ${IMAGES:-all}"
 echo "  Mode: $MODE"
 echo "  Manifests: $MANIFESTS"
 echo "  Caching: $CACHING"
+echo "  Config: $CONFIG_FILE"
+echo "  Dist: $DIST_DIR"
 
 helm template goreleaser-config "$CHART_DIR" "${HELM_ARGS[@]}" > "$CONFIG_FILE"
-
-echo "Generated config: $CONFIG_FILE"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "Dry run mode - not running goreleaser"
@@ -199,6 +223,13 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
+# Ensure buildx builder exists (required for registry cache)
+# We use BUILDX_BUILDER env var instead of 'docker buildx use' to avoid changing global state
+docker buildx inspect goreleaser >/dev/null 2>&1 || docker buildx create --name goreleaser --driver docker-container
+
 # Run goreleaser with the generated config
+# BUILDX_BUILDER tells docker buildx which builder to use without changing the global default
+# The dist directory is set in the config file for concurrent execution safety
 echo "Running goreleaser..."
-exec goreleaser release --config "$CONFIG_FILE" "${GORELEASER_ARGS[@]+"${GORELEASER_ARGS[@]}"}"
+GORELEASER="${GORELEASER:-go tool -modfile=tools/go.mod goreleaser}"
+BUILDX_BUILDER=goreleaser $GORELEASER release --config "$CONFIG_FILE" "${GORELEASER_ARGS[@]+"${GORELEASER_ARGS[@]}"}"
