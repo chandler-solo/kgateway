@@ -734,31 +734,6 @@ lint-kgateway-charts: ## Lint the kgateway and agentgateway charts
 #----------------------------------------------------------------------------------
 # Release
 #----------------------------------------------------------------------------------
-#
-# Docker Image Build Strategy
-# ---------------------------
-# There are two ways to build Docker images in this project:
-#
-# 1. LOCAL DEVELOPMENT: Direct buildx builds (the *-docker targets above)
-#    - Fast, single-arch builds for iterating locally
-#    - Uses Make's dependency tracking to only rebuild what changed
-#    - Images tagged with VERSION (e.g., v1.0.1-dev)
-#    - Enables future migration to a local Kind registry for even faster loads
-#    - Usage: make kind-build-and-load
-#
-# 2. CI/RELEASES: goreleaser (the ci-* and release targets below)
-#    - CI uses ci-docker-images for PR validation (single-arch, VERSION-GOARCH tags)
-#    - Release uses 'make release' for multi-arch builds with manifest lists
-#    - Consistent, reproducible builds for production
-#    - Usage: USE_GORELEASER=true in setup-kind.sh, or make ci-kind-build-and-load
-#
-# We maintain both approaches because goreleaser is too slow for local iteration,
-# and buildx alone doesn't provide the multi-arch manifest support needed for releases.
-#
-# If you're modifying .goreleaser.yaml, test changes on your personal fork by
-# creating a release there and verifying the resulting images work correctly.
-#
-#----------------------------------------------------------------------------------
 
 GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
@@ -767,7 +742,7 @@ GORELEASER_CURRENT_TAG ?= $(VERSION)
 GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 
 .PHONY: release
-release: ## Build and push multi-arch Docker images using goreleaser (for releases)
+release: ## Create a multi-arch release using goreleaser
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.yaml $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
 .goreleaser.ci.yaml: .goreleaser.yaml hack/generate-goreleaser-ci.sh  ## Generate single-arch goreleaser config from prod source

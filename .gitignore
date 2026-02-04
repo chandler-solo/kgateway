@@ -62,5 +62,4 @@ dist/
 # Rust target directory created by cargo
 internal/envoyinit/rustformations/target/*
 
-# Generated goreleaser config for CI builds (from hack/generate-goreleaser-ci.sh)
 .goreleaser.ci.yaml
