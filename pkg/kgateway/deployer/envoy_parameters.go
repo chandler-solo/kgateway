@@ -63,7 +63,7 @@ func (h *EnvoyGatewayParameters) GetValues(ctx context.Context, obj client.Objec
 	}
 
 	var jsonVals map[string]any
-	err = deployer.JsonConvert(vals, &jsonVals)
+	err = deployer.EnvoyJsonConvert(vals, &jsonVals)
 	return jsonVals, err
 }
 
@@ -142,7 +142,7 @@ func (k *EnvoyGatewayParameters) getDefaultGatewayParameters(gw *gwv1.Gateway) (
 func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
 	// Our defaults depend on OmitDefaultSecurityContext, but these are the defaults
 	// when not OmitDefaultSecurityContext:
-	defaultGwp, err := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+	defaultGwp, err := deployer.GetInMemoryEnvoyGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 		ControllerName:             string(gwc.Spec.ControllerName),
 		ClassName:                  gwc.GetName(),
 		ImageInfo:                  k.inputs.ImageInfo,
@@ -199,7 +199,7 @@ func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.G
 	// correctly set when they aren't overridden by the GatewayParameters.
 	mergedGwp := defaultGwp
 	if ptr.Deref(gwp.Spec.Kube.GetOmitDefaultSecurityContext(), false) {
-		mergedGwp, err = deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+		mergedGwp, err = deployer.GetInMemoryEnvoyGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 			ControllerName:             string(gwc.Spec.ControllerName),
 			ClassName:                  gwc.GetName(),
 			ImageInfo:                  k.inputs.ImageInfo,
@@ -215,7 +215,7 @@ func (k *EnvoyGatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.G
 	return mergedGwp, nil
 }
 
-func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.HelmConfig, error) {
+func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.GatewayParameters) (*deployer.EnvoyHelmConfig, error) {
 	irGW := deployer.GetGatewayIR(gw, k.inputs.CommonCollections)
 	// EnvoyGatewayParameters is only used for envoy gateways (agentgateway uses AgentgatewayGatewayParameters)
 	ports := deployer.GetPortsValues(irGW, gwParam, false)
@@ -223,7 +223,7 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 		return nil, ErrNoValidPorts
 	}
 
-	gtw := &deployer.HelmGateway{
+	gtw := &deployer.EnvoyHelmGateway{
 		Name:             &gw.Name,
 		FullnameOverride: &gw.Name,
 		GatewayName:      &gw.Name,
@@ -246,7 +246,7 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 		gtw.GatewayLabels = translateInfraMeta(i.Labels)
 	}
 	// construct the default values
-	vals := &deployer.HelmConfig{
+	vals := &deployer.EnvoyHelmConfig{
 		Gateway: gtw,
 	}
 
@@ -266,7 +266,7 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 	// This may affect both the PodSecurityContext and the SecurityContexts for the containers defined in gwParam
 	// Note: this call may populate the PodSecurityContext and SecurityContext fields in the gateway parameters if they are null,
 	// so this needs to happen before those kubeProxyConfig fields are extracted to local variables.
-	deployer.UpdateSecurityContexts(gwParam.Spec.Kube, vals.Gateway.Ports)
+	deployer.UpdateEnvoySecurityContexts(gwParam.Spec.Kube, vals.Gateway.Ports)
 
 	// extract all the custom values from the GatewayParameters
 	// (note: if we add new fields to GatewayParameters, they will
@@ -293,9 +293,9 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 	gateway.Strategy = deployConfig.GetStrategy()
 
 	// service values
-	gateway.Service = deployer.GetServiceValues(svcConfig)
+	gateway.Service = deployer.GetEnvoyServiceValues(svcConfig)
 	// Extract loadBalancerIP from Gateway.spec.addresses and set it on the service if service type is LoadBalancer
-	if err := deployer.SetLoadBalancerIPFromGateway(gw, gateway.Service); err != nil {
+	if err := deployer.SetEnvoyLoadBalancerIPFromGateway(gw, gateway.Service); err != nil {
 		return nil, err
 	}
 	// serviceaccount values
@@ -333,7 +333,7 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 		if maybeMaxQ := ptr.Deref(dnsResolverConfig.GetUdpMaxQueries(), 0); maybeMaxQ > 0 {
 			udpMaxQueries = &maybeMaxQ
 		}
-		gateway.DnsResolver = &deployer.HelmDnsResolver{
+		gateway.DnsResolver = &deployer.EnvoyHelmDnsResolver{
 			UdpMaxQueries: udpMaxQueries,
 		}
 	}
@@ -345,11 +345,11 @@ func (k *EnvoyGatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.G
 	gateway.ExtraVolumeMounts = envoyContainerConfig.ExtraVolumeMounts
 
 	// istio values
-	gateway.Istio = deployer.GetIstioValues(k.inputs.IstioAutoMtlsEnabled, istioConfig)
-	gateway.SdsContainer = deployer.GetSdsContainerValues(sdsContainerConfig)
-	gateway.IstioContainer = deployer.GetIstioContainerValues(istioContainerConfig)
+	gateway.Istio = deployer.GetEnvoyIstioValues(k.inputs.IstioAutoMtlsEnabled, istioConfig)
+	gateway.SdsContainer = deployer.GetEnvoySdsContainerValues(sdsContainerConfig)
+	gateway.IstioContainer = deployer.GetEnvoyIstioContainerValues(istioContainerConfig)
 
-	gateway.Stats = deployer.GetStatsValues(statsConfig)
+	gateway.Stats = deployer.GetEnvoyStatsValues(statsConfig)
 
 	return vals, nil
 }

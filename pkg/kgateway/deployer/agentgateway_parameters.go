@@ -270,7 +270,7 @@ func (g *AgentgatewayGatewayParameters) resolveParameters(gw *gwv1.Gateway) (*re
 }
 
 func (g *AgentgatewayGatewayParameters) GetCacheSyncHandlers() []cache.InformerSynced {
-	return []cache.InformerSynced{g.agwParamClient.HasSynced, g.gwClassClient.HasSynced}
+	return []cache.InformerSynced{g.gwClassClient.HasSynced, g.agwParamClient.HasSynced}
 }
 
 // PostProcessObjects implements deployer.ObjectPostProcessor.
@@ -370,7 +370,7 @@ func (g *AgentgatewayGatewayParameters) getDefaultAgentgatewayHelmValues(gw *gwv
 
 	gtw.Service = &deployer.AgentgatewayHelmService{}
 	// Extract loadBalancerIP from Gateway.spec.addresses and set it on the service
-	if err := deployer.SetLoadBalancerIPFromGatewayForAgentgateway(gw, gtw.Service); err != nil {
+	if err := deployer.SetAgentgatewayLoadBalancerIPFromGateway(gw, gtw.Service); err != nil {
 		return nil, err
 	}
 

@@ -114,7 +114,7 @@ func AppendPortValue(gwPorts []HelmPort, port int32, name string, gwp *kgateway.
 }
 
 // Convert service values from GatewayParameters into helm values to be used by the deployer.
-func GetServiceValues(svcConfig *kgateway.Service) *HelmService {
+func GetEnvoyServiceValues(svcConfig *kgateway.Service) *EnvoyHelmService {
 	// convert the service type enum to its string representation;
 	// if type is not set, it will default to 0 ("ClusterIP")
 	var svcType *string
@@ -135,7 +135,7 @@ func GetServiceValues(svcConfig *kgateway.Service) *HelmService {
 		loadBalancerClass = svcConfig.GetLoadBalancerClass()
 	}
 
-	return &HelmService{
+	return &EnvoyHelmService{
 		Type:                  svcType,
 		ClusterIP:             clusterIP,
 		ExtraAnnotations:      extraAnnotations,
@@ -177,11 +177,11 @@ func GetLoadBalancerIPFromGatewayAddresses(gw *gwv1.Gateway) (*string, error) {
 	return nil, ErrNoValidIPAddress
 }
 
-// SetLoadBalancerIPFromGateway extracts the IP address from Gateway.spec.addresses
-// and sets it on the HelmService if the service type is LoadBalancer.
+// SetEnvoyLoadBalancerIPFromGateway extracts the IP address from Gateway.spec.addresses
+// and sets it on the EnvoyHelmService if the service type is LoadBalancer.
 // Only sets the IP if exactly one valid IP address is found in Gateway.spec.addresses.
 // Returns an error if more than one address is specified or no valid IP address is found.
-func SetLoadBalancerIPFromGateway(gw *gwv1.Gateway, svc *HelmService) error {
+func SetEnvoyLoadBalancerIPFromGateway(gw *gwv1.Gateway, svc *EnvoyHelmService) error {
 	// Only extract IP if service type is LoadBalancer
 	if svc.Type == nil || *svc.Type != string(corev1.ServiceTypeLoadBalancer) {
 		return nil
@@ -197,12 +197,12 @@ func SetLoadBalancerIPFromGateway(gw *gwv1.Gateway, svc *HelmService) error {
 	return nil
 }
 
-// SetLoadBalancerIPFromGatewayForAgentgateway extracts the IP address from Gateway.spec.addresses
+// SetAgentgatewayLoadBalancerIPFromGateway extracts the IP address from Gateway.spec.addresses
 // and sets it on the AgentgatewayHelmService.
 // Only sets the IP if exactly one valid IP address is found in Gateway.spec.addresses.
 // Returns an error if more than one address is specified or no valid IP address is found.
 // Note: Agentgateway services are always LoadBalancer type, so no service type check is needed.
-func SetLoadBalancerIPFromGatewayForAgentgateway(gw *gwv1.Gateway, svc *AgentgatewayHelmService) error {
+func SetAgentgatewayLoadBalancerIPFromGateway(gw *gwv1.Gateway, svc *AgentgatewayHelmService) error {
 	ip, err := GetLoadBalancerIPFromGatewayAddresses(gw)
 	if err != nil {
 		return err
@@ -222,20 +222,20 @@ func GetServiceAccountValues(svcAccountConfig *kgateway.ServiceAccount) *HelmSer
 }
 
 // Convert sds values from GatewayParameters into helm values to be used by the deployer.
-func GetSdsContainerValues(sdsContainerConfig *kgateway.SdsContainer) *HelmSdsContainer {
+func GetEnvoySdsContainerValues(sdsContainerConfig *kgateway.SdsContainer) *EnvoyHelmSdsContainer {
 	if sdsContainerConfig == nil {
 		return nil
 	}
 
-	vals := &HelmSdsContainer{
+	vals := &EnvoyHelmSdsContainer{
 		Image:           GetImageValues(sdsContainerConfig.GetImage()),
 		Resources:       sdsContainerConfig.GetResources(),
 		SecurityContext: sdsContainerConfig.GetSecurityContext(),
-		SdsBootstrap:    &SdsBootstrap{},
+		SdsBootstrap:    &EnvoyHelmSdsBootstrap{},
 	}
 
 	if bootstrap := sdsContainerConfig.GetBootstrap(); bootstrap != nil {
-		vals.SdsBootstrap = &SdsBootstrap{
+		vals.SdsBootstrap = &EnvoyHelmSdsBootstrap{
 			LogLevel: bootstrap.GetLogLevel(),
 		}
 	}
@@ -243,12 +243,12 @@ func GetSdsContainerValues(sdsContainerConfig *kgateway.SdsContainer) *HelmSdsCo
 	return vals
 }
 
-func GetIstioContainerValues(config *kgateway.IstioContainer) *HelmIstioContainer {
+func GetEnvoyIstioContainerValues(config *kgateway.IstioContainer) *EnvoyHelmIstioContainer {
 	if config == nil {
 		return nil
 	}
 
-	return &HelmIstioContainer{
+	return &EnvoyHelmIstioContainer{
 		Image:                 GetImageValues(config.GetImage()),
 		LogLevel:              config.GetLogLevel(),
 		Resources:             config.GetResources(),
@@ -260,15 +260,15 @@ func GetIstioContainerValues(config *kgateway.IstioContainer) *HelmIstioContaine
 }
 
 // Convert istio values from GatewayParameters into helm values to be used by the deployer.
-func GetIstioValues(istioIntegrationEnabled bool, istioConfig *kgateway.IstioIntegration) *HelmIstio {
+func GetEnvoyIstioValues(istioIntegrationEnabled bool, istioConfig *kgateway.IstioIntegration) *EnvoyHelmIstio {
 	// if istioConfig is nil, istio sds is disabled and values can be ignored
 	if istioConfig == nil {
-		return &HelmIstio{
+		return &EnvoyHelmIstio{
 			Enabled: ptr.To(istioIntegrationEnabled),
 		}
 	}
 
-	return &HelmIstio{
+	return &EnvoyHelmIstio{
 		Enabled: ptr.To(istioIntegrationEnabled),
 	}
 }
@@ -293,11 +293,11 @@ func GetImageValues(image *kgateway.Image) *HelmImage {
 }
 
 // Get the stats values for the envoy listener in the configmap for bootstrap.
-func GetStatsValues(statsConfig *kgateway.StatsConfig) *HelmStatsConfig {
+func GetEnvoyStatsValues(statsConfig *kgateway.StatsConfig) *EnvoyHelmStatsConfig {
 	if statsConfig == nil {
 		return nil
 	}
-	vals := &HelmStatsConfig{
+	vals := &EnvoyHelmStatsConfig{
 		Enabled:            statsConfig.GetEnabled(),
 		RoutePrefixRewrite: statsConfig.GetRoutePrefixRewrite(),
 		EnableStatsRoute:   statsConfig.GetEnableStatsRoute(),
@@ -305,11 +305,11 @@ func GetStatsValues(statsConfig *kgateway.StatsConfig) *HelmStatsConfig {
 	}
 
 	if m := statsConfig.GetMatcher(); m != nil {
-		hm := &HelmStatsMatcher{}
+		hm := &EnvoyHelmStatsMatcher{}
 		if incl := m.GetInclusionList(); len(incl) > 0 {
-			hm.InclusionList = toHelmStringMatcher(incl)
+			hm.InclusionList = toEnvoyHelmStringMatcher(incl)
 		} else if excl := m.GetExclusionList(); len(excl) > 0 {
-			hm.ExclusionList = toHelmStringMatcher(excl)
+			hm.ExclusionList = toEnvoyHelmStringMatcher(excl)
 		}
 		vals.Matcher = hm
 	}
@@ -317,10 +317,10 @@ func GetStatsValues(statsConfig *kgateway.StatsConfig) *HelmStatsConfig {
 	return vals
 }
 
-func toHelmStringMatcher(l []shared.StringMatcher) []HelmStringMatcher {
-	out := make([]HelmStringMatcher, 0, len(l))
+func toEnvoyHelmStringMatcher(l []shared.StringMatcher) []EnvoyHelmStringMatcher {
+	out := make([]EnvoyHelmStringMatcher, 0, len(l))
 	for _, sm := range l {
-		out = append(out, HelmStringMatcher{
+		out = append(out, EnvoyHelmStringMatcher{
 			Exact:      sm.Exact,
 			Prefix:     sm.Prefix,
 			Suffix:     sm.Suffix,

@@ -1851,7 +1851,7 @@ var _ = Describe("Deployer", func() {
 
 			// assert istio container
 			istioContainer := dep.Spec.Template.Spec.Containers[2]
-			defaultGwp, err := deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
+			defaultGwp, err := deployer.GetInMemoryEnvoyGatewayParameters(deployer.InMemoryGatewayParametersConfig{
 				ControllerName:             "kgateway.dev/a",
 				ClassName:                  "a",
 				ImageInfo:                  &deployer.ImageInfo{},

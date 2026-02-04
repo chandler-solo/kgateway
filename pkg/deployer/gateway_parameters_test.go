@@ -6,14 +6,14 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/deployer"
 )
 
-// TestGetInMemoryGatewayParameters tests the priority order for determining gateway parameters.
+// TestGetInMemoryEnvoyGatewayParameters tests the priority order for determining gateway parameters.
 // Priority order:
 // 1. Waypoint class name (adds mesh port)
 // 2. Default gateway parameters
 //
 // Note: Agentgateway controllers are NOT supported - this function errors if called with
 // an agentgateway controllerName because agentgateway uses AgentgatewayGatewayParameters.
-func TestGetInMemoryGatewayParameters(t *testing.T) {
+func TestGetInMemoryEnvoyGatewayParameters(t *testing.T) {
 	imageInfo := &deployer.ImageInfo{
 		Registry:   "test-registry",
 		Tag:        "test-tag",
@@ -74,13 +74,13 @@ func TestGetInMemoryGatewayParameters(t *testing.T) {
 				OmitDefaultSecurityContext: false,
 			}
 
-			gwp, err := deployer.GetInMemoryGatewayParameters(cfg)
+			gwp, err := deployer.GetInMemoryEnvoyGatewayParameters(cfg)
 			if err != nil {
-				t.Fatalf("GetInMemoryGatewayParameters returned error: %v", err)
+				t.Fatalf("GetInMemoryEnvoyGatewayParameters returned error: %v", err)
 			}
 
 			if gwp == nil {
-				t.Fatal("GetInMemoryGatewayParameters returned nil")
+				t.Fatal("GetInMemoryEnvoyGatewayParameters returned nil")
 			}
 
 			if gwp.Spec.Kube == nil {

@@ -26,9 +26,9 @@ type Inputs struct {
 	AgentgatewayControllerName string
 }
 
-// UpdateSecurityContexts updates the security contexts in the gateway parameters.
+// UpdateEnvoySecurityContexts updates the security contexts in the gateway parameters.
 // It adds the sysctl to allow the privileged ports if the gateway uses them.
-func UpdateSecurityContexts(cfg *kgateway.KubernetesProxyConfig, ports []HelmPort) {
+func UpdateEnvoySecurityContexts(cfg *kgateway.KubernetesProxyConfig, ports []HelmPort) {
 	if ptr.Deref(cfg.GetOmitDefaultSecurityContext(), false) {
 		return
 	}
@@ -84,7 +84,7 @@ type InMemoryGatewayParametersConfig struct {
 	OmitDefaultSecurityContext bool
 }
 
-// GetInMemoryGatewayParameters returns an in-memory GatewayParameters for envoy-based gateways.
+// GetInMemoryEnvoyGatewayParameters returns an in-memory GatewayParameters for envoy-based gateways.
 //
 // This function must NOT be called for agentgateway controllers - agentgateway uses
 // AgentgatewayGatewayParameters which has its own defaults. Calling this with the agentgateway
@@ -96,9 +96,9 @@ type InMemoryGatewayParametersConfig struct {
 //
 // This allows users to define their own GatewayClass that acts very much like a
 // built-in class but is not an exact name match.
-func GetInMemoryGatewayParameters(cfg InMemoryGatewayParametersConfig) (*kgateway.GatewayParameters, error) {
+func GetInMemoryEnvoyGatewayParameters(cfg InMemoryGatewayParametersConfig) (*kgateway.GatewayParameters, error) {
 	if cfg.ControllerName == cfg.AgwControllerName {
-		return nil, fmt.Errorf("GetInMemoryGatewayParameters must not be called for agentgateway controller %q; "+
+		return nil, fmt.Errorf("GetInMemoryEnvoyGatewayParameters must not be called for agentgateway controller %q; "+
 			"agentgateway gateways should use AgentgatewayGatewayParameters", cfg.ControllerName)
 	}
 	if cfg.ClassName == cfg.WaypointClassName {

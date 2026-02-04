@@ -123,7 +123,7 @@ func applyPatch(client apiclient.Client, fieldManager string, gvr schema.GroupVe
 	return err
 }
 
-func JsonConvert(in *HelmConfig, out any) error {
+func EnvoyJsonConvert(in *EnvoyHelmConfig, out any) error {
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err

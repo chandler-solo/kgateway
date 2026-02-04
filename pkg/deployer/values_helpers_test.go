@@ -61,7 +61,7 @@ func TestComponentLogLevelsToString(t *testing.T) {
 	}
 }
 
-func TestSetLoadBalancerIPFromGateway(t *testing.T) {
+func TestSetEnvoyLoadBalancerIPFromGateway(t *testing.T) {
 	tests := []struct {
 		name        string
 		addresses   []gwv1.GatewaySpecAddress
@@ -211,11 +211,11 @@ func TestSetLoadBalancerIPFromGateway(t *testing.T) {
 				},
 			}
 
-			svc := &HelmService{
+			svc := &EnvoyHelmService{
 				Type: tt.serviceType,
 			}
 
-			err := SetLoadBalancerIPFromGateway(gw, svc)
+			err := SetEnvoyLoadBalancerIPFromGateway(gw, svc)
 			if tt.wantErr != nil {
 				assert.Error(t, err, "expected error")
 				assert.ErrorIs(t, err, tt.wantErr, "error type mismatch")
