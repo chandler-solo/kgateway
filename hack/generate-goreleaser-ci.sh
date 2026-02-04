@@ -30,7 +30,8 @@ echo "$EXPANDED" | yq eval "
 
   .dockers = [.dockers[] | select(.goarch == \"${GOARCH}\")] |
 
-  .dockers[].build_flag_templates += [\"--load\"] |
+  # Remove --cache-to (not supported with --load), keep --cache-from, add --load
+  .dockers = [.dockers[] | .build_flag_templates = ([.build_flag_templates[] | select(test(\"^--cache-to\") | not)] + [\"--load\"])] |
 
   # docker manifests are not needed for a single arch
   del(.docker_manifests) |
