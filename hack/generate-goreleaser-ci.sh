@@ -5,16 +5,16 @@
 #   GOARCH=amd64 ./hack/generate-goreleaser-ci.sh
 #   GOARCH=arm64 ./hack/generate-goreleaser-ci.sh
 #
-# This script transforms .goreleaser.yaml (multi-arch) into .goreleaser.ci.yaml
-# (single-arch) by filtering builds and docker images to the specified (GOOS,
-# GOARCH). It expands YAML anchors/aliases, too.
+# This script transforms .goreleaser.yaml (multi-arch) into a single-arch config
+# by filtering builds and docker images to the specified GOARCH.
+# It expands YAML anchors/aliases, too.
 
 set -euo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE}")"/.. && pwd)"
 GOARCH="${GOARCH:-amd64}"
 SOURCE_FILE=".goreleaser.yaml"
-OUTPUT_FILE=".goreleaser.ci.yaml"
+OUTPUT_FILE=".goreleaser.ci-${GOARCH}.yaml"
 
 # Determine rust build arch
 case "$GOARCH" in
