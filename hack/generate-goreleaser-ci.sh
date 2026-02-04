@@ -16,7 +16,6 @@ GOARCH="${GOARCH:-amd64}"
 SOURCE_FILE=".goreleaser.yaml"
 OUTPUT_FILE=".goreleaser.ci-${GOARCH}.yaml"
 
-# Determine rust build arch
 case "$GOARCH" in
   amd64) RUST_BUILD_ARCH="x86_64" ;;
   arm64) RUST_BUILD_ARCH="aarch64" ;;
@@ -33,20 +32,17 @@ echo "Generating ${OUTPUT_FILE} for GOARCH=${GOARCH}..."
 EXPANDED=$(yq eval 'explode(.)' "$SOURCE_FILE")
 
 echo "$EXPANDED" | yq eval "
-  # Filter build architectures
   .builds[].goarch = [\"${GOARCH}\"] |
 
-  # Filter docker images to only matching arch
   .dockers = [.dockers[] | select(.goarch == \"${GOARCH}\")] |
 
-  # Update docker build flags: add --load for local builds
   .dockers[].build_flag_templates += [\"--load\"] |
 
-  # Remove docker manifests (not needed for single-arch)
+  # docker manifests are not needed for a single arch
   del(.docker_manifests) |
 
-  # Disable changelog and release for CI builds
   .changelog.disable = true |
+
   .release.disable = true
 " > "$OUTPUT_FILE"
 
