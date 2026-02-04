@@ -30,6 +30,7 @@ env:
   VANITY_REGISTRY: cr.kgateway.dev/kgateway-dev
   AGW_VANITY_REGISTRY: cr.agentgateway.dev
   MAIN_VERSION: v2.3.0-main
+  GORELEASER_DISABLE_RELEASE: false
 
 permissions:
   contents: write
@@ -183,6 +184,7 @@ jobs:
           IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
           GORELEASER_ARGS: ${{ needs.setup.outputs.goreleaser_args }}
           GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
+          GORELEASER_DISABLE_RELEASE: ${{ env.GORELEASER_DISABLE_RELEASE }}
 
   validate:
     name: Validate release artifacts
