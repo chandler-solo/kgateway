@@ -311,6 +311,39 @@ view-test-coverage:
 	go tool cover -html $(OUTPUT_DIR)/cover.out
 
 #----------------------------------------------------------------------------------
+# Container Structure Tests
+#----------------------------------------------------------------------------------
+# Tests Docker images using container-structure-test from GoogleContainerTools
+# https://github.com/GoogleContainerTools/container-structure-test
+
+CONTAINER_STRUCTURE_TEST ?= container-structure-test
+CONTAINER_STRUCTURE_TEST_DIR := test/container-structure
+
+.PHONY: container-structure-test
+container-structure-test: ## Run container structure tests for all production images
+container-structure-test: container-structure-test-kgateway container-structure-test-agentgateway-controller container-structure-test-sds container-structure-test-envoy-wrapper
+
+.PHONY: container-structure-test-kgateway
+container-structure-test-kgateway: kgateway-docker ## Run container structure tests for kgateway image
+	$(CONTAINER_STRUCTURE_TEST) test --image $(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION) \
+		--config $(CONTAINER_STRUCTURE_TEST_DIR)/kgateway.yaml
+
+.PHONY: container-structure-test-agentgateway-controller
+container-structure-test-agentgateway-controller: agentgateway-controller-docker ## Run container structure tests for agentgateway-controller image
+	$(CONTAINER_STRUCTURE_TEST) test --image $(IMAGE_REGISTRY)/$(AGENTGATEWAY_IMAGE_REPO):$(VERSION) \
+		--config $(CONTAINER_STRUCTURE_TEST_DIR)/agentgateway-controller.yaml
+
+.PHONY: container-structure-test-sds
+container-structure-test-sds: sds-docker ## Run container structure tests for sds image
+	$(CONTAINER_STRUCTURE_TEST) test --image $(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION) \
+		--config $(CONTAINER_STRUCTURE_TEST_DIR)/sds.yaml
+
+.PHONY: container-structure-test-envoy-wrapper
+container-structure-test-envoy-wrapper: envoy-wrapper-docker ## Run container structure tests for envoy-wrapper image
+	$(CONTAINER_STRUCTURE_TEST) test --image $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION) \
+		--config $(CONTAINER_STRUCTURE_TEST_DIR)/envoy-wrapper.yaml
+
+#----------------------------------------------------------------------------------
 # MARK: Clean
 #----------------------------------------------------------------------------------
 
