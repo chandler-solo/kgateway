@@ -745,7 +745,7 @@ GORELEASER ?= go tool -modfile=tools/go.mod goreleaser
 release: ## Create a multi-arch release using goreleaser
 	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.yaml $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 
-.goreleaser.ci-$(GOARCH).yaml: .goreleaser.yaml hack/generate-goreleaser-ci.sh
+_output/.goreleaser.ci-$(GOARCH).yaml: .goreleaser.yaml hack/generate-goreleaser-ci.sh
 	GOARCH=$(GOARCH) ./hack/generate-goreleaser-ci.sh
 
 #----------------------------------------------------------------------------------
@@ -761,14 +761,14 @@ release: ## Create a multi-arch release using goreleaser
 # like our actual release.yaml Github Action. If you wanted even better test
 # coverage of the cross-compiled docker images that we release, you'd have to
 # push temporary images to a registry and then pull them for conformance & e2e
-# tests. The .goreleaser.ci-${GOARCH}.yaml is generated from .goreleaser.yaml by
+# tests. The _output/.goreleaser.ci-${GOARCH}.yaml is generated from .goreleaser.yaml by
 # hack/generate-goreleaser-ci.sh. If we used 'envsubst', we'd have to stitch
 # together docker manifests, changing how we use goreleaser just to test it.
 #----------------------------------------------------------------------------------
 
 .PHONY: ci-docker-images
-ci-docker-images: .goreleaser.ci-$(GOARCH).yaml ## Build Docker images for current GOARCH using goreleaser (for CI)
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f .goreleaser.ci-$(GOARCH).yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
+ci-docker-images: _output/.goreleaser.ci-$(GOARCH).yaml ## Build Docker images for current GOARCH using goreleaser (for CI)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) $(GORELEASER) release -f _output/.goreleaser.ci-$(GOARCH).yaml --snapshot --clean --timeout $(GORELEASER_TIMEOUT)
 
 # CI kind-load uses docker save | ctr import pattern for arch-suffixed images
 ci-kind-load-%:

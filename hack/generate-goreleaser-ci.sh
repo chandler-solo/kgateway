@@ -14,7 +14,10 @@ set -euo pipefail
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE}")"/.. && pwd)"
 GOARCH="${GOARCH:-amd64}"
 SOURCE_FILE=".goreleaser.yaml"
-OUTPUT_FILE=".goreleaser.ci-${GOARCH}.yaml"
+OUTPUT_DIR="_output"
+OUTPUT_FILE="${OUTPUT_DIR}/.goreleaser.ci-${GOARCH}.yaml"
+
+mkdir -p "$OUTPUT_DIR"
 
 function yq() {
     go tool -modfile "$ROOT_DIR"/tools/go.mod yq "$@"
