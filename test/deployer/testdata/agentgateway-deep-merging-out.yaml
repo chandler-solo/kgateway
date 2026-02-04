@@ -150,7 +150,13 @@ spec:
             path: /healthz/ready
             port: 15021
           periodSeconds: 10
-        resources: {}
+        resources:
+          limits:
+            cpu: "2"
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 256Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

@@ -1,15 +1,17 @@
-# This test exposes a bug in AgentgatewayParameters merging.
+# This test validates deep merging of AgentgatewayParameters between GWC and GW.
 #
-# When GatewayClass sets istio.caAddress and Gateway sets istio.trustDomain,
-# the Gateway's AGWP completely replaces the Istio struct instead of merging
-# field-by-field. This causes caAddress to be lost.
+# When GatewayClass sets some fields and Gateway sets other fields within the
+# same struct, the merging should preserve both. This test covers:
 #
-# Expected behavior: Both caAddress and trustDomain should be present in output.
-# Actual behavior (bug): Only trustDomain is present; caAddress is lost.
+# 1. Istio field merging: GWC sets istio.caAddress, GW sets istio.trustDomain
+#    -> Both should be present in output
+#
+# 2. Resources field merging: GWC sets resources.limits, GW sets resources.requests
+#    -> Both should be present in output
 #
 # NOTE: We use a non-default caAddress value because the helm template has
 # a default fallback of "https://istiod.istio-system.svc:15012". Using that
-# default would mask the bug.
+# default would mask potential bugs.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
 metadata:
@@ -19,6 +21,11 @@ spec:
   istio:
     caAddress: https://my-custom-istiod.custom-namespace.svc:15012
     # trustDomain intentionally not set - should come from Gateway AGWP
+  resources:
+    limits:
+      cpu: "2"
+      memory: 1Gi
+    # requests intentionally not set - should come from Gateway AGWP
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayParameters
@@ -29,6 +36,11 @@ spec:
   istio:
     # caAddress intentionally not set - should be preserved from GWC AGWP
     trustDomain: my-custom-trust-domain
+  resources:
+    # limits intentionally not set - should be preserved from GWC AGWP
+    requests:
+      cpu: 500m
+      memory: 256Mi
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
