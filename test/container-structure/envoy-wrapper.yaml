@@ -53,8 +53,8 @@ fileContentTests:
 commandTests:
   - name: "envoyinit binary is a valid executable"
     command: "/usr/local/bin/envoyinit"
-    exitCode: 1
-    expectedError: ["initializer failed"]
+    args: ["--version"]
+    exitCode: 0
 
   - name: "running as non-root user"
     command: "id"
