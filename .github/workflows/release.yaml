@@ -187,7 +187,7 @@ jobs:
           GORELEASER_DISABLE_RELEASE: ${{ env.GORELEASER_DISABLE_RELEASE }}
 
   container-structure-test:
-    name: Container structure tests (${{ matrix.arch }})
+    name: Validate images with container structure tests (${{ matrix.arch }})
     needs: [setup, goreleaser]
     # Only run when images are pushed to the registry (not on PRs where --snapshot is used)
     if: ${{ github.event_name != 'pull_request' }}
@@ -225,7 +225,7 @@ jobs:
           done
 
   validate:
-    name: Validate release artifacts
+    name: Validate release artifacts e2e
     needs: [setup, helm, goreleaser]
     if: ${{ inputs.validate }}
     runs-on: ubuntu-22.04
