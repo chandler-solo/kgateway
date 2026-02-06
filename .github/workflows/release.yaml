@@ -194,7 +194,7 @@ jobs:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        arch: [ 'amd64', 'arm64' ]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -225,10 +225,14 @@ jobs:
           done
 
   validate:
-    name: Validate release artifacts e2e
+    name: Validate release artifacts e2e (${{ matrix.arch }})
     needs: [setup, helm, goreleaser]
     if: ${{ inputs.validate }}
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ 'amd64', 'arm64' ]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Prep Go Runner
