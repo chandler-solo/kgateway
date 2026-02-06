@@ -189,6 +189,8 @@ jobs:
   container-structure-test:
     name: Container structure tests (${{ matrix.arch }})
     needs: [setup, goreleaser]
+    # Only run when images are pushed to the registry (not on PRs where --snapshot is used)
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-22.04
     strategy:
       matrix:
@@ -200,7 +202,6 @@ jobs:
         if: matrix.arch != 'amd64'
 
       - name: Log into ghcr.io
-        if: ${{ github.event_name != 'pull_request' }}
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.IMAGE_REGISTRY }}
@@ -215,17 +216,12 @@ jobs:
 
       - name: Run container structure tests
         run: |
-          PLATFORM_FLAG=""
-          if [ "${{ matrix.arch }}" != "amd64" ]; then
-            PLATFORM_FLAG="--platform linux/${{ matrix.arch }}"
-          fi
-
           for image in kgateway agentgateway-controller sds envoy-wrapper; do
             echo "Testing ${image} (${{ matrix.arch }})..."
             container-structure-test test \
-              --image ${{ env.IMAGE_REGISTRY }}/${image}:${{ needs.setup.outputs.version }}-${{ matrix.arch }} \
-              ${PLATFORM_FLAG} \
-              --config test/container-structure/${image}.yaml
+              --image "${{ env.IMAGE_REGISTRY }}/${image}:${{ needs.setup.outputs.version }}-${{ matrix.arch }}" \
+              --platform "linux/${{ matrix.arch }}" \
+              --config "test/container-structure/${image}.yaml"
           done
 
   validate:
