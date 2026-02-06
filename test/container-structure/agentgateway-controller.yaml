@@ -3,6 +3,8 @@ schemaVersion: 2.0.0
 # Container structure tests for the agentgateway-controller image
 # Built on distroless base (cgr.dev/chainguard/static)
 
+# UID 10101 must match the helm chart's securityContext.runAsUser
+# (see pkg/kgateway/helm/agentgateway/templates/deployment.yaml)
 metadataTest:
   user: "10101"
   entrypoint: ["/usr/local/bin/kgateway"]

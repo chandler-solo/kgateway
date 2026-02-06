@@ -3,6 +3,8 @@ schemaVersion: 2.0.0
 # Container structure tests for the sds (Secret Discovery Service) image
 # Built on Alpine base
 
+# UID 10101 must match the helm chart's securityContext.runAsUser
+# (see pkg/deployer/gateway_parameters.go)
 metadataTest:
   user: "10101"
   entrypoint: ["/usr/local/bin/sds"]

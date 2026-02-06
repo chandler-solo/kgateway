@@ -3,6 +3,8 @@ schemaVersion: 2.0.0
 # Container structure tests for the envoy-wrapper image
 # Contains envoyinit binary, Rust dynamic modules, and docker-entrypoint.sh
 
+# UID 10101 must match the helm chart's securityContext.runAsUser
+# (see pkg/deployer/gateway_parameters.go)
 metadataTest:
   user: "10101"
   entrypoint: ["/docker-entrypoint.sh"]
@@ -51,8 +53,13 @@ fileContentTests:
     expectedContents: ["ENVOY_SIDECAR"]
 
 commandTests:
-  - name: "envoyinit binary is a valid executable"
-    command: "/usr/local/bin/envoyinit"
+  - name: "envoyinit binary is a valid ELF executable"
+    command: "/bin/sh"
+    args: ["-c", "head -c 4 /usr/local/bin/envoyinit | od -A n -t x1 | grep -q '7f 45 4c 46'"]
+    exitCode: 0
+
+  - name: "envoy binary is a valid executable"
+    command: "/usr/local/bin/envoy"
     args: ["--version"]
     exitCode: 0
 
