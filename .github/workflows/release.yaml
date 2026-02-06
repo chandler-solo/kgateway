@@ -220,6 +220,7 @@ jobs:
             echo "Testing ${image} (${{ matrix.arch }})..."
             container-structure-test test \
               --image "${{ env.IMAGE_REGISTRY }}/${image}:${{ needs.setup.outputs.version }}-${{ matrix.arch }}" \
+              --pull \
               --platform "linux/${{ matrix.arch }}" \
               --config "test/container-structure/${image}.yaml"
           done
