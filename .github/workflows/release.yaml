@@ -186,49 +186,47 @@ jobs:
           GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
           GORELEASER_DISABLE_RELEASE: ${{ env.GORELEASER_DISABLE_RELEASE }}
 
+  container-structure-test:
+    name: Container structure tests (${{ matrix.arch }})
+    needs: [setup, goreleaser]
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: "docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392" # v3.6.0
+        if: matrix.arch != 'amd64'
+
+      - name: Log into ghcr.io
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install container-structure-test
         run: |
           curl -LO https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.19.3/container-structure-test-linux-amd64
           chmod +x container-structure-test-linux-amd64
           sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
 
-      # Test both amd64 and arm64 images from registry.
-      # QEMU (set up earlier) enables running arm64 containers on this amd64 runner.
-      - name: Run container structure tests (amd64)
+      - name: Run container structure tests
         run: |
-          echo "Testing amd64 images..."
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/kgateway:${{ needs.setup.outputs.version }}-amd64 \
-            --config test/container-structure/kgateway.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/agentgateway-controller:${{ needs.setup.outputs.version }}-amd64 \
-            --config test/container-structure/agentgateway-controller.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/sds:${{ needs.setup.outputs.version }}-amd64 \
-            --config test/container-structure/sds.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/envoy-wrapper:${{ needs.setup.outputs.version }}-amd64 \
-            --config test/container-structure/envoy-wrapper.yaml
+          PLATFORM_FLAG=""
+          if [ "${{ matrix.arch }}" != "amd64" ]; then
+            PLATFORM_FLAG="--platform linux/${{ matrix.arch }}"
+          fi
 
-      - name: Run container structure tests (arm64)
-        run: |
-          echo "Testing arm64 images..."
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/kgateway:${{ needs.setup.outputs.version }}-arm64 \
-            --platform linux/arm64 \
-            --config test/container-structure/kgateway.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/agentgateway-controller:${{ needs.setup.outputs.version }}-arm64 \
-            --platform linux/arm64 \
-            --config test/container-structure/agentgateway-controller.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/sds:${{ needs.setup.outputs.version }}-arm64 \
-            --platform linux/arm64 \
-            --config test/container-structure/sds.yaml
-          container-structure-test test \
-            --image ${{ env.IMAGE_REGISTRY }}/envoy-wrapper:${{ needs.setup.outputs.version }}-arm64 \
-            --platform linux/arm64 \
-            --config test/container-structure/envoy-wrapper.yaml
+          for image in kgateway agentgateway-controller sds envoy-wrapper; do
+            echo "Testing ${image} (${{ matrix.arch }})..."
+            container-structure-test test \
+              --image ${{ env.IMAGE_REGISTRY }}/${image}:${{ needs.setup.outputs.version }}-${{ matrix.arch }} \
+              ${PLATFORM_FLAG} \
+              --config test/container-structure/${image}.yaml
+          done
 
   validate:
     name: Validate release artifacts
