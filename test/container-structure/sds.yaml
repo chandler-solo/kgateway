@@ -15,10 +15,10 @@ fileExistenceTests:
     isExecutableBy: "owner"
 
 commandTests:
-  - name: "sds binary is executable"
+  - name: "sds binary is a valid executable"
     command: "/usr/local/bin/sds"
-    args: ["--help"]
-    exitCode: 0
+    exitCode: 1
+    expectedError: ["invalid config"]
 
   - name: "running as non-root user"
     command: "id"

@@ -6,7 +6,7 @@ schemaVersion: 2.0.0
 metadataTest:
   user: "10101"
   entrypoint: ["/docker-entrypoint.sh"]
-  env:
+  envVars:
     - key: "ENVOY_DYNAMIC_MODULES_SEARCH_PATH"
       value: "/usr/local/lib"
 
