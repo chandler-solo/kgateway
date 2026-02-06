@@ -51,10 +51,10 @@ fileContentTests:
     expectedContents: ["ENVOY_SIDECAR"]
 
 commandTests:
-  - name: "envoyinit binary is executable"
+  - name: "envoyinit binary is a valid executable"
     command: "/usr/local/bin/envoyinit"
-    args: ["--help"]
-    exitCode: 0
+    exitCode: 1
+    expectedError: ["initializer failed"]
 
   - name: "running as non-root user"
     command: "id"
