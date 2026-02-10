@@ -12,6 +12,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/basicauth"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/configmap"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/csrf"
+	agwdeployer "github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/deployer"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/extauth"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/extproc"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/agentgateway/jwtauth"
@@ -38,6 +39,7 @@ func AgentgatewaySuiteRunner() e2e.SuiteRunner {
 	agentgatewaySuiteRunner.Register("MCP", mcp.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("AIBackend", aibackend.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("ConfigMap", configmap.NewTestingSuite) // redeploys by need
+	agentgatewaySuiteRunner.Register("Deployer", agwdeployer.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("RemoteJwtAuth", remotejwtauth.NewTestingSuite)
 	agentgatewaySuiteRunner.Register("Tracing", tracing.NewTestingSuite)
 
