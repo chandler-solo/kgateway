@@ -328,7 +328,7 @@ container-structure-test-envoy-wrapper: ## Run container structure tests for env
 		--config $(CONTAINER_STRUCTURE_TEST_DIR)/envoy-wrapper.yaml
 
 #----------------------------------------------------------------------------------
-# Clean
+# MARK: Clean
 #----------------------------------------------------------------------------------
 
 # Important to clean before pushing new releases. Dockerfiles and binaries may not update properly
