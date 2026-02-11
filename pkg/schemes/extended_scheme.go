@@ -64,7 +64,7 @@ func CRDExists(restConfig *rest.Config, group, version, kind string) (bool, erro
 	if err != nil {
 		// Treat permission errors as "CRD doesn't exist" rather than failing
 		// This allows controllers to start even without RBAC for all API groups
-		// Kind of a hack because kgateway and agentgateway share controllers so some of these don't exist
+		// Kind of a hack because some of these APIs may not exist in the cluster
 		if errors.IsNotFound(err) || errors.IsForbidden(err) || errors.IsUnauthorized(err) || discovery.IsGroupDiscoveryFailedError(err) || meta.IsNoMatchError(err) {
 			return false, nil
 		}
