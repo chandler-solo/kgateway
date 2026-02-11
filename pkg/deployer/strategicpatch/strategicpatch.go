@@ -247,23 +247,6 @@ func stringMapToNullable(m map[string]string) map[string]any {
 	return result
 }
 
-// mergeMetadataMap merges overlay values into existing metadata (labels or
-// annotations). Empty string values in the overlay cause the key to be deleted.
-// Used only for unstructured objects (VPA) that can't go through SMP with
-// typed schemas.
-func mergeMetadataMap(existing, overlay map[string]string) map[string]string {
-	if existing == nil {
-		existing = make(map[string]string)
-	}
-	for k, v := range overlay {
-		if v == "" {
-			delete(existing, k)
-		} else {
-			existing[k] = v
-		}
-	}
-	return existing
-}
 
 // getDataObjectForGVK returns an empty object of the appropriate type for strategic merge patch.
 func getDataObjectForGVK(gvk schema.GroupVersionKind) (runtime.Object, error) {
@@ -395,13 +378,12 @@ func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *shared.
 	}
 	vpa.SetGroupVersionKind(wellknown.VerticalPodAutoscalerGVK)
 
-	// Apply the overlay - for VPA we need to handle it specially since it's unstructured
 	if overlay.Metadata != nil {
 		if overlay.Metadata.Labels != nil {
-			vpa.SetLabels(mergeMetadataMap(vpa.GetLabels(), overlay.Metadata.Labels))
+			vpa.SetLabels(overlay.Metadata.Labels)
 		}
 		if overlay.Metadata.Annotations != nil {
-			vpa.SetAnnotations(mergeMetadataMap(vpa.GetAnnotations(), overlay.Metadata.Annotations))
+			vpa.SetAnnotations(overlay.Metadata.Annotations)
 		}
 	}
 
