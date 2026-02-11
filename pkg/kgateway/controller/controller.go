@@ -93,7 +93,7 @@ func watchGw(
 
 	inputs := &deployer.Inputs{
 		Dev:                      cfg.Dev,
-		IstioAutoMtlsEnabled:    cfg.IstioAutoMtlsEnabled,
+		IstioAutoMtlsEnabled:     cfg.IstioAutoMtlsEnabled,
 		ControlPlane:             cfg.ControlPlane,
 		ImageInfo:                cfg.ImageInfo,
 		CommonCollections:        cfg.CommonCollections,

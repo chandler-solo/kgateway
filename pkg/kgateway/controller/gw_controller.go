@@ -56,10 +56,10 @@ type gatewayReconciler struct {
 	controllerName string
 	enableEnvoy    bool
 
-	gwClient      kclient.Client[*gwv1.Gateway]
-	gwClassClient kclient.Client[*gwv1.GatewayClass]
-	gwParamClient kclient.Client[*kgateway.GatewayParameters]
-	nsClient      kclient.Client[*corev1.Namespace]
+	gwClient         kclient.Client[*gwv1.Gateway]
+	gwClassClient    kclient.Client[*gwv1.GatewayClass]
+	gwParamClient    kclient.Client[*kgateway.GatewayParameters]
+	nsClient         kclient.Client[*corev1.Namespace]
 	svcClient        kclient.Client[*corev1.Service]
 	deploymentClient kclient.Client[*appsv1.Deployment]
 	svcAccountClient kclient.Client[*corev1.ServiceAccount]
@@ -85,10 +85,10 @@ func NewGatewayReconciler(
 		enableEnvoy:         cfg.CommonCollections.Settings.EnableEnvoy,
 		controllerExtension: controllerExtension,
 
-		gwClient:      kclient.NewFilteredDelayed[*gwv1.Gateway](cfg.Client, gvr.KubernetesGateway, filter),
-		gwClassClient: kclient.NewFilteredDelayed[*gwv1.GatewayClass](cfg.Client, gvr.GatewayClass, filter),
-		nsClient:      kclient.NewFiltered[*corev1.Namespace](cfg.Client, filter),
-		svcClient:     kclient.NewFiltered[*corev1.Service](cfg.Client, filter),
+		gwClient:         kclient.NewFilteredDelayed[*gwv1.Gateway](cfg.Client, gvr.KubernetesGateway, filter),
+		gwClassClient:    kclient.NewFilteredDelayed[*gwv1.GatewayClass](cfg.Client, gvr.GatewayClass, filter),
+		nsClient:         kclient.NewFiltered[*corev1.Namespace](cfg.Client, filter),
+		svcClient:        kclient.NewFiltered[*corev1.Service](cfg.Client, filter),
 		deploymentClient: kclient.NewFiltered[*appsv1.Deployment](cfg.Client, filter),
 		svcAccountClient: kclient.NewFiltered[*corev1.ServiceAccount](cfg.Client, filter),
 		configMapClient:  kclient.NewFiltered[*corev1.ConfigMap](cfg.Client, filter),

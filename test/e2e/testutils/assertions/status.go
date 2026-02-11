@@ -435,4 +435,3 @@ func (p *Provider) EventuallyBackendCondition(
 		g.Expect(backend.Status.Conditions).To(matchers.HaveCondition(condition, expect))
 	}, currentTimeout, pollingInterval).Should(gomega.Succeed())
 }
-

@@ -285,7 +285,6 @@ func (i *TestInstallation) UninstallKgatewayCRDs(ctx context.Context, t *testing
 	i.AssertionsT(t).Require.NoError(err, "failed to uninstall CRD chart")
 }
 
-
 // PreFailHandler is the function that is invoked if a test in the given TestInstallation fails
 func (i *TestInstallation) PreFailHandler(ctx context.Context, t *testing.T) {
 	i.preFailHandler(ctx, t, i.GeneratedFiles.FailureDir)

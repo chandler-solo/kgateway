@@ -104,4 +104,3 @@ func (s *testingSuiteKgateway) TestZeroDowntimeRollout() {
 	s.Contains(string(cmd.Output()), "[200]	800 responses")
 	s.NotContains(string(cmd.Output()), "Error distribution")
 }
-

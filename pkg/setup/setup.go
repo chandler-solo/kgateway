@@ -5,7 +5,6 @@ import (
 
 	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"istio.io/istio/pkg/kube/kubetypes"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,8 +28,8 @@ type Options struct {
 	GatewayControllerName    string
 	GatewayClassName         string
 	WaypointGatewayClassName string
-	AdditionalGatewayClasses   map[string]*deployer.GatewayClassInfo
-	ExtraPlugins func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []sdk.Plugin
+	AdditionalGatewayClasses map[string]*deployer.GatewayClassInfo
+	ExtraPlugins             func(ctx context.Context, commoncol *collections.CommonCollections, mergeSettingsJSON string) []sdk.Plugin
 	// HelmValuesGeneratorOverride allows replacing the default helm values generation logic.
 	// When set, this generator will be used instead of the built-in GatewayParameters-based generator
 	// for all Gateways. This is a 1:1 replacement - you provide one generator that handles everything.

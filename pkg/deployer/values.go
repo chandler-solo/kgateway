@@ -86,7 +86,6 @@ type HelmGateway struct {
 
 	// stats values
 	Stats *HelmStatsConfig `json:"stats,omitempty"`
-
 }
 
 // helmPort represents a Gateway Listener port
@@ -198,4 +197,3 @@ type HelmEndpointPickerExtension struct {
 	PoolName      string `json:"poolName"`
 	PoolNamespace string `json:"poolNamespace"`
 }
-

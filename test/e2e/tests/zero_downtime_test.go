@@ -48,4 +48,3 @@ func TestZeroDowntimeRollout(t *testing.T) {
 
 	ZeroDowntimeRolloutSuiteRunner().Run(ctx, t, testInstallation)
 }
-

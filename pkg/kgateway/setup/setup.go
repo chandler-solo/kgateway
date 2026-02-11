@@ -192,11 +192,11 @@ type setup struct {
 	// extra controller manager config, like adding registering additional controllers
 	extraManagerConfig []func(ctx context.Context, mgr manager.Manager, objectFilter kubetypes.DynamicObjectFilter) error
 	// extra Runnable to add to the manager
-	extraRunnables       []func(ctx context.Context, commoncol *collections.CommonCollections, settings *apisettings.Settings) (bool, manager.Runnable)
-	krtDebugger          *krt.DebugHandler
-	globalSettings       *apisettings.Settings
-	leaderElectionID     string
-	validator            validator.Validator
+	extraRunnables   []func(ctx context.Context, commoncol *collections.CommonCollections, settings *apisettings.Settings) (bool, manager.Runnable)
+	krtDebugger      *krt.DebugHandler
+	globalSettings   *apisettings.Settings
+	leaderElectionID string
+	validator        validator.Validator
 
 	commonCollectionsOptions []collections.Option
 	statusSyncerOptions      []proxy_syncer.StatusSyncerOption

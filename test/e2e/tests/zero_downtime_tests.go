@@ -12,4 +12,3 @@ func ZeroDowntimeRolloutSuiteRunner() e2e.SuiteRunner {
 	zeroDowntimeSuiteRunner.Register("ZeroDowntimeRollout", zero_downtime_rollout.NewTestingSuiteKgateway)
 	return zeroDowntimeSuiteRunner
 }
-

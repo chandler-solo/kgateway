@@ -146,8 +146,8 @@ func NewProxySyncer(
 	validator validator.Validator,
 ) *ProxySyncer {
 	return &ProxySyncer{
-		controllerName: controllerName,
-		commonCols:     commonCols,
+		controllerName:           controllerName,
+		commonCols:               commonCols,
 		mgr:                      mgr,
 		apiClient:                client,
 		proxyTranslator:          NewProxyTranslator(xdsCache),

@@ -41,8 +41,8 @@ type HelmTestCase struct {
 }
 
 type DeployerTester struct {
-	ControllerName string
-	ClassName      string
+	ControllerName    string
+	ClassName         string
 	WaypointClassName string
 }
 
