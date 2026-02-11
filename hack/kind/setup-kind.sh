@@ -18,8 +18,6 @@ JUST_KIND="${JUST_KIND:-false}"
 CONFORMANCE_VERSION="${CONFORMANCE_VERSION:-$(go list -m sigs.k8s.io/gateway-api | awk '{print $2}')}"
 # The channel of the k8s gateway api conformance tests to run.
 CONFORMANCE_CHANNEL="${CONFORMANCE_CHANNEL:-"experimental"}"
-# The version of the k8s gateway api inference extension CRDs to install. Managed by `make bump-gie`.
-GIE_CRD_VERSION="v1.1.0"
 # The kind CLI to use. Defaults to the latest version from the kind repo.
 KIND="${KIND:-go tool kind}"
 # The helm CLI to use. Defaults to the latest version from the helm repo.
@@ -69,9 +67,6 @@ function create_and_setup() {
   else
     kubectl apply --server-side --kustomize "https://github.com/kubernetes-sigs/gateway-api/config/crd/$CONFORMANCE_CHANNEL?ref=$CONFORMANCE_VERSION"
   fi
-
-  # 6. Apply the Kubernetes Gateway API Inference Extension CRDs
-  make gie-crds
 
   # TODO: extract metallb install to a diff function so we can let it run in the background
   . $SCRIPT_DIR/setup-metalllb-on-kind.sh
