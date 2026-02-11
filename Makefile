@@ -689,12 +689,12 @@ package-agentgateway-crd-chart: ## Package the agentgateway crd chart
 
 # VERSION_NO_V strips the leading 'v' from VERSION (e.g., v2.0.0 -> 2.0.0)
 VERSION_NO_V := $(patsubst v%,%,$(VERSION))
-CHART_NAMES := kgateway kgateway-crds agentgateway agentgateway-crds
+CHART_NAMES := kgateway kgateway-crds
 
 .PHONY: release-charts
-release-charts: ## Release the kgateway and agentgateway charts (publishes both vX.Y.Z and X.Y.Z tags)
+release-charts: ## Release the kgateway charts (publishes both vX.Y.Z and X.Y.Z tags)
 	@for v in $(VERSION) $(VERSION_NO_V); do \
-		$(MAKE) package-kgateway-charts package-agentgateway-charts VERSION=$$v; \
+		$(MAKE) package-kgateway-charts VERSION=$$v; \
 		for chart in $(CHART_NAMES); do \
 			$(HELM) push $(TEST_ASSET_DIR)/$$chart-$$v.tgz oci://$(IMAGE_REGISTRY)/charts; \
 		done; \
