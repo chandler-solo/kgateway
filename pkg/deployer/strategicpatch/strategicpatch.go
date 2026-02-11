@@ -168,20 +168,10 @@ func applyOverlay(obj client.Object, overlay *shared.KubernetesResourceOverlay, 
 	// Apply metadata first
 	if overlay.Metadata != nil {
 		if overlay.Metadata.Labels != nil {
-			existingLabels := obj.GetLabels()
-			if existingLabels == nil {
-				existingLabels = make(map[string]string)
-			}
-			maps.Copy(existingLabels, overlay.Metadata.Labels)
-			obj.SetLabels(existingLabels)
+			obj.SetLabels(mergeMetadataMap(obj.GetLabels(), overlay.Metadata.Labels))
 		}
 		if overlay.Metadata.Annotations != nil {
-			existingAnnotations := obj.GetAnnotations()
-			if existingAnnotations == nil {
-				existingAnnotations = make(map[string]string)
-			}
-			maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
-			obj.SetAnnotations(existingAnnotations)
+			obj.SetAnnotations(mergeMetadataMap(obj.GetAnnotations(), overlay.Metadata.Annotations))
 		}
 	}
 
@@ -191,6 +181,24 @@ func applyOverlay(obj client.Object, overlay *shared.KubernetesResourceOverlay, 
 	}
 
 	return obj, nil
+}
+
+// mergeMetadataMap merges overlay values into existing metadata (labels or
+// annotations). Empty string values in the overlay cause the key to be deleted
+// from the result, since YAML null deserializes to "" in map[string]string and
+// null conventionally means "remove this key".
+func mergeMetadataMap(existing, overlay map[string]string) map[string]string {
+	if existing == nil {
+		existing = make(map[string]string)
+	}
+	for k, v := range overlay {
+		if v == "" {
+			delete(existing, k)
+		} else {
+			existing[k] = v
+		}
+	}
+	return existing
 }
 
 // applySpecOverlay applies a spec overlay using strategic merge patch semantics.
@@ -365,20 +373,10 @@ func createVerticalPodAutoscaler(deployment *appsv1.Deployment, overlay *shared.
 	// Apply the overlay - for VPA we need to handle it specially since it's unstructured
 	if overlay.Metadata != nil {
 		if overlay.Metadata.Labels != nil {
-			existingLabels := vpa.GetLabels()
-			if existingLabels == nil {
-				existingLabels = make(map[string]string)
-			}
-			maps.Copy(existingLabels, overlay.Metadata.Labels)
-			vpa.SetLabels(existingLabels)
+			vpa.SetLabels(mergeMetadataMap(vpa.GetLabels(), overlay.Metadata.Labels))
 		}
 		if overlay.Metadata.Annotations != nil {
-			existingAnnotations := vpa.GetAnnotations()
-			if existingAnnotations == nil {
-				existingAnnotations = make(map[string]string)
-			}
-			maps.Copy(existingAnnotations, overlay.Metadata.Annotations)
-			vpa.SetAnnotations(existingAnnotations)
+			vpa.SetAnnotations(mergeMetadataMap(vpa.GetAnnotations(), overlay.Metadata.Annotations))
 		}
 	}
 

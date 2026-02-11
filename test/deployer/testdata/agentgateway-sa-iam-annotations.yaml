@@ -24,9 +24,9 @@ spec:
   deployment:
     metadata:
       labels:
-        # You'd think this would remove the app.kubernetes.io/instance label,
-        # but it just sets the label to the empty string. TODO(chandler):
-        # Figure out the incantation to cause removal of the label.
+        # Setting a label to null in the overlay removes it from the rendered
+        # resource. YAML null deserializes to "" in map[string]string, and the
+        # overlay merge treats empty string values as deletions.
         app.kubernetes.io/instance: null
 ---
 kind: Gateway
