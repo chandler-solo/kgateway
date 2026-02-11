@@ -270,15 +270,14 @@ jobs:
             oci://${{ env.IMAGE_REGISTRY }}/charts/kgateway \
             --set image.registry=${{ env.IMAGE_REGISTRY }} \
             --version ${{ needs.setup.outputs.version }} \
-            --set inferenceExtension.enabled=true \
             --wait --timeout 5m
 
       - name: Wait for the kgateway deployment to be ready
         run: |
           kubectl wait --for=condition=available --timeout=5m deployment/kgateway -n kgateway-system
 
-      - name: Run Gateway API and Inference Extension Conformance Tests
-        run: make all-conformance
+      - name: Run Gateway API Conformance Tests
+        run: make conformance
         shell: bash
         env:
           VERSION: ${{ needs.setup.outputs.version }}
