@@ -42,26 +42,6 @@ jobs:
         kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
         kind-node-version: ${{ steps.dotenv.outputs.node_version }}
 
-  # gie_conformance_tests:
-  #   name: Kubernetes Gateway API Inference Extension Conformance Tests
-  #   runs-on: ubuntu-22.04
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #   - name: Dotenv Action
-  #     uses: falti/dotenv-action@v1.1.4
-  #     id: dotenv
-  #     with:
-  #       path: "./.github/workflows/.env/pr-tests/versions.env"
-  #       log-variables: true
-  #   - name: Run GIE Conformance Tests
-  #     uses: ./.github/actions/kube-conformance-tests
-  #     with:
-  #       test-type: inference-extension
-  #       api-channel: experimental
-  #       enable-inference-extension: true
-  #       kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
-  #       kind-node-version: ${{ steps.dotenv.outputs.node_version }}
-
   conformance:
     if: always()
     name: Kubernetes Gateway API Conformance Tests

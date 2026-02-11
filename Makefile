@@ -732,18 +732,6 @@ else
 endif
 endif
 
-# The version of the k8s gateway api inference extension CRDs to install.
-# Managed by `make bump-gie`.
-GIE_CRD_VERSION ?= v1.1.0
-
-.PHONY: gie-crds
-gie-crds: ## Install the Gateway API Inference Extension CRDs
-ifeq ($(shell echo $(GIE_CRD_VERSION) | grep -q '^v[0-9]' && echo yes),yes)
-	kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_CRD_VERSION)/manifests.yaml"
-else
-	kubectl apply --kustomize "https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=$(GIE_CRD_VERSION)"
-endif
-
 .PHONY: kind-metallb
 metallb: ## Install the MetalLB load balancer
 	./hack/kind/setup-metalllb-on-kind.sh
@@ -752,7 +740,7 @@ metallb: ## Install the MetalLB load balancer
 deploy-kgateway: package-kgateway-charts deploy-kgateway-crd-chart deploy-kgateway-chart ## Deploy the kgateway chart and CRDs
 
 .PHONY: setup-base
-setup-base: kind-create gw-api-crds gie-crds metallb ## Setup the base infrastructure (kind cluster, CRDs, and MetalLB)
+setup-base: kind-create gw-api-crds metallb ## Setup the base infrastructure (kind cluster, CRDs, and MetalLB)
 
 # Creates a functional kind cluster, builds and loads all images, and packages charts
 # Does NOT deploy anything to the cluster
@@ -861,49 +849,9 @@ conformance-%:  ## Run only the specified Gateway API conformance test by ShortN
 	go test -mod=mod -ldflags='$(LDFLAGS)' -tags conformance -test.v $(CONFORMANCE_TEST_DIR) -args $(CONFORMANCE_ARGS) \
 	-run-test=$*
 
-#----------------------------------------------------------------------------------
-# Targets for running Gateway API Inference Extension conformance tests
-#----------------------------------------------------------------------------------
-
-# Reporting flags, identical to CONFORMANCE_REPORT_ARGS but with "inference-"
-GIE_CONFORMANCE_REPORT_ARGS ?= \
-    -report-output=$(TEST_ASSET_DIR)/conformance/inference-$(VERSION)-report.yaml \
-    -organization=kgateway-dev \
-    -project=kgateway \
-    -version=$(VERSION) \
-    -url=github.com/kgateway-dev/kgateway \
-    -contact=github.com/kgateway-dev/kgateway/issues/new/choose
-
-GIE_CONFORMANCE_GATEWAY_CLASS ?= kgateway
-
-# The args to pass into the Gateway API Inference Extension conformance test suite.
-GIE_CONFORMANCE_ARGS := \
-    -gateway-class=$(GIE_CONFORMANCE_GATEWAY_CLASS) \
-    $(GIE_CONFORMANCE_REPORT_ARGS)
-
-INFERENCE_CONFORMANCE_DIR := $(shell go list -m -f '{{.Dir}}' sigs.k8s.io/gateway-api-inference-extension)/conformance
-
-.PHONY: gie-conformance
-gie-conformance: gie-crds ## Run the Gateway API Inference Extension conformance suite
-	@mkdir -p $(TEST_ASSET_DIR)/conformance
-	go test -mod=mod -ldflags='$(LDFLAGS)' \
-	    -tags conformance \
-	    -timeout=35m \
-	    -v $(INFERENCE_CONFORMANCE_DIR) \
-	    -args $(GIE_CONFORMANCE_ARGS)
-
-.PHONY: gie-conformance-%
-gie-conformance-%: gie-crds ## Run only the specified Gateway API Inference Extension conformance test by ShortName
-	@mkdir -p $(TEST_ASSET_DIR)/conformance
-	go test -mod=mod -ldflags='$(LDFLAGS)' \
-	    -tags conformance \
-	    -timeout=35m \
-	    -v $(INFERENCE_CONFORMANCE_DIR) \
-	    -args $(GIE_CONFORMANCE_ARGS) -run-test=$*
-
-# An alias to run both Gateway API and Inference Extension conformance tests.
+# An alias target for running all conformance test suites.
 .PHONY: all-conformance
-all-conformance: conformance gie-conformance ## Run all conformance test suites
+all-conformance: conformance ## Run all conformance test suites
 	@echo "All conformance suites have completed."
 
 #----------------------------------------------------------------------------------
@@ -919,18 +867,6 @@ bump-gtw: ## Bump Gateway API deps to $DEP_REF (or $DEP_VERSION). Example: make 
 	fi; \
 	echo "Bumping Gateway API to $${DEP_REF}"; \
 	hack/bump_deps.sh gtw "$$DEP_REF"; \
-	echo "Updating licensing..."; \
-	$(MAKE) generate-licenses
-
-.PHONY: bump-gie
-bump-gie: ## Bump Gateway API Inference Extension to $DEP_REF (or $DEP_VERSION). Example: make bump-gie DEP_REF=198e6cab...
-	@if [ -z "$${DEP_REF:-}" ] && [ -n "$${DEP_VERSION:-}" ]; then DEP_REF="$$DEP_VERSION"; fi; \
-	if [ -z "$${DEP_REF:-}" ]; then \
-	  echo "DEP_REF is not set (or DEP_VERSION). e.g. make bump-gie DEP_REF=v0.5.1 or DEP_REF=198e6cab6774..."; \
-	  exit 2; \
-	fi; \
-	echo ">>> Bumping Gateway API Inference Extension to $${DEP_REF}"; \
-	hack/bump_deps.sh gie "$$DEP_REF"; \
 	echo "Updating licensing..."; \
 	$(MAKE) generate-licenses
 
