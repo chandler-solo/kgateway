@@ -28,8 +28,6 @@ HELM="${HELM:-go tool helm}"
 LOCALSTACK="${LOCALSTACK:-false}"
 # Registry cache reference for envoyinit Docker build (optional)
 ENVOYINIT_CACHE_REF="${ENVOYINIT_CACHE_REF:-}"
-# If true, build and load agentgateway images instead of envoy
-AGENTGATEWAY="${AGENTGATEWAY:-false}"
 
 # Export the variables so they are available in the environment
 export VERSION CLUSTER_NAME ENVOYINIT_CACHE_REF
@@ -89,14 +87,9 @@ if [[ $SKIP_DOCKER == 'true' ]]; then
   echo "SKIP_DOCKER=true, not building images or chart"
 else
   # 2. Make all the docker images and load them to the kind cluster
-  if [[ $AGENTGATEWAY == 'true' ]]; then
-    # Skip expensive envoy build
-    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load-agentgateway-controller kind-build-and-load-dummy-idp
-  else
-    VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load kind-build-and-load-dummy-idp
-  fi
+  VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load kind-build-and-load-dummy-idp
 
-  VERSION=$VERSION make package-kgateway-charts package-agentgateway-charts
+  VERSION=$VERSION make package-kgateway-charts
 fi
 
 # 7. Setup localstack
