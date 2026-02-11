@@ -136,20 +136,6 @@ runs:
           --set image.tag=${VERSION} \
           ${INFERENCE_EXT_FLAG} \
           ${ADDITIONAL_VALUES}
-        
-        # For agentgateway and inference-extension tests, also install the agentgateway chart
-        if [[ "${{ inputs.test-type }}" == "agentgateway" || "${{ inputs.test-type }}" == "inference-extension" ]]; then
-          helm upgrade -i -n agentgateway-system agentgateway-crds oci://${{ env.AGW_VANITY_REGISTRY }}/charts/agentgateway-crds \
-            --version ${VERSION} \
-            --create-namespace
-          helm upgrade -i -n agentgateway-system agentgateway oci://${{ env.AGW_VANITY_REGISTRY }}/charts/agentgateway \
-            --version ${VERSION} \
-            --create-namespace \
-            ${EXPERIMENTAL_FLAG} \
-            --set image.tag=${VERSION} \
-            ${INFERENCE_EXT_FLAG} \
-            ${ADDITIONAL_VALUES}
-        fi
       fi
 
   - name: Run tests
