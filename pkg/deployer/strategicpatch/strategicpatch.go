@@ -163,30 +163,94 @@ func (a *OverlayApplier) ApplyOverlays(objs []client.Object) ([]client.Object, e
 	return objs, nil
 }
 
-// applyOverlay applies a KubernetesResourceOverlay to a single object.
+// applyOverlay applies a KubernetesResourceOverlay to a single object using
+// a unified strategic merge patch. Both metadata (labels/annotations) and spec
+// overlays are combined into a single SMP patch and applied atomically.
 func applyOverlay(obj client.Object, overlay *shared.KubernetesResourceOverlay, gvk schema.GroupVersionKind) (client.Object, error) {
-	// Apply metadata first
+	patch := make(map[string]json.RawMessage)
+
 	if overlay.Metadata != nil {
-		if overlay.Metadata.Labels != nil {
-			obj.SetLabels(mergeMetadataMap(obj.GetLabels(), overlay.Metadata.Labels))
-		}
-		if overlay.Metadata.Annotations != nil {
-			obj.SetAnnotations(mergeMetadataMap(obj.GetAnnotations(), overlay.Metadata.Annotations))
+		metaPatch := buildMetadataPatch(overlay.Metadata)
+		if metaPatch != nil {
+			metaBytes, err := json.Marshal(metaPatch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal metadata patch: %w", err)
+			}
+			patch["metadata"] = metaBytes
 		}
 	}
 
-	// Apply spec overlay using strategic merge patch if present
 	if overlay.Spec != nil && len(overlay.Spec.Raw) > 0 {
-		return applySpecOverlay(obj, overlay.Spec.Raw, gvk)
+		patch["spec"] = overlay.Spec.Raw
 	}
 
-	return obj, nil
+	if len(patch) == 0 {
+		return obj, nil
+	}
+
+	dataObj, err := getDataObjectForGVK(gvk)
+	if err != nil {
+		return nil, fmt.Errorf("unsupported kind %s for strategic merge patch: %w", gvk.Kind, err)
+	}
+
+	originalBytes, err := json.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal original object: %w", err)
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	patchedBytes, err := strategicpatch.StrategicMergePatch(originalBytes, patchBytes, dataObj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to apply strategic merge patch: %w", err)
+	}
+
+	patchedObj, err := deserializeToObject(patchedBytes, gvk)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize patched object: %w", err)
+	}
+
+	return patchedObj, nil
+}
+
+// buildMetadataPatch converts ObjectMetadata into a JSON-compatible map where
+// empty string values become nil (JSON null). This is needed because YAML null
+// deserializes to "" in map[string]string, and SMP uses null to delete map keys.
+func buildMetadataPatch(meta *shared.ObjectMetadata) map[string]any {
+	result := make(map[string]any)
+	if meta.Labels != nil {
+		result["labels"] = stringMapToNullable(meta.Labels)
+	}
+	if meta.Annotations != nil {
+		result["annotations"] = stringMapToNullable(meta.Annotations)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+// stringMapToNullable converts a map[string]string to map[string]any where
+// empty string values become nil (JSON null), enabling key deletion via SMP.
+func stringMapToNullable(m map[string]string) map[string]any {
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if v == "" {
+			result[k] = nil
+		} else {
+			result[k] = v
+		}
+	}
+	return result
 }
 
 // mergeMetadataMap merges overlay values into existing metadata (labels or
-// annotations). Empty string values in the overlay cause the key to be deleted
-// from the result, since YAML null deserializes to "" in map[string]string and
-// null conventionally means "remove this key".
+// annotations). Empty string values in the overlay cause the key to be deleted.
+// Used only for unstructured objects (VPA) that can't go through SMP with
+// typed schemas.
 func mergeMetadataMap(existing, overlay map[string]string) map[string]string {
 	if existing == nil {
 		existing = make(map[string]string)
@@ -199,45 +263,6 @@ func mergeMetadataMap(existing, overlay map[string]string) map[string]string {
 		}
 	}
 	return existing
-}
-
-// applySpecOverlay applies a spec overlay using strategic merge patch semantics.
-func applySpecOverlay(obj client.Object, patchBytes []byte, gvk schema.GroupVersionKind) (client.Object, error) {
-	// Get the schema for strategic merge patch
-	dataObj, err := getDataObjectForGVK(gvk)
-	if err != nil {
-		return nil, fmt.Errorf("unsupported kind %s for strategic merge patch: %w", gvk.Kind, err)
-	}
-
-	// Serialize the original object to JSON
-	originalBytes, err := json.Marshal(obj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal original object: %w", err)
-	}
-
-	// The patch from the user is for the spec field, but strategic merge patch
-	// expects the full object structure. Wrap the patch in a spec field.
-	wrappedPatch := map[string]json.RawMessage{
-		"spec": patchBytes,
-	}
-	wrappedPatchBytes, err := json.Marshal(wrappedPatch)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal wrapped patch: %w", err)
-	}
-
-	// Apply strategic merge patch
-	patchedBytes, err := strategicpatch.StrategicMergePatch(originalBytes, wrappedPatchBytes, dataObj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to apply strategic merge patch: %w", err)
-	}
-
-	// Deserialize back to the object
-	patchedObj, err := deserializeToObject(patchedBytes, gvk)
-	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize patched object: %w", err)
-	}
-
-	return patchedObj, nil
 }
 
 // getDataObjectForGVK returns an empty object of the appropriate type for strategic merge patch.
