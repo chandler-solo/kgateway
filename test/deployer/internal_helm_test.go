@@ -516,7 +516,7 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 // 3. Update this test's resource lists
 func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 	// Guard: if ResourceOverlays gains new fields, this test must be updated.
-	numFields := reflect.TypeOf(strategicpatch.ResourceOverlays{}).NumField()
+	numFields := reflect.TypeFor[strategicpatch.ResourceOverlays]().NumField()
 	require.Equal(t, 6, numFields,
 		"ResourceOverlays struct field count changed; update this test's resource lists "+
 			"and add +kubebuilder:rbac markers in doc.go for any new resource types")
