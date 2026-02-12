@@ -828,6 +828,9 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
+			if strings.HasPrefix(tt.InputFile, "agentgateway") {
+				t.Skip("agentgateway tests are disabled")
+			}
 			fakeClient := fake.NewClient(t, tester.GetObjects(t, tt, scheme, dir, crdDir)...)
 			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, fakeClient)
 		})

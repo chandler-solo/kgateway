@@ -55,7 +55,7 @@ func NewCommonCols(t test.Failer, initObjs ...client.Object) *collections.Common
 		AgentgatewayControllerName: wellknown.DefaultAgwControllerName,
 		Settings: apisettings.Settings{
 			EnableEnvoy:        true,
-			EnableAgentgateway: true,
+			EnableAgentgateway: false,
 		},
 	}
 

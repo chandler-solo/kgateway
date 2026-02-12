@@ -208,7 +208,7 @@ type Settings struct {
 	EnableEnvoy bool `split_words:"true" default:"true"`
 
 	// EnableAgentgateway enables kgateway to send config to Agentgateway
-	EnableAgentgateway bool `split_words:"true" default:"true"`
+	EnableAgentgateway bool `split_words:"true" default:"false"`
 
 	// WeightedRoutePrecedence enables routes with a larger weight to take precedence over routes with a smaller weight.
 	// If two routes have the same weight, Gateway API route precedence rules apply.

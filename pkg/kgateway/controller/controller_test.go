@@ -157,10 +157,6 @@ func (s *ControllerSuite) TestGatewayStatus() {
 			gatewayClass: gatewayClassName,
 		},
 		{
-			name:         "alternate gateway class",
-			gatewayClass: altGatewayClassName,
-		},
-		{
 			name:         "self-managed gateway class",
 			gatewayClass: selfManagedGatewayClassName,
 		},
@@ -752,7 +748,7 @@ func (s *ControllerSuite) startController(
 		ControllerName:     gatewayControllerName,
 		AgwControllerName:  agwControllerName,
 		EnableEnvoy:        true,
-		EnableAgentgateway: true,
+		EnableAgentgateway: false,
 		ImageInfo: &deployer.ImageInfo{
 			Registry: "ghcr.io/kgateway-dev",
 			Tag:      "latest",

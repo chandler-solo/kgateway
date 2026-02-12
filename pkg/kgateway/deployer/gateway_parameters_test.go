@@ -169,7 +169,7 @@ func newCommonCols(t test.Failer, initObjs ...client.Object) *collections.Common
 
 	settings := apisettings.Settings{
 		EnableEnvoy:        true,
-		EnableAgentgateway: true,
+		EnableAgentgateway: false,
 	}
 
 	policies := krtcollections.NewPolicyIndex(krtutil.KrtOptions{}, sdk.ContributesPolicies{}, settings)

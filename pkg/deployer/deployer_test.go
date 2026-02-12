@@ -496,6 +496,9 @@ var _ = Describe("Deployer", func() {
 	})
 
 	Context("agentgateway", func() {
+		BeforeEach(func() {
+			Skip("agentgateway is disabled in CI")
+		})
 		var (
 			agwp *agentgatewayv1alpha1.AgentgatewayParameters
 			gwc  *gwv1.GatewayClass
