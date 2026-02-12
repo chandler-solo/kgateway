@@ -3,11 +3,6 @@
 ## Project Overview
 kgateway is a control plane implementing the Kubernetes Gateway API for Envoy. It's built on KRT (Kubernetes Declarative Controller Runtime from Istio) and uses a plugin-based architecture for extensibility.
 
-## Dual Controller Architecture
-
-### Controller Names & Isolation
-kgateway supports the controller `kgateway.dev/kgateway` (defined in `wellknown.DefaultGatewayControllerName`)
-
 ## Architecture (Read This First!)
 
 ### Translation Pipeline (3 phases)
