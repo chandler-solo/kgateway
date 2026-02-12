@@ -145,7 +145,6 @@ func (s *testingSuite) TestLeaderDeploysProxy() {
 func (s *testingSuite) getLeader() string {
 	var leaderPodName string
 	s.Require().EventuallyWithT(func(c *assert.CollectT) {
-		// kgateway chart: only Envoy enabled -> lease is "kgateway-envoy"
 		leaseID := s.getLeaderElectionID()
 		holder, err := s.TestInstallation.Actions.Kubectl().GetLeaseHolder(s.Ctx, s.TestInstallation.Metadata.InstallNamespace, leaseID)
 		assert.NoError(c, err, "failed to get lease")
@@ -164,7 +163,7 @@ func (s *testingSuite) getLeader() string {
 // getLeaderElectionID returns the leader election ID.
 // This matches the logic in pkg/kgateway/setup/setup.go.
 func (s *testingSuite) getLeaderElectionID() string {
-	return wellknown.LeaderElectionID + "-envoy"
+	return wellknown.LeaderElectionID
 }
 
 func (s *testingSuite) leadershipChanges(oldLeader string) {
