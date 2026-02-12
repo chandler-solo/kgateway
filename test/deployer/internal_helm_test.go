@@ -555,13 +555,6 @@ func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 			roleFile:  filepath.Join(rootDir, "install/helm/kgateway/templates/role.yaml"),
 			resources: allOverlayResources, // kgateway supports all overlay types including VPA
 		},
-		{
-			name:     "agentgateway",
-			roleFile: filepath.Join(rootDir, "install/helm/agentgateway/templates/role.yaml"),
-			// Agentgateway supports all overlay types except VerticalPodAutoscaler
-			// (see strategicpatch.FromAgentgatewayParameters which sets VPA to nil)
-			resources: allOverlayResources[:len(allOverlayResources)-1],
-		},
 	}
 
 	for _, tt := range tests {

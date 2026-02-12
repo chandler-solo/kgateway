@@ -118,12 +118,6 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 	setupLog.Info("initializing kgateway extensions")
 
 	var gatedPlugins []sdk.Plugin
-	// Extend the scheme if the inference extension is enabled and the InferencePool CRD exists.
-	if cfg.SetupOpts.GlobalSettings.EnableInferExt {
-		if _, err := kgtwschemes.AddInferExtV1Scheme(cfg.RestConfig, cfg.Manager.GetScheme()); err != nil {
-			return nil, err
-		}
-	}
 	// Add the waypoint plugin if enabled
 	if cfg.SetupOpts.GlobalSettings.EnableWaypoint {
 		setupLog.Info("adding the waypoint plugin")

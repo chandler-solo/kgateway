@@ -31,27 +31,6 @@ func AddGatewayV1A2Scheme(restConfig *rest.Config, scheme *runtime.Scheme) error
 	return nil
 }
 
-// AddInferExtV1Scheme adds the Inference Extension v1 and k8s RBAC v1 schemes to the
-// provided scheme if the InferencePool CRD exists.
-func AddInferExtV1Scheme(restConfig *rest.Config, scheme *runtime.Scheme) (bool, error) {
-	exists, err := CRDExists(restConfig, inf.GroupVersion.Group, inf.GroupVersion.Version, wellknown.InferencePoolKind)
-	if err != nil {
-		return false, fmt.Errorf("error checking if %s CRD exists: %w", wellknown.InferencePoolKind, err)
-	}
-
-	if exists {
-		// Required to deploy RBAC resources for endpoint picker extension.
-		if err := rbacv1.AddToScheme(scheme); err != nil {
-			return false, fmt.Errorf("error adding RBAC v1 to scheme: %w", err)
-		}
-		if err := inf.Install(scheme); err != nil {
-			return false, fmt.Errorf("error adding Gateway API Inference Extension v1 to scheme: %w", err)
-		}
-	}
-
-	return exists, nil
-}
-
 // Helper function to check if a CRD exists
 func CRDExists(restConfig *rest.Config, group, version, kind string) (bool, error) {
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)

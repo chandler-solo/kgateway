@@ -168,9 +168,6 @@ type Settings struct {
 
 	UseRustFormations bool `split_words:"true" default:"true"`
 
-	// EnableInferExt defines whether to enable/disable support for Gateway API inference extension.
-	EnableInferExt bool `split_words:"true"`
-
 	// DefaultImageRegistry is the default image registry to use for the kgateway image.
 	DefaultImageRegistry string `split_words:"true" default:"cr.kgateway.dev"`
 	// DefaultImageTag is the default image tag to use for the kgateway image.
