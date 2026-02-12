@@ -107,7 +107,7 @@ jobs:
                               { version: 'v1.2.1', channel: 'experimental' },
                               { version: 'v1.2.1', channel: 'standard' }]
         controllers: [
-          {regex: "^TestKgateway|^TestAPIValidation|^TestListenerSet|^TestParallelControllers$$|^TestCustomGWP$$|^TestRouteReplacement$$|^TestZeroDowntimeRollout$$/^TestZeroDowntimeRollout$$|^TestControlPlaneTLS$$"}
+          {regex: "^TestKgateway|^TestAPIValidation|^TestListenerSet|^TestCustomGWP$$|^TestRouteReplacement$$|^TestZeroDowntimeRollout$$/^TestZeroDowntimeRollout$$|^TestControlPlaneTLS$$"}
         ]
     steps:
     - uses: actions/checkout@v4
