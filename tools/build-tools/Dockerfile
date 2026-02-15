@@ -1,9 +1,15 @@
 # Based on Istio's build-tools image: https://github.com/istio/tools/tree/228d21452fd640bf7389d7d41fecaa715ce73249/docker/build-tools
-ARG GO_VERSION=1.25.7
-ARG GO_BASE_IMAGE=golang:${GO_VERSION}-bookworm
 ARG UBUNTU_BASE_IMAGE=ubuntu:noble
 
-FROM ${GO_BASE_IMAGE} AS go_context
+# Download the Go version declared in go.mod (the canonical source of truth).
+FROM ${UBUNTU_BASE_IMAGE} AS go_context
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+COPY go.mod /tmp/go.mod
+RUN set -eux; \
+    GO_VERSION=$(grep '^go ' /tmp/go.mod | awk '{print $2}'); \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz
+
 FROM ${UBUNTU_BASE_IMAGE} AS build_tools
 
 ARG TARGETARCH
