@@ -24,7 +24,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Pinned tool versions (keep aligned with `go.mod` and repo tooling where possible)
 ENV RUST_VERSION=1.86.0
 ENV KUBECTL_VERSION=1.35.0
-ENV HELM_VERSION=v3.19.2
 ENV PROTOC_VERSION=33.2
 ENV BUF_VERSION=v1.62.1
 ENV YQ_VERSION=4.50.1
@@ -97,6 +96,9 @@ RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
 # Go toolchain (copy from official golang image to match go.mod)
 COPY --from=go_context /usr/local/go /usr/local/go
 
+# go.mod is the single source of truth for Go and Helm versions.
+COPY go.mod /tmp/go.mod
+
 # Install protoc
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -119,8 +121,10 @@ RUN set -eux; \
 COPY tools/build-tools/kind /usr/local/bin/kind
 RUN chmod 555 /usr/local/bin/kind
 
-# helm
+# helm (version from go.mod helm.sh/helm/v3)
 RUN set -eux; \
+    HELM_VERSION=$(grep 'helm.sh/helm/v3' /tmp/go.mod | awk '{print $2}'); \
+    test -n "$HELM_VERSION" || { echo "Failed to extract Helm version from go.mod"; exit 1; }; \
     curl -fsSL -o /tmp/helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz"; \
     mkdir -p /tmp/helm; \
     tar -xzf /tmp/helm.tgz -C /tmp/helm; \

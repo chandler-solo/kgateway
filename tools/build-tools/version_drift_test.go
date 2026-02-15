@@ -6,8 +6,6 @@ import (
 	"regexp"
 	"runtime"
 	"testing"
-
-	"golang.org/x/mod/modfile"
 )
 
 func TestDockerfileVersionsMatchGoMod(t *testing.T) {
@@ -22,33 +20,15 @@ func TestDockerfileVersionsMatchGoMod(t *testing.T) {
 	}
 	dockerfile := string(dockerfileBytes)
 
-	// Go version is now extracted directly from go.mod at Docker build time,
-	// so there is no hardcoded ARG to drift.
-
-	gotHelmVersion := mustMatch1(t, dockerfile, `(?m)^ENV HELM_VERSION=([^\s]+)\s*$`, "Dockerfile ENV HELM_VERSION")
-
-	goModPath := filepath.Join(rootDir, "go.mod")
-	goModBytes, err := os.ReadFile(goModPath)
-	if err != nil {
-		t.Fatalf("read go.mod: %v", err)
+	// Go and Helm versions are extracted directly from go.mod at Docker build
+	// time, so there are no hardcoded values to drift. Verify the Dockerfile
+	// does NOT contain stale hardcoded versions.
+	if regexp.MustCompile(`(?m)^ARG GO_VERSION=`).FindStringIndex(dockerfile) != nil {
+		t.Fatalf("Dockerfile should not hardcode ARG GO_VERSION; the Go version is derived from go.mod at build time")
 	}
-
-	parsed, err := modfile.Parse(goModPath, goModBytes, nil)
-	if err != nil {
-		t.Fatalf("parse go.mod: %v", err)
+	if regexp.MustCompile(`(?m)^ENV HELM_VERSION=`).FindStringIndex(dockerfile) != nil {
+		t.Fatalf("Dockerfile should not hardcode ENV HELM_VERSION; the Helm version is derived from go.mod at build time")
 	}
-	if parsed.Go == nil || parsed.Go.Version == "" {
-		t.Fatalf("go.mod is missing a go version directive")
-	}
-
-	wantHelmVersion := requireVersion(t, parsed, "helm.sh/helm/v3")
-
-	t.Run("helm", func(t *testing.T) {
-		t.Parallel()
-		if gotHelmVersion != wantHelmVersion {
-			t.Fatalf("HELM_VERSION drift detected: Dockerfile has %q, go.mod helm.sh/helm/v3 is %q", gotHelmVersion, wantHelmVersion)
-		}
-	})
 
 	t.Run("kind", func(t *testing.T) {
 		t.Parallel()
@@ -107,26 +87,3 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-func mustMatch1(t *testing.T, content, pattern, label string) string {
-	t.Helper()
-
-	re := regexp.MustCompile(pattern)
-	m := re.FindStringSubmatch(content)
-	if len(m) != 2 {
-		t.Fatalf("%s not found (pattern %q)", label, pattern)
-	}
-	return m[1]
-}
-
-func requireVersion(t *testing.T, mf *modfile.File, modulePath string) string {
-	t.Helper()
-
-	for _, req := range mf.Require {
-		if req.Mod.Path == modulePath {
-			return req.Mod.Version
-		}
-	}
-
-	t.Fatalf("go.mod is missing required module %q", modulePath)
-	return ""
-}
