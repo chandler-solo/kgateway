@@ -308,16 +308,6 @@ func refGrant() *gwv1b1.ReferenceGrant {
 	}
 }
 
-// Helper that calls refGrant() but with its Namespace set to the given namespace
-func refGrantWithNs(ns string) *gwv1b1.ReferenceGrant {
-	rg := refGrant()
-	rg.Namespace = ns
-	for i := range rg.Spec.From {
-		rg.Spec.From[i].Namespace = gwv1.Namespace("default")
-	}
-	return rg
-}
-
 // Helper that creates a ReferenceGrant for Backend resources
 func refGrantWithBackend() *gwv1b1.ReferenceGrant {
 	return &gwv1b1.ReferenceGrant{
