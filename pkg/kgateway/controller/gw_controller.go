@@ -159,45 +159,44 @@ func NewGatewayReconciler(
 		p := fetchGatewaysByGatewayClass(o)
 		return []types.NamespacedName{p}
 	})
-	// gatewayParamEventHandler reconciles Gateways when any gateway parameters object
-	// (GatewayParameters or AgentgatewayParameters) changes. The logic is the same for both:
-	// look up Gateways that reference the parameter directly or via GatewayClass.
-	gatewayParamEventHandler := controllers.ObjectHandler(func(o controllers.Object) {
-		paramName := o.GetName()
-		paramNamespace := o.GetNamespace()
-		paramRef := types.NamespacedName{Namespace: paramNamespace, Name: paramName}
+	// gwParamEventHandler is a handler that reconciles Gateways based on GatewayParameters changes
+	gwParamEventHandler := controllers.ObjectHandler(func(o controllers.Object) {
+		gwpName := o.GetName()
+		gwpNamespace := o.GetNamespace()
 
-		// 1. Look up Gateways directly referencing this parameters object (via spec.infrastructure.parametersRef)
-		gateways := gatewaysByParamsRef.Lookup(paramRef)
+		// 1. Look up Gateways directly using this GatewayParameters object (via spec.infrastructure.parametersRef)
+		gateways := gatewaysByParamsRef.Lookup(types.NamespacedName{Namespace: gwpNamespace, Name: gwpName})
 		for _, gw := range gateways {
-			logger.Debug("reconciling Gateway due to gateway parameters change",
-				"ref", kubeutils.NamespacedNameFrom(gw), "param", paramRef)
+			logger.Debug("reconciling Gateway due to GatewayParameters change",
+				"ref", kubeutils.NamespacedNameFrom(gw), "gwparam", types.NamespacedName{Namespace: gwpNamespace, Name: gwpName})
 			r.queue.AddObject(gw)
 		}
 
-		// 2. Look up GatewayClasses referencing this parameters object (via spec.parametersRef)
+		// 2. Look up GatewayClasses using this GatewayParameters object (via spec.parametersRef)
 		gwClasses := r.gwClassClient.List(metav1.NamespaceAll, labels.Everything())
+		// For each GatewayClass that references this parameter, find all Gateways using that class
 		for _, gc := range gwClasses {
 			// Only process GatewayClasses managed by our controller
 			if gc.Spec.ControllerName != gwv1.GatewayController(r.controllerName) {
 				continue
 			}
 			if gc.Spec.ParametersRef != nil &&
-				gc.Spec.ParametersRef.Name == paramName &&
-				gc.Spec.ParametersRef.Namespace != nil && string(*gc.Spec.ParametersRef.Namespace) == paramNamespace {
+				gc.Spec.ParametersRef.Name == gwpName &&
+				gc.Spec.ParametersRef.Namespace != nil && string(*gc.Spec.ParametersRef.Namespace) == gwpNamespace {
+				// This GatewayClass references our GatewayParameters, find all Gateways using this class
 				gateways := gatewaysByClass.Lookup(types.NamespacedName{Name: gc.Name})
 				for _, gw := range gateways {
-					logger.Debug("reconciling Gateway due to gateway parameters change via GatewayClass",
-						"ref", kubeutils.NamespacedNameFrom(gw), "param", paramRef, "gwclass", gc.Name)
+					logger.Debug("reconciling Gateway due to GatewayParameters change via GatewayClass",
+						"ref", kubeutils.NamespacedNameFrom(gw), "gwparam", types.NamespacedName{Namespace: gwpNamespace, Name: gwpName},
+						"gwclass", gc.Name)
 					r.queue.AddObject(gw)
 				}
 			}
 		}
 	})
 	if r.gwParamClient != nil {
-		r.gwParamClient.AddEventHandler(gatewayParamEventHandler)
+		r.gwParamClient.AddEventHandler(gwParamEventHandler)
 	}
-
 
 	// Custom event handler for XListenerSet changes
 	cfg.CommonCollections.GatewayIndex.GatewaysForDeployer.Register(func(o krt.Event[ir.GatewayForDeployer]) {
@@ -216,7 +215,7 @@ func NewGatewayReconciler(
 
 	// Register controller extensions
 	if controllerExtension != nil {
-		controllerExtension.Register(r.queue, gatewayParamEventHandler)
+		controllerExtension.Register(r.queue, gwParamEventHandler)
 	}
 
 	// Add a handler to reconcile the Gateways when the xDS TLS certificate changes
