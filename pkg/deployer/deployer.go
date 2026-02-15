@@ -74,8 +74,6 @@ func WithGVKToGVRMapper(m map[schema.GroupVersionKind]schema.GroupVersionResourc
 }
 
 // NewDeployer creates a new deployer for managed resources.
-// TODO [danehans]: Reloading the chart for every reconciliation is inefficient.
-// See https://github.com/kgateway-dev/kgateway/issues/10672 for details.
 func NewDeployer(
 	controllerName string,
 	scheme *runtime.Scheme,
