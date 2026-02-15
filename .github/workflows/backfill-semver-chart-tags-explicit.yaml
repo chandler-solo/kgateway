@@ -24,7 +24,6 @@ jobs:
           set -euo pipefail
           R="${{ env.REGISTRY }}/kgateway"
 
-          crane cp "${R}:v0.0.0-main"          "${R}:0.0.0-main"
           crane cp "${R}:v2.0.0-main"          "${R}:2.0.0-main"
           crane cp "${R}:v2.0.0-beta1"         "${R}:2.0.0-beta1"
           crane cp "${R}:v2.0.0-beta2"         "${R}:2.0.0-beta2"
