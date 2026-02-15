@@ -242,7 +242,7 @@ func parseAppProtocol(b *kgateway.Backend) ir.AppProtocol {
 	if b.Spec.Static != nil {
 		appProtocol := b.Spec.Static.AppProtocol
 		if appProtocol != nil {
-			return ir.ParseAppProtocol(ptr.To(string(*appProtocol)))
+			return ir.ParseAppProtocol(new(string(*appProtocol)))
 		}
 	}
 	return ir.DefaultAppProtocol

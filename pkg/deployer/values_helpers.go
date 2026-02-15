@@ -126,7 +126,7 @@ func GetServiceValues(svcConfig *kgateway.Service) *HelmService {
 
 	if svcConfig != nil {
 		if svcConfig.GetType() != nil {
-			svcType = ptr.To(string(*svcConfig.GetType()))
+			svcType = new(string(*svcConfig.GetType()))
 		}
 		clusterIP = svcConfig.GetClusterIP()
 		extraAnnotations = svcConfig.GetExtraAnnotations()
@@ -248,12 +248,12 @@ func GetIstioValues(istioIntegrationEnabled bool, istioConfig *kgateway.IstioInt
 	// if istioConfig is nil, istio sds is disabled and values can be ignored
 	if istioConfig == nil {
 		return &HelmIstio{
-			Enabled: ptr.To(istioIntegrationEnabled),
+			Enabled: new(istioIntegrationEnabled),
 		}
 	}
 
 	return &HelmIstio{
-		Enabled: ptr.To(istioIntegrationEnabled),
+		Enabled: new(istioIntegrationEnabled),
 	}
 }
 
@@ -270,7 +270,7 @@ func GetImageValues(image *kgateway.Image) *HelmImage {
 		Digest:     image.GetDigest(),
 	}
 	if image.GetPullPolicy() != nil {
-		HelmImage.PullPolicy = ptr.To(string(*image.GetPullPolicy()))
+		HelmImage.PullPolicy = new(string(*image.GetPullPolicy()))
 	}
 
 	return HelmImage

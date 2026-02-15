@@ -35,7 +35,7 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 		{
 			name: "HealthyPanicThreshold",
 			config: &kgateway.LoadBalancer{
-				HealthyPanicThreshold: ptr.To(int32(100)),
+				HealthyPanicThreshold: new(int32(100)),
 			},
 			expected: &envoyclusterv3.Cluster{
 				Name: "test",
@@ -110,8 +110,8 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 						Window: &metav1.Duration{
 							Duration: 10 * time.Second,
 						},
-						Aggression:       ptr.To("1.1"),
-						MinWeightPercent: ptr.To(int32(10)),
+						Aggression:       new("1.1"),
+						MinWeightPercent: new(int32(10)),
 					},
 				},
 			},
@@ -176,8 +176,8 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 						Window: &metav1.Duration{
 							Duration: 10 * time.Second,
 						},
-						Aggression:       ptr.To("1.1"),
-						MinWeightPercent: ptr.To(int32(10)),
+						Aggression:       new("1.1"),
+						MinWeightPercent: new(int32(10)),
 					},
 				},
 			},
@@ -230,8 +230,8 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 			name: "RingHash full config",
 			config: &kgateway.LoadBalancer{
 				RingHash: &kgateway.LoadBalancerRingHashConfig{
-					MinimumRingSize: ptr.To(int64(10)),
-					MaximumRingSize: ptr.To(int64(100)),
+					MinimumRingSize: new(int64(10)),
+					MaximumRingSize: new(int64(100)),
 				},
 			},
 			expected: func() *envoyclusterv3.Cluster {
@@ -376,7 +376,7 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 		{
 			name: "CloseConnectionsOnHostSetChange",
 			config: &kgateway.LoadBalancer{
-				CloseConnectionsOnHostSetChange: ptr.To(true),
+				CloseConnectionsOnHostSetChange: new(true),
 			},
 			expected: &envoyclusterv3.Cluster{
 				Name: "test",
@@ -389,7 +389,7 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 			name: "RingHash: UseHostnameForHashing, STRICT_DNS",
 			config: &kgateway.LoadBalancer{
 				RingHash: &kgateway.LoadBalancerRingHashConfig{
-					UseHostnameForHashing: ptr.To(true),
+					UseHostnameForHashing: new(true),
 				},
 			},
 			cluster: &envoyclusterv3.Cluster{
@@ -422,7 +422,7 @@ func TestApplyLoadBalancerConfig(t *testing.T) {
 			name: "Ringhash: UseHostnameForHashing, EDS",
 			config: &kgateway.LoadBalancer{
 				RingHash: &kgateway.LoadBalancerRingHashConfig{
-					UseHostnameForHashing: ptr.To(true),
+					UseHostnameForHashing: new(true),
 				},
 			},
 			cluster: &envoyclusterv3.Cluster{
@@ -495,7 +495,7 @@ func TestConstructHashPolicy(t *testing.T) {
 					Header: &kgateway.Header{
 						Name: "x-user-id",
 					},
-					Terminal: ptr.To(true),
+					Terminal: new(true),
 				},
 			},
 			expected: []*envoyroutev3.RouteAction_HashPolicy{
@@ -538,9 +538,9 @@ func TestConstructHashPolicy(t *testing.T) {
 						TTL: &metav1.Duration{
 							Duration: 30 * time.Minute,
 						},
-						Path: ptr.To("/api"),
+						Path: new("/api"),
 					},
-					Terminal: ptr.To(true),
+					Terminal: new(true),
 				},
 			},
 			expected: []*envoyroutev3.RouteAction_HashPolicy{
@@ -562,9 +562,9 @@ func TestConstructHashPolicy(t *testing.T) {
 				{
 					Cookie: &kgateway.Cookie{
 						Name:     "session-id",
-						Secure:   ptr.To(true),
-						HttpOnly: ptr.To(true),
-						SameSite: ptr.To("Strict"),
+						Secure:   new(true),
+						HttpOnly: new(true),
+						SameSite: new("Strict"),
 					},
 				},
 			},
@@ -589,7 +589,7 @@ func TestConstructHashPolicy(t *testing.T) {
 			hashPolicies: []kgateway.HashPolicy{
 				{
 					SourceIP: &kgateway.SourceIP{},
-					Terminal: ptr.To(false),
+					Terminal: new(false),
 				},
 			},
 			expected: []*envoyroutev3.RouteAction_HashPolicy{
@@ -610,7 +610,7 @@ func TestConstructHashPolicy(t *testing.T) {
 					Header: &kgateway.Header{
 						Name: "x-user-id",
 					},
-					Terminal: ptr.To(true),
+					Terminal: new(true),
 				},
 				{
 					Cookie: &kgateway.Cookie{
@@ -659,9 +659,9 @@ func TestConstructHashPolicy(t *testing.T) {
 					Cookie: &kgateway.Cookie{
 						Name: "session-id",
 						TTL:  nil,
-						Path: ptr.To("/api"),
+						Path: new("/api"),
 					},
-					Terminal: ptr.To(false),
+					Terminal: new(false),
 				},
 			},
 			expected: []*envoyroutev3.RouteAction_HashPolicy{

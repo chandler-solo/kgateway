@@ -33,7 +33,7 @@ func TestOIDCConfigDiscovery(t *testing.T) {
 					config := oidcProviderConfig{
 						TokenEndpoint:         "https://example.com/token",
 						AuthorizationEndpoint: "https://example.com/auth",
-						EndSessionEndpoint:    ptr.To("https://example.com/logout"),
+						EndSessionEndpoint:    new("https://example.com/logout"),
 					}
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(config)
@@ -42,7 +42,7 @@ func TestOIDCConfigDiscovery(t *testing.T) {
 			expectedConfig: &oidcProviderConfig{
 				TokenEndpoint:         "https://example.com/token",
 				AuthorizationEndpoint: "https://example.com/auth",
-				EndSessionEndpoint:    ptr.To("https://example.com/logout"),
+				EndSessionEndpoint:    new("https://example.com/logout"),
 			},
 			expectError: false,
 		},
@@ -213,7 +213,7 @@ func TestOIDCProviderConfigDiscovererRun(t *testing.T) {
 		config := oidcProviderConfig{
 			TokenEndpoint:         "https://example.com/token",
 			AuthorizationEndpoint: "https://example.com/auth",
-			EndSessionEndpoint:    ptr.To("https://example.com/logout"),
+			EndSessionEndpoint:    new("https://example.com/logout"),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(config)

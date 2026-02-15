@@ -189,7 +189,7 @@ func TestCreateRateLimitActions(t *testing.T) {
 					Entries: []kgateway.RateLimitDescriptorEntry{
 						{
 							Type:   kgateway.RateLimitDescriptorEntryTypeHeader,
-							Header: ptr.To("X-User-ID"),
+							Header: new("X-User-ID"),
 						},
 					},
 				},
@@ -287,7 +287,7 @@ func TestCreateRateLimitActions(t *testing.T) {
 						},
 						{
 							Type:   kgateway.RateLimitDescriptorEntryTypeHeader,
-							Header: ptr.To("X-User-ID"),
+							Header: new("X-User-ID"),
 						},
 					},
 				},

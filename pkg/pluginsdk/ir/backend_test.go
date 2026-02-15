@@ -19,32 +19,32 @@ func TestParseAppProtocol(t *testing.T) {
 	}{
 		{
 			name:     "http2",
-			input:    ptr.To("http2"),
+			input:    new("http2"),
 			expected: HTTP2AppProtocol,
 		},
 		{
 			name:     "grpc",
-			input:    ptr.To("grpc"),
+			input:    new("grpc"),
 			expected: HTTP2AppProtocol,
 		},
 		{
 			name:     "grpc-web",
-			input:    ptr.To("grpc-web"),
+			input:    new("grpc-web"),
 			expected: HTTP2AppProtocol,
 		},
 		{
 			name:     "kubernetes.io/h2c",
-			input:    ptr.To("kubernetes.io/h2c"),
+			input:    new("kubernetes.io/h2c"),
 			expected: HTTP2AppProtocol,
 		},
 		{
 			name:     "kubernetes.io/ws",
-			input:    ptr.To("kubernetes.io/ws"),
+			input:    new("kubernetes.io/ws"),
 			expected: WebSocketAppProtocol,
 		},
 		{
 			name:     "HTTP2",
-			input:    ptr.To("HTTP2"),
+			input:    new("HTTP2"),
 			expected: HTTP2AppProtocol,
 		},
 		{
@@ -54,7 +54,7 @@ func TestParseAppProtocol(t *testing.T) {
 		},
 		{
 			name:     "unknown",
-			input:    ptr.To("unknown"),
+			input:    new("unknown"),
 			expected: DefaultAppProtocol,
 		},
 	}

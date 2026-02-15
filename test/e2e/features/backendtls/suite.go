@@ -172,13 +172,13 @@ func (s *tsuite) assertPolicyStatus(inCondition metav1.Condition) {
 			{
 				Group:     (*gwv1.Group)(&svcGroup),
 				Kind:      (*gwv1.Kind)(&svcKind),
-				Namespace: ptr.To(gwv1.Namespace(nginxMeta.Namespace)),
+				Namespace: new(gwv1.Namespace(nginxMeta.Namespace)),
 				Name:      gwv1.ObjectName(nginxMeta.Name),
 			},
 			{
 				Group:     (*gwv1.Group)(&svcGroup),
 				Kind:      (*gwv1.Kind)(&svcKind),
-				Namespace: ptr.To(gwv1.Namespace(nginx2Meta.Namespace)),
+				Namespace: new(gwv1.Namespace(nginx2Meta.Namespace)),
 				Name:      gwv1.ObjectName(nginx2Meta.Name),
 			},
 		}
@@ -246,7 +246,7 @@ func (s *tsuite) addAncestorStatus(policyName, policyNamespace, controllerName s
 			AncestorRef: gwv1.ParentReference{
 				Group:     (*gwv1.Group)(&svcGroup),
 				Kind:      (*gwv1.Kind)(&svcKind),
-				Namespace: ptr.To(gwv1.Namespace(nginxMeta.Namespace)),
+				Namespace: new(gwv1.Namespace(nginxMeta.Namespace)),
 				Name:      gwv1.ObjectName(nginxMeta.Name),
 			},
 			ControllerName: gwv1.GatewayController(controllerName),
