@@ -1,0 +1,101 @@
+name: Backfill semver chart tags for Issue 13364
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/charts
+
+permissions:
+  packages: write
+
+jobs:
+  backfill:
+    name: Backfill semver chart tags for Issue 13364
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: imjasonh/setup-crane@6da1ae018866400525525ce74ff892880c099987 # v0.5
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      - name: Backfill kgateway tags
+        run: |
+          set -euo pipefail
+          R="${{ env.REGISTRY }}/kgateway"
+
+          crane cp "${R}:v0.0.0-main"          "${R}:0.0.0-main"
+          crane cp "${R}:v2.0.0-main"          "${R}:2.0.0-main"
+          crane cp "${R}:v2.0.0-beta1"         "${R}:2.0.0-beta1"
+          crane cp "${R}:v2.0.0-beta2"         "${R}:2.0.0-beta2"
+          crane cp "${R}:v2.0.0-beta3"         "${R}:2.0.0-beta3"
+          crane cp "${R}:v2.0.0-rc.1"          "${R}:2.0.0-rc.1"
+          crane cp "${R}:v2.0.0-rc.2"          "${R}:2.0.0-rc.2"
+          crane cp "${R}:v2.0.0-rc.3"          "${R}:2.0.0-rc.3"
+          crane cp "${R}:v2.0.0"               "${R}:2.0.0"
+          crane cp "${R}:v2.0.1"               "${R}:2.0.1"
+          crane cp "${R}:v2.0.2"               "${R}:2.0.2"
+          crane cp "${R}:v2.0.3"               "${R}:2.0.3"
+          crane cp "${R}:v2.0.4"               "${R}:2.0.4"
+          crane cp "${R}:v2.0.5"               "${R}:2.0.5"
+          crane cp "${R}:v2.1.0-main"          "${R}:2.1.0-main"
+          crane cp "${R}:v2.1.0-agw-cel-rbac"  "${R}:2.1.0-agw-cel-rbac"
+          crane cp "${R}:v2.1.0-rc.1"          "${R}:2.1.0-rc.1"
+          crane cp "${R}:v2.1.0-rc.2"          "${R}:2.1.0-rc.2"
+          crane cp "${R}:v2.1.0"               "${R}:2.1.0"
+          crane cp "${R}:v2.1.1"               "${R}:2.1.1"
+          crane cp "${R}:v2.1.2"               "${R}:2.1.2"
+          crane cp "${R}:v2.2.0-main"          "${R}:2.2.0-main"
+          crane cp "${R}:v2.2.0-alpha.1"       "${R}:2.2.0-alpha.1"
+          crane cp "${R}:v2.2.0-beta.1"        "${R}:2.2.0-beta.1"
+          crane cp "${R}:v2.2.0-beta.2"        "${R}:2.2.0-beta.2"
+          crane cp "${R}:v2.2.0-beta.3"        "${R}:2.2.0-beta.3"
+          crane cp "${R}:v2.2.0-beta.4"        "${R}:2.2.0-beta.4"
+          crane cp "${R}:v2.2.0-beta.5"        "${R}:2.2.0-beta.5"
+          crane cp "${R}:v2.2.0-beta.6"        "${R}:2.2.0-beta.6"
+          crane cp "${R}:v2.2.0-rc.1"          "${R}:2.2.0-rc.1"
+          crane cp "${R}:v2.2.0-rc.2"          "${R}:2.2.0-rc.2"
+          crane cp "${R}:v2.2.0"               "${R}:2.2.0"
+
+          echo "kgateway: 32 tags copied"
+
+      - name: Backfill kgateway-crds tags
+        run: |
+          set -euo pipefail
+          R="${{ env.REGISTRY }}/kgateway-crds"
+
+          crane cp "${R}:v2.0.0-main"          "${R}:2.0.0-main"
+          crane cp "${R}:v2.0.0-beta2"         "${R}:2.0.0-beta2"
+          crane cp "${R}:v2.0.0-beta3"         "${R}:2.0.0-beta3"
+          crane cp "${R}:v2.0.0-rc.1"          "${R}:2.0.0-rc.1"
+          crane cp "${R}:v2.0.0-rc.2"          "${R}:2.0.0-rc.2"
+          crane cp "${R}:v2.0.0-rc.3"          "${R}:2.0.0-rc.3"
+          crane cp "${R}:v2.0.0"               "${R}:2.0.0"
+          crane cp "${R}:v2.0.1"               "${R}:2.0.1"
+          crane cp "${R}:v2.0.2"               "${R}:2.0.2"
+          crane cp "${R}:v2.0.3"               "${R}:2.0.3"
+          crane cp "${R}:v2.0.4"               "${R}:2.0.4"
+          crane cp "${R}:v2.0.5"               "${R}:2.0.5"
+          crane cp "${R}:v2.1.0-main"          "${R}:2.1.0-main"
+          crane cp "${R}:v2.1.0-agw-cel-rbac"  "${R}:2.1.0-agw-cel-rbac"
+          crane cp "${R}:v2.1.0-rc.1"          "${R}:2.1.0-rc.1"
+          crane cp "${R}:v2.1.0-rc.2"          "${R}:2.1.0-rc.2"
+          crane cp "${R}:v2.1.0"               "${R}:2.1.0"
+          crane cp "${R}:v2.1.1"               "${R}:2.1.1"
+          crane cp "${R}:v2.1.2"               "${R}:2.1.2"
+          crane cp "${R}:v2.2.0-main"          "${R}:2.2.0-main"
+          crane cp "${R}:v2.2.0-alpha.1"       "${R}:2.2.0-alpha.1"
+          crane cp "${R}:v2.2.0-beta.1"        "${R}:2.2.0-beta.1"
+          crane cp "${R}:v2.2.0-beta.2"        "${R}:2.2.0-beta.2"
+          crane cp "${R}:v2.2.0-beta.3"        "${R}:2.2.0-beta.3"
+          crane cp "${R}:v2.2.0-beta.4"        "${R}:2.2.0-beta.4"
+          crane cp "${R}:v2.2.0-beta.5"        "${R}:2.2.0-beta.5"
+          crane cp "${R}:v2.2.0-beta.6"        "${R}:2.2.0-beta.6"
+          crane cp "${R}:v2.2.0-rc.1"          "${R}:2.2.0-rc.1"
+          crane cp "${R}:v2.2.0-rc.2"          "${R}:2.2.0-rc.2"
+          crane cp "${R}:v2.2.0"               "${R}:2.2.0"
+
+          echo "kgateway-crds: 30 tags copied"
+
+      - name: Summary
+        run: echo "Issue 13364 backfill complete. 62 tags copied (32 kgateway + 30 kgateway-crds)."
