@@ -219,9 +219,9 @@ func (t *Translator) runListenerPlugins(
 				Port:   l.BindPort,
 				Policy: pol.PolicyIr,
 				PolicyAncestorRef: gwv1.ParentReference{
-					Group:     ptr.To(gwv1.Group(wellknown.GatewayGVK.Group)),
-					Kind:      ptr.To(gwv1.Kind(wellknown.GatewayGVK.Kind)),
-					Namespace: ptr.To(gwv1.Namespace(gw.SourceObject.GetNamespace())),
+					Group:     new(gwv1.Group(wellknown.GatewayGVK.Group)),
+					Kind:      new(gwv1.Kind(wellknown.GatewayGVK.Kind)),
+					Namespace: new(gwv1.Namespace(gw.SourceObject.GetNamespace())),
 					Name:      gwv1.ObjectName(gw.SourceObject.GetName()),
 				},
 			}

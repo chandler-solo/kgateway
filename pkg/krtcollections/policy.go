@@ -181,7 +181,7 @@ func (i *BackendIndex) AddBackends(gk schema.GroupKind, col krt.Collection[ir.Ba
 		}
 		backendObj.RequiresPolicyStatus = anyHasRef
 		backendObj.AttachedPolicies = ToAttachedPolicies(policies)
-		return ptr.Of(&backendObj)
+		return new(&backendObj)
 	}, i.krtopts.ToOptions("")...)
 	backendsRequiringPolicyStatus := krt.NewCollection(backendsWithPoliciesCol, func(ctx krt.HandlerContext, i *ir.BackendObjectIR) **ir.BackendObjectIR {
 		if i.RequiresPolicyStatus {
@@ -428,7 +428,7 @@ func GatewaysForEnvoyTransformationFunc(config *GatewayIndexConfig) func(kctx kr
 			if err != nil {
 				logger.Error("failed to parse per connection buffer limit", "error", err)
 			} else {
-				gwIR.PerConnectionBufferLimitBytes = k8sptr.To(uint32(limit.Value())) //nolint:gosec // G115: Kubernetes resource quantities are always non-negative
+				gwIR.PerConnectionBufferLimitBytes = new(uint32(limit.Value())) //nolint:gosec // G115: Kubernetes resource quantities are always non-negative
 			}
 		}
 
@@ -443,10 +443,10 @@ func GatewaysForEnvoyTransformationFunc(config *GatewayIndexConfig) func(kctx kr
 				Parent:           gw,
 				AttachedPolicies: ToAttachedPolicies(config.PolicyIndex.GetTargetingPolicies(kctx, gwIR.ObjectSource, string(l.Name), gw.GetLabels())),
 				PolicyAncestorRef: gwv1.ParentReference{
-					Group:     k8sptr.To(gwv1.Group(wellknown.GatewayGVK.Group)),
-					Kind:      k8sptr.To(gwv1.Kind(wellknown.GatewayGVK.Kind)),
+					Group:     new(gwv1.Group(wellknown.GatewayGVK.Group)),
+					Kind:      new(gwv1.Kind(wellknown.GatewayGVK.Kind)),
 					Name:      gwv1.ObjectName(gw.Name),
-					Namespace: k8sptr.To(gwv1.Namespace(gw.Namespace)),
+					Namespace: new(gwv1.Namespace(gw.Namespace)),
 				},
 			})
 		}
@@ -519,10 +519,10 @@ func GatewaysForEnvoyTransformationFunc(config *GatewayIndexConfig) func(kctx kr
 					Parent:           ls,
 					AttachedPolicies: ToAttachedPolicies(listenerPolicies),
 					PolicyAncestorRef: gwv1.ParentReference{
-						Group:     k8sptr.To(gwv1.Group(wellknown.XListenerSetGVK.Group)),
-						Kind:      k8sptr.To(gwv1.Kind(wellknown.XListenerSetGVK.Kind)),
+						Group:     new(gwv1.Group(wellknown.XListenerSetGVK.Group)),
+						Kind:      new(gwv1.Kind(wellknown.XListenerSetGVK.Kind)),
 						Name:      gwv1.ObjectName(ls.Name),
-						Namespace: k8sptr.To(gwv1.Namespace(ls.Namespace)),
+						Namespace: new(gwv1.Namespace(ls.Namespace)),
 					},
 				})
 			}

@@ -149,7 +149,7 @@ func TestTracingConverter(t *testing.T) {
 									},
 								},
 							},
-							ServiceName: ptr.To("my:service"),
+							ServiceName: new("my:service"),
 							ResourceDetectors: []kgateway.ResourceDetector{{
 								EnvironmentResourceDetector: &kgateway.EnvironmentResourceDetectorConfig{},
 							}},
@@ -158,11 +158,11 @@ func TestTracingConverter(t *testing.T) {
 							},
 						},
 					},
-					ClientSampling:   ptr.To(int32(45)),
-					RandomSampling:   ptr.To(int32(55)),
-					OverallSampling:  ptr.To(int32(65)),
-					Verbose:          ptr.To(true),
-					MaxPathTagLength: ptr.To(int32(127)),
+					ClientSampling:   new(int32(45)),
+					RandomSampling:   new(int32(55)),
+					OverallSampling:  new(int32(65)),
+					Verbose:          new(true),
+					MaxPathTagLength: new(int32(127)),
 					Attributes: []kgateway.CustomAttribute{
 						{
 							Name: "Literal",
@@ -174,14 +174,14 @@ func TestTracingConverter(t *testing.T) {
 							Name: "Environment",
 							Environment: &kgateway.CustomAttributeEnvironment{
 								Name:         "Env",
-								DefaultValue: ptr.To("Environment Value"),
+								DefaultValue: new("Environment Value"),
 							},
 						},
 						{
 							Name: "Request Header",
 							RequestHeader: &kgateway.CustomAttributeHeader{
 								Name:         "Header",
-								DefaultValue: ptr.To("Request"),
+								DefaultValue: new("Request"),
 							},
 						},
 						{
@@ -235,7 +235,7 @@ func TestTracingConverter(t *testing.T) {
 							},
 						},
 					},
-					SpawnUpstreamSpan: ptr.To(true),
+					SpawnUpstreamSpan: new(true),
 				},
 				expected: &envoy_hcm.HttpConnectionManager_Tracing{
 					Provider: &envoytracev3.Tracing_Http{
