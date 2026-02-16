@@ -129,7 +129,8 @@ GO_VERSION := $(shell cat go.mod | grep -E '^go' | awk '{print $$2}')
 GOTOOLCHAIN ?= go$(GO_VERSION)
 
 DEPSGOBIN ?= $(OUTPUT_DIR)
-GOLANGCI_LINT ?= go tool golangci-lint
+GOLANGCI_LINT_BIN ?= $(DEPSGOBIN)/golangci-lint
+GOLANGCI_LINT ?= $(GOLANGCI_LINT_BIN)
 ANALYZE_ARGS ?= --fix --verbose --max-issues-per-linter 0 --max-same-issues 0
 CUSTOM_GOLANGCI_LINT_BIN ?= $(DEPSGOBIN)/golangci-lint-custom
 CUSTOM_GOLANGCI_LINT_RUN ?= $(CUSTOM_GOLANGCI_LINT_BIN) run --build-tags e2e
@@ -151,12 +152,15 @@ get_sources = $(shell find $(1) -name "*.go" | grep -v test | grep -v generated.
 init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 	git config core.hooksPath .githooks
 
+$(GOLANGCI_LINT_BIN): tools/go.mod tools/go.sum
+	cd tools && GOTOOLCHAIN=$(GOTOOLCHAIN) go build -o $@ github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
 .PHONY: fmt
-fmt:  ## Format the code with golangci-lint
+fmt: $(GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint
 	$(CUSTOM_GOLANGCI_LINT_FMT) ./...
 
 .PHONY: fmt-changed
-fmt-changed: ## Format only the changed code with golangci-lint (skip deleted files)
+fmt-changed: $(GOLANGCI_LINT_BIN) ## Format only the changed code with golangci-lint (skip deleted files)
 	git status -s -uno | awk '{print $$2}' | grep '.*.go$$' | xargs -r -I{} bash -lc '[ -f "{}" ] && $(CUSTOM_GOLANGCI_LINT_FMT) "{}" || true'
 
 # must be a separate target so that make waits for it to complete before moving on
@@ -192,7 +196,7 @@ mod-tidy: ## Tidy the go mod file
 analyze: $(CUSTOM_GOLANGCI_LINT_BIN)  ## Run golangci-lint. Override options with ANALYZE_ARGS.
 	$(CUSTOM_GOLANGCI_LINT_RUN) $(ANALYZE_ARGS) ./...
 
-$(CUSTOM_GOLANGCI_LINT_BIN): go.mod go.sum .custom-gcl.yml
+$(CUSTOM_GOLANGCI_LINT_BIN): $(GOLANGCI_LINT_BIN) .custom-gcl.yml
 	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) custom
 
 ACTION_LINT ?= go tool github.com/rhysd/actionlint/cmd/actionlint
@@ -447,7 +451,7 @@ $(STAMP_DIR)/generate-licenses: $(MOD_FILES) | $(STAMP_DIR)
 	@touch $@
 
 # Formatting - only runs if generation steps changed
-$(STAMP_DIR)/fmt: $(STAMP_DIR)/go-generate-all $(CUSTOM_GOLANGCI_LINT_BIN)
+$(STAMP_DIR)/fmt: $(STAMP_DIR)/go-generate-all $(GOLANGCI_LINT_BIN)
 	@echo "Formatting code..."
 	$(CUSTOM_GOLANGCI_LINT_FMT) ./...
 	@touch $@
