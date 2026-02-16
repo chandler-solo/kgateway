@@ -163,7 +163,9 @@ fmt-changed: ## Format only the changed code with golangci-lint (skip deleted fi
 .PHONY: mod-download
 mod-download:  ## Download the dependencies
 	go mod download all
+	cd hack/utils/applier && go mod download all
 	cd tools && go mod download all
+	cd test/e2e/defaults/extproc && go mod download all
 
 .PHONY: mod-tidy-nested
 mod-tidy-nested:  ## Tidy go mod files in nested modules
@@ -172,8 +174,15 @@ mod-tidy-nested:  ## Tidy go mod files in nested modules
 	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
 
 .PHONY: mod-tidy
-mod-tidy: mod-download mod-tidy-nested ## Tidy the go mod file
+mod-tidy: ## Tidy the go mod file
+	# download deps so that go mod tidy can resolve them
+	$(MAKE) mod-download
+	# tidy all modules
+	$(MAKE) mod-tidy-nested
 	go mod tidy
+	# re-download so go.sum includes all checksums that 'go mod download all'
+	# would add; without this, CI's mod-download step dirties go.sum
+	$(MAKE) mod-download
 
 #----------------------------------------------------------------------------
 # Analyze
@@ -388,7 +397,10 @@ API_SOURCE_FILES += hack/generate.sh hack/generate.go
 MOCK_SOURCE_FILES := pkg/kgateway/query/query_test.go
 
 # Files that track dependency changes
-MOD_FILES := go.mod go.sum
+MOD_FILES := go.mod go.sum \
+	hack/utils/applier/go.mod hack/utils/applier/go.sum \
+	tools/go.mod tools/go.sum \
+	test/e2e/defaults/extproc/go.mod test/e2e/defaults/extproc/go.sum
 
 # Clean generated code
 .PHONY: clean-gen
@@ -423,10 +435,7 @@ $(STAMP_DIR)/go-generate-all: $(STAMP_DIR)/go-generate-apis $(STAMP_DIR)/go-gene
 
 # Module tidy with dependency tracking
 $(STAMP_DIR)/mod-tidy: $(MOD_FILES) | $(STAMP_DIR)
-	@echo "Running mod tidy..."
-	@$(MAKE) --no-print-directory mod-download
-	@$(MAKE) --no-print-directory mod-tidy-nested
-	go mod tidy
+	@$(MAKE) --no-print-directory mod-tidy
 	@touch $@
 
 # License generation with dependency tracking
