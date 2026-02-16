@@ -163,30 +163,19 @@ fmt: $(GOLANGCI_LINT_BIN)  ## Format the code with golangci-lint
 fmt-changed: $(GOLANGCI_LINT_BIN) ## Format only the changed code with golangci-lint (skip deleted files)
 	git status -s -uno | awk '{print $$2}' | grep '.*.go$$' | xargs -r -I{} bash -lc '[ -f "{}" ] && $(CUSTOM_GOLANGCI_LINT_FMT) "{}" || true'
 
-# must be a separate target so that make waits for it to complete before moving on
 .PHONY: mod-download
-mod-download:  ## Download the dependencies
-	go mod download all
-	cd hack/utils/applier && go mod download all
-	cd tools && go mod download all
-	cd test/e2e/defaults/extproc && go mod download all
-
-.PHONY: mod-tidy-nested
-mod-tidy-nested:  ## Tidy go mod files in nested modules
-	@echo "Tidying hack/utils/applier..." && cd hack/utils/applier && go mod tidy
-	@echo "Tidying tools..." && cd tools && go mod tidy
-	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
+mod-download:  ## Download transitive dependencies
+	go mod download
+	cd hack/utils/applier && go mod download
+	cd tools && go mod download
+	cd test/e2e/defaults/extproc && go mod download
 
 .PHONY: mod-tidy
 mod-tidy: ## Tidy the go mod file
-	# download deps so that go mod tidy can resolve them
-	$(MAKE) mod-download
-	# tidy all modules
-	$(MAKE) mod-tidy-nested
-	go mod tidy
-	# re-download so go.sum includes all checksums that 'go mod download all'
-	# would add; without this, CI's mod-download step dirties go.sum
-	$(MAKE) mod-download
+	@echo "Tidying hack/utils/applier..." && cd hack/utils/applier && go mod tidy
+	@echo "Tidying tools..." && cd tools && go mod tidy
+	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
+	@echo "Tidying top level" && go mod tidy
 
 #----------------------------------------------------------------------------
 # Analyze
