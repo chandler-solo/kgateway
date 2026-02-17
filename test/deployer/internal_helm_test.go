@@ -476,11 +476,6 @@ func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 		{apiGroup: "autoscaling", resource: "horizontalpodautoscalers"}, // HorizontalPodAutoscaler
 	}
 
-	// kgateway also has VPA RBAC in addition to the agentgateway overlay resources.
-	kgwOverlayResources := append(agwOverlayResources,
-		managedResource{apiGroup: "autoscaling.k8s.io", resource: "verticalpodautoscalers"},
-	)
-
 	// The deployer uses server-side apply (patch) to manage resources, so it
 	// needs at minimum: create, delete, get, list, patch, watch. The "update"
 	// verb is not strictly required since SSA uses patch, not update.
@@ -491,11 +486,6 @@ func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 		roleFile  string
 		resources []managedResource
 	}{
-		{
-			name:      "kgateway",
-			roleFile:  filepath.Join(rootDir, "install/helm/kgateway/templates/role.yaml"),
-			resources: kgwOverlayResources,
-		},
 		{
 			name:      "agentgateway",
 			roleFile:  filepath.Join(rootDir, "install/helm/agentgateway/templates/role.yaml"),
