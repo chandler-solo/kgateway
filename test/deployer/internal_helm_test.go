@@ -34,9 +34,9 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/yaml"
 
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/agentgateway"
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient/fake"
 	pkgdeployer "github.com/kgateway-dev/kgateway/v2/pkg/deployer"
-	"github.com/kgateway-dev/kgateway/v2/pkg/deployer/strategicpatch"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
@@ -448,15 +448,15 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 // permissions in the controller's ClusterRole. This test would have caught the
 // missing RBAC rules when PDB, HPA, and VPA support were added to the deployer.
 //
-// If you add a new field to strategicpatch.ResourceOverlays, you must:
+// If you add a new field to AgentgatewayParametersOverlays, you must:
 // 1. Add a +kubebuilder:rbac marker in the appropriate doc.go
 // 2. Run `make generate-all` to regenerate the ClusterRole
 // 3. Update this test's resource lists
 func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
-	// Guard: if ResourceOverlays gains new fields, this test must be updated.
-	numFields := reflect.TypeOf(strategicpatch.ResourceOverlays{}).NumField()
-	require.Equal(t, 6, numFields,
-		"ResourceOverlays struct field count changed; update this test's resource lists "+
+	// Guard: if AgentgatewayParametersOverlays gains new fields, this test must be updated.
+	numFields := reflect.TypeOf(agentgateway.AgentgatewayParametersOverlays{}).NumField()
+	require.Equal(t, 5, numFields,
+		"AgentgatewayParametersOverlays struct field count changed; update this test's resource lists "+
 			"and add +kubebuilder:rbac markers in doc.go for any new resource types")
 
 	rootDir := testutils.GitRootDirectory()
@@ -466,17 +466,20 @@ func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 		resource string
 	}
 
-	// All resource types from ResourceOverlays mapped to their RBAC API group
-	// and plural resource name. Each entry corresponds to a field in
-	// strategicpatch.ResourceOverlays.
-	allOverlayResources := []managedResource{
-		{apiGroup: "apps", resource: "deployments"},                          // Deployment
-		{apiGroup: "", resource: "services"},                                 // Service
-		{apiGroup: "", resource: "serviceaccounts"},                          // ServiceAccount
-		{apiGroup: "policy", resource: "poddisruptionbudgets"},               // PodDisruptionBudget
-		{apiGroup: "autoscaling", resource: "horizontalpodautoscalers"},      // HorizontalPodAutoscaler
-		{apiGroup: "autoscaling.k8s.io", resource: "verticalpodautoscalers"}, // VerticalPodAutoscaler
+	// All resource types from AgentgatewayParametersOverlays mapped to their
+	// RBAC API group and plural resource name.
+	agwOverlayResources := []managedResource{
+		{apiGroup: "apps", resource: "deployments"},                     // Deployment
+		{apiGroup: "", resource: "services"},                            // Service
+		{apiGroup: "", resource: "serviceaccounts"},                     // ServiceAccount
+		{apiGroup: "policy", resource: "poddisruptionbudgets"},          // PodDisruptionBudget
+		{apiGroup: "autoscaling", resource: "horizontalpodautoscalers"}, // HorizontalPodAutoscaler
 	}
+
+	// kgateway also has VPA RBAC in addition to the agentgateway overlay resources.
+	kgwOverlayResources := append(agwOverlayResources,
+		managedResource{apiGroup: "autoscaling.k8s.io", resource: "verticalpodautoscalers"},
+	)
 
 	// The deployer uses server-side apply (patch) to manage resources, so it
 	// needs at minimum: create, delete, get, list, patch, watch. The "update"
@@ -491,14 +494,12 @@ func TestDeployerManagedResourcesHaveRBACPermissions(t *testing.T) {
 		{
 			name:      "kgateway",
 			roleFile:  filepath.Join(rootDir, "install/helm/kgateway/templates/role.yaml"),
-			resources: allOverlayResources, // kgateway supports all overlay types including VPA
+			resources: kgwOverlayResources,
 		},
 		{
-			name:     "agentgateway",
-			roleFile: filepath.Join(rootDir, "install/helm/agentgateway/templates/role.yaml"),
-			// Agentgateway supports all overlay types except VerticalPodAutoscaler
-			// (see strategicpatch.FromAgentgatewayParameters which sets VPA to nil)
-			resources: allOverlayResources[:len(allOverlayResources)-1],
+			name:      "agentgateway",
+			roleFile:  filepath.Join(rootDir, "install/helm/agentgateway/templates/role.yaml"),
+			resources: agwOverlayResources,
 		},
 	}
 
