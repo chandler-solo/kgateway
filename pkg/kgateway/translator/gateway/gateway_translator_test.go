@@ -1616,6 +1616,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("HTTP appProtocol produces explicit HTTP/1.1 config", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "backendconfigpolicy/http-appprotocol.yaml",
+			outputFile: "backendconfigpolicy/http-appprotocol.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("Backend Config Policy with TLS and SAN verification", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "backendconfigpolicy/tls-san.yaml",

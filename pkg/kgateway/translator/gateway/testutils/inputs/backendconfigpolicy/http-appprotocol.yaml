@@ -1,0 +1,60 @@
+kind: Gateway
+apiVersion: gateway.networking.k8s.io/v1
+metadata:
+  name: example-gateway
+spec:
+  gatewayClassName: kgateway
+  listeners:
+  - protocol: HTTP
+    port: 8080
+    name: http
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# Service with appProtocol: http should get explicit HTTP/1.1 protocol options
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin-http
+  labels:
+    app: httpbin-http
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      appProtocol: http
+  selector:
+    app: httpbin-http
+---
+# Service with appProtocol: kubernetes.io/h2c should get HTTP/2 protocol options
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin-h2c
+  labels:
+    app: httpbin-h2c
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      appProtocol: kubernetes.io/h2c
+  selector:
+    app: httpbin-h2c
+---
+# Service with no appProtocol should get no typed extension protocol options
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpbin-default
+  labels:
+    app: httpbin-default
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: httpbin-default

@@ -76,16 +76,40 @@ type AppProtocol string
 
 const (
 	DefaultAppProtocol   AppProtocol = ""
+	HTTPAppProtocol      AppProtocol = "http"
 	HTTP2AppProtocol     AppProtocol = "http2"
 	WebSocketAppProtocol AppProtocol = "ws"
 )
 
 // ParseAppProtocol takes an app protocol string provided on a Backend or Kubernetes Service, and maps it
-// to one of the app protocol types supported by kgateway (http2, websocket, or default).
+// to one of the app protocol types supported by kgateway (http, http2, websocket, or default).
 // Recognizes http2 app protocols defined by istio (https://istio.io/latest/docs/ops/configuration/traffic-management/protocol-selection/)
 // and GEP-1911 (https://gateway-api.sigs.k8s.io/geps/gep-1911/#api-semantics).
 func ParseAppProtocol(appProtocol *string) AppProtocol {
 	switch strings.ToLower(ptr.Deref(appProtocol, "")) {
+	case string(kgateway.AppProtocolHttp):
+		return HTTPAppProtocol
+	case string(kgateway.AppProtocolHttp2):
+		fallthrough
+	case string(kgateway.AppProtocolGrpc):
+		fallthrough
+	case string(kgateway.AppProtocolGrpcWeb):
+		fallthrough
+	case string(kgateway.AppProtocolKubernetesH2C):
+		return HTTP2AppProtocol
+	case string(kgateway.AppProtocolKubernetesWs):
+		return WebSocketAppProtocol
+	default:
+		return DefaultAppProtocol
+	}
+}
+
+// ParseAppProtocolFromPortName is like ParseAppProtocol but for Istio-style
+// port name convention (e.g. port name "grpc" → HTTP/2). It does not recognize
+// "http" as an explicit HTTP/1.1 signal since "http" is the most common port
+// name and does not imply the user wants explicit protocol pinning.
+func ParseAppProtocolFromPortName(portName string) AppProtocol {
+	switch strings.ToLower(portName) {
 	case string(kgateway.AppProtocolHttp2):
 		fallthrough
 	case string(kgateway.AppProtocolGrpc):

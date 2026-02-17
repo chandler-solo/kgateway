@@ -135,7 +135,17 @@ func (s Service) BackendObject(port uint32) ir.BackendObjectIR {
 			nil, // we just need the cluster name, aliases not important here
 		)
 	case *corev1.Service:
-		return kubernetes.BuildServiceBackendObjectIR(obj, int32(port), protocol) //nolint:gosec // G115: port is uint32 representing a port number, safe to convert to int32
+		// Find the matching port to get appProtocol and port name separately.
+		var appProtocol *string
+		var portName string
+		for i := range obj.Spec.Ports {
+			if obj.Spec.Ports[i].Port == int32(port) { //nolint:gosec // G115: port is uint32, safe for int32
+				appProtocol = obj.Spec.Ports[i].AppProtocol
+				portName = obj.Spec.Ports[i].Name
+				break
+			}
+		}
+		return kubernetes.BuildServiceBackendObjectIR(obj, int32(port), appProtocol, portName) //nolint:gosec // G115: port is uint32 representing a port number, safe to convert to int32
 	}
 
 	// fallback: assume k8s

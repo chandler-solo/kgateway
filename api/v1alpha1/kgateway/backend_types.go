@@ -70,10 +70,12 @@ type BackendSpec struct {
 }
 
 // AppProtocol defines the application protocol to use when communicating with the backend.
-// +kubebuilder:validation:Enum=http2;grpc;grpc-web;kubernetes.io/h2c;kubernetes.io/ws
+// +kubebuilder:validation:Enum=http;http2;grpc;grpc-web;kubernetes.io/h2c;kubernetes.io/ws
 type AppProtocol string
 
 const (
+	// AppProtocolHttp is the http (HTTP/1.1) app protocol.
+	AppProtocolHttp AppProtocol = "http"
 	// AppProtocolHttp2 is the http2 app protocol.
 	AppProtocolHttp2 AppProtocol = "http2"
 	// AppProtocolGrpc is the grpc app protocol.

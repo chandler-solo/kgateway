@@ -181,6 +181,23 @@ func clusterSupportsInlineCLA(cluster *envoyclusterv3.Cluster) bool {
 	return inlineCLAClusterTypes.Has(cluster.GetType())
 }
 
+var h1Options = func() *anypb.Any {
+	http1ProtocolOptions := &envoy_upstreams_v3.HttpProtocolOptions{
+		UpstreamProtocolOptions: &envoy_upstreams_v3.HttpProtocolOptions_ExplicitHttpConfig_{
+			ExplicitHttpConfig: &envoy_upstreams_v3.HttpProtocolOptions_ExplicitHttpConfig{
+				ProtocolConfig: &envoy_upstreams_v3.HttpProtocolOptions_ExplicitHttpConfig_HttpProtocolOptions{},
+			},
+		},
+	}
+
+	a, err := utils.MessageToAny(http1ProtocolOptions)
+	if err != nil {
+		// should never happen - all values are known ahead of time.
+		panic(err)
+	}
+	return a
+}()
+
 var h2Options = func() *anypb.Any {
 	http2ProtocolOptions := &envoy_upstreams_v3.HttpProtocolOptions{
 		UpstreamProtocolOptions: &envoy_upstreams_v3.HttpProtocolOptions_ExplicitHttpConfig_{
@@ -241,6 +258,8 @@ func processDnsLookupFamily(out *envoyclusterv3.Cluster, cc *collections.CommonC
 func translateAppProtocol(appProtocol ir.AppProtocol) map[string]*anypb.Any {
 	typedExtensionProtocolOptions := map[string]*anypb.Any{}
 	switch appProtocol {
+	case ir.HTTPAppProtocol:
+		typedExtensionProtocolOptions["envoy.extensions.upstreams.http.v3.HttpProtocolOptions"] = proto.Clone(h1Options).(*anypb.Any)
 	case ir.HTTP2AppProtocol:
 		typedExtensionProtocolOptions["envoy.extensions.upstreams.http.v3.HttpProtocolOptions"] = proto.Clone(h2Options).(*anypb.Any)
 	}

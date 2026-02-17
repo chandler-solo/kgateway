@@ -53,6 +53,43 @@ func TestBackendTranslatorTranslatesAppProtocol(t *testing.T) {
 	assert.NotNil(t, httpOpts.GetExplicitHttpConfig().GetHttp2ProtocolOptions())
 }
 
+func TestBackendTranslatorTranslatesHTTPAppProtocol(t *testing.T) {
+	var bt irtranslator.BackendTranslator
+	var ucc ir.UniqlyConnectedClient
+	var kctx krt.TestingDummyContext
+	backend := &ir.BackendObjectIR{
+		ObjectSource: ir.ObjectSource{
+			Group:     "group",
+			Kind:      "kind",
+			Name:      "name",
+			Namespace: "namespace",
+		},
+		AppProtocol: ir.HTTPAppProtocol,
+	}
+	bt.ContributedBackends = map[schema.GroupKind]ir.BackendInit{
+		{Group: "group", Kind: "kind"}: {
+			InitEnvoyBackend: func(ctx context.Context, in ir.BackendObjectIR, out *envoyclusterv3.Cluster) *ir.EndpointsForBackend {
+				return nil
+			},
+		},
+	}
+
+	c, err := bt.TranslateBackend(context.Background(), kctx, ucc, backend)
+	require.NoError(t, err)
+	opts := c.GetTypedExtensionProtocolOptions()["envoy.extensions.upstreams.http.v3.HttpProtocolOptions"]
+	assert.NotNil(t, opts)
+
+	p, err := opts.UnmarshalNew()
+	require.NoError(t, err)
+
+	httpOpts, ok := p.(*envoy_upstreams_v3.HttpProtocolOptions)
+	assert.True(t, ok)
+	assert.NotNil(t, httpOpts.GetExplicitHttpConfig().GetHttpProtocolOptions(),
+		"HTTPAppProtocol should produce explicit HTTP/1.1 config, not HTTP/2")
+	assert.Nil(t, httpOpts.GetExplicitHttpConfig().GetHttp2ProtocolOptions(),
+		"HTTPAppProtocol must not produce HTTP/2 config")
+}
+
 // TestBackendTranslatorHandlesBackendIRErrors validates that when the Backend IR itself
 // has pre-existing errors, the translator returns a blackhole cluster and error.
 func TestBackendTranslatorHandlesBackendIRErrors(t *testing.T) {

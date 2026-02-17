@@ -8,7 +8,6 @@ import (
 	"istio.io/api/annotation"
 	"istio.io/istio/pkg/kube/kclient"
 	"istio.io/istio/pkg/kube/krt"
-	"istio.io/istio/pkg/ptr"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -45,7 +44,7 @@ func NewPluginFromCollections(
 	k8sServiceBackends := krt.NewManyCollection(services, func(kctx krt.HandlerContext, svc *corev1.Service) []ir.BackendObjectIR {
 		uss := []ir.BackendObjectIR{}
 		for _, port := range svc.Spec.Ports {
-			uss = append(uss, BuildServiceBackendObjectIR(svc, port.Port, ptr.OrDefault(port.AppProtocol, port.Name)))
+			uss = append(uss, BuildServiceBackendObjectIR(svc, port.Port, port.AppProtocol, port.Name))
 		}
 		return uss
 	}, krtOpts.ToOptions("KubernetesServiceBackends")...)
@@ -70,7 +69,7 @@ func NewPluginFromCollections(
 	}
 }
 
-func BuildServiceBackendObjectIR(svc *corev1.Service, svcPort int32, svcProtocol string) ir.BackendObjectIR {
+func BuildServiceBackendObjectIR(svc *corev1.Service, svcPort int32, appProtocol *string, portName string) ir.BackendObjectIR {
 	objSrc := ir.ObjectSource{
 		Kind:      wellknown.ServiceGVK.Kind,
 		Group:     wellknown.ServiceGVK.Group,
@@ -79,7 +78,13 @@ func BuildServiceBackendObjectIR(svc *corev1.Service, svcPort int32, svcProtocol
 	}
 	backend := ir.NewBackendObjectIR(objSrc, svcPort, "")
 	backend.Obj = svc
-	backend.AppProtocol = ir.ParseAppProtocol(&svcProtocol)
+	// Prefer the explicit appProtocol field; fall back to port name for
+	// Istio-style protocol detection (e.g. port name "grpc" → HTTP/2).
+	if appProtocol != nil {
+		backend.AppProtocol = ir.ParseAppProtocol(appProtocol)
+	} else {
+		backend.AppProtocol = ir.ParseAppProtocolFromPortName(portName)
+	}
 	backend.GvPrefix = BackendClusterPrefix
 	backend.CanonicalHostname = kubeutils.GetServiceHostname(svc.Name, svc.Namespace)
 

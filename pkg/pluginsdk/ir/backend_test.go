@@ -32,6 +32,16 @@ func TestParseAppProtocol(t *testing.T) {
 			expected: HTTP2AppProtocol,
 		},
 		{
+			name:     "http",
+			input:    new("http"),
+			expected: HTTPAppProtocol,
+		},
+		{
+			name:     "HTTP",
+			input:    new("HTTP"),
+			expected: HTTPAppProtocol,
+		},
+		{
 			name:     "kubernetes.io/h2c",
 			input:    new("kubernetes.io/h2c"),
 			expected: HTTP2AppProtocol,
