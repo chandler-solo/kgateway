@@ -90,7 +90,6 @@ type ListenerPortConfig struct {
 }
 
 type ListenerConfig struct {
-
 	// ProxyProtocol configures the PROXY protocol listener filter.
 	// When set, Envoy will expect connections to include the PROXY protocol header.
 	// This is commonly used when kgateway is behind a load balancer that preserves client IP information.
@@ -116,8 +115,7 @@ type ListenerConfig struct {
 
 // ProxyProtocolConfig configures the PROXY protocol listener filter.
 // The presence of this configuration enables PROXY protocol support.
-type ProxyProtocolConfig struct {
-}
+type ProxyProtocolConfig struct{}
 type HTTPSettings struct {
 	// AccessLoggingConfig contains various settings for Envoy's access logging service.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto
