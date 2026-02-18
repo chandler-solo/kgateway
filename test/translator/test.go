@@ -17,12 +17,9 @@ import (
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyapikeyauthv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/api_key_auth/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/anypb"
 	kubeclient "istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/krt"
@@ -279,10 +276,6 @@ func TestTranslationWithExtraPlugins(
 	extraConfig ExtraConfig,
 	settingsOpts ...SettingsOpts,
 ) {
-	// Validate golden file sorting before running the test to catch stale files
-	// that were modified via find/replace instead of REFRESH_GOLDEN
-	validateGoldenFileSorting(t, outputFile)
-
 	scheme := NewScheme(extraConfig.Schemes)
 	r := require.New(t)
 
@@ -324,17 +317,13 @@ func TestTranslationWithExtraPlugins(
 		os.WriteFile(outputFile, outputYaml, 0o644) //nolint:gosec // G306: Golden test file can be readable
 	}
 
-	gotProxy, err := compareProxy(outputFile, result.Proxy)
-	r.Emptyf(gotProxy, "unexpected diff in proxy output; actual result: %s", outputYaml)
-	r.NoError(err, "error comparing proxy output")
-
-	gotClusters, err := compareClusters(outputFile, result.Clusters)
-	r.Emptyf(gotClusters, "unexpected diff in clusters output; actual result: %s", outputYaml)
-	r.NoError(err, "error comparing clusters output")
-
-	gotStatuses, err := compareStatuses(outputFile, output.Statuses)
-	r.Emptyf(gotStatuses, "unexpected diff in statuses output; actual result: %s", outputYaml)
-	r.NoError(err, "error comparing statuses output")
+	// Golden files must be byte-for-byte identical to the translator output.
+	// This catches files that were hand-edited (e.g. via find/replace) instead
+	// of regenerated with REFRESH_GOLDEN=true.
+	goldenBytes, err := os.ReadFile(outputFile)
+	r.NoError(err, "golden file %s not found; run REFRESH_GOLDEN=true to create", outputFile)
+	r.Equalf(string(outputYaml), string(goldenBytes),
+		"golden file %s does not match translator output; run REFRESH_GOLDEN=true to regenerate", outputFile)
 }
 
 type TestCase struct {
@@ -347,20 +336,6 @@ type ActualTestResult struct {
 	Gateways     map[types.NamespacedName]*gwv1.Gateway
 	ListenerSets map[types.NamespacedName]*gwxv1a1.XListenerSet
 	Clusters     []*envoyclusterv3.Cluster
-}
-
-func compareProxy(expectedFile string, actualProxy *irtranslator.TranslationResult) (string, error) {
-	expectedProxy, err := ReadProxyFromFile(expectedFile)
-	if err != nil {
-		return "", err
-	}
-
-	// Sort credentials by client name to ensure deterministic comparison
-	credentialSortFn := func(x, y *envoyapikeyauthv3.Credential) bool {
-		return x.Client < y.Client
-	}
-
-	return cmp.Diff(sortProxy(expectedProxy), sortProxy(actualProxy), protocmp.Transform(), protocmp.SortRepeated(credentialSortFn), cmpopts.EquateNaNs()), nil
 }
 
 func sortProxy(proxy *irtranslator.TranslationResult) *irtranslator.TranslationResult {
@@ -455,16 +430,6 @@ func sortCredentialsInAny(config *anypb.Any) {
 			config.Value = a.Value
 		}
 	}
-}
-
-func compareClusters(expectedFile string, actualClusters []*envoyclusterv3.Cluster) (string, error) {
-	expectedOutput := &translationResult{}
-	if err := ReadYamlFile(expectedFile, expectedOutput); err != nil {
-		return "", err
-	}
-
-	// Sort both expected and actual clusters by name and compare
-	return cmp.Diff(sortClusters(expectedOutput.Clusters), sortClusters(actualClusters), protocmp.Transform(), cmpopts.EquateNaNs()), nil
 }
 
 func sortClusters(clusters []*envoyclusterv3.Cluster) []*envoyclusterv3.Cluster {
@@ -875,51 +840,4 @@ func ReadProxyFromFile(filename string) (*irtranslator.TranslationResult, error)
 		return nil, fmt.Errorf("parsing proxy from file: %w", err)
 	}
 	return &proxy, nil
-}
-
-// validateGoldenFileSorting checks that the golden file has properly sorted clusters.
-// This catches cases where golden files were modified via find/replace instead of
-// being regenerated with REFRESH_GOLDEN=true.
-func validateGoldenFileSorting(t *testing.T, goldenFile string) {
-	t.Helper()
-
-	// Skip validation when regenerating golden files
-	if os.Getenv("REFRESH_GOLDEN") != "" {
-		return
-	}
-
-	data, err := os.ReadFile(goldenFile)
-	if err != nil {
-		// File doesn't exist yet - will be created by REFRESH_GOLDEN
-		return
-	}
-
-	// Parse the YAML to extract cluster names
-	var output struct {
-		Clusters []struct {
-			Name string `yaml:"name"`
-		} `yaml:"Clusters"`
-	}
-	if err := testutils.UnmarshalAnyYaml(data, &output); err != nil {
-		t.Fatalf("failed to parse golden file %s: %v", goldenFile, err)
-	}
-
-	if len(output.Clusters) < 2 {
-		return
-	}
-
-	// Check if clusters are sorted
-	names := make([]string, len(output.Clusters))
-	for i, c := range output.Clusters {
-		names[i] = c.Name
-	}
-
-	if !sort.StringsAreSorted(names) {
-		sortedNames := make([]string, len(names))
-		copy(sortedNames, names)
-		sort.Strings(sortedNames)
-		t.Fatalf("golden file %s has unsorted clusters (found: %v, expected: %v); "+
-			"run REFRESH_GOLDEN=true go test ./test/translator/... to regenerate",
-			goldenFile, names, sortedNames)
-	}
 }

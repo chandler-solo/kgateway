@@ -6,8 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -200,36 +198,6 @@ func normalizePolicyStatus(status *gwv1.PolicyStatus, time metav1.Time) {
 			status.Ancestors[i].Conditions[j].LastTransitionTime = time
 		}
 	}
-}
-
-func compareStatuses(expectedFile string, actualStatuses *Statuses) (string, error) {
-	expectedOutput := &translationResult{}
-	if err := ReadYamlFile(expectedFile, expectedOutput); err != nil {
-		return "", err
-	}
-
-	if expectedOutput.Statuses == nil && actualStatuses == nil {
-		return "", nil
-	}
-	if expectedOutput.Statuses == nil {
-		return "expected no statuses but got some", nil
-	}
-	if actualStatuses == nil {
-		return "expected statuses but got none", nil
-	}
-
-	// Sort statuses for consistent comparison
-	expectedSorted := sortStatuses(expectedOutput.Statuses)
-	actualSorted := sortStatuses(actualStatuses)
-
-	// Use custom comparison options to ignore timestamp differences and handle nil vs empty slice
-	opts := []cmp.Option{
-		cmpopts.EquateNaNs(),
-		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-		cmpopts.EquateEmpty(),
-	}
-
-	return cmp.Diff(expectedSorted, actualSorted, opts...), nil
 }
 
 func sortStatuses(statuses *Statuses) *Statuses {
