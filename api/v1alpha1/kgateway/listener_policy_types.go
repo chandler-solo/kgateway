@@ -115,7 +115,10 @@ type ListenerConfig struct {
 
 // ProxyProtocolConfig configures the PROXY protocol listener filter.
 // The presence of this configuration enables PROXY protocol support.
-type ProxyProtocolConfig struct{}
+type ProxyProtocolConfig struct {
+	// The presence or absence of this configuration is what matters.
+}
+
 type HTTPSettings struct {
 	// AccessLoggingConfig contains various settings for Envoy's access logging service.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto
