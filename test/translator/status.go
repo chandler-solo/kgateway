@@ -198,4 +198,3 @@ func normalizePolicyStatus(status *gwv1.PolicyStatus, time metav1.Time) {
 		}
 	}
 }
-
