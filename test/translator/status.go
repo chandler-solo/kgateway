@@ -3,7 +3,6 @@ package translator
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -200,90 +199,3 @@ func normalizePolicyStatus(status *gwv1.PolicyStatus, time metav1.Time) {
 	}
 }
 
-func sortStatuses(statuses *Statuses) *Statuses {
-	if statuses == nil {
-		return nil
-	}
-
-	sorted := &Statuses{
-		Gateways:     make(map[string]*gwv1.GatewayStatus),
-		ListenerSets: make(map[string]*gwxv1.ListenerSetStatus),
-		HTTPRoutes:   make(map[string]*gwv1.RouteStatus),
-		TCPRoutes:    make(map[string]*gwv1.RouteStatus),
-		TLSRoutes:    make(map[string]*gwv1.RouteStatus),
-		GRPCRoutes:   make(map[string]*gwv1.RouteStatus),
-		Policies:     make(map[string]*gwv1.PolicyStatus),
-	}
-
-	// Sort gateways
-	gatewayKeys := make([]string, 0, len(statuses.Gateways))
-	for k := range statuses.Gateways {
-		gatewayKeys = append(gatewayKeys, k)
-	}
-	sort.Strings(gatewayKeys)
-	for _, k := range gatewayKeys {
-		sorted.Gateways[k] = statuses.Gateways[k]
-	}
-
-	// Sort listener sets
-	listenerSetKeys := make([]string, 0, len(statuses.ListenerSets))
-	for k := range statuses.ListenerSets {
-		listenerSetKeys = append(listenerSetKeys, k)
-	}
-	sort.Strings(listenerSetKeys)
-	for _, k := range listenerSetKeys {
-		sorted.ListenerSets[k] = statuses.ListenerSets[k]
-	}
-
-	// Sort HTTP routes
-	httpRouteKeys := make([]string, 0, len(statuses.HTTPRoutes))
-	for k := range statuses.HTTPRoutes {
-		httpRouteKeys = append(httpRouteKeys, k)
-	}
-	sort.Strings(httpRouteKeys)
-	for _, k := range httpRouteKeys {
-		sorted.HTTPRoutes[k] = statuses.HTTPRoutes[k]
-	}
-
-	// Sort TCP routes
-	tcpRouteKeys := make([]string, 0, len(statuses.TCPRoutes))
-	for k := range statuses.TCPRoutes {
-		tcpRouteKeys = append(tcpRouteKeys, k)
-	}
-	sort.Strings(tcpRouteKeys)
-	for _, k := range tcpRouteKeys {
-		sorted.TCPRoutes[k] = statuses.TCPRoutes[k]
-	}
-
-	// Sort TLS routes
-	tlsRouteKeys := make([]string, 0, len(statuses.TLSRoutes))
-	for k := range statuses.TLSRoutes {
-		tlsRouteKeys = append(tlsRouteKeys, k)
-	}
-	sort.Strings(tlsRouteKeys)
-	for _, k := range tlsRouteKeys {
-		sorted.TLSRoutes[k] = statuses.TLSRoutes[k]
-	}
-
-	// Sort GRPC routes
-	grpcRouteKeys := make([]string, 0, len(statuses.GRPCRoutes))
-	for k := range statuses.GRPCRoutes {
-		grpcRouteKeys = append(grpcRouteKeys, k)
-	}
-	sort.Strings(grpcRouteKeys)
-	for _, k := range grpcRouteKeys {
-		sorted.GRPCRoutes[k] = statuses.GRPCRoutes[k]
-	}
-
-	// Sort policies
-	policyKeys := make([]string, 0, len(statuses.Policies))
-	for k := range statuses.Policies {
-		policyKeys = append(policyKeys, k)
-	}
-	sort.Strings(policyKeys)
-	for _, k := range policyKeys {
-		sorted.Policies[k] = statuses.Policies[k]
-	}
-
-	return sorted
-}

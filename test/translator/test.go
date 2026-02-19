@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
@@ -41,7 +40,6 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
-	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/listener"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
@@ -442,14 +440,6 @@ func sortClusters(clusters []*envoyclusterv3.Cluster) []*envoyclusterv3.Cluster 
 	return clusters
 }
 
-func ReadYamlFile(file string, out any) error {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	return testutils.UnmarshalAnyYaml(data, out)
-}
-
 func GetHTTPRouteStatusError(
 	reportsMap reports.ReportMap,
 	route *types.NamespacedName,
@@ -497,117 +487,6 @@ func GetPolicyStatusError(
 			}
 		}
 	}
-	return nil
-}
-
-func AreReportsSuccess(gwNN types.NamespacedName, reportsMap reports.ReportMap) error {
-	err := GetHTTPRouteStatusError(reportsMap, nil)
-	if err != nil {
-		return err
-	}
-
-	for nns := range reportsMap.TCPRoutes {
-		r := gwv1a2.TCPRoute{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      nns.Name,
-				Namespace: nns.Namespace,
-			},
-		}
-		status := reportsMap.BuildRouteStatus(context.Background(), &r, wellknown.DefaultGatewayClassName)
-
-		for ref, parentRefReport := range status.Parents {
-			for _, c := range parentRefReport.Conditions {
-				// most route conditions true is good, except RouteConditionPartiallyInvalid
-				if c.Type == string(gwv1.RouteConditionPartiallyInvalid) && c.Status != metav1.ConditionFalse {
-					return fmt.Errorf("condition error for tcproute: %v ref: %v condition: %v", nns, ref, c)
-				} else if c.Status != metav1.ConditionTrue {
-					return fmt.Errorf("condition error for tcproute: %v ref: %v condition: %v", nns, ref, c)
-				}
-			}
-		}
-	}
-
-	for nns := range reportsMap.TLSRoutes {
-		r := gwv1a2.TLSRoute{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      nns.Name,
-				Namespace: nns.Namespace,
-			},
-		}
-		status := reportsMap.BuildRouteStatus(context.Background(), &r, wellknown.DefaultGatewayClassName)
-
-		for ref, parentRefReport := range status.Parents {
-			for _, c := range parentRefReport.Conditions {
-				// most route conditions true is good, except RouteConditionPartiallyInvalid
-				if c.Type == string(gwv1.RouteConditionPartiallyInvalid) && c.Status != metav1.ConditionFalse {
-					return fmt.Errorf("condition error for tlsroute: %v ref: %v condition: %v", nns, ref, c)
-				} else if c.Status != metav1.ConditionTrue {
-					return fmt.Errorf("condition error for tlsroute: %v ref: %v condition: %v", nns, ref, c)
-				}
-			}
-		}
-	}
-
-	for nns := range reportsMap.GRPCRoutes {
-		r := gwv1.GRPCRoute{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      nns.Name,
-				Namespace: nns.Namespace,
-			},
-		}
-		status := reportsMap.BuildRouteStatus(context.Background(), &r, wellknown.DefaultGatewayClassName)
-
-		for ref, parentRefReport := range status.Parents {
-			for _, c := range parentRefReport.Conditions {
-				// most route conditions true is good, except RouteConditionPartiallyInvalid
-				if c.Type == string(gwv1.RouteConditionPartiallyInvalid) && c.Status != metav1.ConditionFalse {
-					return fmt.Errorf("condition error for grpcroute: %v ref: %v condition: %v", nns, ref, c)
-				} else if c.Status != metav1.ConditionTrue {
-					return fmt.Errorf("condition error for grpcroute: %v ref: %v condition: %v", nns, ref, c)
-				}
-			}
-		}
-	}
-
-	for nns := range reportsMap.Gateways {
-		g := gwv1.Gateway{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      nns.Name,
-				Namespace: nns.Namespace,
-			},
-		}
-		status := reportsMap.BuildGWStatus(context.Background(), g, nil)
-		for _, c := range status.Conditions {
-			if c.Type == listener.GatewayConditionAttachedListenerSets {
-				// A gateway might or might not have AttachedListenerSets so skip this condition
-				continue
-			}
-			if c.Status != metav1.ConditionTrue {
-				return fmt.Errorf("condition not accepted for gw %v condition: %v", nns, c)
-			}
-		}
-	}
-
-	for ls := range reportsMap.ListenerSets[wellknown.XListenerSetGVK] {
-		l := gwxv1a1.XListenerSet{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      ls.Name,
-				Namespace: ls.Namespace,
-			},
-		}
-		status := reportsMap.BuildListenerSetStatus(context.Background(), l)
-		for _, c := range status.Conditions {
-			if c.Status != metav1.ConditionTrue {
-				return fmt.Errorf("condition not accepted for listenerSet %s condition: %v", ls, c)
-			}
-		}
-	}
-
-	err = GetPolicyStatusError(reportsMap, nil)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
