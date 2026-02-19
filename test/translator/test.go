@@ -505,7 +505,7 @@ func (tc TestCase) Run(
 	gvkToStructuralSchema := extraConfig.GVKToStructuralSchema
 	if len(gvkToStructuralSchema) == 0 {
 		var err error
-		gvkToStructuralSchema, err = testutils.GetStructuralSchemasForBothCharts()
+		gvkToStructuralSchema, err = testutils.GetStructuralSchemasForAllCharts()
 		r.NoError(err, "error getting structural schemas")
 	}
 
@@ -569,7 +569,6 @@ func (tc TestCase) Run(
 		krtOpts,
 		fakeClient,
 		wellknown.DefaultGatewayControllerName,
-		wellknown.DefaultAgwControllerName,
 		*settings,
 	)
 	if err != nil {

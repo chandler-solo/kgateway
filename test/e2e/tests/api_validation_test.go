@@ -178,7 +178,7 @@ spec:
     kind: Deployment
     name: test-deployment
 `,
-			wantErrors: []string{"TargetRefs must reference either a Kubernetes Service or a Backend API"},
+			wantErrors: []string{"TargetRefs must reference either a Kubernetes Service, a Backend, or an Istio Hostname"},
 		},
 		{
 			name: "BackendConfigPolicy: invalid target selector",
@@ -194,7 +194,7 @@ spec:
     matchLabels:
       app: myapp
 `,
-			wantErrors: []string{"TargetSelectors must reference either a Kubernetes Service or a Backend API"},
+			wantErrors: []string{"TargetSelectors must reference either a Kubernetes Service, a Backend, or an Istio Hostname"},
 		},
 		{
 			name: "BackendConfigPolicy: invalid aggression",
@@ -685,9 +685,9 @@ spec:
 
 	testutils.Cleanup(t, func() {
 		ctx := context.Background()
-		ti.UninstallKgatewayCRDs(ctx)
+		ti.UninstallKgatewayCRDs(ctx, t)
 	})
-	ti.InstallKgatewayCRDsFromLocalChart(ctx)
+	ti.InstallKgatewayCRDsFromLocalChart(ctx, t)
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

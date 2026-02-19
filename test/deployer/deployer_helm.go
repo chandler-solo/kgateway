@@ -1,7 +1,6 @@
 package deployer
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -13,7 +12,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -43,9 +42,7 @@ type HelmTestCase struct {
 
 type DeployerTester struct {
 	ControllerName    string
-	AgwControllerName string
 	ClassName         string
-	AgwClassName      string
 	WaypointClassName string
 }
 
@@ -149,7 +146,7 @@ func VerifyAllEnvoyBootstrapAreValid(t *testing.T, testDataDir string) {
 			if d := strings.TrimSpace(doc); d == "" || d == "---" {
 				continue
 			}
-			var obj v1.ConfigMap
+			var obj corev1.ConfigMap
 			err := yaml.Unmarshal([]byte(doc), &obj)
 			if err != nil && obj.Kind == "ConfigMap" {
 				require.NoErrorf(t, err, "failed to unmarshal document %d in %s", i+1, yamlFile)
@@ -161,9 +158,7 @@ func VerifyAllEnvoyBootstrapAreValid(t *testing.T, testDataDir string) {
 			envoyJsn, err := yaml.YAMLToJSON([]byte(envoyYaml))
 			require.NoErrorf(t, err, "failed to convert envoy.yaml to JSON for document %d in %s", i+1, yamlFile)
 
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				// validate envoy bootstrap
 				err := validator.Validate(t.Context(), string(envoyJsn))
 				if err != nil {
@@ -171,12 +166,11 @@ func VerifyAllEnvoyBootstrapAreValid(t *testing.T, testDataDir string) {
 						envoyErr = fmt.Errorf("envoy bootstrap validation failed for document %d in %s: %w", i+1, yamlFile, err)
 					})
 				}
-			}()
+			})
 		}
 		wg.Wait()
 		require.NoErrorf(t, envoyErr, "envoy bootstrap validation failed")
 	}
-
 }
 
 // ExtractCommonObjs will return a collection containing only objects necessary for collections.CommonCollections,
@@ -254,8 +248,6 @@ func (dt DeployerTester) RunHelmChartTest(
 	}
 	deployer, err := internaldeployer.NewGatewayDeployer(
 		dt.ControllerName,
-		dt.AgwControllerName,
-		dt.AgwClassName,
 		scheme,
 		fakeClient,
 		gwParams,
@@ -305,12 +297,9 @@ func (dt DeployerTester) RunHelmChartTest(
 	}
 }
 
-// Remove things that change often but are not relevant to the tests
+// sanitizeOutput removes things that change often but are not relevant to the tests
 func sanitizeOutput(got []byte) []byte {
-	old := fmt.Sprintf("%s/%s:%v", pkgdeployer.AgentgatewayRegistry, pkgdeployer.AgentgatewayImage, pkgdeployer.AgentgatewayDefaultTag)
-	now := fmt.Sprintf("%s/%s:99.99.99", pkgdeployer.AgentgatewayRegistry, pkgdeployer.AgentgatewayImage)
-
-	return bytes.Replace(got, []byte(old), []byte(now), -1)
+	return got
 }
 
 // objectsToYAML converts a slice of client.Object to YAML bytes, separated by "---"
@@ -334,18 +323,15 @@ func DefaultDeployerInputs(dt DeployerTester, commonCols *collections.CommonColl
 		Dev:               false,
 		CommonCollections: commonCols,
 		ControlPlane: pkgdeployer.ControlPlaneInfo{
-			XdsHost:    "xds.cluster.local",
-			XdsPort:    9977,
-			AgwXdsPort: 9978,
+			XdsHost: "xds.cluster.local",
+			XdsPort: 9977,
 		},
 		ImageInfo: &pkgdeployer.ImageInfo{
 			Registry: "ghcr.io",
 			Tag:      "v2.1.0-dev",
 		},
-		GatewayClassName:           dt.ClassName,
-		WaypointGatewayClassName:   dt.WaypointClassName,
-		AgentgatewayClassName:      dt.AgwClassName,
-		AgentgatewayControllerName: dt.AgwControllerName,
+		GatewayClassName:         dt.ClassName,
+		WaypointGatewayClassName: dt.WaypointClassName,
 	}
 }
 
