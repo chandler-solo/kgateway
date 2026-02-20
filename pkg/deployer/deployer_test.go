@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -2602,5 +2603,68 @@ var _ = Describe("DeployObjs", func() {
 		err := d.DeployObjs(ctx, []client.Object{cm})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(patched).To(BeTrue())
+	})
+})
+
+var _ = Describe("SortByKindPriority", func() {
+	makeObj := func(kind string) *unstructured.Unstructured {
+		obj := &unstructured.Unstructured{}
+		obj.SetGroupVersionKind(schema.GroupVersionKind{Kind: kind})
+		return obj
+	}
+
+	It("sorts infrastructure resources before workload resources", func() {
+		objs := []client.Object{
+			makeObj("Deployment"),
+			makeObj("ClusterRole"),
+			makeObj("ServiceAccount"),
+			makeObj("Service"),
+			makeObj("ClusterRoleBinding"),
+			makeObj("ConfigMap"),
+			makeObj("Secret"),
+			makeObj("RoleBinding"),
+			makeObj("Role"),
+		}
+
+		deployer.SortByKindPriority(objs)
+
+		var kinds []string
+		for _, obj := range objs {
+			kinds = append(kinds, obj.GetObjectKind().GroupVersionKind().Kind)
+		}
+
+		Expect(kinds).To(Equal([]string{
+			"ServiceAccount",
+			"ConfigMap",
+			"Secret",
+			"ClusterRole",
+			"Role",
+			"ClusterRoleBinding",
+			"RoleBinding",
+			"Service",
+			"Deployment",
+		}))
+	})
+
+	It("preserves relative order of objects with the same priority", func() {
+		objs := []client.Object{
+			makeObj("ConfigMap"),
+			makeObj("Secret"),
+			makeObj("Deployment"),
+		}
+
+		deployer.SortByKindPriority(objs)
+
+		var kinds []string
+		for _, obj := range objs {
+			kinds = append(kinds, obj.GetObjectKind().GroupVersionKind().Kind)
+		}
+
+		// ConfigMap and Secret have the same priority, so their relative order is preserved
+		Expect(kinds).To(Equal([]string{
+			"ConfigMap",
+			"Secret",
+			"Deployment",
+		}))
 	})
 })
