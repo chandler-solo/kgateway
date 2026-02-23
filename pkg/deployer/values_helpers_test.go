@@ -3,6 +3,7 @@ package deployer
 import (
 	"testing"
 
+	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -229,6 +230,64 @@ func TestSetLoadBalancerIPFromGateway(t *testing.T) {
 					assert.Equal(t, *tt.wantIP, *svc.LoadBalancerIP, "IP address mismatch")
 				}
 			}
+		})
+	}
+}
+
+func TestGetServiceValues(t *testing.T) {
+	lbType := corev1.ServiceTypeLoadBalancer
+
+	tests := []struct {
+		name  string
+		input *kgateway.Service
+		want  *HelmService
+	}{
+		{
+			name:  "nil service config returns empty HelmService",
+			input: nil,
+			want:  &HelmService{},
+		},
+		{
+			name:  "empty service config returns empty HelmService",
+			input: &kgateway.Service{},
+			want:  &HelmService{},
+		},
+		{
+			name: "fully populated service config",
+			input: &kgateway.Service{
+				Type:                     &lbType,
+				ClusterIP:                ptr.To("10.0.0.1"),
+				ExtraLabels:              map[string]string{"env": "test"},
+				ExtraAnnotations:         map[string]string{"note": "value"},
+				ExternalTrafficPolicy:    ptr.To("Local"),
+				LoadBalancerClass:        ptr.To("service.k8s.aws/nlb"),
+				LoadBalancerSourceRanges: []string{"10.0.0.0/8", "192.168.0.0/16"},
+			},
+			want: &HelmService{
+				Type:                     ptr.To("LoadBalancer"),
+				ClusterIP:                ptr.To("10.0.0.1"),
+				ExtraLabels:              map[string]string{"env": "test"},
+				ExtraAnnotations:         map[string]string{"note": "value"},
+				ExternalTrafficPolicy:    ptr.To("Local"),
+				LoadBalancerClass:        ptr.To("service.k8s.aws/nlb"),
+				LoadBalancerSourceRanges: []string{"10.0.0.0/8", "192.168.0.0/16"},
+			},
+		},
+		{
+			name: "service config with only loadBalancerSourceRanges",
+			input: &kgateway.Service{
+				LoadBalancerSourceRanges: []string{"172.16.0.0/12"},
+			},
+			want: &HelmService{
+				LoadBalancerSourceRanges: []string{"172.16.0.0/12"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetServiceValues(tt.input)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
