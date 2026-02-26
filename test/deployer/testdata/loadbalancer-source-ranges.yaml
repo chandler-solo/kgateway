@@ -7,9 +7,11 @@ spec:
   kube:
     service:
       type: LoadBalancer
-      loadBalancerSourceRanges:
-        - 10.0.0.0/8
-        - 192.168.0.0/16
+    serviceOverlay:
+      spec:
+        loadBalancerSourceRanges:
+          - 10.0.0.0/8
+          - 192.168.0.0/16
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
