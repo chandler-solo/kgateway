@@ -11,6 +11,7 @@
     "CARGO_HOME": "/home/.cargo",
     "RUSTUP_HOME": "/home/.rustup"
   },
+  "postStartCommand": "if command -v docker >/dev/null 2>&1 && [ -e /var/run/docker.sock ]; then v=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null) && [ -n \"$v\" ] && echo \"export DOCKER_API_VERSION=$v\" | sudo tee /etc/profile.d/docker-api-version.sh >/dev/null; fi",
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/mpriscella/features/kind:1": {}
