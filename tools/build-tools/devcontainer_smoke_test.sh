@@ -86,6 +86,10 @@ fi
 info "Verifying Docker connectivity..."
 docker info > /dev/null || fail "Cannot connect to Docker daemon"
 
+# Mark the workspace as a safe git directory so Go VCS stamping works when the
+# repo is bind-mounted from a different uid (e.g. CI runner -> container).
+git config --global --add safe.directory /workspace 2>/dev/null || true
+
 # ---------- create kind cluster and fix networking ----------
 
 trap cleanup EXIT
