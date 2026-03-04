@@ -72,7 +72,7 @@ fix_kubeconfig() {
 
 # ---------- auto-negotiate Docker API version ----------
 
-if [[ -z "${DOCKER_API_VERSION:-}" ]] && command -v docker &>/dev/null && [[ -e /var/run/docker.sock ]]; then
+if [[ -z "${DOCKER_API_VERSION:-}" ]] && command -v docker &>/dev/null; then
   _server_api=$(docker version --format '{{.Server.APIVersion}}' 2>/dev/null || true)
   if [[ -n "${_server_api}" ]]; then
     export DOCKER_API_VERSION="${_server_api}"
