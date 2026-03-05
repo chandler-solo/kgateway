@@ -217,13 +217,13 @@ func buildSni(upstream ir.BackendObjectIR) string {
 				us.Namespace,
 				"cluster.local", // TODO we need a setting like Istio has for trustDomain
 			),
-			uint32(upstream.Port),
+			uint32(upstream.Port), //nolint:gosec // G115: port values are always positive
 		)
 	default:
 		if upstream.Port != 0 && upstream.CanonicalHostname != "" {
 			return buildDNSSrvSubsetKey(
 				upstream.CanonicalHostname,
-				uint32(upstream.Port),
+				uint32(upstream.Port), //nolint:gosec // G115: port values are always positive
 			)
 		}
 	}

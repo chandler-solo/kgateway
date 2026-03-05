@@ -62,6 +62,15 @@ linters:
               isFirstField: Ignore
               useProtobuf: Forbid
               usePatchStrategy: Ignore
+    gosec:
+      excludes:
+        # New taint-analysis rules introduced in gosec v2.23.0 that produce
+        # false positives on legitimate HTTP client calls, logging, and test
+        # helper code. Exclude them until the analyzer matures.
+        - G117 # exported struct field name matches secret pattern (e.g. "PrivateKey")
+        - G702 # command injection via taint analysis (flags exec.Command in tests)
+        - G704 # SSRF via taint analysis (flags http.Client.Do on internal URLs)
+        - G705 # XSS via taint analysis (flags w.Write / fmt.Fprintf in non-HTTP handlers)
     forbidigo:
       forbid:
         - pattern: anypb.New
@@ -171,6 +180,11 @@ linters:
       - examples$
       - hack/dummy-idp
     rules:
+      # Suppress gosec G101 (hardcoded credentials) in test files; these are test fixtures.
+      - path: _test\.go
+        linters:
+          - gosec
+        text: 'G101:'
       # Forbid t.Cleanup only in e2e tests (exclude the rule from non-e2e paths)
       - path-except: test/e2e/
         linters:
