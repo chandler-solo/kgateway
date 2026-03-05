@@ -17,7 +17,7 @@ import (
 )
 
 type mergeOpts struct {
-	TrafficPolicy TrafficPolicyMergeOpts `json:"trafficPolicy,omitempty"`
+	TrafficPolicy TrafficPolicyMergeOpts `json:"trafficPolicy"`
 }
 
 type TrafficPolicyMergeOpts struct {
