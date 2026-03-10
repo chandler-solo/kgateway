@@ -44,7 +44,7 @@ func TestPruneRemovedResources(t *testing.T) {
 		{
 			name: "deletes owned PDB not in desired set",
 			existingPDBs: []*policyv1.PodDisruptionBudget{
-				testPDB("my-pdb", namespace, gwUID),
+				testPDB("my-pdb", gwUID),
 			},
 			desiredObjs:   nil,
 			expectDeleted: []string{"my-pdb"},
@@ -52,17 +52,17 @@ func TestPruneRemovedResources(t *testing.T) {
 		{
 			name: "retains PDB that is in desired set",
 			existingPDBs: []*policyv1.PodDisruptionBudget{
-				testPDB("my-pdb", namespace, gwUID),
+				testPDB("my-pdb", gwUID),
 			},
 			desiredObjs: []client.Object{
-				testPDB("my-pdb", namespace, gwUID),
+				testPDB("my-pdb", gwUID),
 			},
 			expectRetained: []string{"my-pdb"},
 		},
 		{
 			name: "does not delete PDB owned by a different UID",
 			existingPDBs: []*policyv1.PodDisruptionBudget{
-				testPDB("other-pdb", namespace, otherUID),
+				testPDB("other-pdb", otherUID),
 			},
 			desiredObjs:    nil,
 			expectRetained: []string{"other-pdb"},
@@ -70,12 +70,12 @@ func TestPruneRemovedResources(t *testing.T) {
 		{
 			name: "mixed: deletes orphaned owned, retains unowned and desired",
 			existingPDBs: []*policyv1.PodDisruptionBudget{
-				testPDB("orphaned-pdb", namespace, gwUID),
-				testPDB("kept-pdb", namespace, gwUID),
-				testPDB("unowned-pdb", namespace, otherUID),
+				testPDB("orphaned-pdb", gwUID),
+				testPDB("kept-pdb", gwUID),
+				testPDB("unowned-pdb", otherUID),
 			},
 			desiredObjs: []client.Object{
-				testPDB("kept-pdb", namespace, gwUID),
+				testPDB("kept-pdb", gwUID),
 			},
 			expectDeleted:  []string{"orphaned-pdb"},
 			expectRetained: []string{"kept-pdb", "unowned-pdb"},
@@ -125,11 +125,11 @@ func TestPruneRemovedResources(t *testing.T) {
 	}
 }
 
-func testPDB(name, namespace string, ownerUID types.UID) *policyv1.PodDisruptionBudget {
+func testPDB(name string, ownerUID types.UID) *policyv1.PodDisruptionBudget {
 	pdb := &policyv1.PodDisruptionBudget{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: "default",
 			OwnerReferences: []metav1.OwnerReference{
 				{
 					APIVersion: wellknown.GatewayGVK.GroupVersion().String(),
