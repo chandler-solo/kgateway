@@ -18,6 +18,7 @@ var (
 
 	selfManagedGateway = filepath.Join(fsutils.MustGetThisDir(), "testdata", "self-managed-gateway.yaml")
 	gatewayWithHPAPDB  = filepath.Join(fsutils.MustGetThisDir(), "testdata", "gateway-with-hpa-pdb.yaml")
+	vpaCRDManifest     = filepath.Join(fsutils.MustGetThisDir(), "testdata", "vpa-crd.yaml")
 
 	// objects
 	proxyObjectMeta = metav1.ObjectMeta{

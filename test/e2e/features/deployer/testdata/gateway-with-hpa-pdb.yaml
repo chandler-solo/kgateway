@@ -53,3 +53,7 @@ spec:
               target:
                 type: Utilization
                 averageUtilization: 80
+    verticalPodAutoscaler:
+      spec:
+        updatePolicy:
+          updateMode: "Off"

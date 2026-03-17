@@ -19,6 +19,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -91,7 +92,20 @@ func (s *testingSuite) SetupSuite() {
 	_ = policyv1.AddToScheme(scheme)
 	_ = autoscalingv2.AddToScheme(scheme)
 
+	// Install VPA CRD so the deployer can create VPA resources.
+	err := s.TestInstallation.ClusterContext.IstioClient.ApplyYAMLFiles("", vpaCRDManifest)
+	s.Require().NoError(err, "failed to install VPA CRD")
+
 	s.BaseTestingSuite.SetupSuite()
+}
+
+func (s *testingSuite) TearDownSuite() {
+	s.BaseTestingSuite.TearDownSuite()
+
+	// Clean up the VPA CRD installed in SetupSuite
+	if !testutils.ShouldSkipCleanup(s.T()) {
+		_ = s.TestInstallation.ClusterContext.IstioClient.DeleteYAMLFiles("", vpaCRDManifest)
+	}
 }
 
 func (s *testingSuite) TestProvisionDeploymentAndService() {
@@ -371,17 +385,21 @@ func (s *testingSuite) TestGatewayParametersUpdateTriggersReconciliation() {
 	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
 }
 
-// TestHPAPDBLifecycle tests the full lifecycle of HPA and PDB resources:
-// 1. Creates a Gateway with both HPA and PDB configured
-// 2. Verifies the proxy deployment is healthy and both HPA and PDB exist
+// TestHPAPDBLifecycle tests the full lifecycle of HPA, PDB, and VPA resources:
+// 1. Creates a Gateway with HPA, PDB, and VPA configured
+// 2. Verifies the proxy deployment is healthy and all three resources exist
 // 3. Updates the PDB configuration and verifies the change propagates
-// 4. Removes the HPA from GatewayParameters and verifies it is pruned
+// 4. Removes the HPA and VPA from GatewayParameters and verifies they are pruned
 // 5. Deletes the Gateway and verifies all resources are cleaned up
 func (s *testingSuite) TestHPAPDBLifecycle() {
+	vpaClient := s.TestInstallation.ClusterContext.IstioClient.Dynamic().
+		Resource(wellknown.VerticalPodAutoscalerGVR).
+		Namespace(proxyObjectMeta.Namespace)
+
 	// Step 1: Wait for the proxy deployment to be healthy
 	s.TestInstallation.AssertionsT(s.T()).EventuallyReadyReplicas(s.Ctx, proxyObjectMeta, gomega.Equal(1))
 
-	// Step 2: Verify PDB and HPA were created
+	// Step 2: Verify PDB, HPA, and VPA were created
 	pdb := &policyv1.PodDisruptionBudget{}
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 		err := s.TestInstallation.ClusterContext.Client.Get(s.Ctx, client.ObjectKey{
@@ -401,6 +419,13 @@ func (s *testingSuite) TestHPAPDBLifecycle() {
 		}, hpa)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "HPA should exist")
 		g.Expect(hpa.Spec.MaxReplicas).To(gomega.Equal(int32(3)), "HPA maxReplicas should be 3")
+	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
+
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		vpa, err := vpaClient.Get(s.Ctx, proxyObjectMeta.Name, metav1.GetOptions{})
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "VPA should exist")
+		updateMode, _, _ := unstructured.NestedString(vpa.Object, "spec", "updatePolicy", "updateMode")
+		g.Expect(updateMode).To(gomega.Equal("Off"), "VPA updateMode should be Off")
 	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
 
 	// Step 3: Update PDB configuration - change minAvailable from 1 to 0
@@ -424,9 +449,10 @@ func (s *testingSuite) TestHPAPDBLifecycle() {
 		g.Expect(updatedPDB.Spec.MinAvailable.IntValue()).To(gomega.Equal(0), "PDB minAvailable should be updated to 0")
 	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
 
-	// Step 4: Remove HPA from GatewayParameters (keep PDB)
+	// Step 4: Remove HPA and VPA from GatewayParameters (keep PDB)
 	s.patchGatewayParameters(gwParamsDefaultObjectMeta, func(parameters *kgateway.GatewayParameters) {
 		parameters.Spec.Kube.HorizontalPodAutoscaler = nil
+		parameters.Spec.Kube.VerticalPodAutoscaler = nil
 	})
 
 	// Verify HPA is pruned
@@ -439,12 +465,18 @@ func (s *testingSuite) TestHPAPDBLifecycle() {
 		g.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed(), "error should be NotFound")
 	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
 
+	// Verify VPA is pruned
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		_, err := vpaClient.Get(s.Ctx, proxyObjectMeta.Name, metav1.GetOptions{})
+		g.Expect(err).To(gomega.HaveOccurred(), "VPA should be deleted")
+	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
+
 	// PDB should still exist
 	err := s.TestInstallation.ClusterContext.Client.Get(s.Ctx, client.ObjectKey{
 		Namespace: proxyObjectMeta.Namespace,
 		Name:      proxyObjectMeta.Name,
 	}, &policyv1.PodDisruptionBudget{})
-	s.Require().NoError(err, "PDB should still exist after HPA removal")
+	s.Require().NoError(err, "PDB should still exist after HPA/VPA removal")
 
 	// Deployment should still be healthy
 	s.TestInstallation.AssertionsT(s.T()).EventuallyReadyReplicas(s.Ctx, proxyObjectMeta, gomega.Equal(1))
@@ -467,9 +499,14 @@ func (s *testingSuite) TestHPAPDBLifecycle() {
 		&corev1.Service{ObjectMeta: proxyObjectMeta},
 		&corev1.ServiceAccount{ObjectMeta: proxyObjectMeta},
 		&policyv1.PodDisruptionBudget{ObjectMeta: proxyObjectMeta},
-		// HPA was already pruned above, but confirm it's still gone
 		&autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: proxyObjectMeta},
 	)
+
+	// VPA cleanup check (dynamic client since VPA is a CRD)
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		_, err := vpaClient.Get(s.Ctx, proxyObjectMeta.Name, metav1.GetOptions{})
+		g.Expect(err).To(gomega.HaveOccurred(), "VPA should not exist after Gateway deletion")
+	}).WithTimeout(60 * time.Second).WithPolling(1 * time.Second).Should(gomega.Succeed())
 }
 
 // patchGateway accepts a reference to an object, and a patch function. It then queries the object,
