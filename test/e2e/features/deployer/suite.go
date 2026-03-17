@@ -84,6 +84,16 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	}
 }
 
+func (s *testingSuite) SetupSuite() {
+	// Register PDB and HPA types in the client's scheme so that tests
+	// can use the typed client to get/list these resources.
+	scheme := s.TestInstallation.ClusterContext.Client.Scheme()
+	_ = policyv1.AddToScheme(scheme)
+	_ = autoscalingv2.AddToScheme(scheme)
+
+	s.BaseTestingSuite.SetupSuite()
+}
+
 func (s *testingSuite) TestProvisionDeploymentAndService() {
 	s.TestInstallation.AssertionsT(s.T()).EventuallyReadyReplicas(s.Ctx, proxyObjectMeta, gomega.Equal(1))
 }
