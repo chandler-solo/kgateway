@@ -14,7 +14,7 @@ Our current strategy is to group tests by runtime. This allows us to easily move
 
 The groupings are defined in our [GitHub action matrix](/.github/workflows/pr-kubernetes-tests.yaml). This allows us to isolate this complexity to our CI pipeline and not impact local development.
 
- _A side effect of this approach is that if you add a new test function and forget to add it in CI, it will not run. In the short term we have accepted this drawback, expecting PR review to identify it. If this is not sufficient, we will build automation to detect this._.
+ `TestAllE2ETestsInShards` in `test/e2e/tests/shards_test.go` verifies that every registered e2e test is covered by at least one shard regex, so forgetting to add a new test to CI will be caught automatically.
 
 ## Re-Balancing
 
