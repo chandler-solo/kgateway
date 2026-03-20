@@ -95,7 +95,7 @@ func discoverE2ETestPaths(t *testing.T) []string {
 	funcSuites := make(map[string][]string)
 	for _, content := range fileContents {
 		currentFunc := ""
-		for _, line := range strings.Split(content, "\n") {
+		for line := range strings.SplitSeq(content, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "//") {
 				continue
@@ -121,7 +121,15 @@ func discoverE2ETestPaths(t *testing.T) []string {
 			continue
 		}
 
-		// Each e2e test file is expected to contain one top-level test function.
+		if len(testFuncs) > 1 {
+			names := make([]string, len(testFuncs))
+			for i, m := range testFuncs {
+				names[i] = m[1]
+			}
+			t.Fatalf("%s has multiple Test functions (%s); split into separate files so each can be tracked independently",
+				f, strings.Join(names, ", "))
+		}
+
 		testName := testFuncs[0][1]
 
 		// Find suite runner calls in this file (e.g., KubeGatewaySuiteRunner().Run())
