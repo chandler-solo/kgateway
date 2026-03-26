@@ -14,21 +14,23 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/pluginutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmputils"
 )
 
 const (
 	basicAuthFilterName = "envoy.filters.http.basic_auth"
 	defaultSecretKey    = ".htpasswd"
 	shaPrefix           = "{SHA}"
-	usernameHeader      = "x-envoy-basic-auth-user"
 )
 
 type basicAuthIR struct {
-	policy  *envoy_basic_auth_v3.BasicAuthPerRoute
-	disable bool
+	policy   *envoy_basic_auth_v3.BasicAuthPerRoute
+	disable  bool
+	provider *TrafficPolicyGatewayExtensionIR
 }
 
 var _ PolicySubIR = &basicAuthIR{}
@@ -44,7 +46,15 @@ func (b *basicAuthIR) Equals(other PolicySubIR) bool {
 	if b.disable != otherBasicAuth.disable {
 		return false
 	}
-	return proto.Equal(b.policy, otherBasicAuth.policy)
+	if !proto.Equal(b.policy, otherBasicAuth.policy) {
+		return false
+	}
+	if !cmputils.CompareWithNils(b.provider, otherBasicAuth.provider, func(a, b *TrafficPolicyGatewayExtensionIR) bool {
+		return a.Equals(*b)
+	}) {
+		return false
+	}
+	return true
 }
 
 func (b *basicAuthIR) Validate() error {
@@ -54,7 +64,16 @@ func (b *basicAuthIR) Validate() error {
 	return b.policy.Validate()
 }
 
-// handleBasicAuth configures the per-route basic auth configuration and registers the disabled global filter
+func basicAuthFilterNameForProvider(name string) string {
+	if name == "" {
+		return basicAuthFilterName
+	}
+	return fmt.Sprintf("%s/%s", basicAuthFilterName, name)
+}
+
+// handleBasicAuth configures the per-route basic auth configuration and registers the disabled global filter.
+// When an extensionRef is present (provider != nil), a provider-named filter is used that includes
+// ForwardUsernameHeader. Without an extensionRef, the anonymous filter is used without header forwarding.
 func (p *trafficPolicyPluginGwPass) handleBasicAuth(
 	fcn string,
 	pCtxTypedFilterConfig *ir.TypedFilterConfigMap,
@@ -64,30 +83,34 @@ func (p *trafficPolicyPluginGwPass) handleBasicAuth(
 		return
 	}
 
-	// Handle disable case - enable the filter with empty config to override parent policy
+	// Handle disable case - disable the filter to override parent policy
 	if basicAuth.disable {
 		pCtxTypedFilterConfig.AddTypedConfig(basicAuthFilterName, &envoyroutev3.FilterConfig{Config: &anypb.Any{}, Disabled: true})
 		return
 	}
 
-	// Add per-route config using BasicAuthPerRoute
-	pCtxTypedFilterConfig.AddTypedConfig(basicAuthFilterName, basicAuth.policy)
+	if basicAuth.provider != nil {
+		// Provider-backed: use a named filter with ForwardUsernameHeader from the GatewayExtension
+		name := providerName(basicAuth.provider)
+		filterName := basicAuthFilterNameForProvider(name)
+		pCtxTypedFilterConfig.AddTypedConfig(filterName, basicAuth.policy)
+		p.basicAuthPerProvider.Add(fcn, name, basicAuth.provider)
+	} else {
+		// Inline-only: use the anonymous filter without ForwardUsernameHeader
+		pCtxTypedFilterConfig.AddTypedConfig(basicAuthFilterName, basicAuth.policy)
 
-	// Register the disabled global filter in the chain
-	if p.basicAuthInChain == nil {
-		p.basicAuthInChain = make(map[string]*envoy_basic_auth_v3.BasicAuth)
-	}
-	if _, ok := p.basicAuthInChain[fcn]; !ok {
-		// Create a disabled filter with empty users - it will be enabled per-route
-		p.basicAuthInChain[fcn] = &envoy_basic_auth_v3.BasicAuth{
-			// Set a statically named header for all instances of the filter, can be used by later filters, logs, etc.
-			ForwardUsernameHeader: usernameHeader,
-			Users: &envoycorev3.DataSource{
-				Specifier: &envoycorev3.DataSource_InlineString{
-					// If the data source is empty, envoy will NACK. so instead we use a comment.
-					InlineString: "#",
+		if p.basicAuthInChain == nil {
+			p.basicAuthInChain = make(map[string]*envoy_basic_auth_v3.BasicAuth)
+		}
+		if _, ok := p.basicAuthInChain[fcn]; !ok {
+			p.basicAuthInChain[fcn] = &envoy_basic_auth_v3.BasicAuth{
+				Users: &envoycorev3.DataSource{
+					Specifier: &envoycorev3.DataSource_InlineString{
+						// If the data source is empty, envoy will NACK. so instead we use a comment.
+						InlineString: "#",
+					},
 				},
-			},
+			}
 		}
 	}
 }
@@ -98,6 +121,7 @@ func constructBasicAuth(
 	in *kgateway.TrafficPolicy,
 	out *trafficPolicySpecIr,
 	secrets *krtcollections.SecretIndex,
+	fetchGatewayExtension FetchGatewayExtensionFunc,
 ) error {
 	spec := in.Spec.BasicAuth
 	if spec == nil {
@@ -149,7 +173,7 @@ func constructBasicAuth(
 	}
 
 	// Build the basic auth configuration
-	out.basicAuth = &basicAuthIR{
+	irResult := &basicAuthIR{
 		policy: &envoy_basic_auth_v3.BasicAuthPerRoute{
 			// Set the users data source with validated users
 			Users: &envoycorev3.DataSource{
@@ -160,6 +184,19 @@ func constructBasicAuth(
 		},
 	}
 
+	// Resolve optional GatewayExtension for header forwarding
+	if spec.ExtensionRef != nil {
+		provider, fetchErr := fetchGatewayExtension(krtctx, *spec.ExtensionRef, in.GetNamespace())
+		if fetchErr != nil {
+			return fmt.Errorf("basic auth: %w", fetchErr)
+		}
+		if provider.BasicAuth == nil {
+			return pluginutils.ErrInvalidExtensionType(kgateway.GatewayExtensionTypeBasicAuth)
+		}
+		irResult.provider = provider
+	}
+
+	out.basicAuth = irResult
 	return err
 }
 

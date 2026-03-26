@@ -24,9 +24,10 @@ Listeners:
         '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
         httpFilters:
         - disabled: true
-          name: envoy.filters.http.basic_auth
+          name: envoy.filters.http.basic_auth/default/basic-auth-ext
           typedConfig:
             '@type': type.googleapis.com/envoy.extensions.filters.http.basic_auth.v3.BasicAuth
+            forwardUsernameHeader: x-envoy-basic-auth-user
             users:
               inlineString: '#'
         - name: envoy.filters.http.router
@@ -63,7 +64,7 @@ Routes:
         cluster: kube_default_example-svc_80
         clusterNotFoundResponseCode: INTERNAL_SERVER_ERROR
       typedPerFilterConfig:
-        envoy.filters.http.basic_auth:
+        envoy.filters.http.basic_auth/default/basic-auth-ext:
           '@type': type.googleapis.com/envoy.extensions.filters.http.basic_auth.v3.BasicAuthPerRoute
           users:
             inlineString: |-

@@ -10,6 +10,7 @@ import (
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/config/ratelimit/v3"
 	envoymatchingv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/matching/v3"
+	envoy_basic_auth_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/basic_auth/v3"
 	envoycompositev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/composite/v3"
 	envoy_ext_authz_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
 	envoyextprocv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
@@ -41,6 +42,7 @@ type TrafficPolicyGatewayExtensionIR struct {
 	RateLimit        *ratev3.RateLimit
 	Jwt              *envoymatchingv3.ExtensionWithMatcher
 	OAuth2           *oauthPerProviderConfig
+	BasicAuth        *envoy_basic_auth_v3.BasicAuth
 	PrecedenceWeight int32
 	Err              error
 }
@@ -64,6 +66,9 @@ func (e TrafficPolicyGatewayExtensionIR) Equals(other TrafficPolicyGatewayExtens
 		return false
 	}
 	if !e.OAuth2.Equals(other.OAuth2) {
+		return false
+	}
+	if !proto.Equal(e.BasicAuth, other.BasicAuth) {
 		return false
 	}
 	if e.PrecedenceWeight != other.PrecedenceWeight {
@@ -106,6 +111,11 @@ func (e TrafficPolicyGatewayExtensionIR) Validate() error {
 	}
 	if e.Jwt != nil {
 		if err := e.Jwt.ValidateAll(); err != nil {
+			return err
+		}
+	}
+	if e.BasicAuth != nil {
+		if err := e.BasicAuth.ValidateAll(); err != nil {
 			return err
 		}
 	}
@@ -222,6 +232,17 @@ func TranslateGatewayExtensionBuilder(
 				return p
 			}
 			p.OAuth2 = out
+
+		case gExt.BasicAuth != nil:
+			p.BasicAuth = &envoy_basic_auth_v3.BasicAuth{
+				ForwardUsernameHeader: gExt.BasicAuth.ForwardUsernameHeader,
+				Users: &envoycorev3.DataSource{
+					Specifier: &envoycorev3.DataSource_InlineString{
+						// Placeholder; actual users come from per-route config.
+						InlineString: "#",
+					},
+				},
+			}
 		}
 		return p
 	}

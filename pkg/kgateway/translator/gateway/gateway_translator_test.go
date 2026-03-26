@@ -531,6 +531,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("Basic auth with GatewayExtension for header forwarding", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "basic-auth/extension-ref.yaml",
+			outputFile: "basic-auth/extension-ref.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("TrafficPolicy with local rate limiting configurable percentage", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "traffic-policy/local-rate-limit-configurable-percentage.yaml",

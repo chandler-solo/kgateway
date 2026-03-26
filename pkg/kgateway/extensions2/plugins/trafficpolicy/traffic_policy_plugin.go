@@ -238,6 +238,7 @@ type trafficPolicyPluginGwPass struct {
 	compressorInChain        map[string]*compressorv3.Compressor
 	decompressorInChain      map[string]*decompressorv3.Decompressor
 	basicAuthInChain         map[string]*envoy_basic_auth_v3.BasicAuth
+	basicAuthPerProvider     ProviderNeededMap
 	apiKeyAuthInChain        map[string]*envoy_api_key_auth_v3.ApiKeyAuth
 	// maps secret name to secret in case the same secret is referenced in multiple attachment points (e.g., vhost and route)
 	secrets map[string]*envoytlsv3.Secret
@@ -601,11 +602,28 @@ func (p *trafficPolicyPluginGwPass) HttpFilters(_ ir.HttpFiltersContext, fcc ir.
 
 	// Add compression and decompression filters after CORS
 	stagedFilters = addCompressionFiltersIfNeeded(stagedFilters, p, fcc.FilterChainName)
-	// Add Basic Auth filter
+	// Add Basic Auth filter (anonymous, no ForwardUsernameHeader)
 	if f := p.basicAuthInChain[fcc.FilterChainName]; f != nil {
 		filter := filters.MustNewStagedFilter(basicAuthFilterName, f, filters.DuringStage(filters.AuthNStage))
 		filter.Filter.Disabled = true
 		stagedFilters = append(stagedFilters, filter)
+	}
+
+	// Add per-provider Basic Auth filters (with ForwardUsernameHeader from GatewayExtension)
+	for _, provider := range p.basicAuthPerProvider.Providers[fcc.FilterChainName] {
+		basicAuthFilter := provider.Extension.BasicAuth
+		if basicAuthFilter == nil {
+			continue
+		}
+		filterName := basicAuthFilterNameForProvider(provider.Name)
+		stagedFilter := filters.MustNewStagedFilterWithWeight(
+			filterName,
+			basicAuthFilter,
+			filters.DuringStage(filters.AuthNStage),
+			provider.Extension.PrecedenceWeight,
+		)
+		stagedFilter.Filter.Disabled = true
+		stagedFilters = append(stagedFilters, stagedFilter)
 	}
 
 	// Add API key auth filter to the chain

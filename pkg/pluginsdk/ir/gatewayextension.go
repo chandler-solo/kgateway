@@ -29,6 +29,9 @@ type GatewayExtension struct {
 	// OAuth2 configuration for OAuth2 extension type.
 	OAuth2 *kgateway.OAuth2Provider
 
+	// BasicAuth configuration for BasicAuth extension type.
+	BasicAuth *kgateway.BasicAuthProvider
+
 	// PrecedenceWeight specifies the precedence weight associated with the provider.
 	// A higher weight implies higher priority.
 	// It is used to order provider filters by their weight.
@@ -59,6 +62,9 @@ func (e GatewayExtension) Equals(other GatewayExtension) bool {
 		return false
 	}
 	if !reflect.DeepEqual(e.OAuth2, other.OAuth2) {
+		return false
+	}
+	if !reflect.DeepEqual(e.BasicAuth, other.BasicAuth) {
 		return false
 	}
 	if e.PrecedenceWeight != other.PrecedenceWeight {

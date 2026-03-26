@@ -52,6 +52,17 @@ spec:
           spec:
             description: GatewayExtensionSpec defines the desired state of GatewayExtension.
             properties:
+              basicAuth:
+                description: BasicAuth configuration for BasicAuth extension type.
+                properties:
+                  forwardUsernameHeader:
+                    default: x-envoy-basic-auth-user
+                    description: |-
+                      ForwardUsernameHeader specifies the header name used to forward the authenticated username
+                      to upstream services after successful basic auth validation.
+                    minLength: 1
+                    type: string
+                type: object
               extAuth:
                 description: ExtAuth configuration for ExtAuth extension type.
                 properties:
@@ -1546,6 +1557,7 @@ spec:
                 - RateLimit
                 - JWT
                 - OAuth2
+                - BasicAuth
                 type: string
             type: object
             x-kubernetes-validations:
@@ -1563,9 +1575,12 @@ spec:
             - message: oauth2 must be set when type is OAuth2
               rule: 'has(self.type) && self.type == ''OAuth2'' ? has(self.oauth2)
                 : true'
+            - message: basicAuth must be set when type is BasicAuth
+              rule: 'has(self.type) && self.type == ''BasicAuth'' ? has(self.basicAuth)
+                : true'
             - message: exactly one of the fields in [extAuth extProc rateLimit jwt
-                oauth2] must be set
-              rule: '[has(self.extAuth),has(self.extProc),has(self.rateLimit),has(self.jwt),has(self.oauth2)].filter(x,x==true).size()
+                oauth2 basicAuth] must be set
+              rule: '[has(self.extAuth),has(self.extProc),has(self.rateLimit),has(self.jwt),has(self.oauth2),has(self.basicAuth)].filter(x,x==true).size()
                 == 1'
           status:
             description: GatewayExtensionStatus defines the observed state of GatewayExtension.

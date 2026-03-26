@@ -40,16 +40,17 @@ type NamedJWTProvider struct {
 }
 
 // GatewayExtensionSpec defines the desired state of GatewayExtension.
-// +kubebuilder:validation:ExactlyOneOf=extAuth;extProc;rateLimit;jwt;oauth2
+// +kubebuilder:validation:ExactlyOneOf=extAuth;extProc;rateLimit;jwt;oauth2;basicAuth
 // +kubebuilder:validation:XValidation:message="extAuth must be set when type is ExtAuth",rule="has(self.type) && self.type == 'ExtAuth' ? has(self.extAuth) : true"
 // +kubebuilder:validation:XValidation:message="extProc must be set when type is ExtProc",rule="has(self.type) && self.type == 'ExtProc' ? has(self.extProc) : true"
 // +kubebuilder:validation:XValidation:message="rateLimit must be set when type is RateLimit",rule="has(self.type) && self.type == 'RateLimit' ? has(self.rateLimit) : true"
 // +kubebuilder:validation:XValidation:message="JWT must be set when type is JWT",rule="has(self.type) && self.type == 'JWT' ? has(self.jwt) : true"
 // +kubebuilder:validation:XValidation:message="oauth2 must be set when type is OAuth2",rule="has(self.type) && self.type == 'OAuth2' ? has(self.oauth2) : true"
+// +kubebuilder:validation:XValidation:message="basicAuth must be set when type is BasicAuth",rule="has(self.type) && self.type == 'BasicAuth' ? has(self.basicAuth) : true"
 type GatewayExtensionSpec struct {
 	// Deprecated: Setting this field has no effect.
 	// Type indicates the type of the GatewayExtension to be used.
-	// +kubebuilder:validation:Enum=ExtAuth;ExtProc;RateLimit;JWT;OAuth2
+	// +kubebuilder:validation:Enum=ExtAuth;ExtProc;RateLimit;JWT;OAuth2;BasicAuth
 	// +optional
 	Type *GatewayExtensionType `json:"type,omitempty"`
 
@@ -72,6 +73,10 @@ type GatewayExtensionSpec struct {
 	// OAuth2 configuration for OAuth2 extension type.
 	// +optional
 	OAuth2 *OAuth2Provider `json:"oauth2,omitempty"`
+
+	// BasicAuth configuration for BasicAuth extension type.
+	// +optional
+	BasicAuth *BasicAuthProvider `json:"basicAuth,omitempty"`
 }
 
 type JWT struct {
@@ -119,6 +124,8 @@ const (
 	GatewayExtensionTypeJWT GatewayExtensionType = "JWT"
 	// GatewayExtensionTypeOAuth2 is the type for OAuth2 extensions.
 	GatewayExtensionTypeOAuth2 GatewayExtensionType = "OAuth2"
+	// GatewayExtensionTypeBasicAuth is the type for BasicAuth extensions.
+	GatewayExtensionTypeBasicAuth GatewayExtensionType = "BasicAuth"
 )
 
 const HTTPDefaultTimeout = 2 * time.Second
@@ -269,6 +276,18 @@ const (
 	// XRateLimitHeaderDraftV03 outputs headers as described in [draft RFC version 03](https://tools.ietf.org/id/draft-polli-ratelimit-headers-03.html).
 	XRateLimitHeaderDraftV03 XRateLimitHeadersStandard = "DraftVersion03"
 )
+
+// BasicAuthProvider configures the BasicAuth extension behavior.
+// When referenced by a TrafficPolicy's basicAuth.extensionRef, the authenticated
+// username is forwarded to upstream services in the specified header.
+type BasicAuthProvider struct {
+	// ForwardUsernameHeader specifies the header name used to forward the authenticated username
+	// to upstream services after successful basic auth validation.
+	// +optional
+	// +kubebuilder:default="x-envoy-basic-auth-user"
+	// +kubebuilder:validation:MinLength=1
+	ForwardUsernameHeader string `json:"forwardUsernameHeader,omitempty"`
+}
 
 // GatewayExtensionStatus defines the observed state of GatewayExtension.
 type GatewayExtensionStatus struct {

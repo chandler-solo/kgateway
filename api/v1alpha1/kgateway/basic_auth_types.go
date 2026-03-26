@@ -9,10 +9,9 @@ import (
 // BasicAuthPolicy configures HTTP basic authentication using the Authorization header.
 // Basic authentication validates requests against username/password pairs provided either inline or via a Kubernetes secret.
 // The credentials must be in htpasswd SHA-1 format.
-// A header named "x-envoy-basic-auth-user" will be added to upstream requests after successful authentication.
-// Its value is the username provided in the Authorization header. It may be used in subsequent filters, access logs, etc.
 //
 // +kubebuilder:validation:ExactlyOneOf=users;secretRef;disable
+// +kubebuilder:validation:XValidation:message="extensionRef cannot be used with disable",rule="!has(self.extensionRef) || !has(self.disable)"
 type BasicAuthPolicy struct {
 	// Users provides an inline list of username/password pairs in htpasswd format.
 	// Each entry should be formatted as "username:hashed_password".
@@ -30,6 +29,13 @@ type BasicAuthPolicy struct {
 	// The secret must contain username/password pairs in htpasswd format.
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
+
+	// ExtensionRef references a GatewayExtension of type BasicAuth.
+	// When set, the authenticated username is forwarded to upstream services
+	// in the header specified by the referenced GatewayExtension.
+	// Can be used alongside users or secretRef to enable header forwarding for specific routes.
+	// +optional
+	ExtensionRef *shared.NamespacedObjectReference `json:"extensionRef,omitempty"`
 
 	// Disable basic auth.
 	// Can be used to disable basic auth policies applied at a higher level in the config hierarchy.

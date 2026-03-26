@@ -237,6 +237,29 @@ spec:
                       Disable basic auth.
                       Can be used to disable basic auth policies applied at a higher level in the config hierarchy.
                     type: object
+                  extensionRef:
+                    description: |-
+                      ExtensionRef references a GatewayExtension of type BasicAuth.
+                      When set, the authenticated username is forwarded to upstream services
+                      in the header specified by the referenced GatewayExtension.
+                      Can be used alongside users or secretRef to enable header forwarding for specific routes.
+                    properties:
+                      name:
+                        description: The name of the target resource.
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                      namespace:
+                        description: |-
+                          The namespace of the target resource.
+                          If not set, defaults to the namespace of the parent object.
+                        maxLength: 63
+                        minLength: 1
+                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                        type: string
+                    required:
+                    - name
+                    type: object
                   secretRef:
                     description: |-
                       SecretRef references a Kubernetes secret containing htpasswd data.
@@ -280,6 +303,8 @@ spec:
                     type: array
                 type: object
                 x-kubernetes-validations:
+                - message: extensionRef cannot be used with disable
+                  rule: '!has(self.extensionRef) || !has(self.disable)'
                 - message: exactly one of the fields in [users secretRef disable]
                     must be set
                   rule: '[has(self.users),has(self.secretRef),has(self.disable)].filter(x,x==true).size()
