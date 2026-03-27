@@ -1,0 +1,22 @@
+name: Verify Helm Schema Sync
+on:
+  pull_request:
+    paths:
+      - install/helm/kgateway/values.yaml
+      - install/helm/kgateway/values.schema.json
+  push:
+    branches: [main]
+    paths:
+      - install/helm/kgateway/values.yaml
+      - install/helm/kgateway/values.schema.json
+
+permissions:
+  contents: read
+
+jobs:
+  verify-helm-schema:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - run: pip install pyyaml
+      - run: make verify-helm-schema

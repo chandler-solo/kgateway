@@ -927,6 +927,14 @@ envoyversion:
 	echo "Current ABI in envoyinit can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
 
 #----------------------------------------------------------------------------------
+# Helm schema verification
+#----------------------------------------------------------------------------------
+
+.PHONY: verify-helm-schema
+verify-helm-schema: ## Verify values.yaml and values.schema.json are in sync
+	python3 hack/helm/verify-schema-sync.py
+
+#----------------------------------------------------------------------------------
 # Printing makefile variables utility
 #----------------------------------------------------------------------------------
 
