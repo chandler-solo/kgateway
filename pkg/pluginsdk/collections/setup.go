@@ -8,6 +8,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
 	"istio.io/istio/pkg/util/smallset"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
@@ -39,11 +40,20 @@ func (c *CommonCollections) InitCollections(
 	kubeRawGateways := krt.WrapClient(kclient.NewFilteredDelayed[*gwv1.Gateway](c.Client, wellknown.GatewayGVR, filter), c.KrtOpts.ToOptions("KubeGateways")...)
 	metrics.RegisterEvents(kubeRawGateways, kmetrics.GetResourceMetricEventHandler[*gwv1.Gateway]())
 
+	xListenerSetVersions := GetServedVersions(
+		c.Client.Ext(),
+		wellknown.XListenerSetGVR.Resource+"."+wellknown.XListenerSetGVR.Group,
+		wellknown.XListenerSetGVR.Version,
+	)
 	var kubeRawListenerSets krt.Collection[*gwxv1a1.XListenerSet]
 	// ON_EXPERIMENTAL_PROMOTION : Remove this block
 	// Ref: https://github.com/kgateway-dev/kgateway/issues/12827
 	if globalSettings.EnableExperimentalGatewayAPIFeatures {
-		kubeRawListenerSets = krt.WrapClient(kclient.NewDelayedInformer[*gwxv1a1.XListenerSet](c.Client, wellknown.XListenerSetGVR, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("KubeListenerSets")...)
+		if xListenerSetVersions.Authoritative && xListenerSetVersions.Exists && !xListenerSetVersions.Served[wellknown.XListenerSetGVR.Version] {
+			kubeRawListenerSets = krt.NewStaticCollection[*gwxv1a1.XListenerSet](nil, nil, c.KrtOpts.ToOptions("disable/KubeListenerSets")...)
+		} else {
+			kubeRawListenerSets = krt.WrapClient(kclient.NewDelayedInformer[*gwxv1a1.XListenerSet](c.Client, wellknown.XListenerSetGVR, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("KubeListenerSets")...)
+		}
 	} else {
 		// If disabled, still build a collection but make it always empty
 		kubeRawListenerSets = krt.NewStaticCollection[*gwxv1a1.XListenerSet](nil, nil, c.KrtOpts.ToOptions("disable/KubeListenerSets")...)
@@ -88,9 +98,32 @@ func (c *CommonCollections) InitCollections(
 	var tcproutes krt.Collection[*gwv1a2.TCPRoute]
 	// Ref: https://github.com/kgateway-dev/kgateway/issues/12880
 	var tlsRoutes krt.Collection[*gwv1a2.TLSRoute]
+	tcpVersions := GetServedVersions(c.Client.Ext(), wellknown.TCPRouteCRDName, gvr.TCPRoute.Version)
+	tlsVersions := GetServedVersions(c.Client.Ext(), "tlsroutes.gateway.networking.k8s.io", PromotedTLSRouteGVR.Version, gvr.TLSRoute.Version)
 	if globalSettings.EnableExperimentalGatewayAPIFeatures {
-		tcproutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TCPRoute](c.Client, gvr.TCPRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TCPRoute")...)
-		tlsRoutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TLSRoute](c.Client, gvr.TLSRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TLSRoute")...)
+		if tcpVersions.Authoritative && tcpVersions.Exists && !tcpVersions.Served[gvr.TCPRoute.Version] {
+			tcproutes = krt.NewStaticCollection[*gwv1a2.TCPRoute](nil, nil, c.KrtOpts.ToOptions("disable/TCPRoute")...)
+		} else {
+			tcproutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TCPRoute](c.Client, gvr.TCPRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TCPRoute")...)
+		}
+
+		switch {
+		case tlsVersions.Authoritative && tlsVersions.Exists && tlsVersions.Served[PromotedTLSRouteGVR.Version]:
+			tlsRoutesRaw := krt.WrapClient(
+				newDelayedDynamicUnstructuredInformer(c.Client, PromotedTLSRouteGVR, filter),
+				c.KrtOpts.ToOptions("TLSRouteV1Raw")...,
+			)
+			tlsRoutes = krt.NewManyCollection(tlsRoutesRaw, func(kctx krt.HandlerContext, route *unstructured.Unstructured) []*gwv1a2.TLSRoute {
+				if converted := ConvertUnstructuredTLSRouteToV1Alpha2(route); converted != nil {
+					return []*gwv1a2.TLSRoute{converted}
+				}
+				return nil
+			}, c.KrtOpts.ToOptions("TLSRoute")...)
+		case tlsVersions.Authoritative && tlsVersions.Exists && !tlsVersions.Served[gvr.TLSRoute.Version]:
+			tlsRoutes = krt.NewStaticCollection[*gwv1a2.TLSRoute](nil, nil, c.KrtOpts.ToOptions("disable/TLSRoute")...)
+		default:
+			tlsRoutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TLSRoute](c.Client, gvr.TLSRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TLSRoute")...)
+		}
 	} else {
 		// If disabled, still build a collection but make it always empty
 		tcproutes = krt.NewStaticCollection[*gwv1a2.TCPRoute](nil, nil, c.KrtOpts.ToOptions("disable/TCPRoute")...)

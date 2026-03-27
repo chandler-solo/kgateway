@@ -103,6 +103,38 @@ func NewAgwCollections(
 	systemNamespace string,
 	clusterID string,
 ) (*AgwCollections, error) {
+	tcpVersions := collections.GetServedVersions(commoncol.Client.Ext(), wellknown.TCPRouteCRDName, wellknown.TCPRouteGVR.Version)
+	tlsVersions := collections.GetServedVersions(commoncol.Client.Ext(), "tlsroutes.gateway.networking.k8s.io", wellknown.TLSRouteGVR.Version)
+	xListenerSetVersions := collections.GetServedVersions(
+		commoncol.Client.Ext(),
+		wellknown.XListenerSetGVR.Resource+"."+wellknown.XListenerSetGVR.Group,
+		wellknown.XListenerSetGVR.Version,
+	)
+
+	tcpRoutes := krt.WrapClient(
+		kclient.NewDelayedInformer[*gwv1a2.TCPRoute](commoncol.Client, gvr.TCPRoute, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}),
+		commoncol.KrtOpts.ToOptions("informer/TCPRoutes")...,
+	)
+	if tcpVersions.Authoritative && tcpVersions.Exists && !tcpVersions.Served[wellknown.TCPRouteGVR.Version] {
+		tcpRoutes = krt.NewStaticCollection[*gwv1a2.TCPRoute](nil, nil, commoncol.KrtOpts.ToOptions("disable/TCPRoutes")...)
+	}
+
+	tlsRoutes := krt.WrapClient(
+		kclient.NewDelayedInformer[*gwv1a2.TLSRoute](commoncol.Client, gvr.TLSRoute, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}),
+		commoncol.KrtOpts.ToOptions("informer/TLSRoutes")...,
+	)
+	if tlsVersions.Authoritative && tlsVersions.Exists && !tlsVersions.Served[wellknown.TLSRouteGVR.Version] {
+		tlsRoutes = krt.NewStaticCollection[*gwv1a2.TLSRoute](nil, nil, commoncol.KrtOpts.ToOptions("disable/TLSRoutes")...)
+	}
+
+	xListenerSets := krt.WrapClient(
+		kclient.NewDelayedInformer[*gwxv1a1.XListenerSet](commoncol.Client, gvr.XListenerSet, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}),
+		commoncol.KrtOpts.ToOptions("informer/XListenerSets")...,
+	)
+	if xListenerSetVersions.Authoritative && xListenerSetVersions.Exists && !xListenerSetVersions.Served[wellknown.XListenerSetGVR.Version] {
+		xListenerSets = krt.NewStaticCollection[*gwxv1a1.XListenerSet](nil, nil, commoncol.KrtOpts.ToOptions("disable/XListenerSets")...)
+	}
+
 	agwCollections := &AgwCollections{
 		Client:          commoncol.Client,
 		KrtOpts:         commoncol.KrtOpts,
@@ -155,10 +187,10 @@ func NewAgwCollections(
 		BackendTLSPolicies: krt.WrapClient(kclient.NewDelayedInformer[*gwv1.BackendTLSPolicy](commoncol.Client, gvr.BackendTLSPolicy, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}), commoncol.KrtOpts.ToOptions("informer/BackendTLSPolicies")...),
 
 		// Gateway API alpha
-		TCPRoutes:       krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TCPRoute](commoncol.Client, gvr.TCPRoute, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}), commoncol.KrtOpts.ToOptions("informer/TCPRoutes")...),
-		TLSRoutes:       krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TLSRoute](commoncol.Client, gvr.TLSRoute, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}), commoncol.KrtOpts.ToOptions("informer/TLSRoutes")...),
+		TCPRoutes:       tcpRoutes,
+		TLSRoutes:       tlsRoutes,
 		ReferenceGrants: krt.WrapClient(kclient.NewFilteredDelayed[*gwv1b1.ReferenceGrant](commoncol.Client, wellknown.ReferenceGrantGVR, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}), commoncol.KrtOpts.ToOptions("informer/ReferenceGrants")...),
-		XListenerSets:   krt.WrapClient(kclient.NewDelayedInformer[*gwxv1a1.XListenerSet](commoncol.Client, gvr.XListenerSet, kubetypes.StandardInformer, kubetypes.Filter{ObjectFilter: commoncol.Client.ObjectFilter()}), commoncol.KrtOpts.ToOptions("informer/XListenerSets")...),
+		XListenerSets:   xListenerSets,
 		// BackendTrafficPolicy?
 
 		// inference extensions need to be enabled so control plane has permissions to watch resource. Disable by default

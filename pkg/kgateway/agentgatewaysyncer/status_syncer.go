@@ -26,6 +26,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/apiclient"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/agentgatewaysyncer/status"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/stopwatch"
 )
 
@@ -79,6 +80,28 @@ func NewAgwStatusSyncer(
 	extraHandlers map[schema.GroupVersionKind]agwplugins.AgwResourceStatusSyncHandler,
 ) *AgentGwStatusSyncer {
 	f := kclient.Filter{ObjectFilter: client.ObjectFilter()}
+	tcpRouteClient := kclient.NewFilteredDelayed[*gwv1a2.TCPRoute](client, wellknown.TCPRouteGVR, f)
+	tcpVersions := collections.GetServedVersions(client.Ext(), wellknown.TCPRouteCRDName, wellknown.TCPRouteGVR.Version)
+	if tcpVersions.Authoritative && tcpVersions.Exists && !tcpVersions.Served[wellknown.TCPRouteGVR.Version] {
+		tcpRouteClient = collections.NewDisabledClient[*gwv1a2.TCPRoute]()
+	}
+
+	tlsRouteClient := kclient.NewFilteredDelayed[*gwv1a2.TLSRoute](client, wellknown.TLSRouteGVR, f)
+	tlsVersions := collections.GetServedVersions(client.Ext(), "tlsroutes.gateway.networking.k8s.io", wellknown.TLSRouteGVR.Version)
+	if tlsVersions.Authoritative && tlsVersions.Exists && !tlsVersions.Served[wellknown.TLSRouteGVR.Version] {
+		tlsRouteClient = collections.NewDisabledClient[*gwv1a2.TLSRoute]()
+	}
+
+	listenerSetClient := kclient.NewFilteredDelayed[*gwxv1a1.XListenerSet](client, wellknown.XListenerSetGVR, f)
+	xListenerSetVersions := collections.GetServedVersions(
+		client.Ext(),
+		wellknown.XListenerSetGVR.Resource+"."+wellknown.XListenerSetGVR.Group,
+		wellknown.XListenerSetGVR.Version,
+	)
+	if xListenerSetVersions.Authoritative && xListenerSetVersions.Exists && !xListenerSetVersions.Served[wellknown.XListenerSetGVR.Version] {
+		listenerSetClient = collections.NewDisabledClient[*gwxv1a1.XListenerSet]()
+	}
+
 	syncer := &AgentGwStatusSyncer{
 		controllerName:                 controllerName,
 		agwClassName:                   agwClassName,
@@ -137,7 +160,7 @@ func NewAgwStatusSyncer(
 		tlsRoutes: StatusSyncer[*gwv1a2.TLSRoute, *gwv1a2.TLSRouteStatus]{
 			name:           "tlsRoute",
 			controllerName: controllerName,
-			client:         kclient.NewFilteredDelayed[*gwv1a2.TLSRoute](client, wellknown.TLSRouteGVR, f),
+			client:         tlsRouteClient,
 			build: func(om metav1.ObjectMeta, s *gwv1a2.TLSRouteStatus) *gwv1a2.TLSRoute {
 				return &gwv1a2.TLSRoute{
 					ObjectMeta: om,
@@ -148,7 +171,7 @@ func NewAgwStatusSyncer(
 		tcpRoutes: StatusSyncer[*gwv1a2.TCPRoute, *gwv1a2.TCPRouteStatus]{
 			name:           "tcpRoute",
 			controllerName: controllerName,
-			client:         kclient.NewFilteredDelayed[*gwv1a2.TCPRoute](client, wellknown.TCPRouteGVR, f),
+			client:         tcpRouteClient,
 			build: func(om metav1.ObjectMeta, s *gwv1a2.TCPRouteStatus) *gwv1a2.TCPRoute {
 				return &gwv1a2.TCPRoute{
 					ObjectMeta: om,
@@ -159,7 +182,7 @@ func NewAgwStatusSyncer(
 		listenerSets: StatusSyncer[*gwxv1a1.XListenerSet, *gwxv1a1.ListenerSetStatus]{
 			name:           "listenerSet",
 			controllerName: controllerName,
-			client:         kclient.NewFilteredDelayed[*gwxv1a1.XListenerSet](client, wellknown.XListenerSetGVR, f),
+			client:         listenerSetClient,
 			build: func(om metav1.ObjectMeta, s *gwxv1a1.ListenerSetStatus) *gwxv1a1.XListenerSet {
 				return &gwxv1a1.XListenerSet{
 					ObjectMeta: om,
