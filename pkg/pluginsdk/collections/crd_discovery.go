@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -13,11 +14,10 @@ import (
 type servedVersions struct {
 	// Served maps each requested version name to whether it is served.
 	Served map[string]bool
+	// Exists is true when the CRD object itself exists.
+	Exists bool
 	// Authoritative is true when the CRD was successfully looked up, meaning
-	// the Served map reflects the actual cluster state. When false (nil client
-	// or lookup error), the Served map optimistically marks all requested
-	// versions as true so the delayed informer's CRD watcher can handle the
-	// missing-CRD case at runtime.
+	// the Served map reflects the actual cluster state.
 	Authoritative bool
 }
 
@@ -25,18 +25,32 @@ type servedVersions struct {
 // returns which of the requested versions are served.
 func getServedVersions(extClient apiextensionsclient.Interface, crdName string, versions ...string) servedVersions {
 	if extClient == nil {
-		return optimistic(versions)
+		slog.Warn("apiextensions client unavailable during CRD version discovery",
+			"crd", crdName,
+		)
+		return servedVersions{Served: make(map[string]bool, len(versions))}
 	}
 
 	crd, err := extClient.ApiextensionsV1().CustomResourceDefinitions().Get(
 		context.Background(), crdName, metav1.GetOptions{},
 	)
 	if err != nil {
-		return optimistic(versions)
+		if apierrors.IsNotFound(err) {
+			return servedVersions{
+				Served:        make(map[string]bool, len(versions)),
+				Authoritative: true,
+			}
+		}
+		slog.Warn("failed to discover served CRD versions",
+			"crd", crdName,
+			"error", err,
+		)
+		return servedVersions{Served: make(map[string]bool, len(versions))}
 	}
 
 	result := servedVersions{
 		Served:        make(map[string]bool, len(versions)),
+		Exists:        true,
 		Authoritative: true,
 	}
 	for _, v := range crd.Spec.Versions {
@@ -60,14 +74,4 @@ func getServedVersions(extClient apiextensionsclient.Interface, crdName string, 
 	}
 
 	return result
-}
-
-// optimistic returns a servedVersions where every requested version is assumed
-// to be served. Used when discovery is unavailable.
-func optimistic(versions []string) servedVersions {
-	m := make(map[string]bool, len(versions))
-	for _, v := range versions {
-		m[v] = true
-	}
-	return servedVersions{Served: m, Authoritative: false}
 }

@@ -25,6 +25,7 @@ func TestGetServedVersions(t *testing.T) {
 
 		result := getServedVersions(client, crdName, "v1", "v1alpha2")
 		require.True(t, result.Authoritative)
+		require.True(t, result.Exists)
 		require.True(t, result.Served["v1"])
 		require.True(t, result.Served["v1alpha2"])
 	})
@@ -42,6 +43,7 @@ func TestGetServedVersions(t *testing.T) {
 
 		result := getServedVersions(client, crdName, "v1", "v1alpha2")
 		require.True(t, result.Authoritative)
+		require.True(t, result.Exists)
 		require.True(t, result.Served["v1"])
 		require.False(t, result.Served["v1alpha2"])
 	})
@@ -58,24 +60,27 @@ func TestGetServedVersions(t *testing.T) {
 
 		result := getServedVersions(client, crdName, "v1", "v1alpha2")
 		require.True(t, result.Authoritative)
+		require.True(t, result.Exists)
 		require.False(t, result.Served["v1"])
 		require.True(t, result.Served["v1alpha2"])
 	})
 
-	t.Run("optimistic when CRD does not exist", func(t *testing.T) {
+	t.Run("tracks CRD absence authoritatively", func(t *testing.T) {
 		client := apiextensionsfake.NewClientset()
 
 		result := getServedVersions(client, crdName, "v1", "v1alpha2")
-		require.False(t, result.Authoritative)
-		require.True(t, result.Served["v1"])
-		require.True(t, result.Served["v1alpha2"])
+		require.True(t, result.Authoritative)
+		require.False(t, result.Exists)
+		require.False(t, result.Served["v1"])
+		require.False(t, result.Served["v1alpha2"])
 	})
 
-	t.Run("optimistic when client is nil", func(t *testing.T) {
+	t.Run("returns non-authoritative when client is nil", func(t *testing.T) {
 		result := getServedVersions(nil, crdName, "v1", "v1alpha2")
 		require.False(t, result.Authoritative)
-		require.True(t, result.Served["v1"])
-		require.True(t, result.Served["v1alpha2"])
+		require.False(t, result.Exists)
+		require.False(t, result.Served["v1"])
+		require.False(t, result.Served["v1alpha2"])
 	})
 
 	t.Run("single version check", func(t *testing.T) {
@@ -90,6 +95,7 @@ func TestGetServedVersions(t *testing.T) {
 
 		result := getServedVersions(client, "tcproutes.gateway.networking.k8s.io", "v1alpha2")
 		require.True(t, result.Authoritative)
+		require.True(t, result.Exists)
 		require.True(t, result.Served["v1alpha2"])
 	})
 
@@ -105,6 +111,7 @@ func TestGetServedVersions(t *testing.T) {
 
 		result := getServedVersions(client, crdName, "v1", "v1alpha2")
 		require.True(t, result.Authoritative)
+		require.True(t, result.Exists)
 		require.False(t, result.Served["v1"])
 		require.False(t, result.Served["v1alpha2"])
 	})

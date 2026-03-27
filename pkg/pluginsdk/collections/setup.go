@@ -49,7 +49,7 @@ func (c *CommonCollections) InitCollections(
 	// Ref: https://github.com/kgateway-dev/kgateway/issues/12827
 	xListenerSetCRD := wellknown.XListenerSetGVR.Resource + "." + wellknown.XListenerSetGVR.Group
 	xListenerSetVersions := getServedVersions(c.Client.Ext(), xListenerSetCRD, wellknown.XListenerSetGVR.Version)
-	if globalSettings.EnableExperimentalGatewayAPIFeatures && xListenerSetVersions.Served[wellknown.XListenerSetGVR.Version] {
+	if globalSettings.EnableExperimentalGatewayAPIFeatures && (!xListenerSetVersions.Authoritative || xListenerSetVersions.Served[wellknown.XListenerSetGVR.Version]) {
 		legacyListenerSetsRaw := krt.WrapClient(
 			newDelayedDynamicUnstructuredInformer(c.Client, wellknown.XListenerSetGVR, filter),
 			c.KrtOpts.ToOptions("KubeLegacyXListenerSets")...,
@@ -109,7 +109,7 @@ func (c *CommonCollections) InitCollections(
 	var tlsRoutes krt.Collection[*gwv1a2.TLSRoute]
 	if globalSettings.EnableExperimentalGatewayAPIFeatures {
 		tcpVersions := getServedVersions(c.Client.Ext(), "tcproutes.gateway.networking.k8s.io", gvr.TCPRoute.Version)
-		if tcpVersions.Served[gvr.TCPRoute.Version] {
+		if !tcpVersions.Authoritative || !tcpVersions.Exists || tcpVersions.Served[gvr.TCPRoute.Version] {
 			tcproutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TCPRoute](c.Client, gvr.TCPRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TCPRoute")...)
 		} else {
 			tcproutes = krt.NewStaticCollection[*gwv1a2.TCPRoute](nil, nil, c.KrtOpts.ToOptions("disable/TCPRoute")...)
@@ -120,7 +120,7 @@ func (c *CommonCollections) InitCollections(
 		var tlsRouteCollections []krt.Collection[*gwv1a2.TLSRoute]
 		// Prefer the promoted watch when discovery confirms it is served; watching both
 		// served versions would duplicate the same logical TLSRoute.
-		if tlsVersions.Served[promotedTLSRouteGVR.Version] {
+		if !tlsVersions.Authoritative || !tlsVersions.Exists || tlsVersions.Served[promotedTLSRouteGVR.Version] {
 			tlsRoutesV1 := krt.WrapClient(
 				kclient.NewDelayedInformer[*gwv1.TLSRoute](c.Client, promotedTLSRouteGVR, kubetypes.StandardInformer, filter),
 				c.KrtOpts.ToOptions("TLSRouteV1")...,
@@ -132,7 +132,7 @@ func (c *CommonCollections) InitCollections(
 				return nil
 			}, c.KrtOpts.ToOptions("TLSRouteV1ToV1Alpha2")...))
 		}
-		if tlsVersions.Served[legacyTLSRouteGVR.Version] && (!tlsVersions.Authoritative || !tlsVersions.Served[promotedTLSRouteGVR.Version]) {
+		if (!tlsVersions.Authoritative) || (tlsVersions.Exists && tlsVersions.Served[legacyTLSRouteGVR.Version] && !tlsVersions.Served[promotedTLSRouteGVR.Version]) {
 			legacyTLSRoutesRaw := krt.WrapClient(
 				newDelayedDynamicUnstructuredInformer(c.Client, legacyTLSRouteGVR, filter),
 				c.KrtOpts.ToOptions("TLSRouteV1Alpha2Raw")...,

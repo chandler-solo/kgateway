@@ -190,7 +190,8 @@ func (d *delayedUnstructuredInformer) AddEventHandler(h cache.ResourceEventHandl
 	defer d.mu.Unlock()
 
 	reg := delayedHandlerRegistration{hasSynced: new(atomic.Pointer[func() bool])}
-	reg.hasSynced.Store(new(d.watcher.HasSynced))
+	synced := d.watcher.HasSynced
+	reg.hasSynced.Store(&synced)
 	d.handlers = append(d.handlers, delayedUnstructuredHandler{
 		ResourceEventHandler: h,
 		hasSynced:            reg,
@@ -280,7 +281,8 @@ func (d *delayedUnstructuredInformer) set(inf kclient.Informer[*unstructured.Uns
 
 	for _, handler := range d.handlers {
 		reg := inf.AddEventHandler(handler)
-		handler.hasSynced.hasSynced.Store(new(reg.HasSynced))
+		synced := reg.HasSynced
+		handler.hasSynced.hasSynced.Store(&synced)
 	}
 	d.handlers = nil
 
