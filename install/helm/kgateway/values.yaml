@@ -84,11 +84,11 @@ controller:
   # -- Set node selector labels for controller pod scheduling.
   nodeSelector: {}
   # -- Set tolerations for controller pod scheduling.
-  tolerations: []
+  # tolerations: []
   # -- Set affinity rules for controller pod scheduling.
   affinity: {}
   # -- Set topology spread constraints for controller pod scheduling.
-  topologySpreadConstraints: []
+  # topologySpreadConstraints: []
   # -- Controller service configuration.
   service:
     # -- Create the controller Service.

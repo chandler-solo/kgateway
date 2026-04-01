@@ -319,6 +319,60 @@ func TestHelmChartTemplate(t *testing.T) {
 `,
 		},
 		{
+			name: "tolerations",
+			valuesYAML: `tolerations:
+  - key: top-level
+    operator: Exists
+    effect: NoSchedule
+`,
+		},
+		{
+			name: "controller-empty-tolerations-override",
+			valuesYAML: `tolerations:
+  - key: top-level
+    operator: Exists
+    effect: NoSchedule
+controller:
+  tolerations: []
+`,
+		},
+		{
+			name: "controller-null-tolerations-fallback",
+			valuesYAML: `tolerations:
+  - key: top-level
+    operator: Exists
+    effect: NoSchedule
+controller:
+  tolerations: null
+`,
+		},
+		{
+			name: "controller-empty-topology-spread-constraints-override",
+			valuesYAML: `topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: kgateway
+controller:
+  topologySpreadConstraints: []
+`,
+		},
+		{
+			name: "controller-null-topology-spread-constraints-fallback",
+			valuesYAML: `topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: kgateway
+controller:
+  topologySpreadConstraints: null
+`,
+		},
+		{
 			name: "controller-overrides-top-level-values",
 			valuesYAML: `podAnnotations:
   top-level-only: "true"
