@@ -319,6 +319,75 @@ func TestHelmChartTemplate(t *testing.T) {
 `,
 		},
 		{
+			name: "controller-overrides-top-level-values",
+			valuesYAML: `podAnnotations:
+  top-level-only: "true"
+  overridden: top-level
+podSecurityContext:
+  fsGroup: 2000
+securityContext:
+  allowPrivilegeEscalation: false
+resources:
+  requests:
+    cpu: 100m
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: top-level
+    operator: Exists
+    effect: NoSchedule
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/os
+              operator: In
+              values:
+                - linux
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        source: top-level
+controller:
+  podAnnotations:
+    controller-only: "true"
+    overridden: controller
+  podSecurityContext:
+    runAsNonRoot: true
+  securityContext:
+    readOnlyRootFilesystem: true
+  resources:
+    limits:
+      cpu: 200m
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  tolerations:
+    - key: controller
+      operator: Exists
+      effect: NoExecute
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: kgateway
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          source: controller
+`,
+		},
+		{
 			name: "replicas-zero",
 			valuesYAML: `controller:
   replicaCount: 0

@@ -1,3 +1,11 @@
+{{- $controllerPodAnnotations := merge (deepCopy (.Values.podAnnotations | default dict)) (.Values.controller.podAnnotations | default dict) }}
+{{- $controllerPodSecurityContext := merge (deepCopy (.Values.podSecurityContext | default dict)) (.Values.controller.podSecurityContext | default dict) }}
+{{- $controllerSecurityContext := merge (deepCopy (.Values.securityContext | default dict)) (.Values.controller.securityContext | default dict) }}
+{{- $controllerResources := merge (deepCopy (.Values.resources | default dict)) (.Values.controller.resources | default dict) }}
+{{- $controllerNodeSelector := merge (deepCopy (.Values.nodeSelector | default dict)) (.Values.controller.nodeSelector | default dict) }}
+{{- $controllerAffinity := merge (deepCopy (.Values.affinity | default dict)) (.Values.controller.affinity | default dict) }}
+{{- $controllerTolerations := coalesce .Values.controller.tolerations .Values.tolerations }}
+{{- $controllerTopologySpreadConstraints := coalesce .Values.controller.topologySpreadConstraints .Values.topologySpreadConstraints }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,7 +33,7 @@ spec:
       annotations:
         prometheus.io/path: "/metrics"
         prometheus.io/port: {{ .Values.controller.service.ports.metrics | default 9092 | quote}}
-        {{- toYaml .Values.podAnnotations | nindent 8 }}
+        {{- toYaml $controllerPodAnnotations | nindent 8 }}
       labels:
         {{- include "kgateway.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: controller
@@ -38,13 +46,13 @@ spec:
       priorityClassName: {{ .Values.controller.priorityClassName | quote }}
       {{- end }}
       serviceAccountName: {{ include "kgateway.serviceAccountName" . }}
-      {{- with .Values.podSecurityContext }}
+      {{- with $controllerPodSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: controller
-          {{- with .Values.securityContext }}
+          {{- with $controllerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -126,7 +134,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+            {{- toYaml $controllerResources | nindent 12 }}
           {{- if .Values.controller.xds.tls.enabled }}
           volumeMounts:
             - name: xds-tls
@@ -139,19 +147,19 @@ spec:
           secret:
             secretName: kgateway-xds-cert
       {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- with $controllerNodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with $controllerAffinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with $controllerTolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.topologySpreadConstraints }}
+      {{- with $controllerTopologySpreadConstraints }}
       topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
