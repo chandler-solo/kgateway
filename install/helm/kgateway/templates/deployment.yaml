@@ -33,7 +33,9 @@ spec:
       annotations:
         prometheus.io/path: "/metrics"
         prometheus.io/port: {{ .Values.controller.service.ports.metrics | default 9092 | quote}}
+        {{- with $controllerPodAnnotations }}
         {{- toYaml $controllerPodAnnotations | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "kgateway.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: controller

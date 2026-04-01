@@ -439,6 +439,20 @@ controller:
       labelSelector:
         matchLabels:
           source: controller
+ `,
+		},
+		{
+			name: "controller-empty-pod-annotations",
+			valuesYAML: `podAnnotations: null
+controller:
+  podAnnotations: {}
+`,
+		},
+		{
+			name: "controller-null-pod-annotations",
+			valuesYAML: `podAnnotations: null
+controller:
+  podAnnotations: null
 `,
 		},
 		{
