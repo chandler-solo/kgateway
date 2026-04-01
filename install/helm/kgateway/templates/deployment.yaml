@@ -1,9 +1,9 @@
-{{- $controllerPodAnnotations := merge (deepCopy (.Values.podAnnotations | default dict)) (.Values.controller.podAnnotations | default dict) }}
-{{- $controllerPodSecurityContext := merge (deepCopy (.Values.podSecurityContext | default dict)) (.Values.controller.podSecurityContext | default dict) }}
-{{- $controllerSecurityContext := merge (deepCopy (.Values.securityContext | default dict)) (.Values.controller.securityContext | default dict) }}
-{{- $controllerResources := merge (deepCopy (.Values.resources | default dict)) (.Values.controller.resources | default dict) }}
-{{- $controllerNodeSelector := merge (deepCopy (.Values.nodeSelector | default dict)) (.Values.controller.nodeSelector | default dict) }}
-{{- $controllerAffinity := merge (deepCopy (.Values.affinity | default dict)) (.Values.controller.affinity | default dict) }}
+{{- $controllerPodAnnotations := mergeOverwrite (deepCopy (.Values.podAnnotations | default dict)) (.Values.controller.podAnnotations | default dict) }}
+{{- $controllerPodSecurityContext := mergeOverwrite (deepCopy (.Values.podSecurityContext | default dict)) (.Values.controller.podSecurityContext | default dict) }}
+{{- $controllerSecurityContext := mergeOverwrite (deepCopy (.Values.securityContext | default dict)) (.Values.controller.securityContext | default dict) }}
+{{- $controllerResources := mergeOverwrite (deepCopy (.Values.resources | default dict)) (.Values.controller.resources | default dict) }}
+{{- $controllerNodeSelector := mergeOverwrite (deepCopy (.Values.nodeSelector | default dict)) (.Values.controller.nodeSelector | default dict) }}
+{{- $controllerAffinity := mergeOverwrite (deepCopy (.Values.affinity | default dict)) (.Values.controller.affinity | default dict) }}
 {{- $controllerTolerations := coalesce .Values.controller.tolerations .Values.tolerations }}
 {{- $controllerTopologySpreadConstraints := coalesce .Values.controller.topologySpreadConstraints .Values.topologySpreadConstraints }}
 apiVersion: apps/v1
