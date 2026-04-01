@@ -4,8 +4,8 @@
 {{- $controllerResources := mergeOverwrite (deepCopy (.Values.resources | default dict)) (.Values.controller.resources | default dict) }}
 {{- $controllerNodeSelector := mergeOverwrite (deepCopy (.Values.nodeSelector | default dict)) (.Values.controller.nodeSelector | default dict) }}
 {{- $controllerAffinity := mergeOverwrite (deepCopy (.Values.affinity | default dict)) (.Values.controller.affinity | default dict) }}
-{{- $controllerTolerations := coalesce .Values.controller.tolerations .Values.tolerations }}
-{{- $controllerTopologySpreadConstraints := coalesce .Values.controller.topologySpreadConstraints .Values.topologySpreadConstraints }}
+{{- $controllerTolerations := ternary .Values.controller.tolerations .Values.tolerations (not (kindIs "invalid" .Values.controller.tolerations)) }}
+{{- $controllerTopologySpreadConstraints := ternary .Values.controller.topologySpreadConstraints .Values.topologySpreadConstraints (not (kindIs "invalid" .Values.controller.topologySpreadConstraints)) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
