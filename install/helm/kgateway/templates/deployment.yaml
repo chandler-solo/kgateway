@@ -1,9 +1,9 @@
-{{- $controllerPodAnnotations := mergeOverwrite (deepCopy (.Values.podAnnotations | default dict)) (.Values.controller.podAnnotations | default dict) }}
-{{- $controllerPodSecurityContext := mergeOverwrite (deepCopy (.Values.podSecurityContext | default dict)) (.Values.controller.podSecurityContext | default dict) }}
-{{- $controllerSecurityContext := mergeOverwrite (deepCopy (.Values.securityContext | default dict)) (.Values.controller.securityContext | default dict) }}
-{{- $controllerResources := mergeOverwrite (deepCopy (.Values.resources | default dict)) (.Values.controller.resources | default dict) }}
-{{- $controllerNodeSelector := mergeOverwrite (deepCopy (.Values.nodeSelector | default dict)) (.Values.controller.nodeSelector | default dict) }}
-{{- $controllerAffinity := mergeOverwrite (deepCopy (.Values.affinity | default dict)) (.Values.controller.affinity | default dict) }}
+{{- $controllerPodAnnotations := ternary .Values.controller.podAnnotations .Values.podAnnotations (not (kindIs "invalid" .Values.controller.podAnnotations)) }}
+{{- $controllerPodSecurityContext := ternary .Values.controller.podSecurityContext .Values.podSecurityContext (not (kindIs "invalid" .Values.controller.podSecurityContext)) }}
+{{- $controllerSecurityContext := ternary .Values.controller.securityContext .Values.securityContext (not (kindIs "invalid" .Values.controller.securityContext)) }}
+{{- $controllerResources := ternary .Values.controller.resources .Values.resources (not (kindIs "invalid" .Values.controller.resources)) }}
+{{- $controllerNodeSelector := ternary .Values.controller.nodeSelector .Values.nodeSelector (not (kindIs "invalid" .Values.controller.nodeSelector)) }}
+{{- $controllerAffinity := ternary .Values.controller.affinity .Values.affinity (not (kindIs "invalid" .Values.controller.affinity)) }}
 {{- $controllerTolerations := ternary .Values.controller.tolerations .Values.tolerations (not (kindIs "invalid" .Values.controller.tolerations)) }}
 {{- $controllerTopologySpreadConstraints := ternary .Values.controller.topologySpreadConstraints .Values.topologySpreadConstraints (not (kindIs "invalid" .Values.controller.topologySpreadConstraints)) }}
 apiVersion: apps/v1

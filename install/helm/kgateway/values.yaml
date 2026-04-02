@@ -74,19 +74,19 @@ controller:
     # -- Set the image tag for the controller.
     tag: ""
   # -- Add annotations to the controller pods.
-  podAnnotations: {}
+  podAnnotations: null
   # -- Set the pod-level security context for the controller pod.
-  podSecurityContext: {}
+  podSecurityContext: null
   # -- Set the container-level security context for the controller container.
-  securityContext: {}
+  securityContext: null
   # -- Configure resource requests and limits for the controller container.
-  resources: {}
+  resources: null
   # -- Set node selector labels for controller pod scheduling.
-  nodeSelector: {}
+  nodeSelector: null
   # -- Set tolerations for controller pod scheduling.
   tolerations: null
   # -- Set affinity rules for controller pod scheduling.
-  affinity: {}
+  affinity: null
   # -- Set topology spread constraints for controller pod scheduling.
   topologySpreadConstraints: null
   # -- Controller service configuration.

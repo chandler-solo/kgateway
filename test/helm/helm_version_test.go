@@ -442,6 +442,16 @@ controller:
  `,
 		},
 		{
+			name: "controller-overrides-replace-not-merge",
+			valuesYAML: `nodeSelector:
+  kubernetes.io/os: linux
+  topology.kubernetes.io/zone: us-east-1a
+controller:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+`,
+		},
+		{
 			name: "controller-empty-pod-annotations",
 			valuesYAML: `podAnnotations: null
 controller:
