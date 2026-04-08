@@ -347,6 +347,7 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+          runAsGroup: 5555
           runAsNonRoot: true
         startupProbe:
           failureThreshold: 60

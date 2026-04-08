@@ -1,10 +1,12 @@
 # Two GatewayParameters objects —
-#   1. gwc-params on the GatewayClass: sets replicas:2 (no security context changes)
+#   1. gwc-params on the GatewayClass: sets replicas:2 AND runAsGroup:5555 on envoy
 #   2. gw-params on the Gateway: sets omitDefaultSecurityContext=true with an
 #      explicit envoy securityContext (OpenShift-style: NET_BIND_SERVICE + drop ALL)
 #
-# Expected: the rendered proxy Deployment should have *exactly* the securityContext
-# from gw-params — no runAsUser:10101, no duplicate "ALL" entries.
+# Expected: the rendered proxy Deployment should merge both security contexts:
+#   - runAsGroup:5555 from GWC params (preserved, not wiped)
+#   - NET_BIND_SERVICE, drop ALL, runAsNonRoot from GW params
+#   - No default runAsUser:10101
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: GatewayParameters
 metadata:
@@ -14,6 +16,9 @@ spec:
   kube:
     deployment:
       replicas: 2
+    envoyContainer:
+      securityContext:
+        runAsGroup: 5555
 ---
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: GatewayParameters

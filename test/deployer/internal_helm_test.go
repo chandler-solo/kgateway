@@ -189,10 +189,14 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "both-gwc-and-gw-have-params-reversed",
 		},
 		{
-			// GWC params have replicas:2 and GW params have
-			// omitDefaultSecurityContext:true with a custom envoy
-			// securityContext. The merge must not inject default
-			// runAsUser:10101 or duplicate capability entries.
+			// GWC params set replicas:2 AND runAsGroup:5555 on envoy container.
+			// GW params set omitDefaultSecurityContext:true with a custom envoy
+			// securityContext (NET_BIND_SERVICE + drop ALL).
+			//
+			// The old SecurityContext=nil hack would wipe the GWC's runAsGroup
+			// along with the defaults. The proper fix regenerates defaults
+			// without security context, so the GWC's runAsGroup survives the
+			// merge with the GW's custom securityContext.
 			Name:      "openshift two params securityContext",
 			InputFile: "openshift-two-params-security-context",
 			Validate: func(t *testing.T, outputYaml string) {
@@ -201,7 +205,11 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 				assert.Contains(t, outputYaml, "replicas: 2",
 					"replicas from GatewayClass params should be preserved")
 
-				// Must contain exactly the user-supplied securityContext fields
+				// GWC's runAsGroup:5555 must survive
+				assert.Contains(t, outputYaml, "runAsGroup: 5555",
+					"runAsGroup from GatewayClass params should be preserved through the merge")
+
+				// GW's custom securityContext fields must be present
 				assert.Contains(t, outputYaml, "allowPrivilegeEscalation: false",
 					"envoy securityContext should contain allowPrivilegeEscalation: false")
 				assert.Contains(t, outputYaml, "readOnlyRootFilesystem: true",
