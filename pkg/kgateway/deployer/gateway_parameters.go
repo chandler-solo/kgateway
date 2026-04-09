@@ -285,29 +285,6 @@ func (k *kgatewayParameters) getDefaultGatewayParametersWithFlag(gw *gwv1.Gatewa
 	return k.mergeWithDefaults(gwc, gwcParams, omit)
 }
 
-// Gets the GatewayParameters object associated with a given GatewayClass.
-func (k *kgatewayParameters) getGatewayParametersForGatewayClass(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
-	paramRef := gwc.Spec.ParametersRef
-	if paramRef == nil {
-		// when there is no parametersRef, just return the defaults
-		return deployer.GetInMemoryGatewayParameters(deployer.InMemoryGatewayParametersConfig{
-			ControllerName:             string(gwc.Spec.ControllerName),
-			ClassName:                  gwc.GetName(),
-			ImageInfo:                  k.inputs.ImageInfo,
-			WaypointClassName:          k.inputs.WaypointGatewayClassName,
-			OmitDefaultSecurityContext: false,
-		})
-	}
-
-	gwp, err := k.resolveGatewayClassParameters(gwc)
-	if err != nil {
-		return nil, err
-	}
-
-	omit := ptr.Deref(gwp.Spec.Kube.GetOmitDefaultSecurityContext(), false)
-	return k.mergeWithDefaults(gwc, gwp, omit)
-}
-
 // resolveGatewayClassParameters fetches the raw GatewayParameters for a
 // GatewayClass without merging with defaults.
 func (k *kgatewayParameters) resolveGatewayClassParameters(gwc *gwv1.GatewayClass) (*kgateway.GatewayParameters, error) {
