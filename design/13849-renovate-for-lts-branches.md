@@ -398,6 +398,26 @@ Cons:
 
 The recommended starting point is Option C, with self-hosting revisited later only if real constraints appear.
 
+### Option D: `osv-scanner` as the next-best alternative
+
+If the team decides not to adopt Renovate, the next-best alternative is `osv-scanner`.
+
+Pros:
+
+- low operational overhead,
+- strong fit for CI-based vulnerability detection,
+- useful across active branches without introducing another PR-generating bot,
+- simpler to adopt if the immediate goal is visibility into vulnerable dependencies rather than automated update management.
+
+Cons:
+
+- does not open dependency update PRs,
+- does not solve the branch-by-branch dependency maintenance workflow that motivated this EP,
+- does not provide grouping, approval-gated update creation, or steady-state multi-branch update management,
+- shifts remediation work back to maintainers after detection.
+
+`osv-scanner` is the best fallback because it improves dependency visibility and vulnerability triage with less operational change than Renovate. It is still a worse fit than Renovate for this proposal because the primary problem here is not only finding vulnerable dependencies, but also managing routine dependency updates across `main` and active `vX.Y.x` branches without duplicated configuration and PR noise.
+
 ## Open Questions
 
 1. Should `main` eventually allow patch and minor PRs without dashboard approval while release branches remain gated?
