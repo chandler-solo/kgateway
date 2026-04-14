@@ -1,0 +1,212 @@
+package collections
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apiextensionsfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+)
+
+func TestGetServedTLSRouteVersions(t *testing.T) {
+	t.Run("returns both versions when promoted and legacy are served", func(t *testing.T) {
+		client := apiextensionsfake.NewClientset(&apiextensionsv1.CustomResourceDefinition{
+			ObjectMeta: metav1.ObjectMeta{Name: "tlsroutes.gateway.networking.k8s.io"},
+			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+					{Name: wellknown.TLSRouteV1Alpha3Version, Served: true},
+					{Name: gwv1.GroupVersion.Version, Served: true},
+				},
+			},
+		})
+
+		require.Equal(t, servedTLSRouteVersions{
+			Promoted:      true,
+			Legacy:        true,
+			LegacyGVR:     wellknown.TLSRouteV1Alpha3GVR,
+			Authoritative: true,
+		}, getServedTLSRouteVersions(client))
+	})
+
+	t.Run("returns only legacy when promoted v1 is not served", func(t *testing.T) {
+		client := apiextensionsfake.NewClientset(&apiextensionsv1.CustomResourceDefinition{
+			ObjectMeta: metav1.ObjectMeta{Name: "tlsroutes.gateway.networking.k8s.io"},
+			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+					{Name: wellknown.TLSRouteV1Alpha3Version, Served: true},
+				},
+			},
+		})
+
+		require.Equal(t, servedTLSRouteVersions{
+			Legacy:        true,
+			LegacyGVR:     wellknown.TLSRouteV1Alpha3GVR,
+			Authoritative: true,
+		}, getServedTLSRouteVersions(client))
+	})
+
+	t.Run("defaults to startup fallback when the CRD is absent", func(t *testing.T) {
+		require.Equal(t, servedTLSRouteVersions{
+			Promoted:  true,
+			Legacy:    true,
+			LegacyGVR: wellknown.TLSRouteV1Alpha3GVR,
+		}, getServedTLSRouteVersions(apiextensionsfake.NewClientset()))
+	})
+
+	t.Run("defaults to startup fallback when discovery is unavailable", func(t *testing.T) {
+		require.Equal(t, servedTLSRouteVersions{
+			Promoted:  true,
+			Legacy:    true,
+			LegacyGVR: wellknown.TLSRouteV1Alpha3GVR,
+		}, getServedTLSRouteVersions(nil))
+	})
+
+	t.Run("falls back to v1alpha2 when that is the only served legacy version", func(t *testing.T) {
+		client := apiextensionsfake.NewClientset(&apiextensionsv1.CustomResourceDefinition{
+			ObjectMeta: metav1.ObjectMeta{Name: "tlsroutes.gateway.networking.k8s.io"},
+			Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+				Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+					{Name: gwv1a2.GroupVersion.Version, Served: true},
+				},
+			},
+		})
+
+		require.Equal(t, servedTLSRouteVersions{
+			Legacy:        true,
+			LegacyGVR:     schema.GroupVersionResource{Group: wellknown.GatewayGroup, Version: gwv1a2.GroupVersion.Version, Resource: "tlsroutes"},
+			Authoritative: true,
+		}, getServedTLSRouteVersions(client))
+	})
+}
+
+func TestLegacyTLSRouteWatchGVRs(t *testing.T) {
+	t.Run("returns no legacy watches when promoted discovery is authoritative", func(t *testing.T) {
+		require.Empty(t, legacyTLSRouteWatchGVRs(servedTLSRouteVersions{
+			Promoted:      true,
+			Legacy:        true,
+			LegacyGVR:     wellknown.TLSRouteV1Alpha3GVR,
+			Authoritative: true,
+		}))
+	})
+
+	t.Run("returns the discovered legacy watch when promoted v1 is not served", func(t *testing.T) {
+		require.Equal(t, []schema.GroupVersionResource{legacyTLSRouteV1Alpha2GVR}, legacyTLSRouteWatchGVRs(servedTLSRouteVersions{
+			Legacy:        true,
+			LegacyGVR:     legacyTLSRouteV1Alpha2GVR,
+			Authoritative: true,
+		}))
+	})
+
+	t.Run("returns both legacy fallbacks when discovery is non-authoritative", func(t *testing.T) {
+		require.Equal(t, []schema.GroupVersionResource{wellknown.TLSRouteV1Alpha3GVR, legacyTLSRouteV1Alpha2GVR}, legacyTLSRouteWatchGVRs(servedTLSRouteVersions{
+			Promoted:  true,
+			Legacy:    true,
+			LegacyGVR: wellknown.TLSRouteV1Alpha3GVR,
+		}))
+	})
+}
+
+func TestConvertUnstructuredTLSRouteToV1Alpha2(t *testing.T) {
+	t.Run("converts promoted v1 payloads", func(t *testing.T) {
+		route := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": gwv1.GroupVersion.String(),
+				"kind":       wellknown.TLSRouteKind,
+				"metadata": map[string]any{
+					"name":      "tls-route",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"parentRefs": []any{
+						map[string]any{
+							"name":        "gateway",
+							"sectionName": "listener-443",
+						},
+					},
+					"hostnames": []any{"example.com"},
+					"rules": []any{
+						map[string]any{
+							"name": "rule-1",
+							"backendRefs": []any{
+								map[string]any{
+									"name": "backend",
+									"port": int64(443),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		converted := convertUnstructuredTLSRouteToV1Alpha2(route)
+		require.NotNil(t, converted)
+		require.Equal(t, gwv1a2.GroupVersion.String(), converted.APIVersion)
+		require.Equal(t, wellknown.TLSRouteGVK, converted.GroupVersionKind())
+		require.Equal(t, []gwv1a2.Hostname{"example.com"}, converted.Spec.Hostnames)
+		require.Len(t, converted.Spec.ParentRefs, 1)
+		require.Equal(t, gwv1.SectionName("listener-443"), ptr.Deref(converted.Spec.ParentRefs[0].SectionName, ""))
+		require.Len(t, converted.Spec.Rules, 1)
+		require.Equal(t, gwv1a2.SectionName("rule-1"), ptr.Deref(converted.Spec.Rules[0].Name, ""))
+	})
+
+	t.Run("converts legacy v1alpha3 payloads", func(t *testing.T) {
+		route := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": wellknown.TLSRouteV1Alpha3GVK.GroupVersion().String(),
+				"kind":       wellknown.TLSRouteKind,
+				"metadata": map[string]any{
+					"name":      "tls-route",
+					"namespace": "default",
+					"labels": map[string]any{
+						"app": "test",
+					},
+				},
+				"spec": map[string]any{
+					"parentRefs": []any{
+						map[string]any{
+							"name":        "gateway",
+							"sectionName": "listener-443",
+						},
+					},
+					"hostnames": []any{"example.com"},
+					"rules": []any{
+						map[string]any{
+							"name": "rule-1",
+							"backendRefs": []any{
+								map[string]any{
+									"name": "backend",
+									"port": int64(443),
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		converted := convertUnstructuredTLSRouteToV1Alpha2(route)
+		require.NotNil(t, converted)
+		require.Equal(t, route.GetName(), converted.Name)
+		require.Equal(t, route.GetNamespace(), converted.Namespace)
+		require.Equal(t, map[string]string{"app": "test"}, converted.Labels)
+		require.Equal(t, gwv1a2.GroupVersion.String(), converted.APIVersion)
+		require.Equal(t, wellknown.TLSRouteGVK, converted.GroupVersionKind())
+		require.Equal(t, []gwv1a2.Hostname{"example.com"}, converted.Spec.Hostnames)
+		require.Len(t, converted.Spec.ParentRefs, 1)
+		require.Equal(t, gwv1.SectionName("listener-443"), ptr.Deref(converted.Spec.ParentRefs[0].SectionName, ""))
+		require.Len(t, converted.Spec.Rules, 1)
+		require.Equal(t, gwv1a2.SectionName("rule-1"), ptr.Deref(converted.Spec.Rules[0].Name, ""))
+		require.Len(t, converted.Spec.Rules[0].BackendRefs, 1)
+		require.Equal(t, gwv1a2.ObjectName("backend"), converted.Spec.Rules[0].BackendRefs[0].Name)
+		require.Equal(t, gwv1a2.PortNumber(443), ptr.Deref(converted.Spec.Rules[0].BackendRefs[0].Port, 0))
+	})
+}

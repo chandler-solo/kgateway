@@ -8,6 +8,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/kube/kubetypes"
 	"istio.io/istio/pkg/util/smallset"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gwv1a2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gwxv1a1 "sigs.k8s.io/gateway-api/apisx/v1alpha1"
@@ -90,7 +91,51 @@ func (c *CommonCollections) InitCollections(
 	var tlsRoutes krt.Collection[*gwv1a2.TLSRoute]
 	if globalSettings.EnableExperimentalGatewayAPIFeatures {
 		tcproutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TCPRoute](c.Client, gvr.TCPRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TCPRoute")...)
-		tlsRoutes = krt.WrapClient(kclient.NewDelayedInformer[*gwv1a2.TLSRoute](c.Client, gvr.TLSRoute, kubetypes.StandardInformer, filter), c.KrtOpts.ToOptions("TLSRoute")...)
+
+		servedTLSRouteVersions := getServedTLSRouteVersions(c.Client.Ext())
+		var tlsRouteCollections []krt.Collection[*gwv1a2.TLSRoute]
+		if servedTLSRouteVersions.Promoted {
+			tlsRoutesV1 := krt.WrapClient(
+				newDelayedDynamicUnstructuredInformer(c.Client, promotedTLSRouteGVR, filter),
+				c.KrtOpts.ToOptions("TLSRouteV1")...,
+			)
+			tlsRouteCollections = append(tlsRouteCollections, krt.NewManyCollection(tlsRoutesV1, func(kctx krt.HandlerContext, i *unstructured.Unstructured) []*gwv1a2.TLSRoute {
+				if converted := convertUnstructuredTLSRouteToV1Alpha2(i); converted != nil {
+					return []*gwv1a2.TLSRoute{converted}
+				}
+				return nil
+			}, c.KrtOpts.ToOptions("TLSRouteV1ToV1Alpha2")...))
+		}
+		for _, legacyTLSRouteGVR := range legacyTLSRouteWatchGVRs(servedTLSRouteVersions) {
+			switch legacyTLSRouteGVR.Version {
+			case gwv1a2.GroupVersion.Version:
+				legacyTLSRoutes := krt.WrapClient(
+					kclient.NewDelayedInformer[*gwv1a2.TLSRoute](c.Client, legacyTLSRouteGVR, kubetypes.StandardInformer, filter),
+					c.KrtOpts.ToOptions("TLSRouteLegacyV1Alpha2")...,
+				)
+				tlsRouteCollections = append(tlsRouteCollections, legacyTLSRoutes)
+			case wellknown.TLSRouteV1Alpha3Version:
+				legacyTLSRoutes := krt.WrapClient(
+					newDelayedDynamicUnstructuredInformer(c.Client, legacyTLSRouteGVR, filter),
+					c.KrtOpts.ToOptions("TLSRouteLegacyV1Alpha3")...,
+				)
+				tlsRouteCollections = append(tlsRouteCollections, krt.NewManyCollection(legacyTLSRoutes, func(kctx krt.HandlerContext, i *unstructured.Unstructured) []*gwv1a2.TLSRoute {
+					if converted := convertUnstructuredTLSRouteToV1Alpha2(i); converted != nil {
+						return []*gwv1a2.TLSRoute{converted}
+					}
+					return nil
+				}, c.KrtOpts.ToOptions("TLSRouteLegacyV1Alpha3ToV1Alpha2")...))
+			}
+		}
+
+		switch len(tlsRouteCollections) {
+		case 0:
+			tlsRoutes = krt.NewStaticCollection[*gwv1a2.TLSRoute](nil, nil, c.KrtOpts.ToOptions("disable/TLSRoute")...)
+		case 1:
+			tlsRoutes = tlsRouteCollections[0]
+		default:
+			tlsRoutes = krt.JoinCollection(tlsRouteCollections, c.KrtOpts.ToOptions("TLSRoute")...)
+		}
 	} else {
 		// If disabled, still build a collection but make it always empty
 		tcproutes = krt.NewStaticCollection[*gwv1a2.TCPRoute](nil, nil, c.KrtOpts.ToOptions("disable/TCPRoute")...)
