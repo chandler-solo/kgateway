@@ -4,8 +4,8 @@ package zero_downtime_rollout
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/stretchr/testify/suite"
@@ -49,16 +49,17 @@ func NewTestingSuiteKgateway(ctx context.Context, testInst *e2e.TestInstallation
 	}
 }
 
-// startTrafficAndAssertNoErrors starts a load test with hey, executes restartFunc
-// during traffic, then asserts all requests returned 200 with no errors.
-func (s *testingSuiteKgateway) startTrafficAndAssertNoErrors(numRequests int, restartFunc func()) {
+// startTrafficAndAssertNoErrors starts a duration-based load test with hey,
+// executes restartFunc during traffic, then asserts all observed responses
+// returned 200 with no errors.
+func (s *testingSuiteKgateway) startTrafficAndAssertNoErrors(duration time.Duration, restartFunc func()) {
 	kCli := kubectl.NewCli()
 
 	args := []string{
 		"exec", "-n", "hey", "heygw", "--",
 		"hey", "-disable-keepalive",
 		"-c", "4", "-q", "10", "--cpus", "1",
-		"-n", fmt.Sprintf("%d", numRequests),
+		"-z", duration.String(),
 		"-m", "GET", "-t", "1",
 		"-host", "example.com",
 		"http://gw.default.svc.cluster.local:8080",
@@ -77,8 +78,18 @@ func (s *testingSuiteKgateway) startTrafficAndAssertNoErrors(numRequests int, re
 	}
 
 	output := string(cmd.Output())
-	s.Contains(output, fmt.Sprintf("[200]\t%d responses", numRequests))
 	s.NotContains(output, "Error distribution")
+
+	seenStatusLine := false
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "[") {
+			continue
+		}
+		seenStatusLine = true
+		s.True(strings.HasPrefix(trimmed, "[200]\t"), "unexpected hey status distribution line: %s\nfull output:\n%s", trimmed, output)
+	}
+	s.True(seenStatusLine, "hey output did not include a status distribution:\n%s", output)
 }
 
 func (s *testingSuiteKgateway) TestZeroDowntimeRollout() {
@@ -98,8 +109,9 @@ func (s *testingSuiteKgateway) TestZeroDowntimeRollout() {
 	kCli := kubectl.NewCli()
 
 	// Send traffic while restarting the gateway (envoy) deployment twice.
-	// 800 req @ 4 concurrency / 10 qps = 20s (3 * terminationGracePeriodSeconds (5) + buffer).
-	s.startTrafficAndAssertNoErrors(800, func() {
+	// Use a duration-based run so traffic stays up for the full restart window.
+	// 30s covers 2 restarts plus readiness and termination-grace buffering.
+	s.startTrafficAndAssertNoErrors(30*time.Second, func() {
 		err := kCli.RestartDeploymentAndWait(s.Ctx, "gw")
 		s.Require().NoError(err)
 
@@ -137,8 +149,9 @@ func (s *testingSuiteKgateway) TestZeroDowntimeControllerRestart() {
 	// The controller restart causes envoy proxies to reconnect to a new xDS
 	// server. Envoy must keep serving with its cached config until the new
 	// controller pushes a snapshot.
-	// 800 req @ 4 concurrency / 10 qps = 20s, enough for a controller restart.
-	s.startTrafficAndAssertNoErrors(800, func() {
+	// Use a duration-based run so traffic stays up for the full restart window.
+	// 30s covers 2 restarts plus readiness and translation buffering.
+	s.startTrafficAndAssertNoErrors(30*time.Second, func() {
 		err := kCli.RestartDeploymentAndWait(s.Ctx, helpers.DefaultKgatewayDeploymentName, "-n", installNs)
 		s.Require().NoError(err)
 
