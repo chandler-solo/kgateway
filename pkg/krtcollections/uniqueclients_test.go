@@ -253,7 +253,7 @@ func TestXdsReadinessGate(t *testing.T) {
 	ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, nil)
 	ucc.WaitUntilSynced(context.Background().Done())
 
-	req := &envoy_service_discovery_v3.DiscoveryRequest{
+	kgatewayReq := &envoy_service_discovery_v3.DiscoveryRequest{
 		Node: &envoycorev3.Node{
 			Id: "podname.ns",
 			Metadata: &structpb.Struct{
@@ -263,17 +263,32 @@ func TestXdsReadinessGate(t *testing.T) {
 			},
 		},
 	}
+	nonKgatewayReq := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue("custom-xds-role"),
+				},
+			},
+		},
+	}
 
 	// Before setReady is called, OnStreamRequest must reject kgateway clients
 	// so that envoy retries (keeping its cached config) instead of waiting on
 	// an empty snapshot cache.
-	err := cb.OnStreamRequest(1, req)
+	err := cb.OnStreamRequest(1, kgatewayReq)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("not ready"))
 
+	// Non-kgateway roles should bypass the readiness gate so extra xDS
+	// callbacks can continue serving custom consumers during startup.
+	err = cb.OnStreamRequest(2, nonKgatewayReq)
+	g.Expect(err).NotTo(HaveOccurred())
+
 	// After setReady, connections are accepted.
 	setReady()
-	err = cb.OnStreamRequest(2, req)
+	err = cb.OnStreamRequest(3, kgatewayReq)
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
