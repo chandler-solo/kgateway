@@ -4,16 +4,23 @@ ARG CARGO_ZBUILD_IMAGE=ghcr.io/rust-cross/cargo-zigbuild:0.19.8
 FROM --platform=$TARGETPLATFORM ${CARGO_ZBUILD_IMAGE} AS rust_build_deps
 WORKDIR /build
 RUN apt update && apt install -y clang
-ARG RUSTFORMATIONS_DIR=./rustformations
+ARG ENVOY_MODULES_DIR=./envoy_modules
 # Unfortunately, there is no easy way to find all the Cargo.toml files and iterate
-# through the directories in Dockerfile. If we add more local crate, will need to add
-# it's Cargo.toml file below
-COPY ${RUSTFORMATIONS_DIR}/Cargo.toml ${RUSTFORMATIONS_DIR}/Cargo.lock ./
-RUN mkdir -p rustformations/src transformations/src \
-    && echo "pub fn dummy() {}" > rustformations/src/lib.rs \
-    && echo "pub fn dummy() {}" > transformations/src/lib.rs
-COPY ${RUSTFORMATIONS_DIR}/rustformations/Cargo.toml ./rustformations
-COPY ${RUSTFORMATIONS_DIR}/transformations/Cargo.toml ./transformations
+# through the directories in Dockerfile. If we add more local crates, add their
+# Cargo.toml files below. See internal/envoy_modules/docs/adding-a-module.md.
+COPY ${ENVOY_MODULES_DIR}/Cargo.toml ${ENVOY_MODULES_DIR}/Cargo.lock ./
+RUN mkdir -p module-init/src \
+              filters/rustformation/src \
+              lib/transformation/src \
+              lib/envoy-helpers/src \
+    && echo "pub fn dummy() {}" > module-init/src/lib.rs \
+    && echo "pub fn dummy() {}" > filters/rustformation/src/lib.rs \
+    && echo "pub fn dummy() {}" > lib/transformation/src/lib.rs \
+    && echo "pub fn dummy() {}" > lib/envoy-helpers/src/lib.rs
+COPY ${ENVOY_MODULES_DIR}/module-init/Cargo.toml ./module-init
+COPY ${ENVOY_MODULES_DIR}/filters/rustformation/Cargo.toml ./filters/rustformation
+COPY ${ENVOY_MODULES_DIR}/lib/transformation/Cargo.toml ./lib/transformation
+COPY ${ENVOY_MODULES_DIR}/lib/envoy-helpers/Cargo.toml ./lib/envoy-helpers
 ARG RUST_BUILD_ARCH=x86_64 # options are x86_64 or aarch64
 # Because we built the dummy lib in this Stage to cache all the dependencies in docker layer cache
 # That unfortunately also cached the dummy libs, and in Stage 2 when we COPY, it preserved
@@ -21,7 +28,11 @@ ARG RUST_BUILD_ARCH=x86_64 # options are x86_64 or aarch64
 # here
 RUN cargo fetch \
     && cargo zigbuild --target ${RUST_BUILD_ARCH}-unknown-linux-gnu \
-    && find /build/target \( -name librust_module.so -o -name 'libtransformations*.rlib' \) -type f -delete
+    && find /build/target \( -name librust_module.so \
+        -o -name 'libtransformation*.rlib' \
+        -o -name 'libenvoy_helpers*.rlib' \
+        -o -name 'librustformation_filter*.rlib' \
+    \) -type f -delete
 
 # Stage 2: build envoy dynamic module
 FROM --platform=$TARGETPLATFORM ${CARGO_ZBUILD_IMAGE} AS rust_builder
@@ -33,8 +44,8 @@ COPY --from=rust_build_deps /usr/local/cargo /usr/local/cargo
 COPY --from=rust_build_deps /build/target /build/target
 
 # Copy the source code and build the module.
-ARG RUSTFORMATIONS_DIR=./rustformations
-COPY ${RUSTFORMATIONS_DIR} .
+ARG ENVOY_MODULES_DIR=./envoy_modules
+COPY ${ENVOY_MODULES_DIR} .
 ARG RUST_BUILD_ARCH=x86_64 # set this to "aarch64" for local arm build
 RUN cargo zigbuild --target ${RUST_BUILD_ARCH}-unknown-linux-gnu
 

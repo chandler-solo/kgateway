@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 use crate::BodyParseBehavior;
 use crate::LocalTransform;
 use crate::LocalTransformationConfig;
@@ -355,7 +357,7 @@ fn render_and_set_body<T: TransformationOps>(
         remove_header,
     } = body_ops;
     let mut errors = Vec::new();
-    drain_body(ops, u64::MAX.try_into().unwrap());
+    drain_body(ops, usize::MAX);
     let rendered = match render(env, ctx, template_key, body_value, parsed_body_as_json) {
         Ok(str) => Some(str),
         Err(e) => {
@@ -363,8 +365,8 @@ fn render_and_set_body<T: TransformationOps>(
             None
         }
     };
-    if rendered.as_deref().is_some_and(|s| !s.is_empty()) {
-        let rendered_body = rendered.as_deref().unwrap().as_bytes();
+    if let Some(rendered_str) = rendered.as_deref().filter(|s| !s.is_empty()) {
+        let rendered_body = rendered_str.as_bytes();
         set_header(
             ops,
             "content-length",
@@ -409,8 +411,8 @@ fn process_headers<T: TransformationOps>(
             continue;
         }
         let rendered = render_or_abort(env, ctx, value, value, parsed_body_as_json, errors)?;
-        if rendered.as_deref().is_some_and(|s| !s.is_empty()) {
-            set_header(ops, key, rendered.as_deref().unwrap().as_bytes());
+        if let Some(rendered_str) = rendered.as_deref().filter(|s| !s.is_empty()) {
+            set_header(ops, key, rendered_str.as_bytes());
         } else {
             remove_header(ops, key);
         }
@@ -421,8 +423,8 @@ fn process_headers<T: TransformationOps>(
             continue;
         }
         let rendered = render_or_abort(env, ctx, value, value, parsed_body_as_json, errors)?;
-        if rendered.as_deref().is_some_and(|s| !s.is_empty()) {
-            add_header(ops, key, rendered.as_deref().unwrap().as_bytes());
+        if let Some(rendered_str) = rendered.as_deref().filter(|s| !s.is_empty()) {
+            add_header(ops, key, rendered_str.as_bytes());
         }
     }
 

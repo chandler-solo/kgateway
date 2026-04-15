@@ -8,9 +8,6 @@ will make the linter unhappy.
 use envoy_proxy_dynamic_modules_rust_sdk::*;
 use std::any::Any;
 
-// ALL FILTERS HERE
-mod http_simple_mutations;
-
 declare_init_functions!(
     init,
     new_http_filter_config_fn,
@@ -37,6 +34,9 @@ fn init() -> bool {
 /// https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/dynamic_modules/v3/dynamic_modules.proto#envoy-v3-api-msg-extensions-dynamic-modules-v3-dynamicmoduleconfig
 ///
 /// Returns None if the filter name or config is determined to be invalid by each filter's `new` function.
+///
+/// To add a new module: add a match arm below and a corresponding dependency in Cargo.toml.
+/// See docs/adding-a-module.md for the full process.
 fn new_http_filter_config_fn<EC: EnvoyHttpFilterConfig, EHF: EnvoyHttpFilter>(
     _envoy_filter_config: &mut EC,
     filter_name: &str,
@@ -51,15 +51,18 @@ fn new_http_filter_config_fn<EC: EnvoyHttpFilterConfig, EHF: EnvoyHttpFilter>(
     };
     envoy_log_trace!("new_http_filter_config_fn: filter_config: {filter_config}");
     match filter_name {
-        "http_simple_mutations" => http_simple_mutations::FilterConfig::new(filter_config)
+        // Add a new arm here for each new module. See docs/adding-a-module.md.
+        "rustformation" => rustformation_filter::FilterConfig::new(filter_config)
             .map(|config| Box::new(config) as Box<dyn HttpFilterConfig<EHF>>),
         _ => panic!(
-            "Unknown filter name: {}, known filters are {}",
-            filter_name, "http_simple_mutations"
+            "Unknown filter name: {}, known filters are: rustformation",
+            filter_name
         ),
     }
 }
 
+/// To add a new module: add a match arm below and a corresponding dependency in Cargo.toml.
+/// See docs/adding-a-module.md for the full process.
 fn new_http_filter_per_route_config_fn(name: &str, config: &[u8]) -> Option<Box<dyn Any>> {
     let per_route_config = match std::str::from_utf8(config) {
         Ok(config) => config,
@@ -70,11 +73,12 @@ fn new_http_filter_per_route_config_fn(name: &str, config: &[u8]) -> Option<Box<
     };
     envoy_log_trace!("new_http_filter_per_route_config_fn: per_route_config: {per_route_config}");
     match name {
-        "http_simple_mutations" => http_simple_mutations::PerRouteConfig::new(per_route_config)
+        // Add a new arm here for each new module. See docs/adding-a-module.md.
+        "rustformation" => rustformation_filter::PerRouteConfig::new(per_route_config)
             .map(|config| Box::new(config) as Box<dyn Any>),
         _ => panic!(
-            "Unknown filter name: {}, known filters are {}",
-            name, "http_simple_mutations"
+            "Unknown filter name: {}, known filters are: rustformation",
+            name
         ),
     }
 }

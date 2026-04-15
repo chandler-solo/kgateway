@@ -29,6 +29,10 @@ lint: ## Run lint checks.
 	cargo fmt --check
 	cargo clippy --workspace --all-targets -- -D warnings
 
+.PHONY: test
+test: ## Run tests for the workspace
+	cargo test --workspace
+
 #----------------------------------------------------------------------------------
 # Printing makefile variables utility
 #----------------------------------------------------------------------------------

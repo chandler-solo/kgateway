@@ -160,6 +160,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "envoy-helpers"
+version = "0.1.0"
+dependencies = [
+ "envoy-proxy-dynamic-modules-rust-sdk",
+]
+
+[[package]]
 name = "envoy-proxy-dynamic-modules-rust-sdk"
 version = "0.1.0"
 source = "git+https://github.com/envoyproxy/envoy?tag=v1.37.1#5ef4e4cea57f63e7e2970b9c1ad696278db927d6"
@@ -331,6 +338,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "module-init"
+version = "0.1.0"
+dependencies = [
+ "envoy-proxy-dynamic-modules-rust-sdk",
+ "rustformation-filter",
 ]
 
 [[package]]
@@ -524,10 +539,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
-name = "rustformations"
+name = "rustformation-filter"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "envoy-helpers",
  "envoy-proxy-dynamic-modules-rust-sdk",
  "matchers",
  "minijinja",
@@ -537,7 +553,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "transformations",
+ "transformation",
 ]
 
 [[package]]
@@ -730,7 +746,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40868e7c1d2f0b8d73e4a8c7f0ff63af4f6d19be117e90bd73eb1d62cf831c6b"
 
 [[package]]
-name = "transformations"
+name = "transformation"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -581,9 +581,9 @@ export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 ENVOYINIT_CACHE_REF ?=
 ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF),)
 
-RUSTFORMATIONS_DIR := internal/envoyinit/
-# find all the files under the rustformation directory but exclude the target and pkg directory
-RUSTFORMATIONS_SRC_FILES := $(shell find $(RUSTFORMATIONS_DIR) \( -type d -name target -o -type d -name pkg \) -prune -o -type f -print)
+ENVOY_MODULES_DIR := internal/envoy_modules/
+# find all the files under the envoy modules directory but exclude the target, vendor and pkg directory
+ENVOY_MODULES_SRC_FILES := $(shell find $(ENVOY_MODULES_DIR) \( -type d -name target -o -type d -name pkg -o -type d -name vendor \) -prune -o -type f -print)
 
 $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH): $(ENVOYINIT_SOURCES)
 	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/envoyinit/...
@@ -593,10 +593,10 @@ envoyinit: $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH)
 
 # Allow override of Dockerfile for local development
 ENVOYINIT_DOCKERFILE ?= cmd/envoyinit/Dockerfile
-$(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(RUSTFORMATIONS_SRC_FILES)
+$(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(ENVOY_MODULES_SRC_FILES)
 	@if [ "$(ENVOYINIT_DOCKERFILE)" = "cmd/envoyinit/Dockerfile" ]; then \
-		echo "syncing rustformations..."; \
-		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${RUSTFORMATIONS_DIR} $(ENVOYINIT_OUTPUT_DIR)/rustformations; \
+		echo "syncing envoy modules..."; \
+		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${ENVOY_MODULES_DIR} $(ENVOYINIT_OUTPUT_DIR)/envoy_modules; \
 	fi
 	cp $< $@
 
@@ -608,7 +608,7 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
 		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
-		--build-arg RUSTFORMATIONS_DIR=./rustformations \
+		--build-arg ENVOY_MODULES_DIR=./envoy_modules \
 		$(ENVOYINIT_CACHE_FROM) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
 	@touch $@
@@ -940,7 +940,7 @@ bump-gtw: ## Bump Gateway API deps to $DEP_REF (or $DEP_VERSION). Example: make 
 envoyversion: ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
 envoyversion:
 	echo "Version is $(ENVOY_VERSION_TAG)"
-	echo "Current ABI in envoyinit can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
+	echo "Current ABI in envoy_modules can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
 
 #----------------------------------------------------------------------------------
 # Printing makefile variables utility
