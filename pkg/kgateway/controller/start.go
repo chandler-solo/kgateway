@@ -91,6 +91,11 @@ type StartConfig struct {
 
 	// StatusSyncerOptions is the list of options to be passed when creating the StatusSyncer
 	StatusSyncerOptions []proxy_syncer.StatusSyncerOption
+
+	// SetXdsReady is called by the ProxySyncer after it has registered the
+	// snapshot-push handler (RegisterBatch). This opens the xDS readiness gate
+	// so that envoy connections are accepted only when snapshots can be pushed.
+	SetXdsReady func()
 }
 
 // Start runs the controllers responsible for processing the K8s Gateway API objects
@@ -158,6 +163,7 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 			cfg.CommonCollections,
 			cfg.SetupOpts.Cache,
 			cfg.Validator,
+			cfg.SetXdsReady,
 		)
 		proxySyncer.Init(ctx, cfg.KrtOptions)
 		if err := cfg.Manager.Add(proxySyncer); err != nil {

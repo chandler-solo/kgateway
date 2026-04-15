@@ -57,6 +57,13 @@ type callbacks struct {
 	extraXDSCallbacks  xdsserver.Callbacks
 	streamIDToPeerInfo sync.Map
 	xdsAuth            bool
+
+	// xdsReady gates xDS stream processing. Until SetXdsReady is called,
+	// OnStreamRequest returns an error causing envoy to retry the connection.
+	// This prevents envoy from connecting before the ProxySyncer has registered
+	// its snapshot-push handler, which would leave envoy waiting for a snapshot
+	// that will never be pushed (causing NC errors after initial_fetch_timeout).
+	xdsReady atomic.Bool
 }
 
 type peerInfo struct {
@@ -100,10 +107,17 @@ type UniquelyConnectedClientsBulider func(ctx context.Context, krtOpts krtutil.K
 // THIS IS THE SET OF THINGS WE RUN TRANSLATION FOR
 // add returned callbacks to the xds server.
 
+// NewUniquelyConnectedClients returns xDS callbacks, a builder for the
+// connected-clients KRT collection, and a SetXdsReady function.
+//
+// SetXdsReady must be called after the ProxySyncer has registered its
+// snapshot-push handler (RegisterBatch). Until it is called, OnStreamRequest
+// rejects envoy connections so that proxies keep retrying with their existing
+// (cached) configuration instead of waiting on an empty snapshot cache.
 func NewUniquelyConnectedClients(
 	extraXDSCallbacks xdsserver.Callbacks,
 	xdsAuth bool,
-) (xdsserver.Callbacks, UniquelyConnectedClientsBulider) {
+) (xdsserver.Callbacks, UniquelyConnectedClientsBulider, func()) {
 	cb := &callbacks{
 		extraXDSCallbacks: extraXDSCallbacks,
 		xdsAuth:           xdsAuth,
@@ -115,7 +129,11 @@ func NewUniquelyConnectedClients(
 		StreamRequestFunc: cb.OnStreamRequest,
 		FetchRequestFunc:  cb.OnFetchRequest,
 	}
-	return envoycb, buildCollection(cb)
+	setReady := func() {
+		cb.xdsReady.Store(true)
+		logger.Info("xDS readiness gate opened, accepting envoy connections")
+	}
+	return envoycb, buildCollection(cb), setReady
 }
 
 func buildCollection(callbacks *callbacks) UniquelyConnectedClientsBulider {
@@ -272,6 +290,18 @@ func (x *callbacks) OnStreamRequest(sid int64, r *envoy_service_discovery_v3.Dis
 	c := x.collection.Load()
 	if c == nil {
 		return errors.New("kgateway not initialized")
+	}
+
+	// Reject connections until the ProxySyncer has registered its snapshot-push
+	// handler. Accepting connections earlier would add the client to the UCC
+	// collection and trigger snapshot computation, but the computed snapshot
+	// would never be pushed to the xDS cache (RegisterBatch not yet called).
+	// Envoy would then wait for a response that never comes, and after its
+	// initial_fetch_timeout (default 15s) expires it drops all dynamic config,
+	// producing NC (No Cluster) errors. By rejecting here, envoy retries the
+	// connection while continuing to serve with its existing cached config.
+	if !x.xdsReady.Load() {
+		return errors.New("kgateway xDS server is not ready to accept connections")
 	}
 
 	peerInfo, err := x.getPeerInfo(sid, r, c.augmentedPods != nil)

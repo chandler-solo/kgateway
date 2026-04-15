@@ -298,7 +298,7 @@ func (s *setup) Start(ctx context.Context) error {
 		return err
 	}
 
-	uniqueClientCallbacks, uccBuilder := krtcollections.NewUniquelyConnectedClients(s.extraXDSCallbacks, s.globalSettings.XdsAuth)
+	uniqueClientCallbacks, uccBuilder, setXdsReady := krtcollections.NewUniquelyConnectedClients(s.extraXDSCallbacks, s.globalSettings.XdsAuth)
 
 	authenticators := []security.Authenticator{
 		NewKubeJWTAuthenticator(s.apiClient.Kube()),
@@ -371,7 +371,7 @@ func (s *setup) Start(ctx context.Context) error {
 		}
 	}
 
-	err = s.buildKgatewayWithConfig(ctx, mgr, setupOpts, commoncol, uccBuilder)
+	err = s.buildKgatewayWithConfig(ctx, mgr, setupOpts, commoncol, uccBuilder, setXdsReady)
 	if err != nil {
 		return err
 	}
@@ -394,6 +394,7 @@ func (s *setup) buildKgatewayWithConfig(
 	setupOpts *controller.SetupOpts,
 	commonCollections *collections.CommonCollections,
 	uccBuilder krtcollections.UniquelyConnectedClientsBulider,
+	setXdsReady func(),
 ) error {
 	slog.Info("creating krt collections")
 	krtOpts := krtutil.NewKrtOptions(ctx.Done(), setupOpts.KrtDebugger)
@@ -435,6 +436,7 @@ func (s *setup) buildKgatewayWithConfig(
 		Validator:                   s.validator,
 		GatewayControllerExtension:  s.gatewayControllerExtension,
 		StatusSyncerOptions:         s.statusSyncerOptions,
+		SetXdsReady:                 setXdsReady,
 	})
 	if err != nil {
 		slog.Error("failed initializing controller: ", "error", err)

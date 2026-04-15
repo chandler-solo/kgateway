@@ -189,7 +189,8 @@ func TestUniqueClients(t *testing.T) {
 				pods.WaitUntilSynced(context.Background().Done())
 			}
 
-			cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+			cb, uccBuilder, setReady := NewUniquelyConnectedClients(nil, false)
+			setReady() // mark ready so OnStreamRequest succeeds
 			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods)
 			ucc.WaitUntilSynced(context.Background().Done())
 
@@ -242,6 +243,38 @@ func TestUniqueClients(t *testing.T) {
 			}, "5s").Should(BeEmpty())
 		})
 	}
+}
+
+func TestXdsReadinessGate(t *testing.T) {
+	g := NewWithT(t)
+
+	cb, uccBuilder, setReady := NewUniquelyConnectedClients(nil, false)
+	// Build the collection so that the "not initialized" check passes.
+	ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, nil)
+	ucc.WaitUntilSynced(context.Background().Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(wellknown.GatewayApiProxyValue + "~ns~gw"),
+				},
+			},
+		},
+	}
+
+	// Before setReady is called, OnStreamRequest must reject kgateway clients
+	// so that envoy retries (keeping its cached config) instead of waiting on
+	// an empty snapshot cache.
+	err := cb.OnStreamRequest(1, req)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("not ready"))
+
+	// After setReady, connections are accepted.
+	setReady()
+	err = cb.OnStreamRequest(2, req)
+	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func TestNormalizeGatewayRole(t *testing.T) {

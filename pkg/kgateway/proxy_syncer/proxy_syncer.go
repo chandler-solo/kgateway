@@ -62,6 +62,10 @@ type ProxySyncer struct {
 	waitForSync []cache.InformerSynced
 	ready       atomic.Bool
 
+	// setXdsReady opens the xDS readiness gate so the gRPC server starts
+	// accepting envoy connections. Called after RegisterBatch is set up.
+	setXdsReady func()
+
 	reportQueue              utils.AsyncQueue[reports.ReportMap]
 	backendPolicyReportQueue utils.AsyncQueue[reports.ReportMap]
 }
@@ -132,8 +136,8 @@ func toResources(gw ir.Gateway, xdsSnap irtranslator.TranslationResult, r report
 	}
 }
 
-// NewProxySyncer returns a ProxySyncer runnable
-// The provided GatewayInputChannels are used to trigger syncs.
+// NewProxySyncer returns a ProxySyncer runnable.
+// setXdsReady is called after RegisterBatch to open the xDS readiness gate.
 func NewProxySyncer(
 	ctx context.Context,
 	controllerName string,
@@ -144,6 +148,7 @@ func NewProxySyncer(
 	commonCols *collections.CommonCollections,
 	xdsCache envoycache.SnapshotCache,
 	validator validator.Validator,
+	setXdsReady func(),
 ) *ProxySyncer {
 	return &ProxySyncer{
 		controllerName:           controllerName,
@@ -154,6 +159,7 @@ func NewProxySyncer(
 		uniqueClients:            uniqueClients,
 		translator:               translator.NewCombinedTranslator(ctx, mergedPlugins, commonCols, validator),
 		plugins:                  mergedPlugins,
+		setXdsReady:              setXdsReady,
 		reportQueue:              utils.NewAsyncQueue[reports.ReportMap](),
 		backendPolicyReportQueue: utils.NewAsyncQueue[reports.ReportMap](),
 	}
@@ -432,6 +438,13 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 			})
 		}
 	}, true)
+
+	// Open the xDS readiness gate so the gRPC server starts accepting envoy
+	// connections. This must happen after RegisterBatch so that any new envoy
+	// connection immediately triggers a snapshot push via the handler above.
+	if s.setXdsReady != nil {
+		s.setXdsReady()
+	}
 
 	s.ready.Store(true)
 	<-ctx.Done()
