@@ -147,4 +147,37 @@ func (s *testingSuiteKgateway) TestZeroDowntimeControllerRestart() {
 		err = kCli.RestartDeploymentAndWait(s.Ctx, helpers.DefaultKgatewayDeploymentName, "-n", installNs)
 		s.Require().NoError(err)
 	})
+
+	// Verify the restarted controller is actively pushing xDS to envoy by
+	// applying a new HTTPRoute and checking that envoy serves it. This proves
+	// the new controller is watching resources, translating to xDS, and pushing
+	// to envoy -- not just relying on envoy's cached config from before the
+	// restart.
+	postRestartRoute := `
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: post-restart-route
+spec:
+  parentRefs:
+    - name: gw
+  hostnames:
+    - "post-restart.example.com"
+  rules:
+    - backendRefs:
+        - name: example-svc
+          port: 8080
+`
+	err := s.TestInstallation.ClusterContext.IstioClient.ApplyYAMLContents("default", postRestartRoute)
+	s.Require().NoError(err)
+	defer func() {
+		_ = kCli.RunCommand(s.Ctx, "delete", "httproute", "post-restart-route", "-n", "default", "--ignore-not-found")
+	}()
+
+	common.BaseGateway.Send(
+		s.T(),
+		&testmatchers.HttpResponse{StatusCode: 200},
+		curl.WithHostHeader("post-restart.example.com"),
+		curl.WithPort(8080),
+	)
 }
