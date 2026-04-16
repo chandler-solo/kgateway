@@ -320,4 +320,3 @@ fn test_json_body_extracted_from_received_when_buffered_is_empty() {
         abi::envoy_dynamic_module_type_on_http_filter_request_body_status::Continue
     );
 }
-

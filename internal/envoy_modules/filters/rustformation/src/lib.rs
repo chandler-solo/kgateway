@@ -1,7 +1,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use anyhow::{Context, Result};
-use envoy_helpers::{http::{create_headers_map, detect_upgrade_request}, EnvoyBuffersReader};
+use envoy_helpers::{
+    http::{create_headers_map, detect_upgrade_request},
+    EnvoyBuffersReader,
+};
 use envoy_proxy_dynamic_modules_rust_sdk::*;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
