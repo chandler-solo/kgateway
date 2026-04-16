@@ -2,11 +2,11 @@
 
 //! Example kgateway Envoy dynamic module.
 //!
-//! This crate is a reference skeleton showing the required public surface for a module.
+//! This crate is a reference skeleton showing the required public surface for a filter.
 //! It is included in the workspace but is NOT registered in `module-init/src/lib.rs`,
 //! so it has no effect on the built `librust_module.so`.
 //!
-//! To create a real module based on this example, see `docs/adding-a-module.md`.
+//! To create a real filter based on this example, see `../../../../docs/guides/adding-a-filter.md`.
 
 use envoy_proxy_dynamic_modules_rust_sdk::*;
 

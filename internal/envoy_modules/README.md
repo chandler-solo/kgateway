@@ -18,7 +18,7 @@ This module is organized as [Rust Workspaces](https://doc.rust-lang.org/cargo/re
 - `lib/transformation`: library with transformation abstraction and Jinja template rendering (no Envoy dependencies). Provides the template
   rendering logic shared by modules.
 
-To add a new module, see [docs/adding-a-module.md](docs/adding-a-module.md).
+To add a new filter, see [adding-a-filter.md](../../docs/guides/adding-a-filter.md).
 
 ## Building
 

@@ -7,7 +7,7 @@ RUN apt update && apt install -y clang
 ARG ENVOY_MODULES_DIR=./envoy_modules
 # Unfortunately, there is no easy way to find all the Cargo.toml files and iterate
 # through the directories in Dockerfile. If we add more local crates, add their
-# Cargo.toml files below. See internal/envoy_modules/docs/adding-a-module.md.
+# Cargo.toml files below. See /docs/guides/adding-a-filter.md.
 COPY ${ENVOY_MODULES_DIR}/Cargo.toml ${ENVOY_MODULES_DIR}/Cargo.lock ./
 RUN mkdir -p module-init/src \
               filters/rustformation/src \
