@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"slices"
@@ -27,7 +28,12 @@ var (
 	//       fix the validation test. We will need to merge the fix PR first and wait for the image to
 	//       be updated and then maybe update the golden files
 	//       Also probably need to change this version when backporting or creating a new release
-	defaultEnvoyImage = "ghcr.io/kgateway-dev/envoy-wrapper:v2.3.0-main"
+	defaultEnvoyImage = func() string {
+		if v := os.Getenv("VERSION"); v != "" {
+			return "ghcr.io/kgateway-dev/envoy-wrapper:" + v
+		}
+		return "ghcr.io/kgateway-dev/envoy-wrapper:v2.3.0-main"
+	}()
 	envoyDebugTokenRE = regexp.MustCompile(`goo\.gle/debug[a-zA-Z0-9]+`)
 )
 

@@ -7,7 +7,7 @@ edition = "2021"
 envoy-proxy-dynamic-modules-rust-sdk = { workspace = true }
 rustformation-filter = { path = "../filters/rustformation" }
 # To add a new filter: add it as a dependency here.
-# See docs/adding-a-filter.md for the full process.
+# See /docs/guides/adding-a-filter.md for the full process.
 
 [lib]
 name = "rust_module"

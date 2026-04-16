@@ -1,6 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
-//! Example kgateway Envoy dynamic module.
+//! Example filter for kgateway Envoy dynamic module.
 //!
 //! This crate is a reference skeleton showing the required public surface for a filter.
 //! It is included in the workspace but is NOT registered in `module-init/src/lib.rs`,

@@ -16,7 +16,7 @@ WebSocket upgrade requests and HTTP CONNECT tunnels are never buffered — only 
 
 ## Json Config Schema
 
-The filter config JSON is directly mapping the `transformation` filed in [`TrafficPolicy`](../../../../api/v1alpha1/kgateway/traffic_policy_types.go). The `TransformationPolicy.Request` and `TransformationPolicy.Response` fields map directly to the `request` and `response` keys in this JSON schema.
+The filter config JSON is directly mapping the `transformation` field in [`TrafficPolicy`](../../../../api/v1alpha1/kgateway/traffic_policy_types.go). The `TransformationPolicy.Request` and `TransformationPolicy.Response` fields map directly to the `request` and `response` keys in this JSON schema.
 
 ### Add a header using a request header value
 

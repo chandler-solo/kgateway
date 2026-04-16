@@ -57,14 +57,14 @@ members = [
 In `new_http_filter_config_fn`, add a `match` arm:
 
 ```rust
-"<your-filter-name>" => module_your_module::FilterConfig::new(filter_config)
+"<your-filter-name>" => <your_filter_name>_filter::FilterConfig::new(filter_config)
     .map(|c| Box::new(c) as Box<dyn HttpFilterConfig<EHF>>),
 ```
 
 In `new_http_filter_per_route_config_fn`, add the corresponding arm:
 
 ```rust
-"<your-filter-name>" => module_your_module::PerRouteConfig::new(per_route_config)
+"<your-filter-name>" => <your_filter_name>_filter::PerRouteConfig::new(per_route_config)
     .map(|c| Box::new(c) as Box<dyn Any>),
 ```
 
