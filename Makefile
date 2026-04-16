@@ -33,7 +33,7 @@ export IMAGE_REGISTRY ?= ghcr.io/kgateway-dev
 # Kind of a hack to make sure _output exists
 z := $(shell mkdir -p $(OUTPUT_DIR))
 
-BUILDX_BUILD ?= docker buildx build -q
+BUILDX_BUILD ?= docker buildx build
 
 #----------------------------------------------------------------------------------
 # Devcontainer build-tools image
