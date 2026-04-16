@@ -71,27 +71,7 @@ In `new_http_filter_per_route_config_fn`, add the corresponding arm:
 Also update the panic message in each function to include `<your-filter-name>` in the
 known filters list.
 
-### 5. Update the Dockerfile dependency cache (Stage 1)
-
-**File: `cmd/envoyinit/Dockerfile`**
-
-In Stage 1, add your crate to the dummy-build cache layer:
-
-```dockerfile
-RUN mkdir -p ... filters/<your-filter-name>/src \
-    && echo "pub fn dummy() {}" > filters/<your-filter-name>/src/lib.rs
-COPY ${ENVOY_MODULES_DIR}/filters/<your-filter-name>/Cargo.toml ./filters/<your-filter-name>
-```
-
-Also extend the `find ... -delete` line to include your crate's rlib:
-
-```dockerfile
-find /build/target \( ... \
-    -o -name 'lib<your_filter_name>_filter*.rlib' \
-) -type f -delete
-```
-
-### 6. Verify
+### 5. Verify
 
 ```bash
 cd internal/envoy_modules
@@ -102,6 +82,8 @@ make test
 ### 7. Build 
 
 This will rebuild the envoy-wrapper image that will include the envoy binary, envoyinit and the dynamic module:
-```
+(run at repo-root)
+
+```bash
 make envoy-wrapper-docker
 ```
