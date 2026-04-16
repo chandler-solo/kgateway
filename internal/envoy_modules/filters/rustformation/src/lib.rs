@@ -1,7 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
 use anyhow::{Context, Result};
-use envoy_helpers::EnvoyBuffersReader;
+use envoy_helpers::{http::{create_headers_map, detect_upgrade_request}, EnvoyBuffersReader};
 use envoy_proxy_dynamic_modules_rust_sdk::*;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
@@ -299,31 +299,12 @@ impl Filter {
         self.per_route_config.as_deref()
     }
 
-    fn create_headers_map(
-        &self,
-        headers: Vec<(EnvoyBuffer, EnvoyBuffer)>,
-    ) -> HashMap<String, String> {
-        let mut headers_map = HashMap::new();
-        for (key, val) in headers {
-            let Some(key) = std::str::from_utf8(key.as_slice()).ok() else {
-                continue;
-            };
-            let Some(value) = std::str::from_utf8(val.as_slice()).ok() else {
-                continue;
-            };
-
-            headers_map.insert(key.to_string(), value.to_string());
-        }
-
-        headers_map
-    }
-
     // This function is used to populate the self.request_headers_map so we only ever
     // do it once while we might need the request headers in either on_request_headers() or
     // on_response_headers().
     fn populate_request_headers_map(&mut self, headers: Vec<(EnvoyBuffer, EnvoyBuffer)>) {
         if self.request_headers_map.is_none() {
-            self.request_headers_map = Some(self.create_headers_map(headers));
+            self.request_headers_map = Some(create_headers_map(headers));
         }
     }
 
@@ -345,23 +326,6 @@ impl Filter {
             Some(config) => &config.transformations.response,
             None => &self.filter_config.transformations.response,
         }
-    }
-
-    // Returns true if the request is a WebSocket upgrade or an HTTP CONNECT request,
-    fn detect_upgrade_request(headers: &HashMap<String, String>) -> bool {
-        if headers
-            .get("upgrade")
-            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
-        {
-            return true;
-        }
-        if headers
-            .get(":method")
-            .is_some_and(|v| v.eq_ignore_ascii_case("connect"))
-        {
-            return true;
-        }
-        false
     }
 
     // Returns true if buffering should be skipped, either because the transform
@@ -440,7 +404,7 @@ impl Filter {
             return true;
         };
 
-        let response_headers_map = self.create_headers_map(envoy_filter.get_response_headers());
+        let response_headers_map = create_headers_map(envoy_filter.get_response_headers());
 
         let mut retval = true;
         match transformation::jinja::transform_response(
@@ -470,7 +434,7 @@ impl<EHF: EnvoyHttpFilter> HttpFilter<EHF> for Filter {
     ) -> abi::envoy_dynamic_module_type_on_http_filter_request_headers_status {
         self.set_per_route_config(envoy_filter);
         self.populate_request_headers_map(envoy_filter.get_request_headers());
-        self.is_upgrade_request = Filter::detect_upgrade_request(self.get_request_headers_map());
+        self.is_upgrade_request = detect_upgrade_request(self.get_request_headers_map());
 
         let Some(transform) = self.get_request_transform() else {
             envoy_log_trace!("on_request_headers skipping");

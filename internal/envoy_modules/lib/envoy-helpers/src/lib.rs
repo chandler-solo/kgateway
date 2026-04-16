@@ -1,5 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod http;
+
 use envoy_proxy_dynamic_modules_rust_sdk::EnvoyMutBuffer;
 
 /// Adapts a `Vec<EnvoyMutBuffer>` into a `std::io::Read` implementation,
