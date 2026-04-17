@@ -591,22 +591,21 @@ $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH): $(ENVOYINIT_SOURCES)
 .PHONY: envoyinit
 envoyinit: $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH)
 
-# Allow override of Dockerfile for local development (pass a pre-rendered Dockerfile, not a template)
-ENVOYINIT_DOCKERFILE ?= cmd/envoyinit/Dockerfile.tmpl
-$(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(ENVOY_MODULES_SRC_FILES) cmd/envoyinit/generate-dockerfile.sh
-	@if [ "$(ENVOYINIT_DOCKERFILE)" = "cmd/envoyinit/Dockerfile.tmpl" ]; then \
-		echo "syncing envoy modules..."; \
-		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${ENVOY_MODULES_DIR} $(ENVOYINIT_OUTPUT_DIR)/envoy_modules; \
-		cmd/envoyinit/generate-dockerfile.sh $(ENVOY_MODULES_DIR) $< $@; \
-		cp $@ cmd/envoyinit/Dockerfile; \
-	else \
-		cp $< $@; \
-	fi
+# Allow override of Dockerfile for local development.
+ENVOYINIT_DOCKERFILE ?= cmd/envoyinit/Dockerfile
+$(ENVOYINIT_OUTPUT_DIR)/.envoy-modules-sync-stamp: $(ENVOY_MODULES_SRC_FILES)
+	@echo "syncing envoy modules..."
+	@mkdir -p $(ENVOYINIT_OUTPUT_DIR)/envoy_modules
+	rsync -av --delete --exclude 'target/' --exclude 'pkg/' $(ENVOY_MODULES_DIR) $(ENVOYINIT_OUTPUT_DIR)/envoy_modules
+	@touch $@
+
+$(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE)
+	cp $< $@
 
 $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh: cmd/envoyinit/docker-entrypoint.sh
 	cp $< $@
 
-$(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH) $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh
+$(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_DIR)/envoyinit-linux-$(GOARCH) $(ENVOYINIT_OUTPUT_DIR)/.envoy-modules-sync-stamp $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit $(ENVOYINIT_OUTPUT_DIR)/docker-entrypoint.sh
 	$(BUILDX_BUILD) --load $(PLATFORM) $(ENVOYINIT_OUTPUT_DIR) -f $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit \
 		--build-arg GOARCH=$(GOARCH) \
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \

@@ -22,6 +22,8 @@ To add a new filter, see [adding-a-filter.md](../../docs/guides/adding-a-filter.
 
 The Dockerfile that builds the envoy wrapper image is in `/cmd/envoyinit/Dockerfile`. It pulls in
 the envoy binary, this dynamic module, and the envoyinit binary into the image.
+It discovers workspace Cargo manifests from the build context, so adding a new filter does not
+require updating the Dockerfile.
 
 To build the envoy wrapper docker image, at the kgateway top project level, run:
 
