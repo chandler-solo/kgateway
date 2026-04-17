@@ -9,20 +9,16 @@ RUN sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g; s|htt
     && apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install --no-install-recommends -y clang
 ARG ENVOY_MODULES_DIR=./envoy_modules
-ARG RUST_BUILD_ARCH=x86_64 # options are x86_64 or aarch64
 # Discover workspace manifests from the build context so new filters do not require
 # Dockerfile edits, while still keeping dependency caching separate from copying full sources.
 RUN --mount=type=bind,target=/context,ro \
     set -eux; \
     modules_dir="/context/${ENVOY_MODULES_DIR#./}"; \
-    manifests="/tmp/envoy-module-manifests"; \
-    artifacts="/tmp/envoy-module-artifacts"; \
     cp "${modules_dir}/Cargo.toml" "${modules_dir}/Cargo.lock" ./; \
     find "${modules_dir}" \
         \( -type d \( -name target -o -name pkg -o -name vendor \) -prune \) -o \
-        -type f -name Cargo.toml -print | sort > "${manifests}"; \
-    : > "${artifacts}"; \
-    while read -r manifest; do \
+        -type f -name Cargo.toml -print \
+    | while read -r manifest; do \
         rel_dir="$(dirname "${manifest#"${modules_dir}/"}")"; \
         if [ "${rel_dir}" = "." ]; then \
             continue; \
@@ -30,6 +26,24 @@ RUN --mount=type=bind,target=/context,ro \
         mkdir -p "./${rel_dir}/src"; \
         cp "${manifest}" "./${rel_dir}/Cargo.toml"; \
         printf 'pub fn dummy() {}\n' > "./${rel_dir}/src/lib.rs"; \
+    done
+ARG RUST_BUILD_ARCH=x86_64 # options are x86_64 or aarch64
+# Because we built the dummy lib in this Stage to cache all the dependencies in docker build layer cache,
+# the dummy libs are also cached. In Stage 2 when we COPY, it preserves the timestamps of the
+# source code, so it never re-compiles the real lib.
+RUN --mount=type=bind,target=/context,ro \
+    set -eux; \
+    modules_dir="/context/${ENVOY_MODULES_DIR#./}"; \
+    artifacts="/tmp/envoy-module-artifacts"; \
+    : > "${artifacts}"; \
+    find "${modules_dir}" \
+        \( -type d \( -name target -o -name pkg -o -name vendor \) -prune \) -o \
+        -type f -name Cargo.toml -print | sort \
+    | while read -r manifest; do \
+        rel_dir="$(dirname "${manifest#"${modules_dir}/"}")"; \
+        if [ "${rel_dir}" = "." ]; then \
+            continue; \
+        fi; \
         crate_name="$(awk ' \
             /^\[lib\]/     { in_lib=1; in_pkg=0; next } \
             /^\[package\]/ { in_pkg=1; in_lib=0; next } \
@@ -57,15 +71,13 @@ RUN --mount=type=bind,target=/context,ro \
         ' "${manifest}"; then \
             printf '%s\n' "lib${crate_name}.so" >> "${artifacts}"; \
         fi; \
-    done < "${manifests}"; \
+    done; \
     cargo fetch; \
     cargo zigbuild --target ${RUST_BUILD_ARCH}-unknown-linux-gnu; \
     sort -u "${artifacts}" | while read -r artifact; do \
         find /build/target -type f -name "${artifact}" -delete; \
-    done
-# Because we built the dummy lib in this Stage to cache all the dependencies in docker build layer cache,
-# the dummy crate artifacts are also cached. In Stage 2 when we COPY, it preserves the timestamps
-# of the source code, so it never re-compiles the real lib unless those artifacts are removed here.
+    done; \
+    rm -f "${artifacts}"
 
 # Stage 2: build envoy dynamic module
 FROM --platform=$TARGETPLATFORM ${CARGO_ZBUILD_IMAGE} AS rust_builder
