@@ -10,15 +10,31 @@ COPY ${ENVOY_MODULES_DIR}/Cargo.toml ${ENVOY_MODULES_DIR}/Cargo.lock ./
 # To add a crate, add it to the workspace members list in internal/envoy_modules/Cargo.toml.
 # The following section is generated cmd/envoyinit/generate-dockerfile.sh when the make
 # target is run. Do not edit by hand.
-# __CRATE_DUMMY_SETUP__
-# __CRATE_CARGO_COPY__
+RUN mkdir -p module-init/src \
+              filters/rustformation/src \
+              lib/transformation/src \
+              lib/envoy-helpers/src \
+    && echo "pub fn dummy() {}" > module-init/src/lib.rs \
+    && echo "pub fn dummy() {}" > filters/rustformation/src/lib.rs \
+    && echo "pub fn dummy() {}" > lib/transformation/src/lib.rs \
+    && echo "pub fn dummy() {}" > lib/envoy-helpers/src/lib.rs
+COPY ${ENVOY_MODULES_DIR}/module-init/Cargo.toml ./module-init
+COPY ${ENVOY_MODULES_DIR}/filters/rustformation/Cargo.toml ./filters/rustformation
+COPY ${ENVOY_MODULES_DIR}/lib/transformation/Cargo.toml ./lib/transformation
+COPY ${ENVOY_MODULES_DIR}/lib/envoy-helpers/Cargo.toml ./lib/envoy-helpers
 ARG RUST_BUILD_ARCH=x86_64 # options are x86_64 or aarch64
 # Because we built the dummy lib in this Stage to cache all the dependencies in docker build layer cache,
 # the dummy libs are also cached. In Stage 2 when we COPY, it preserves the timestamps of the
 # source code, so it never re-compiles the real lib.
 # The following section is generated cmd/envoyinit/generate-dockerfile.sh when the make
 # target is run. Do not edit by hand.
-# __CRATE_CACHE_BUST_RUN__
+RUN cargo fetch \
+    && cargo zigbuild --target ${RUST_BUILD_ARCH}-unknown-linux-gnu \
+    && find /build/target \( -name librust_module.so \
+        -o -name 'librustformation_filter-*.rlib' \
+        -o -name 'libtransformation-*.rlib' \
+        -o -name 'libenvoy_helpers-*.rlib' \
+    \) -type f -delete
 
 # Stage 2: build envoy dynamic module
 FROM --platform=$TARGETPLATFORM ${CARGO_ZBUILD_IMAGE} AS rust_builder

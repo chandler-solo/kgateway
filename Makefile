@@ -598,6 +598,7 @@ $(ENVOYINIT_OUTPUT_DIR)/Dockerfile.envoyinit: $(ENVOYINIT_DOCKERFILE) $(ENVOY_MO
 		echo "syncing envoy modules..."; \
 		rsync -av --delete --exclude 'target/' --exclude 'pkg/' ${ENVOY_MODULES_DIR} $(ENVOYINIT_OUTPUT_DIR)/envoy_modules; \
 		cmd/envoyinit/generate-dockerfile.sh $(ENVOY_MODULES_DIR) $< $@; \
+		cp $@ cmd/envoyinit/Dockerfile; \
 	else \
 		cp $< $@; \
 	fi
