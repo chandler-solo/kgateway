@@ -7,6 +7,7 @@ import (
 
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"istio.io/istio/pkg/kube/krt"
@@ -290,6 +291,50 @@ func TestXdsReadinessGate(t *testing.T) {
 	setReady()
 	err = cb.OnStreamRequest(3, kgatewayReq)
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestNonKgatewayBypassesInitializationGate(t *testing.T) {
+	g := NewWithT(t)
+
+	extraCalled := false
+	cb, _, _ := NewUniquelyConnectedClients(xdsserver.CallbackFuncs{
+		StreamRequestFunc: func(_ int64, _ *envoy_service_discovery_v3.DiscoveryRequest) error {
+			extraCalled = true
+			return nil
+		},
+	}, false)
+
+	kgatewayReq := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(wellknown.GatewayApiProxyValue + "~ns~gw"),
+				},
+			},
+		},
+	}
+	nonKgatewayReq := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue("custom-xds-role"),
+				},
+			},
+		},
+	}
+
+	// Before the kgateway UCC collection is built, custom roles should still be
+	// allowed through so extra xDS callbacks can keep serving them.
+	err := cb.OnStreamRequest(1, nonKgatewayReq)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(extraCalled).To(BeTrue())
+
+	// kgateway-managed roles still depend on kgateway initialization.
+	err = cb.OnStreamRequest(2, kgatewayReq)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("not initialized"))
 }
 
 func TestNormalizeGatewayRole(t *testing.T) {

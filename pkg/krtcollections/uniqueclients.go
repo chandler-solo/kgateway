@@ -289,18 +289,25 @@ func (x *callbacks) OnStreamRequest(sid int64, r *envoy_service_discovery_v3.Dis
 		}
 	}
 
-	c := x.collection.Load()
-	if c == nil {
-		return errors.New("kgateway not initialized")
-	}
-
-	peerInfo, err := x.getPeerInfo(sid, r, c.augmentedPods != nil)
+	peerInfo, err := x.getPeerInfo(sid, r, false)
 	if err != nil {
 		return err
 	}
 	// check that this collection only handles kgateway clients
 	if !xds.IsKubeGatewayCacheKey(peerInfo.role) {
 		return nil
+	}
+
+	c := x.collection.Load()
+	if c == nil {
+		return errors.New("kgateway not initialized")
+	}
+
+	if c.augmentedPods != nil {
+		peerInfo, err = x.getPeerInfo(sid, r, true)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Reject kgateway connections until the ProxySyncer has registered its
