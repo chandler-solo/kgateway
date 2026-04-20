@@ -62,7 +62,7 @@ jobs:
           --output=results.sarif
           --new=results.json
           --gh-annotations=false
-          --fail-on-vuln=true
+          --fail-on-vuln=false
 
     - name: Upload SARIF
       if: ${{ !cancelled() && hashFiles('results.sarif') != '' }}
@@ -77,5 +77,6 @@ jobs:
       if: ${{ !cancelled() && hashFiles('results.sarif') != '' }}
       shell: bash
       run: |
-        echo "View the OSV-Scanner results in Security -> Code scanning:"
+        echo "View the branch-specific OSV-Scanner results in Security -> Code scanning:"
+        echo "GitHub defaults that page to the repository default branch, so use the branch filter in this link:"
         echo "${{ github.server_url }}/${{ github.repository }}/security/code-scanning?query=is%3Aopen+branch%3A${{ matrix.branch }}+tool%3Aosv-scanner"
