@@ -83,6 +83,12 @@ else
 	endif
 endif
 
+ifeq ($(IS_ARM_MACHINE), )
+	OSV_SCANNER_PLATFORM :=
+else
+	OSV_SCANNER_PLATFORM := --platform=linux/amd64
+endif
+
 # Note: When bumping this version, update the version in pkg/validator/validator.go as well.
 export ENVOY_IMAGE ?= envoyproxy/envoy:v1.37.1
 
@@ -190,12 +196,18 @@ osv-scan: ## Run OSV-Scanner locally for the current branch and write JSON/SARIF
 	echo "Writing results to: $$out_dir"; \
 	scanner_status=0; \
 	if docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
+		--entrypoint /root/osv-scanner \
 		-v "$(ROOTDIR):/workspace" \
 		-v "$(OUTPUT_DIR):/output" \
 		-w /workspace \
 		"$(OSV_SCANNER_IMAGE)" \
-		--output=/output/osv/$$safe_branch/results.json \
+		scan source \
+		--output-file=/output/osv/$$safe_branch/results.json \
 		--format=json \
+		--no-call-analysis=go \
+		--no-call-analysis=rust \
+		--verbosity=warn \
 		-r \
 		./; then \
 		:; \
@@ -208,14 +220,14 @@ osv-scan: ## Run OSV-Scanner locally for the current branch and write JSON/SARIF
 	fi; \
 	reporter_status=0; \
 	if docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
 		--entrypoint /root/osv-reporter \
 		-v "$(ROOTDIR):/workspace" \
 		-v "$(OUTPUT_DIR):/output" \
 		-w /workspace \
 		"$(OSV_SCANNER_IMAGE)" \
-		--output=/output/osv/$$safe_branch/results.sarif \
+		--output-files=sarif:/output/osv/$$safe_branch/results.sarif \
 		--new=/output/osv/$$safe_branch/results.json \
-		--gh-annotations=false \
 		--fail-on-vuln=false; then \
 		:; \
 	else \
@@ -226,12 +238,14 @@ osv-scan: ## Run OSV-Scanner locally for the current branch and write JSON/SARIF
 		exit 1; \
 	fi; \
 	docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
 		--entrypoint /bin/chown \
 		-v "$(OUTPUT_DIR):/output" \
 		"$(OSV_SCANNER_IMAGE)" \
 		-R "$$(id -u):$$(id -g)" "/output/osv/$$safe_branch" > /dev/null; \
-	echo "Scanner exit code: $$scanner_status"; \
-	echo "Reporter exit code: $$reporter_status"; \
+	if [[ "$$scanner_status" -ne 0 || "$$reporter_status" -ne 0 ]]; then \
+		echo "OSV scan completed and wrote results despite non-zero scanner/reporter exit status."; \
+	fi; \
 	echo "JSON: $$out_dir/results.json"; \
 	echo "SARIF: $$out_dir/results.sarif"
 

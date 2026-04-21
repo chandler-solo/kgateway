@@ -93,6 +93,8 @@ jobs:
         scan-args: |-
           --output=results.json
           --format=json
+          --no-call-analysis=go
+          --no-call-analysis=rust
           -r
           ./
       continue-on-error: true
