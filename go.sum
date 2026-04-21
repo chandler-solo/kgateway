@@ -1627,8 +1627,8 @@ github.com/envoyproxy/go-control-plane v0.14.0 h1:hbG2kr4RuFj222B6+7T83thSPqLjwB
 github.com/envoyproxy/go-control-plane v0.14.0/go.mod h1:NcS5X47pLl/hfqxU70yPwL9ZMkUlwlKxtAohpi2wBEU=
 github.com/envoyproxy/go-control-plane/contrib v1.32.5-0.20250207140015-90270e3c85fd h1:TD14U3GE5CX1CmPLlPBd/YJR7OAO61NVE19c97h8pV4=
 github.com/envoyproxy/go-control-plane/contrib v1.32.5-0.20250207140015-90270e3c85fd/go.mod h1:gkGYoY7plfQg7FPBDhyKtP1cDA9frFR/3YsCx8taRvI=
-github.com/envoyproxy/go-control-plane/envoy v1.36.0 h1:yg/JjO5E7ubRyKX3m07GF3reDNEnfOboJ0QySbH736g=
-github.com/envoyproxy/go-control-plane/envoy v1.36.0/go.mod h1:ty89S1YCCVruQAm9OtKeEkQLTb+Lkz0k8v9W0Oxsv98=
+github.com/envoyproxy/go-control-plane/envoy v1.32.5-0.20250211152746-ef139ef8ea6b h1:adF1AKcjarVahD0ZmbrM16EcBwtfZvptRkbLuJeZX6o=
+github.com/envoyproxy/go-control-plane/envoy v1.32.5-0.20250211152746-ef139ef8ea6b/go.mod h1:+c8rr9dxbNVDIsk/MjCS2w70FIwGEJG9zbaxz6u/fRg=
 github.com/envoyproxy/go-control-plane/ratelimit v0.1.0 h1:/G9QYbddjL25KvtKTv3an9lx6VBE2cnb8wp1vEGNYGI=
 github.com/envoyproxy/go-control-plane/ratelimit v0.1.0/go.mod h1:Wk+tMFAFbCXaJPzVVHnPgRKdUdwW/KdbRt94AzgRee4=
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=

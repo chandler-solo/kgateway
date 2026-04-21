@@ -359,6 +359,9 @@ replace (
 	// Updated to fix CVE-2025-15558
 	github.com/docker/cli => github.com/docker/cli v29.2.0+incompatible
 	github.com/docker/docker => github.com/moby/moby v26.0.0+incompatible
+
+	// Pin go-control-plane/envoy proto bindings to match the envoy v1.32 runtime used on v1.18.x.
+	github.com/envoyproxy/go-control-plane/envoy => github.com/envoyproxy/go-control-plane/envoy v1.32.5-0.20250211152746-ef139ef8ea6b
 	// https://github.com/fsnotify/fsnotify/issues/672
 	github.com/fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.7.0
 
