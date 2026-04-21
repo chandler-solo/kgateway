@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "0 17 * * *"
   workflow_dispatch:
+    inputs:
+      branches:
+        description: "Allowlisted branch or branches to scan"
+        type: choice
+        default: all
+        options:
+          - all
+          - main
+          - v2.2.x
 
 permissions:
   actions: read
@@ -15,17 +24,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  determine_branches:
+    name: Determine Branches
+    runs-on: ubuntu-22.04
+    outputs:
+      branches: ${{ steps.determine.outputs.branches }}
+    steps:
+    - name: Determine branch matrix
+      id: determine
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        branches='["main","v2.2.x"]'
+
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          case "${{ inputs.branches }}" in
+            all)
+              ;;
+            main)
+              branches='["main"]'
+              ;;
+            v2.2.x)
+              branches='["v2.2.x"]'
+              ;;
+            *)
+              echo "::error::Unsupported branch selection: ${{ inputs.branches }}"
+              exit 1
+              ;;
+          esac
+        fi
+
+        {
+          echo "branches=${branches}"
+        } >> "$GITHUB_OUTPUT"
+
   scan:
+    needs: determine_branches
     name: Scan (${{ matrix.branch }})
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        branch:
-          # Allowlist of branches scanned daily.
-          - main
-          - v2.2.x
+        branch: ${{ fromJson(needs.determine_branches.outputs.branches) }}
     steps:
     - name: Checkout branch
       uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
