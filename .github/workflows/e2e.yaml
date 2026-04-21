@@ -149,8 +149,16 @@ jobs:
         istio-version: ${{ steps.dotenv.outputs.istio_version }}
         localstack: ${{ matrix.test.localstack }}
         github-token: ${{ github.token }}
+    - name: Load shared extproc server
+      shell: bash
+      env:
+        CLUSTER_NAME: ${{ matrix.test.cluster-name }}
+        CLUSTER_TYPE: ${{ steps.dotenv.outputs.cluster_type || 'kind' }}
+      run: make cluster-load-extproc-server
     - id: run-tests
       uses: ./.github/actions/kubernetes-e2e-tests
+      env:
+        SKIP_EXTPROC_SERVER_SETUP: "true"
       with:
         cluster-name: ${{ matrix.test.cluster-name }}
         cluster-type: ${{ steps.dotenv.outputs.cluster_type || 'kind' }}

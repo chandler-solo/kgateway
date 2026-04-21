@@ -287,13 +287,15 @@ test: ## Run all tests with ginkgo, or only run the test package at {TEST_PKG} i
 # request.
 # CLUSTER_TYPE controls whether images are loaded via kind or k3d (default: kind)
 CLUSTER_TYPE ?= kind
+SKIP_EXTPROC_SERVER_SETUP ?= false
 
 E2E_SHARED_IMAGE_ARCHIVE ?= $(OUTPUT_DIR)/e2e-images/shared-images.tar
 E2E_SHARED_IMAGE_TAGS = \
 	$(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION) \
 	$(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION) \
 	$(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION) \
-	$(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION)
+	$(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION) \
+	$(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION)
 
 .PHONY: cluster-load-extproc-server
 ifeq ($(CLUSTER_TYPE),k3d)
@@ -303,18 +305,26 @@ cluster-load-extproc-server: kind-load-extproc-server
 endif
 
 .PHONY: e2e-test
-e2e-test: extproc-server-docker cluster-load-extproc-server
+e2e-test: maybe-setup-extproc-server
 e2e-test: go-test
 e2e-test: TEST_TAG = e2e
 e2e-test: GO_TEST_ARGS = $(E2E_GO_TEST_ARGS)
 
 .PHONY: e2e-shared-images-docker
-e2e-shared-images-docker: kgateway-docker envoy-wrapper-docker sds-docker dummy-idp-docker ## Build shared docker images for e2e shards
+e2e-shared-images-docker: kgateway-docker envoy-wrapper-docker sds-docker dummy-idp-docker extproc-server-docker ## Build shared docker images for e2e shards
 
 .PHONY: save-e2e-shared-images
 save-e2e-shared-images: e2e-shared-images-docker ## Save shared e2e shard images to a docker archive
 	@mkdir -p $(dir $(E2E_SHARED_IMAGE_ARCHIVE))
 	docker save -o $(E2E_SHARED_IMAGE_ARCHIVE) $(E2E_SHARED_IMAGE_TAGS)
+
+.PHONY: maybe-setup-extproc-server
+ifeq ($(SKIP_EXTPROC_SERVER_SETUP),true)
+maybe-setup-extproc-server:
+	@echo "Skipping extproc-server build and load"
+else
+maybe-setup-extproc-server: extproc-server-docker cluster-load-extproc-server
+endif
 
 
 # https://go.dev/blog/cover#heat-maps
