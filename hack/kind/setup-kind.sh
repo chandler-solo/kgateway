@@ -86,14 +86,10 @@ function create_and_setup() {
 create_and_setup
 
 if [[ $SKIP_DOCKER == 'true' ]]; then
-  # TODO(tim): refactor the Makefile & CI scripts so we're loading local
-  # charts to real helm repos, and then we can remove this block.
-  echo "SKIP_DOCKER=true, not building images or chart"
+  echo "SKIP_DOCKER=true, not building images"
 else
   # 2. Make all the docker images and load them to the kind cluster
   VERSION=$VERSION CLUSTER_NAME=$CLUSTER_NAME make kind-build-and-load kind-build-and-load-dummy-idp
-
-  VERSION=$VERSION make package-kgateway-charts
 fi
 
 # 7. Setup localstack

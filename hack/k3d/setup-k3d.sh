@@ -89,12 +89,10 @@ function create_and_setup() {
 create_and_setup
 
 if [[ $SKIP_DOCKER == 'true' ]]; then
-  echo "SKIP_DOCKER=true, not building images or chart"
+  echo "SKIP_DOCKER=true, not building images"
 else
   # 2. Make all the docker images and load them to the k3d cluster
   VERSION=$VERSION K3D_CLUSTER_NAME=$CLUSTER_NAME make k3d-build-and-load k3d-load-dummy-idp
-
-  VERSION=$VERSION make package-kgateway-charts
 fi
 
 # 3. Setup localstack
