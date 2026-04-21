@@ -67,6 +67,7 @@ runs:
       shell: bash
       run: |
         echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
+        echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
     - name: Cache
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       id: cache
@@ -74,6 +75,7 @@ runs:
         # https://github.com/actions/cache/blob/main/examples.md#go---modules
         path: |
           ${{ steps.go-cache-paths.outputs.go-mod }}
+          ${{ steps.go-cache-paths.outputs.go-build }}
         key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
     - name: Install Dependencies
       if: steps.cache.outputs.cache-hit != 'true'
