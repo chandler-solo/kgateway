@@ -288,6 +288,13 @@ test: ## Run all tests with ginkgo, or only run the test package at {TEST_PKG} i
 # CLUSTER_TYPE controls whether images are loaded via kind or k3d (default: kind)
 CLUSTER_TYPE ?= kind
 
+E2E_SHARED_IMAGE_ARCHIVE ?= $(OUTPUT_DIR)/e2e-images/shared-images.tar
+E2E_SHARED_IMAGE_TAGS = \
+	$(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION)
+
 .PHONY: cluster-load-extproc-server
 ifeq ($(CLUSTER_TYPE),k3d)
 cluster-load-extproc-server: k3d-load-extproc-server
@@ -300,6 +307,14 @@ e2e-test: extproc-server-docker cluster-load-extproc-server
 e2e-test: go-test
 e2e-test: TEST_TAG = e2e
 e2e-test: GO_TEST_ARGS = $(E2E_GO_TEST_ARGS)
+
+.PHONY: e2e-shared-images-docker
+e2e-shared-images-docker: kgateway-docker envoy-wrapper-docker sds-docker dummy-idp-docker ## Build shared docker images for e2e shards
+
+.PHONY: save-e2e-shared-images
+save-e2e-shared-images: e2e-shared-images-docker ## Save shared e2e shard images to a docker archive
+	@mkdir -p $(dir $(E2E_SHARED_IMAGE_ARCHIVE))
+	docker save -o $(E2E_SHARED_IMAGE_ARCHIVE) $(E2E_SHARED_IMAGE_TAGS)
 
 
 # https://go.dev/blog/cover#heat-maps
@@ -1007,6 +1022,12 @@ k3d-build-and-load: k3d-build-and-load-kgateway
 k3d-build-and-load: k3d-build-and-load-envoy-wrapper
 k3d-build-and-load: k3d-build-and-load-sds
 k3d-build-and-load: k3d-build-and-load-dummy-idp
+
+.PHONY: k3d-load ## Use to load all images into k3d
+k3d-load: k3d-load-kgateway
+k3d-load: k3d-load-envoy-wrapper
+k3d-load: k3d-load-sds
+k3d-load: k3d-load-dummy-idp
 
 .PHONY: k3d-load-dummy-idp
 k3d-load-dummy-idp:
