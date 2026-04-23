@@ -11,6 +11,7 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/version"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
@@ -65,6 +66,19 @@ func getPackagedChartPath(testAssetDir string, chartName string) (string, error)
 		return "", fmt.Errorf("packaged chart path is a directory: %s", chartPath)
 	}
 	return chartPath, nil
+}
+
+// LocalChartImageTagArgs returns helm args that pin image.tag to the build-time
+// linker-injected version. This is needed when installing the chart from its
+// source directory: Chart.yaml's appVersion does not match the locally-built
+// image tags, so the controller pod would otherwise try to pull a nonexistent
+// image and stay Pending. Returns nil when no usable version is available.
+func LocalChartImageTagArgs() []string {
+	v := version.Version
+	if v == "" || v == version.UndefinedVersion {
+		return nil
+	}
+	return []string{"--set", "image.tag=" + v}
 }
 
 // Parses the Helm index file and returns the version of the chart.
