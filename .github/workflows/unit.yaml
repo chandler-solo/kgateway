@@ -68,6 +68,8 @@ jobs:
         echo "KGATEWAY_VALIDATOR_DOCKER_PULL_POLICY=never" >> "$GITHUB_ENV"
     - name: Run Tests
       shell: bash
+      env:
+        CGO_ENABLED: '1'
       run: make unit-with-coverage
     - name: Validate Test Coverage
       shell: bash

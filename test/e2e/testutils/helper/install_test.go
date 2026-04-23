@@ -28,11 +28,11 @@ entries:
     version: v1.2.3
 generated: "2026-04-21T00:00:00Z"
 `
-	if err := os.WriteFile(filepath.Join(assetDir, HelmRepoIndexFileName), []byte(index), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(assetDir, HelmRepoIndexFileName), []byte(index), 0o600); err != nil {
 		t.Fatalf("failed to write Helm index: %v", err)
 	}
 	packagedChartPath := filepath.Join(assetDir, "kgateway-v1.2.3.tgz")
-	if err := os.WriteFile(packagedChartPath, []byte("chart"), 0o644); err != nil {
+	if err := os.WriteFile(packagedChartPath, []byte("chart"), 0o600); err != nil {
 		t.Fatalf("failed to write packaged chart: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(rootDir, defaultHelmChartDir, "kgateway"), 0o755); err != nil {
