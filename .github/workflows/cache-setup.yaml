@@ -7,6 +7,9 @@ on:
       - 'main'
       - 'v1.**.x'
 
+env:
+  CGO_ENABLED: '0'
+
 jobs:
   setup-go-caches:
     name: Setup Go Caches
@@ -20,7 +23,9 @@ jobs:
       uses: ./.github/actions/prep-go-runner
     - name: Prime Go Build Cache
       if: steps.prep-go-runner.outputs.go-build-cache-hit != 'true'
-      run: go test -run '^$' -tags e2e ./...
+      run: |
+        go test -run '^$' ./...
+        go test -run '^$' -tags e2e ./...
     - name: Save Go Build Cache
       if: success() && steps.prep-go-runner.outputs.go-build-cache-hit != 'true'
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0

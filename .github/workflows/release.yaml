@@ -30,6 +30,7 @@ env:
   VANITY_REGISTRY: cr.kgateway.dev/kgateway-dev
   MAIN_VERSION: v2.3.0-main
   GORELEASER_DISABLE_RELEASE: false
+  CGO_ENABLED: '0'
 
 permissions:
   contents: write
