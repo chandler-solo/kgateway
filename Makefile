@@ -697,14 +697,20 @@ export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 
 # Registry cache for envoyinit Docker build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-wrapper-cache)
 
-# Only --cache-from is used here because --cache-to type=registry requires the
-# docker-container buildx driver, but we use --load (though a Kind local
-# registry with --push would probably be better) which requires the docker
-# driver. Cache is populated by goreleaser when a PR lands on main or a release
-# is cut.
+# Registry cache-from targets the image goreleaser publishes on main/release.
 # The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
 ENVOYINIT_CACHE_REF ?=
 ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH),)
+
+# Optional local BuildKit cache paths, typically wired to actions/cache in CI
+# so PR runs can read AND write layer cache without needing registry push auth.
+# Requires the docker-container buildx driver (docker/setup-buildx-action).
+# mode=max exports intermediate stages, which is what lets rust_build_deps and
+# rust_builder stay cached across runs even when the registry cache has gaps.
+ENVOYINIT_LOCAL_CACHE_FROM ?=
+ENVOYINIT_LOCAL_CACHE_TO ?=
+ENVOYINIT_LOCAL_CACHE_FROM_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_FROM),--cache-from type=local$(comma)src=$(ENVOYINIT_LOCAL_CACHE_FROM),)
+ENVOYINIT_LOCAL_CACHE_TO_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_TO),--cache-to type=local$(comma)dest=$(ENVOYINIT_LOCAL_CACHE_TO)$(comma)mode=max,)
 
 ENVOY_MODULES_DIR := internal/envoy_modules/
 # find all the files under the envoy modules directory but exclude the target, vendor and pkg directory
@@ -734,6 +740,8 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
 		--build-arg ENVOY_MODULES_DIR=./envoy_modules \
 		$(ENVOYINIT_CACHE_FROM) \
+		$(ENVOYINIT_LOCAL_CACHE_FROM_ARG) \
+		$(ENVOYINIT_LOCAL_CACHE_TO_ARG) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
 	@touch $@
 
