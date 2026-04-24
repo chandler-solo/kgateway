@@ -14,7 +14,7 @@ steps:
 
 - name: 'gcr.io/cloud-builders/gsutil'
   id: 'untar-mod-cache'
-  dir: &dir /workspace/gloo
+  dir: &dir /workspace/$REPO_NAME
   entrypoint: 'bash'
   args:
   - '-c'
