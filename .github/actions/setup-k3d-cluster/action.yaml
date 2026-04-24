@@ -54,3 +54,21 @@ runs:
         LOCALSTACK: ${{ inputs.localstack }}
       run: |
         ./hack/k3d/setup-k3d.sh
+    # k3d/k3s occasionally starts with kubelet missing
+    # KUBERNETES_SERVICE_HOST env-var injection, leaving every pod
+    # (coredns, metrics-server, workloads) crash-looping. The cluster
+    # doesn't self-heal, so fail loudly here rather than letting e2e
+    # tests run against a broken cluster. By this point image build
+    # has already taken minutes, so the wait is near-instant in the
+    # healthy case.
+    - name: Verify k3d cluster is healthy
+      shell: bash
+      run: |
+        set -e
+        if ! kubectl wait --for=condition=Ready nodes --all --timeout=120s \
+          || ! kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=180s; then
+          echo "::error::k3d cluster did not become healthy; kubelet env-var injection race suspected"
+          kubectl get pods -A || true
+          kubectl describe pods -n kube-system || true
+          exit 1
+        fi
