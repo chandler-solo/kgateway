@@ -34,6 +34,15 @@ ENVOYINIT_CACHE_REF="${ENVOYINIT_CACHE_REF:-}"
 # Export the variables so they are available in the environment
 export VERSION CLUSTER_NAME CLUSTER_TYPE=k3d ENVOYINIT_CACHE_REF
 
+function wait_for_cluster_ready() {
+  # Verify kube-system pods become Ready. Occasionally k3d/k3s starts with
+  # kubelet missing the KUBERNETES_SERVICE_HOST env var injection, leaving
+  # every pod (coredns, metrics-server, workloads) crash-looping. The cluster
+  # doesn't self-heal, so catch it here rather than during tests.
+  kubectl wait --for=condition=Ready nodes --all --timeout=120s || return 1
+  kubectl wait --for=condition=Ready pods --all -n kube-system --timeout=180s || return 1
+}
+
 function create_k3d_cluster_or_skip() {
   # If the k3d cluster exists already, return
   if $K3D cluster list -o json | jq -e ".[] | select(.name==\"$CLUSTER_NAME\")" > /dev/null 2>&1; then
@@ -41,14 +50,33 @@ function create_k3d_cluster_or_skip() {
     return
   fi
 
-  echo "creating cluster ${CLUSTER_NAME}"
-  $K3D cluster create "$CLUSTER_NAME" \
-    --image "$K3D_NODE_IMAGE" \
-    --k3s-arg "--disable=traefik@server:0" \
-    --k3s-arg "--disable=servicelb@server:0" \
-    -p "80:80@loadbalancer" \
-    -p "443:443@loadbalancer"
-  echo "Finished setting up cluster $CLUSTER_NAME"
+  local attempts=0
+  local max_attempts=2
+  while true; do
+    echo "creating cluster ${CLUSTER_NAME} (attempt $((attempts + 1))/${max_attempts})"
+    $K3D cluster create "$CLUSTER_NAME" \
+      --image "$K3D_NODE_IMAGE" \
+      --k3s-arg "--disable=traefik@server:0" \
+      --k3s-arg "--disable=servicelb@server:0" \
+      -p "80:80@loadbalancer" \
+      -p "443:443@loadbalancer"
+
+    if wait_for_cluster_ready; then
+      echo "Finished setting up cluster $CLUSTER_NAME"
+      break
+    fi
+
+    attempts=$((attempts + 1))
+    echo "cluster ${CLUSTER_NAME} unhealthy after creation; dumping state"
+    kubectl get pods -A || true
+    kubectl describe pods -n kube-system || true
+    if [[ $attempts -ge $max_attempts ]]; then
+      echo "cluster ${CLUSTER_NAME} failed to become ready after ${max_attempts} attempts" >&2
+      exit 1
+    fi
+    echo "deleting cluster ${CLUSTER_NAME} and retrying"
+    $K3D cluster delete "$CLUSTER_NAME" || true
+  done
 
   # so that you can just build the k3d cluster alone if needed
   if [[ $JUST_K3D == 'true' ]]; then
