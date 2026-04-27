@@ -163,7 +163,8 @@ Routes:
               name: action
               typedConfig:
                 '@type': type.googleapis.com/envoy.config.rbac.v3.Action
-                name: allow-request
+                action: DENY
+                name: deny-request
   virtualHosts:
   - domains:
     - example.com

@@ -17,7 +17,7 @@ pub enum Action {
 pub struct Rule {
     #[serde(default)]
     pub name: Option<String>,
-    pub cidrs: Vec<String>,
+    pub cidr: String,
     pub action: Action,
 }
 
@@ -40,7 +40,7 @@ pub struct DenyResponse {
     /// default-action deny, or `"unknown-ip"` when the downstream source
     /// address cannot be determined.
     #[serde(default)]
-    pub blocked_by_header_name: Option<String>,
+    pub add_blocked_by_header: Option<String>,
 }
 
 fn default_deny_status() -> u16 {
@@ -52,7 +52,7 @@ impl Default for DenyResponse {
         Self {
             status_code: default_deny_status(),
             headers: Vec::new(),
-            blocked_by_header_name: None,
+            add_blocked_by_header: None,
         }
     }
 }
@@ -114,14 +114,12 @@ impl Acl {
                 action: rule.action,
                 name: rule.name,
             };
-            for cidr in &rule.cidrs {
-                match parse_network(cidr)? {
-                    IpNetwork::V4(n) => {
-                        v4.insert(n.network_address(), u32::from(n.netmask()), entry.clone());
-                    }
-                    IpNetwork::V6(n) => {
-                        v6.insert(n.network_address(), u32::from(n.netmask()), entry.clone());
-                    }
+            match parse_network(&rule.cidr)? {
+                IpNetwork::V4(n) => {
+                    v4.insert(n.network_address(), u32::from(n.netmask()), entry);
+                }
+                IpNetwork::V6(n) => {
+                    v6.insert(n.network_address(), u32::from(n.netmask()), entry);
                 }
             }
         }

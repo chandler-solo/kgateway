@@ -42,8 +42,8 @@ func NewTrafficPolicyConstructor(
 	return trafficpolicy.NewTrafficPolicyConstructor(ctx, commoncol)
 }
 
-func NewGatewayTranslationPass(tctx ir.GwTranslationCtx, reporter reporter.Reporter, enableAuthSucceededMetadata bool) ir.ProxyTranslationPass {
-	return trafficpolicy.NewGatewayTranslationPass(tctx, reporter, enableAuthSucceededMetadata)
+func NewGatewayTranslationPass(tctx ir.GwTranslationCtx, reporter reporter.Reporter) ir.ProxyTranslationPass {
+	return trafficpolicy.NewGatewayTranslationPass(tctx, reporter)
 }
 
 // ResolveExtGrpcService resolves a gateway extension gRPC service by looking up the backend reference

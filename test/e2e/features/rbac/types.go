@@ -18,7 +18,6 @@ var (
 	setupManifest            = filepath.Join(fsutils.MustGetThisDir(), "testdata", "setup.yaml")
 	rbacManifest             = filepath.Join(fsutils.MustGetThisDir(), "testdata", "cel-rbac.yaml")
 	rbacManifestWithSections = filepath.Join(fsutils.MustGetThisDir(), "testdata", "cel-rbac-section.yaml")
-	rbacDenyManifest         = filepath.Join(fsutils.MustGetThisDir(), "testdata", "cel-rbac-deny.yaml")
 	// Core infrastructure objects that we need to track
 	expectStatus200Success = &matchers.HttpResponse{
 		StatusCode: http.StatusOK,
@@ -42,9 +41,6 @@ var (
 		},
 		"TestRBACHeaderAuthorization": {
 			Manifests: []string{rbacManifest},
-		},
-		"TestRBACDenyActionAllowsNonMatchingTraffic": {
-			Manifests: []string{rbacDenyManifest},
 		},
 	}
 )

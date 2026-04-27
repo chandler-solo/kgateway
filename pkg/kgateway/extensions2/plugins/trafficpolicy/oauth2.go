@@ -42,8 +42,6 @@ const (
 	oauthJWTRequirementName     = "oauth2"
 	oauthJWTAccessTokenProvider = "oauth2/accessToken" //nolint:gosec // G101: This is only an identifier within the Envoy filter, not a credential
 	oauthJWTIDTokenProvider     = "oauth2/idToken"     //nolint:gosec // G101: This is only an identifier within the Envoy filter, not a credential
-
-	OauthEnabledFilterName = "oauth2_enabled"
 )
 
 type oauthIR struct {
@@ -499,9 +497,6 @@ func (p *trafficPolicyPluginGwPass) handleOauth2(filterChain string, perFilterCo
 	for _, secret := range in.secrets {
 		p.secrets[secret.Name] = secret
 	}
-
-	// Set the AuthSucceeded metadata field to indicate that the request has successfully been authed
-	AddAuthMetadataIfNeeded(perFilterConfig, OauthEnabledFilterName, p.enableAuthMetadata)
 }
 
 // getCookieSuffix generates a unique suffix for cookie names based on the given object

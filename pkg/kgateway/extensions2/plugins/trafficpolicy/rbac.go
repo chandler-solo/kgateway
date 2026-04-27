@@ -107,20 +107,13 @@ func translateRBAC(rbac *sharedv1alpha1.Authorization) (*envoyauthz.RBACPerRoute
 		}, nil
 	}
 
-	// Determine the on_no_match action: inverse of the policy action.
-	// Deny policies should allow non-matching traffic; Allow policies should deny it.
-	noMatchAction := envoyrbacv3.RBAC_DENY
-	if rbac.Action == sharedv1alpha1.AuthorizationPolicyActionDeny {
-		noMatchAction = envoyrbacv3.RBAC_ALLOW
-	}
-
 	celMatcher := &cncfmatcherv3.Matcher{
 		MatcherType: &cncfmatcherv3.Matcher_MatcherList_{
 			MatcherList: &cncfmatcherv3.Matcher_MatcherList{
 				Matchers: matchers,
 			},
 		},
-		OnNoMatch: createDefaultAction(noMatchAction),
+		OnNoMatch: createDefaultAction(envoyrbacv3.RBAC_DENY),
 	}
 
 	res := &envoyauthz.RBACPerRoute{
