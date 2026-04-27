@@ -806,7 +806,7 @@ main() {
 
     # Check if no tests were run
     # Look for various indicators that no tests matched:
-    # - "[no tests to run]" from gotestsum
+    # - "[no tests to run]" from go test
     # - "DONE 0 tests" from test output
     # - "EMPTY" package with cached result
     if grep -q '\[no tests to run\]' "$test_output_file" || \
