@@ -1,2 +1,5 @@
 grpcio-tools==1.62.2
 black
+# Pin minimum versions of transitive dependencies to address security advisories.
+setuptools>=78.1.1
+protobuf>=5.29.6,<6.0.0

@@ -8,7 +8,7 @@ edition = "2021"
 envoy-proxy-dynamic-modules-rust-sdk = { git = "https://github.com/envoyproxy/envoy", rev = "607aaa985080750ae29ac9f6e49a31a5445d28f4" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rand = "0.9.0"
+rand = "0.9.3"
 matchers = "0.2.0"
 minijinja = { version = "2.7.0" }
 tempfile = "3.16.0"

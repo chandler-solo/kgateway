@@ -13,3 +13,9 @@ opentelemetry-exporter-otlp~=1.35.0
 presidio_analyzer
 presidio_anonymizer
 prometheus_client
+# Pin minimum versions of transitive dependencies to address security advisories.
+setuptools>=78.1.1
+filelock>=3.20.3
+aiohttp>=3.13.4
+langsmith>=0.7.31
+langgraph>=1.0.10
