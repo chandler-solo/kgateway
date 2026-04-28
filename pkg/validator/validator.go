@@ -3,6 +3,7 @@ package validator
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,9 @@ import (
 // protobuf C++ DebugString() prepends to text-format output.
 var protoDebugPrefixRe = regexp.MustCompile(`goo\.gle/\S+\s*`)
 
+//go:embed default_envoy_image.txt
+var defaultEnvoyImageFile string
+
 var (
 	defaultEnvoyPath = "/usr/local/bin/envoy"
 	// NOTE: We cannot use vanilla upstream image here because it won't have the rustformation dynamic
@@ -28,7 +32,7 @@ var (
 	//       fix the validation test. CI can override this with KGATEWAY_VALIDATOR_ENVOY_IMAGE to run
 	//       against an image built from the current branch instead of waiting for the published tag.
 	//       Also probably need to change this version when backporting or creating a new release
-	defaultEnvoyImage = "ghcr.io/kgateway-dev/envoy-wrapper:v2.3.0-main"
+	defaultEnvoyImage = strings.TrimSpace(defaultEnvoyImageFile)
 	defaultDockerPull = "always"
 
 	validatorEnvoyImageEnvVar       = "KGATEWAY_VALIDATOR_ENVOY_IMAGE"
