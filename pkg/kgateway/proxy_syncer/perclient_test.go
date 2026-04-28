@@ -245,7 +245,9 @@ func routeResourcesReferencingClusters(count int) envoycache.Resources {
 
 func clustersExcept(ucc ir.UniqlyConnectedClient, count int, missingIndex int) []uccWithCluster {
 	clusters := make([]uccWithCluster, 0, count-1)
+	var version uint64
 	for i := range count {
+		version++
 		if i == missingIndex {
 			continue
 		}
@@ -253,7 +255,7 @@ func clustersExcept(ucc ir.UniqlyConnectedClient, count int, missingIndex int) [
 			Client:         ucc,
 			Name:           clusterName(i),
 			Cluster:        &envoyclusterv3.Cluster{Name: clusterName(i)},
-			ClusterVersion: uint64(i + 1),
+			ClusterVersion: version,
 		})
 	}
 	return clusters
