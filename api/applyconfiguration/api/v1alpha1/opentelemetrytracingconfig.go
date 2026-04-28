@@ -4,11 +4,20 @@ package v1alpha1
 
 // OpenTelemetryTracingConfigApplyConfiguration represents a declarative configuration of the OpenTelemetryTracingConfig type for use
 // with apply.
+//
+// OpenTelemetryTracingConfig represents the top-level Envoy's OpenTelemetry tracer.
+// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/trace/v3/opentelemetry.proto.html
 type OpenTelemetryTracingConfigApplyConfiguration struct {
-	GrpcService       *CommonGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
-	ServiceName       *string                              `json:"serviceName,omitempty"`
+	// Send traces to the gRPC service
+	GrpcService *CommonGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
+	// The name for the service. This will be populated in the ResourceSpan Resource attributes
+	// Defaults to the envoy cluster name. Ie: `<gateway-name>.<gateway-namespace>`
+	ServiceName *string `json:"serviceName,omitempty"`
+	// An ordered list of resource detectors. Currently supported values are `EnvironmentResourceDetector`
 	ResourceDetectors []ResourceDetectorApplyConfiguration `json:"resourceDetectors,omitempty"`
-	Sampler           *SamplerApplyConfiguration           `json:"sampler,omitempty"`
+	// Specifies the sampler to be used by the OpenTelemetry tracer. This field can be left empty. In this case, the default Envoy sampling decision is used.
+	// Currently supported values are `AlwaysOn`
+	Sampler *SamplerApplyConfiguration `json:"sampler,omitempty"`
 }
 
 // OpenTelemetryTracingConfigApplyConfiguration constructs a declarative configuration of the OpenTelemetryTracingConfig type for use with

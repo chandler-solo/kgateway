@@ -10,16 +10,35 @@ import (
 // TLSApplyConfiguration represents a declarative configuration of the TLS type for use
 // with apply.
 type TLSApplyConfiguration struct {
-	SecretRef               *v1.LocalObjectReference            `json:"secretRef,omitempty"`
-	Files                   *TLSFilesApplyConfiguration         `json:"files,omitempty"`
+	// Reference to the TLS secret containing the certificate, key, and optionally the root CA.
+	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
+	// File paths to certificates local to the proxy.
+	Files *TLSFilesApplyConfiguration `json:"files,omitempty"`
+	// WellKnownCACertificates specifies whether to use a well-known set of CA
+	// certificates for validating the backend's certificate chain. Currently,
+	// only the system certificate pool is supported via SDS.
 	WellKnownCACertificates *apisv1.WellKnownCACertificatesType `json:"wellKnownCACertificates,omitempty"`
-	InsecureSkipVerify      *bool                               `json:"insecureSkipVerify,omitempty"`
-	Sni                     *string                             `json:"sni,omitempty"`
-	VerifySubjectAltNames   []string                            `json:"verifySubjectAltNames,omitempty"`
-	Parameters              *TLSParametersApplyConfiguration    `json:"parameters,omitempty"`
-	AlpnProtocols           []string                            `json:"alpnProtocols,omitempty"`
-	AllowRenegotiation      *bool                               `json:"allowRenegotiation,omitempty"`
-	SimpleTLS               *bool                               `json:"simpleTLS,omitempty"`
+	// InsecureSkipVerify originates TLS but skips verification of the backend's certificate.
+	// WARNING: This is an insecure option that should only be used if the risks are understood.
+	InsecureSkipVerify *bool `json:"insecureSkipVerify,omitempty"`
+	// The SNI domains that should be considered for TLS connection
+	Sni *string `json:"sni,omitempty"`
+	// Verify that the Subject Alternative Name in the peer certificate is one of the specified values.
+	// note that a root_ca must be provided if this option is used.
+	VerifySubjectAltNames []string `json:"verifySubjectAltNames,omitempty"`
+	// General TLS parameters. See the [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto#extensions-transport-sockets-tls-v3-tlsparameters)
+	// for more information on the meaning of these values.
+	Parameters *TLSParametersApplyConfiguration `json:"parameters,omitempty"`
+	// Set Application Level Protocol Negotiation
+	// If empty, defaults to ["h2", "http/1.1"].
+	AlpnProtocols []string `json:"alpnProtocols,omitempty"`
+	// Allow Tls renegotiation, the default value is false.
+	// TLS renegotiation is considered insecure and shouldn't be used unless absolutely necessary.
+	AllowRenegotiation *bool `json:"allowRenegotiation,omitempty"`
+	// If the TLS config has the tls cert and key provided, kgateway uses it to perform mTLS by default.
+	// Set simpleTLS to true to disable mTLS in favor of server-only TLS (one-way TLS), even if kgateway has the client cert.
+	// If unset, defaults to false.
+	SimpleTLS *bool `json:"simpleTLS,omitempty"`
 }
 
 // TLSApplyConfiguration constructs a declarative configuration of the TLS type for use with

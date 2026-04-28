@@ -4,15 +4,27 @@ package v1alpha1
 
 // TracingApplyConfiguration represents a declarative configuration of the Tracing type for use
 // with apply.
+//
+// Tracing represents the top-level Envoy's tracer.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-tracing
 type TracingApplyConfiguration struct {
-	Provider          *TracingProviderApplyConfiguration  `json:"provider,omitempty"`
-	ClientSampling    *int32                              `json:"clientSampling,omitempty"`
-	RandomSampling    *int32                              `json:"randomSampling,omitempty"`
-	OverallSampling   *int32                              `json:"overallSampling,omitempty"`
-	Verbose           *bool                               `json:"verbose,omitempty"`
-	MaxPathTagLength  *int32                              `json:"maxPathTagLength,omitempty"`
-	Attributes        []CustomAttributeApplyConfiguration `json:"attributes,omitempty"`
-	SpawnUpstreamSpan *bool                               `json:"spawnUpstreamSpan,omitempty"`
+	// Provider defines the upstream to which envoy sends traces
+	Provider *TracingProviderApplyConfiguration `json:"provider,omitempty"`
+	// Target percentage of requests managed by this HTTP connection manager that will be force traced if the x-client-trace-id header is set. Defaults to 100%
+	ClientSampling *int32 `json:"clientSampling,omitempty"`
+	// Target percentage of requests managed by this HTTP connection manager that will be randomly selected for trace generation, if not requested by the client or not forced. Defaults to 100%
+	RandomSampling *int32 `json:"randomSampling,omitempty"`
+	// Target percentage of requests managed by this HTTP connection manager that will be traced after all other sampling checks have been applied (client-directed, force tracing, random sampling). Defaults to 100%
+	OverallSampling *int32 `json:"overallSampling,omitempty"`
+	// Whether to annotate spans with additional data. If true, spans will include logs for stream events. Defaults to false
+	Verbose *bool `json:"verbose,omitempty"`
+	// Maximum length of the request path to extract and include in the HttpUrl tag. Used to truncate lengthy request paths to meet the needs of a tracing backend. Default: 256
+	MaxPathTagLength *int32 `json:"maxPathTagLength,omitempty"`
+	// A list of attributes with a unique name to create attributes for the active span.
+	Attributes []CustomAttributeApplyConfiguration `json:"attributes,omitempty"`
+	// Create separate tracing span for each upstream request if true. Defaults to false
+	// Link to envoy docs for more info
+	SpawnUpstreamSpan *bool `json:"spawnUpstreamSpan,omitempty"`
 }
 
 // TracingApplyConfiguration constructs a declarative configuration of the Tracing type for use with

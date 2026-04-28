@@ -4,10 +4,16 @@ package v1alpha1
 
 // StatsConfigApplyConfiguration represents a declarative configuration of the StatsConfig type for use
 // with apply.
+//
+// Configuration for the stats server.
 type StatsConfigApplyConfiguration struct {
-	Enabled                 *bool   `json:"enabled,omitempty"`
-	RoutePrefixRewrite      *string `json:"routePrefixRewrite,omitempty"`
-	EnableStatsRoute        *bool   `json:"enableStatsRoute,omitempty"`
+	// Whether to expose metrics annotations and ports for scraping metrics.
+	Enabled *bool `json:"enabled,omitempty"`
+	// The Envoy stats endpoint to which the metrics are written
+	RoutePrefixRewrite *string `json:"routePrefixRewrite,omitempty"`
+	// Enables an additional route to the stats cluster defaulting to /stats
+	EnableStatsRoute *bool `json:"enableStatsRoute,omitempty"`
+	// The Envoy stats endpoint with general metrics for the additional stats route
 	StatsRoutePrefixRewrite *string `json:"statsRoutePrefixRewrite,omitempty"`
 }
 

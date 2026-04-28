@@ -10,10 +10,22 @@ import (
 
 // SingleAuthTokenApplyConfiguration represents a declarative configuration of the SingleAuthToken type for use
 // with apply.
+//
+// SingleAuthToken configures the authorization token that the AI gateway uses to access the LLM provider API.
+// This token is automatically sent in a request header, depending on the LLM provider.
 type SingleAuthTokenApplyConfiguration struct {
-	Kind      *apiv1alpha1.SingleAuthTokenKind `json:"kind,omitempty"`
-	Inline    *string                          `json:"inline,omitempty"`
-	SecretRef *v1.LocalObjectReference         `json:"secretRef,omitempty"`
+	// Kind specifies which type of authorization token is being used.
+	// Must be one of: "Inline", "SecretRef", "Passthrough".
+	Kind *apiv1alpha1.SingleAuthTokenKind `json:"kind,omitempty"`
+	// Provide the token directly in the configuration for the Backend.
+	// This option is the least secure. Only use this option for quick tests such as trying out AI Gateway.
+	Inline *string `json:"inline,omitempty"`
+	// Store the API key in a Kubernetes secret in the same namespace as the Backend.
+	// Then, refer to the secret in the Backend configuration. This option is more secure than an inline token,
+	// because the API key is encoded and you can restrict access to secrets through RBAC rules.
+	// You might use this option in proofs of concept, controlled development and staging environments,
+	// or well-controlled prod environments that use secrets.
+	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 
 // SingleAuthTokenApplyConfiguration constructs a declarative configuration of the SingleAuthToken type for use with

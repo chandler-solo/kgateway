@@ -32,29 +32,14 @@ func GatewayExtension(name, namespace string) *GatewayExtensionApplyConfiguratio
 	return b
 }
 
-// ExtractGatewayExtension extracts the applied configuration owned by fieldManager from
-// gatewayExtension. If no managedFields are found in gatewayExtension for fieldManager, a
-// GatewayExtensionApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
+// ExtractGatewayExtensionFrom extracts the applied configuration owned by fieldManager from
+// gatewayExtension for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
 // gatewayExtension must be a unmodified GatewayExtension API object that was retrieved from the Kubernetes API.
-// ExtractGatewayExtension provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractGatewayExtensionFrom provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-// Experimental!
-func ExtractGatewayExtension(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string) (*GatewayExtensionApplyConfiguration, error) {
-	return extractGatewayExtension(gatewayExtension, fieldManager, "")
-}
-
-// ExtractGatewayExtensionStatus is the same as ExtractGatewayExtension except
-// that it extracts the status subresource applied configuration.
-// Experimental!
-func ExtractGatewayExtensionStatus(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string) (*GatewayExtensionApplyConfiguration, error) {
-	return extractGatewayExtension(gatewayExtension, fieldManager, "status")
-}
-
-func extractGatewayExtension(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string, subresource string) (*GatewayExtensionApplyConfiguration, error) {
+func ExtractGatewayExtensionFrom(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string, subresource string) (*GatewayExtensionApplyConfiguration, error) {
 	b := &GatewayExtensionApplyConfiguration{}
 	err := managedfields.ExtractInto(gatewayExtension, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.GatewayExtension"), fieldManager, b, subresource)
 	if err != nil {
@@ -67,6 +52,27 @@ func extractGatewayExtension(gatewayExtension *apiv1alpha1.GatewayExtension, fie
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
+
+// ExtractGatewayExtension extracts the applied configuration owned by fieldManager from
+// gatewayExtension. If no managedFields are found in gatewayExtension for fieldManager, a
+// GatewayExtensionApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// gatewayExtension must be a unmodified GatewayExtension API object that was retrieved from the Kubernetes API.
+// ExtractGatewayExtension provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractGatewayExtension(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string) (*GatewayExtensionApplyConfiguration, error) {
+	return ExtractGatewayExtensionFrom(gatewayExtension, fieldManager, "")
+}
+
+// ExtractGatewayExtensionStatus extracts the applied configuration owned by fieldManager from
+// gatewayExtension for the status subresource.
+func ExtractGatewayExtensionStatus(gatewayExtension *apiv1alpha1.GatewayExtension, fieldManager string) (*GatewayExtensionApplyConfiguration, error) {
+	return ExtractGatewayExtensionFrom(gatewayExtension, fieldManager, "status")
+}
+
 func (b GatewayExtensionApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

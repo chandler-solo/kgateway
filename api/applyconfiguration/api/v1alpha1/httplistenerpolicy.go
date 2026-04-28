@@ -15,6 +15,11 @@ import (
 
 // HTTPListenerPolicyApplyConfiguration represents a declarative configuration of the HTTPListenerPolicy type for use
 // with apply.
+//
+// HTTPListenerPolicy is intended to be used for configuring the Envoy `HttpConnectionManager` and any other config or policy
+// that should map 1-to-1 with a given HTTP listener, such as the Envoy health check HTTP filter.
+// Currently these policies can only be applied per `Gateway` but support for `Listener` attachment may be added in the future.
+// See https://github.com/kgateway-dev/kgateway/issues/11786 for more details.
 type HTTPListenerPolicyApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
@@ -33,29 +38,14 @@ func HTTPListenerPolicy(name, namespace string) *HTTPListenerPolicyApplyConfigur
 	return b
 }
 
-// ExtractHTTPListenerPolicy extracts the applied configuration owned by fieldManager from
-// hTTPListenerPolicy. If no managedFields are found in hTTPListenerPolicy for fieldManager, a
-// HTTPListenerPolicyApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
+// ExtractHTTPListenerPolicyFrom extracts the applied configuration owned by fieldManager from
+// hTTPListenerPolicy for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
 // hTTPListenerPolicy must be a unmodified HTTPListenerPolicy API object that was retrieved from the Kubernetes API.
-// ExtractHTTPListenerPolicy provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractHTTPListenerPolicyFrom provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-// Experimental!
-func ExtractHTTPListenerPolicy(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string) (*HTTPListenerPolicyApplyConfiguration, error) {
-	return extractHTTPListenerPolicy(hTTPListenerPolicy, fieldManager, "")
-}
-
-// ExtractHTTPListenerPolicyStatus is the same as ExtractHTTPListenerPolicy except
-// that it extracts the status subresource applied configuration.
-// Experimental!
-func ExtractHTTPListenerPolicyStatus(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string) (*HTTPListenerPolicyApplyConfiguration, error) {
-	return extractHTTPListenerPolicy(hTTPListenerPolicy, fieldManager, "status")
-}
-
-func extractHTTPListenerPolicy(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string, subresource string) (*HTTPListenerPolicyApplyConfiguration, error) {
+func ExtractHTTPListenerPolicyFrom(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string, subresource string) (*HTTPListenerPolicyApplyConfiguration, error) {
 	b := &HTTPListenerPolicyApplyConfiguration{}
 	err := managedfields.ExtractInto(hTTPListenerPolicy, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.HTTPListenerPolicy"), fieldManager, b, subresource)
 	if err != nil {
@@ -68,6 +58,27 @@ func extractHTTPListenerPolicy(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolic
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
+
+// ExtractHTTPListenerPolicy extracts the applied configuration owned by fieldManager from
+// hTTPListenerPolicy. If no managedFields are found in hTTPListenerPolicy for fieldManager, a
+// HTTPListenerPolicyApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// hTTPListenerPolicy must be a unmodified HTTPListenerPolicy API object that was retrieved from the Kubernetes API.
+// ExtractHTTPListenerPolicy provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractHTTPListenerPolicy(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string) (*HTTPListenerPolicyApplyConfiguration, error) {
+	return ExtractHTTPListenerPolicyFrom(hTTPListenerPolicy, fieldManager, "")
+}
+
+// ExtractHTTPListenerPolicyStatus extracts the applied configuration owned by fieldManager from
+// hTTPListenerPolicy for the status subresource.
+func ExtractHTTPListenerPolicyStatus(hTTPListenerPolicy *apiv1alpha1.HTTPListenerPolicy, fieldManager string) (*HTTPListenerPolicyApplyConfiguration, error) {
+	return ExtractHTTPListenerPolicyFrom(hTTPListenerPolicy, fieldManager, "status")
+}
+
 func (b HTTPListenerPolicyApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

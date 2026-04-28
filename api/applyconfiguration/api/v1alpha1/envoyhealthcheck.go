@@ -4,7 +4,11 @@ package v1alpha1
 
 // EnvoyHealthCheckApplyConfiguration represents a declarative configuration of the EnvoyHealthCheck type for use
 // with apply.
+//
+// EnvoyHealthCheck represents configuration for Envoy's health check filter.
+// The filter will be configured in No pass through mode, and will only match requests with the specified path.
 type EnvoyHealthCheckApplyConfiguration struct {
+	// Path defines the exact path that will be matched for health check requests.
 	Path *string `json:"path,omitempty"`
 }
 

@@ -4,7 +4,12 @@ package v1alpha1
 
 // LocalRateLimitPolicyApplyConfiguration represents a declarative configuration of the LocalRateLimitPolicy type for use
 // with apply.
+//
+// LocalRateLimitPolicy represents a policy for local rate limiting.
+// It defines the configuration for rate limiting using a token bucket mechanism.
 type LocalRateLimitPolicyApplyConfiguration struct {
+	// TokenBucket represents the configuration for a token bucket local rate-limiting mechanism.
+	// It defines the parameters for controlling the rate at which requests are allowed.
 	TokenBucket *TokenBucketApplyConfiguration `json:"tokenBucket,omitempty"`
 }
 

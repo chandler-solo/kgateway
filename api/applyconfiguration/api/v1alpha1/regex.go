@@ -8,10 +8,19 @@ import (
 
 // RegexApplyConfiguration represents a declarative configuration of the Regex type for use
 // with apply.
+//
+// Regex configures the regular expression (regex) matching for prompt guards and data masking.
 type RegexApplyConfiguration struct {
-	Matches  []RegexMatchApplyConfiguration `json:"matches,omitempty"`
-	Builtins []apiv1alpha1.BuiltIn          `json:"builtins,omitempty"`
-	Action   *apiv1alpha1.Action            `json:"action,omitempty"`
+	// A list of regex patterns to match against the request or response.
+	// Matches and built-ins are additive.
+	Matches []RegexMatchApplyConfiguration `json:"matches,omitempty"`
+	// A list of built-in regex patterns to match against the request or response.
+	// Matches and built-ins are additive.
+	Builtins []apiv1alpha1.BuiltIn `json:"builtins,omitempty"`
+	// The action to take if a regex pattern is matched in a request or response.
+	// This setting applies only to request matches. PromptguardResponse matches are always masked by default.
+	// Defaults to `MASK`.
+	Action *apiv1alpha1.Action `json:"action,omitempty"`
 }
 
 // RegexApplyConfiguration constructs a declarative configuration of the Regex type for use with

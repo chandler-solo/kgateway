@@ -4,9 +4,13 @@ package v1alpha1
 
 // HostApplyConfiguration represents a declarative configuration of the Host type for use
 // with apply.
+//
+// Host defines a static backend host.
 type HostApplyConfiguration struct {
+	// Host is the host name to use for the backend.
 	Host *string `json:"host,omitempty"`
-	Port *int32  `json:"port,omitempty"`
+	// Port is the port to use for the backend.
+	Port *int32 `json:"port,omitempty"`
 }
 
 // HostApplyConfiguration constructs a declarative configuration of the Host type for use with

@@ -4,9 +4,45 @@ package v1alpha1
 
 // AIPromptEnrichmentApplyConfiguration represents a declarative configuration of the AIPromptEnrichment type for use
 // with apply.
+//
+// AIPromptEnrichment defines the config to enrich requests sent to the LLM provider by appending and prepending system prompts.
+// This can be configured only for LLM providers that use the `CHAT` or `CHAT_STREAMING` API type.
+//
+// Prompt enrichment allows you to add additional context to the prompt before sending it to the model.
+// Unlike RAG or other dynamic context methods, prompt enrichment is static and is applied to every request.
+//
+// **Note**: Some providers, including Anthropic, do not support SYSTEM role messages, and instead have a dedicated
+// system field in the input JSON. In this case, use the [`defaults` setting](#fielddefault) to set the system field.
+//
+// The following example prepends a system prompt of `Answer all questions in French.`
+// and appends `Describe the painting as if you were a famous art critic from the 17th century.`
+// to each request that is sent to the `openai` HTTPRoute.
+// ```yaml
+//
+// name: openai-opt
+// namespace: kgateway-system
+//
+// spec:
+//
+// targetRefs:
+// - group: gateway.networking.k8s.io
+// kind: HTTPRoute
+// name: openai
+// ai:
+// promptEnrichment:
+// prepend:
+// - role: SYSTEM
+// content: "Answer all questions in French."
+// append:
+// - role: USER
+// content: "Describe the painting as if you were a famous art critic from the 17th century."
+//
+// ```
 type AIPromptEnrichmentApplyConfiguration struct {
+	// A list of messages to be prepended to the prompt sent by the client.
 	Prepend []MessageApplyConfiguration `json:"prepend,omitempty"`
-	Append  []MessageApplyConfiguration `json:"append,omitempty"`
+	// A list of messages to be appended to the prompt sent by the client.
+	Append []MessageApplyConfiguration `json:"append,omitempty"`
 }
 
 // AIPromptEnrichmentApplyConfiguration constructs a declarative configuration of the AIPromptEnrichment type for use with

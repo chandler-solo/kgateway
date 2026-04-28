@@ -4,6 +4,9 @@ package v1alpha1
 
 // ResponseFlagFilterApplyConfiguration represents a declarative configuration of the ResponseFlagFilter type for use
 // with apply.
+//
+// ResponseFlagFilter filters based on response flags.
+// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-responseflagfilter
 type ResponseFlagFilterApplyConfiguration struct {
 	Flags []string `json:"flags,omitempty"`
 }

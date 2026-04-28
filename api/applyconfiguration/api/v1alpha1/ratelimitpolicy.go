@@ -4,8 +4,14 @@ package v1alpha1
 
 // RateLimitPolicyApplyConfiguration represents a declarative configuration of the RateLimitPolicy type for use
 // with apply.
+//
+// RateLimitPolicy defines a global rate limiting policy using an external service.
 type RateLimitPolicyApplyConfiguration struct {
-	Descriptors  []RateLimitDescriptorApplyConfiguration      `json:"descriptors,omitempty"`
+	// Descriptors define the dimensions for rate limiting.
+	// These values are passed to the rate limit service which applies configured limits based on them.
+	// Each descriptor represents a single rate limit rule with one or more entries.
+	Descriptors []RateLimitDescriptorApplyConfiguration `json:"descriptors,omitempty"`
+	// ExtensionRef references a GatewayExtension that provides the global rate limit service.
 	ExtensionRef *NamespacedObjectReferenceApplyConfiguration `json:"extensionRef,omitempty"`
 }
 

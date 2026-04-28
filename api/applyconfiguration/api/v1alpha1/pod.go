@@ -8,21 +8,64 @@ import (
 
 // PodApplyConfiguration represents a declarative configuration of the Pod type for use
 // with apply.
+//
+// Configuration for a Kubernetes Pod template.
 type PodApplyConfiguration struct {
-	ExtraLabels                   map[string]string                       `json:"extraLabels,omitempty"`
-	ExtraAnnotations              map[string]string                       `json:"extraAnnotations,omitempty"`
-	SecurityContext               *v1.PodSecurityContext                  `json:"securityContext,omitempty"`
-	ImagePullSecrets              []v1.LocalObjectReference               `json:"imagePullSecrets,omitempty"`
-	NodeSelector                  map[string]string                       `json:"nodeSelector,omitempty"`
-	Affinity                      *v1.Affinity                            `json:"affinity,omitempty"`
-	Tolerations                   []v1.Toleration                         `json:"tolerations,omitempty"`
-	GracefulShutdown              *GracefulShutdownSpecApplyConfiguration `json:"gracefulShutdown,omitempty"`
-	TerminationGracePeriodSeconds *int64                                  `json:"terminationGracePeriodSeconds,omitempty"`
-	StartupProbe                  *v1.Probe                               `json:"startupProbe,omitempty"`
-	ReadinessProbe                *v1.Probe                               `json:"readinessProbe,omitempty"`
-	LivenessProbe                 *v1.Probe                               `json:"livenessProbe,omitempty"`
-	TopologySpreadConstraints     []v1.TopologySpreadConstraint           `json:"topologySpreadConstraints,omitempty"`
-	ExtraVolumes                  []v1.Volume                             `json:"extraVolumes,omitempty"`
+	// Additional labels to add to the Pod object metadata.
+	ExtraLabels map[string]string `json:"extraLabels,omitempty"`
+	// Additional annotations to add to the Pod object metadata.
+	ExtraAnnotations map[string]string `json:"extraAnnotations,omitempty"`
+	// The pod security context. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#podsecuritycontext-v1-core
+	// for details.
+	SecurityContext *v1.PodSecurityContext `json:"securityContext,omitempty"`
+	// An optional list of references to secrets in the same namespace to use for
+	// pulling any of the images used by this Pod spec. See
+	// https://kubernetes.io/docs/concepts/containers/images/#specifying-imagepullsecrets-on-a-pod
+	// for details.
+	ImagePullSecrets []v1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// A selector which must be true for the pod to fit on a node. See
+	// https://kubernetes.io/docs/concepts/configuration/assign-pod-node/ for
+	// details.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// If specified, the pod's scheduling constraints. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#affinity-v1-core
+	// for details.
+	Affinity *v1.Affinity `json:"affinity,omitempty"`
+	// do not use slice of pointers: https://github.com/kubernetes/code-generator/issues/166
+	// If specified, the pod's tolerations. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#toleration-v1-core
+	// for details.
+	Tolerations []v1.Toleration `json:"tolerations,omitempty"`
+	// If specified, the pod's graceful shutdown spec.
+	GracefulShutdown *GracefulShutdownSpecApplyConfiguration `json:"gracefulShutdown,omitempty"`
+	// If specified, the pod's termination grace period in seconds. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#pod-v1-core
+	// for details
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+	// If specified, the pod's startup probe. A probe of container startup readiness.
+	// Container will be only be added to service endpoints if the probe succeeds. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#probe-v1-core
+	// for details.
+	StartupProbe *v1.Probe `json:"startupProbe,omitempty"`
+	// If specified, the pod's readiness probe. Periodic probe of container service readiness.
+	// Container will be removed from service endpoints if the probe fails. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#probe-v1-core
+	// for details.
+	ReadinessProbe *v1.Probe `json:"readinessProbe,omitempty"`
+	// If specified, the pod's liveness probe. Periodic probe of container service readiness.
+	// Container will be restarted if the probe fails. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#probe-v1-core
+	// for details.
+	LivenessProbe *v1.Probe `json:"livenessProbe,omitempty"`
+	// If specified, the pod's topology spread constraints. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#topologyspreadconstraint-v1-core
+	// for details.
+	TopologySpreadConstraints []v1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	// Additional volumes to add to the pod. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#volume-v1-core
+	// for details.
+	ExtraVolumes []v1.Volume `json:"extraVolumes,omitempty"`
 }
 
 // PodApplyConfiguration constructs a declarative configuration of the Pod type for use with

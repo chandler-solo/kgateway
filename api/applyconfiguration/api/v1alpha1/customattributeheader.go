@@ -4,8 +4,14 @@ package v1alpha1
 
 // CustomAttributeHeaderApplyConfiguration represents a declarative configuration of the CustomAttributeHeader type for use
 // with apply.
+//
+// Header type attribute with header name and default value.
+// https://www.envoyproxy.io/docs/envoy/latest/api-v3/type/tracing/v3/custom_tag.proto#type-tracing-v3-customtag-header
 type CustomAttributeHeaderApplyConfiguration struct {
-	Name         *string `json:"name,omitempty"`
+	// Header name to obtain the value to populate the attribute value.
+	Name *string `json:"name,omitempty"`
+	// When the header does not exist, the attribute value will be populated with this default value if specified,
+	// otherwise no attribute will be populated.
 	DefaultValue *string `json:"defaultValue,omitempty"`
 }
 

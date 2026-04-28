@@ -4,11 +4,26 @@ package v1alpha1
 
 // AwsBackendApplyConfiguration represents a declarative configuration of the AwsBackend type for use
 // with apply.
+//
+// AwsBackend is the AWS backend configuration.
 type AwsBackendApplyConfiguration struct {
-	Lambda    *AwsLambdaApplyConfiguration `json:"lambda,omitempty"`
-	AccountId *string                      `json:"accountId,omitempty"`
-	Auth      *AwsAuthApplyConfiguration   `json:"auth,omitempty"`
-	Region    *string                      `json:"region,omitempty"`
+	// Lambda configures the AWS lambda service.
+	Lambda *AwsLambdaApplyConfiguration `json:"lambda,omitempty"`
+	// AccountId is the AWS account ID to use for the backend.
+	AccountId *string `json:"accountId,omitempty"`
+	// Auth specifies an explicit AWS authentication method for the backend.
+	// When omitted, the following credential providers are tried in order, stopping when one
+	// of them returns an access key ID and a secret access key (the session token is optional):
+	// 1. Environment variables: when the environment variables AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN are set.
+	// 2. AssumeRoleWithWebIdentity API call: when the environment variables AWS_WEB_IDENTITY_TOKEN_FILE and AWS_ROLE_ARN are set.
+	// 3. EKS Pod Identity: when the environment variable AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE is set.
+	//
+	// See the Envoy docs for more info:
+	// https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/aws_request_signing_filter#credentials
+	Auth *AwsAuthApplyConfiguration `json:"auth,omitempty"`
+	// Region is the AWS region to use for the backend.
+	// Defaults to us-east-1 if not specified.
+	Region *string `json:"region,omitempty"`
 }
 
 // AwsBackendApplyConfiguration constructs a declarative configuration of the AwsBackend type for use with

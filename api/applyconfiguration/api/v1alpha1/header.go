@@ -5,6 +5,7 @@ package v1alpha1
 // HeaderApplyConfiguration represents a declarative configuration of the Header type for use
 // with apply.
 type HeaderApplyConfiguration struct {
+	// Name is the name of the header to use as a component of the hash key.
 	Name *string `json:"name,omitempty"`
 }
 

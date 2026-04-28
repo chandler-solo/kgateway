@@ -4,9 +4,19 @@ package v1alpha1
 
 // Http1ProtocolOptionsApplyConfiguration represents a declarative configuration of the Http1ProtocolOptions type for use
 // with apply.
+//
+// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-msg-config-core-v3-http1protocoloptions) for more details.
 type Http1ProtocolOptionsApplyConfiguration struct {
-	EnableTrailers                          *bool `json:"enableTrailers,omitempty"`
-	PreserveHttp1HeaderCase                 *bool `json:"preserveHttp1HeaderCase,omitempty"`
+	// Enables trailers for HTTP/1. By default the HTTP/1 codec drops proxied trailers.
+	// Note: Trailers must also be enabled at the gateway level in order for this option to take effect
+	EnableTrailers *bool `json:"enableTrailers,omitempty"`
+	// PreserveHttp1HeaderCase determines whether to preserve the case of HTTP1 response headers.
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/header_casing
+	PreserveHttp1HeaderCase *bool `json:"preserveHttp1HeaderCase,omitempty"`
+	// Allows invalid HTTP messaging. When this option is false, then Envoy will terminate
+	// HTTP/1.1 connections upon receiving an invalid HTTP message. However,
+	// when this option is true, then Envoy will leave the HTTP/1.1 connection
+	// open where possible.
 	OverrideStreamErrorOnInvalidHttpMessage *bool `json:"overrideStreamErrorOnInvalidHttpMessage,omitempty"`
 }
 

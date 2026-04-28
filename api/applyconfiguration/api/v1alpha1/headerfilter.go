@@ -8,6 +8,9 @@ import (
 
 // HeaderFilterApplyConfiguration represents a declarative configuration of the HeaderFilter type for use
 // with apply.
+//
+// HeaderFilter filters requests based on headers.
+// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-headerfilter
 type HeaderFilterApplyConfiguration struct {
 	Header *v1.HTTPHeaderMatch `json:"header,omitempty"`
 }

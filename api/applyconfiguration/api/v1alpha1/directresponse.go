@@ -14,6 +14,8 @@ import (
 
 // DirectResponseApplyConfiguration represents a declarative configuration of the DirectResponse type for use
 // with apply.
+//
+// DirectResponse contains configuration for defining direct response routes.
 type DirectResponseApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
@@ -32,29 +34,14 @@ func DirectResponse(name, namespace string) *DirectResponseApplyConfiguration {
 	return b
 }
 
-// ExtractDirectResponse extracts the applied configuration owned by fieldManager from
-// directResponse. If no managedFields are found in directResponse for fieldManager, a
-// DirectResponseApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
+// ExtractDirectResponseFrom extracts the applied configuration owned by fieldManager from
+// directResponse for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
 // directResponse must be a unmodified DirectResponse API object that was retrieved from the Kubernetes API.
-// ExtractDirectResponse provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractDirectResponseFrom provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-// Experimental!
-func ExtractDirectResponse(directResponse *apiv1alpha1.DirectResponse, fieldManager string) (*DirectResponseApplyConfiguration, error) {
-	return extractDirectResponse(directResponse, fieldManager, "")
-}
-
-// ExtractDirectResponseStatus is the same as ExtractDirectResponse except
-// that it extracts the status subresource applied configuration.
-// Experimental!
-func ExtractDirectResponseStatus(directResponse *apiv1alpha1.DirectResponse, fieldManager string) (*DirectResponseApplyConfiguration, error) {
-	return extractDirectResponse(directResponse, fieldManager, "status")
-}
-
-func extractDirectResponse(directResponse *apiv1alpha1.DirectResponse, fieldManager string, subresource string) (*DirectResponseApplyConfiguration, error) {
+func ExtractDirectResponseFrom(directResponse *apiv1alpha1.DirectResponse, fieldManager string, subresource string) (*DirectResponseApplyConfiguration, error) {
 	b := &DirectResponseApplyConfiguration{}
 	err := managedfields.ExtractInto(directResponse, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.DirectResponse"), fieldManager, b, subresource)
 	if err != nil {
@@ -67,6 +54,27 @@ func extractDirectResponse(directResponse *apiv1alpha1.DirectResponse, fieldMana
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
+
+// ExtractDirectResponse extracts the applied configuration owned by fieldManager from
+// directResponse. If no managedFields are found in directResponse for fieldManager, a
+// DirectResponseApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// directResponse must be a unmodified DirectResponse API object that was retrieved from the Kubernetes API.
+// ExtractDirectResponse provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractDirectResponse(directResponse *apiv1alpha1.DirectResponse, fieldManager string) (*DirectResponseApplyConfiguration, error) {
+	return ExtractDirectResponseFrom(directResponse, fieldManager, "")
+}
+
+// ExtractDirectResponseStatus extracts the applied configuration owned by fieldManager from
+// directResponse for the status subresource.
+func ExtractDirectResponseStatus(directResponse *apiv1alpha1.DirectResponse, fieldManager string) (*DirectResponseApplyConfiguration, error) {
+	return ExtractDirectResponseFrom(directResponse, fieldManager, "status")
+}
+
 func (b DirectResponseApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

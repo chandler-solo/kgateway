@@ -9,9 +9,14 @@ import (
 
 // ExtGrpcServiceApplyConfiguration represents a declarative configuration of the ExtGrpcService type for use
 // with apply.
+//
+// ExtGrpcService defines the GRPC service that will handle the processing.
 type ExtGrpcServiceApplyConfiguration struct {
-	BackendRef     *v1.BackendRef   `json:"backendRef,omitempty"`
-	Authority      *string          `json:"authority,omitempty"`
+	// BackendRef references the backend GRPC service.
+	BackendRef *v1.BackendRef `json:"backendRef,omitempty"`
+	// Authority is the authority header to use for the GRPC service.
+	Authority *string `json:"authority,omitempty"`
+	// RequestTimeout is the timeout for the gRPC request. This is the timeout for a specific request.
 	RequestTimeout *metav1.Duration `json:"requestTimeout,omitempty"`
 }
 

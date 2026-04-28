@@ -8,10 +8,22 @@ import (
 
 // TokenBucketApplyConfiguration represents a declarative configuration of the TokenBucket type for use
 // with apply.
+//
+// TokenBucket defines the configuration for a token bucket rate-limiting mechanism.
+// It controls the rate at which tokens are generated and consumed for a specific operation.
 type TokenBucketApplyConfiguration struct {
-	MaxTokens     *int32       `json:"maxTokens,omitempty"`
-	TokensPerFill *int32       `json:"tokensPerFill,omitempty"`
-	FillInterval  *v1.Duration `json:"fillInterval,omitempty"`
+	// MaxTokens specifies the maximum number of tokens that the bucket can hold.
+	// This value must be greater than or equal to 1.
+	// It determines the burst capacity of the rate limiter.
+	MaxTokens *int32 `json:"maxTokens,omitempty"`
+	// TokensPerFill specifies the number of tokens added to the bucket during each fill interval.
+	// If not specified, it defaults to 1.
+	// This controls the steady-state rate of token generation.
+	TokensPerFill *int32 `json:"tokensPerFill,omitempty"`
+	// FillInterval defines the time duration between consecutive token fills.
+	// This value must be a valid duration string (e.g., "1s", "500ms").
+	// It determines the frequency of token replenishment.
+	FillInterval *v1.Duration `json:"fillInterval,omitempty"`
 }
 
 // TokenBucketApplyConfiguration constructs a declarative configuration of the TokenBucket type for use with

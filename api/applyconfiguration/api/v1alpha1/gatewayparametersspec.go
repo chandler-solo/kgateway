@@ -8,9 +8,14 @@ import (
 
 // GatewayParametersSpecApplyConfiguration represents a declarative configuration of the GatewayParametersSpec type for use
 // with apply.
+//
+// A GatewayParametersSpec describes the type of environment/platform in which
+// the proxy will be provisioned.
 type GatewayParametersSpecApplyConfiguration struct {
-	Kube        *KubernetesProxyConfigApplyConfiguration `json:"kube,omitempty"`
-	SelfManaged *apiv1alpha1.SelfManagedGateway          `json:"selfManaged,omitempty"`
+	// The proxy will be deployed on Kubernetes.
+	Kube *KubernetesProxyConfigApplyConfiguration `json:"kube,omitempty"`
+	// The proxy will be self-managed and not auto-provisioned.
+	SelfManaged *apiv1alpha1.SelfManagedGateway `json:"selfManaged,omitempty"`
 }
 
 // GatewayParametersSpecApplyConfiguration constructs a declarative configuration of the GatewayParametersSpec type for use with

@@ -11,8 +11,13 @@ import (
 // BufferApplyConfiguration represents a declarative configuration of the Buffer type for use
 // with apply.
 type BufferApplyConfiguration struct {
-	MaxRequestSize *resource.Quantity         `json:"maxRequestSize,omitempty"`
-	Disable        *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
+	// MaxRequestSize sets the maximum size in bytes of a message body to buffer.
+	// Requests exceeding this size will receive HTTP 413.
+	// Example format: "1Mi", "512Ki", "1Gi"
+	MaxRequestSize *resource.Quantity `json:"maxRequestSize,omitempty"`
+	// Disable the buffer filter.
+	// Can be used to disable buffer policies applied at a higher level in the config hierarchy.
+	Disable *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
 }
 
 // BufferApplyConfiguration constructs a declarative configuration of the Buffer type for use with

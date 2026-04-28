@@ -8,9 +8,16 @@ import (
 
 // NamespacedObjectReferenceApplyConfiguration represents a declarative configuration of the NamespacedObjectReference type for use
 // with apply.
+//
+// Control-plane RBAC rules not specific to policies:
+// Select the object by Name and Namespace.
+// You can target only one object at a time.
 type NamespacedObjectReferenceApplyConfiguration struct {
-	Name      *v1.ObjectName `json:"name,omitempty"`
-	Namespace *v1.Namespace  `json:"namespace,omitempty"`
+	// The name of the target resource.
+	Name *v1.ObjectName `json:"name,omitempty"`
+	// The namespace of the target resource.
+	// If not set, defaults to the namespace of the parent object.
+	Namespace *v1.Namespace `json:"namespace,omitempty"`
 }
 
 // NamespacedObjectReferenceApplyConfiguration constructs a declarative configuration of the NamespacedObjectReference type for use with

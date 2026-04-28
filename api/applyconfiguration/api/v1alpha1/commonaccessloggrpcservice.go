@@ -9,9 +9,13 @@ import (
 
 // CommonAccessLogGrpcServiceApplyConfiguration represents a declarative configuration of the CommonAccessLogGrpcService type for use
 // with apply.
+//
+// Common configuration for gRPC access logs.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/access_loggers/grpc/v3/als.proto#envoy-v3-api-msg-extensions-access-loggers-grpc-v3-commongrpcaccesslogconfig
 type CommonAccessLogGrpcServiceApplyConfiguration struct {
 	CommonGrpcServiceApplyConfiguration `json:",inline"`
-	LogName                             *string `json:"logName,omitempty"`
+	// name of log stream
+	LogName *string `json:"logName,omitempty"`
 }
 
 // CommonAccessLogGrpcServiceApplyConfiguration constructs a declarative configuration of the CommonAccessLogGrpcService type for use with

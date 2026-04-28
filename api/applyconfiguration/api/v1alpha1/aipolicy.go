@@ -8,11 +8,25 @@ import (
 
 // AIPolicyApplyConfiguration represents a declarative configuration of the AIPolicy type for use
 // with apply.
+//
+// AIPolicy config is used to configure the behavior of the LLM provider
+// on the level of individual routes. These route settings, such as prompt enrichment,
+// retrieval augmented generation (RAG), and semantic caching, are applicable only
+// for routes that send requests to an LLM provider backend.
 type AIPolicyApplyConfiguration struct {
+	// Enrich requests sent to the LLM provider by appending and prepending system prompts.
+	// This can be configured only for LLM providers that use the `CHAT` or `CHAT_STREAMING` API route type.
 	PromptEnrichment *AIPromptEnrichmentApplyConfiguration `json:"promptEnrichment,omitempty"`
-	PromptGuard      *AIPromptGuardApplyConfiguration      `json:"promptGuard,omitempty"`
-	Defaults         []FieldDefaultApplyConfiguration      `json:"defaults,omitempty"`
-	RouteType        *apiv1alpha1.RouteType                `json:"routeType,omitempty"`
+	// Set up prompt guards to block unwanted requests to the LLM provider and mask sensitive data.
+	// Prompt guards can be used to reject requests based on the content of the prompt, as well as
+	// mask responses based on the content of the response.
+	PromptGuard *AIPromptGuardApplyConfiguration `json:"promptGuard,omitempty"`
+	// Provide defaults to merge with user input fields.
+	// Defaults do _not_ override the user input fields, unless you explicitly set `override` to `true`.
+	Defaults []FieldDefaultApplyConfiguration `json:"defaults,omitempty"`
+	// The type of route to the LLM provider API. Currently, `CHAT` and `CHAT_STREAMING` are supported.
+	// Note: This field is not applicable when using agentgateway
+	RouteType *apiv1alpha1.RouteType `json:"routeType,omitempty"`
 }
 
 // AIPolicyApplyConfiguration constructs a declarative configuration of the AIPolicy type for use with

@@ -4,7 +4,10 @@ package v1alpha1
 
 // MetadataPathSegmentApplyConfiguration represents a declarative configuration of the MetadataPathSegment type for use
 // with apply.
+//
+// Specifies a segment in a path for retrieving values from Metadata.
 type MetadataPathSegmentApplyConfiguration struct {
+	// The key used to retrieve the value in the struct
 	Key *string `json:"key,omitempty"`
 }
 

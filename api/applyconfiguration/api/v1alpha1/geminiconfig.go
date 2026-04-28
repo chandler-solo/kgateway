@@ -4,10 +4,18 @@ package v1alpha1
 
 // GeminiConfigApplyConfiguration represents a declarative configuration of the GeminiConfig type for use
 // with apply.
+//
+// GeminiConfig settings for the [Gemini](https://ai.google.dev/gemini-api/docs) LLM provider.
 type GeminiConfigApplyConfiguration struct {
-	AuthToken  *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
-	Model      *string                            `json:"model,omitempty"`
-	ApiVersion *string                            `json:"apiVersion,omitempty"`
+	// The authorization token that the AI gateway uses to access the Gemini API.
+	// This token is automatically sent in the `key` query parameter of the request.
+	AuthToken *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
+	// The Gemini model to use.
+	// For more information, see the [Gemini models docs](https://ai.google.dev/gemini-api/docs/models/gemini).
+	Model *string `json:"model,omitempty"`
+	// The version of the Gemini API to use.
+	// For more information, see the [Gemini API version docs](https://ai.google.dev/gemini-api/docs/api-versions).
+	ApiVersion *string `json:"apiVersion,omitempty"`
 }
 
 // GeminiConfigApplyConfiguration constructs a declarative configuration of the GeminiConfig type for use with

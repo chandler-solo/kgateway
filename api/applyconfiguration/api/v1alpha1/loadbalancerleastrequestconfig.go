@@ -4,9 +4,14 @@ package v1alpha1
 
 // LoadBalancerLeastRequestConfigApplyConfiguration represents a declarative configuration of the LoadBalancerLeastRequestConfig type for use
 // with apply.
+//
+// LoadBalancerLeastRequestConfig configures the least request load balancer type.
 type LoadBalancerLeastRequestConfigApplyConfiguration struct {
-	ChoiceCount *int32                       `json:"choiceCount,omitempty"`
-	SlowStart   *SlowStartApplyConfiguration `json:"slowStart,omitempty"`
+	// How many choices to take into account.
+	// Defaults to 2.
+	ChoiceCount *int32 `json:"choiceCount,omitempty"`
+	// SlowStart configures the slow start configuration for the load balancer.
+	SlowStart *SlowStartApplyConfiguration `json:"slowStart,omitempty"`
 }
 
 // LoadBalancerLeastRequestConfigApplyConfiguration constructs a declarative configuration of the LoadBalancerLeastRequestConfig type for use with

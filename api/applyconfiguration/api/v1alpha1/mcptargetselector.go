@@ -8,10 +8,19 @@ import (
 
 // McpTargetSelectorApplyConfiguration represents a declarative configuration of the McpTargetSelector type for use
 // with apply.
+//
+// McpTargetSelector defines the MCP target to use for this backend.
 type McpTargetSelectorApplyConfiguration struct {
-	Name     *v1.SectionName                `json:"name,omitempty"`
+	// Name of the MCP target.
+	Name *v1.SectionName `json:"name,omitempty"`
+	// Selector is the selector to use to select the MCP targets.
+	// Note: Policies must target the resource selected by the target and
+	// not the name of the selector-based target on the Backend resource.
 	Selector *McpSelectorApplyConfiguration `json:"selector,omitempty"`
-	Static   *McpTargetApplyConfiguration   `json:"static,omitempty"`
+	// Static is the static MCP target to use.
+	// Policies can target static backends by targeting the Backend resource
+	// and using sectionName to target the specific static target by name.
+	Static *McpTargetApplyConfiguration `json:"static,omitempty"`
 }
 
 // McpTargetSelectorApplyConfiguration constructs a declarative configuration of the McpTargetSelector type for use with

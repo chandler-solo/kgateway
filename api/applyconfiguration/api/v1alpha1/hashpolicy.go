@@ -9,10 +9,16 @@ import (
 // HashPolicyApplyConfiguration represents a declarative configuration of the HashPolicy type for use
 // with apply.
 type HashPolicyApplyConfiguration struct {
-	Header   *HeaderApplyConfiguration `json:"header,omitempty"`
-	Cookie   *CookieApplyConfiguration `json:"cookie,omitempty"`
-	SourceIP *apiv1alpha1.SourceIP     `json:"sourceIP,omitempty"`
-	Terminal *bool                     `json:"terminal,omitempty"`
+	// Header specifies a header's value as a component of the hash key.
+	Header *HeaderApplyConfiguration `json:"header,omitempty"`
+	// Cookie specifies a given cookie as a component of the hash key.
+	Cookie *CookieApplyConfiguration `json:"cookie,omitempty"`
+	// SourceIP specifies whether to use the request's source IP address as a component of the hash key.
+	SourceIP *apiv1alpha1.SourceIP `json:"sourceIP,omitempty"`
+	// Terminal, if set, and a hash key is available after evaluating this policy, will cause Envoy to skip the subsequent policies and
+	// use the key as it is.
+	// This is useful for defining "fallback" policies and limiting the time Envoy spends generating hash keys.
+	Terminal *bool `json:"terminal,omitempty"`
 }
 
 // HashPolicyApplyConfiguration constructs a declarative configuration of the HashPolicy type for use with

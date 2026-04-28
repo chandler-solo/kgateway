@@ -4,7 +4,16 @@ package v1alpha1
 
 // PriorityGroupApplyConfiguration represents a declarative configuration of the PriorityGroup type for use
 // with apply.
+//
+// MultiPoolConfig configures the backends for multiple hosts or models from the same provider in one Backend resource.
+// This method can be useful for creating one logical endpoint that is backed
+// by multiple hosts or models.
+//
+// In the `priorities` section, the order of `pool` entries defines the priority of the backend endpoints.
+// The `pool` entries can either define a list of backends or a single backend.
+// Note: Only two levels of nesting are permitted. Any nested entries after the second level are ignored.
 type PriorityGroupApplyConfiguration struct {
+	// A list of LLM provider backends within a single endpoint pool entry.
 	Providers []NamedLLMProviderApplyConfiguration `json:"providers,omitempty"`
 }
 

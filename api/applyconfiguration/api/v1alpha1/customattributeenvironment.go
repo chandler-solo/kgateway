@@ -4,8 +4,14 @@ package v1alpha1
 
 // CustomAttributeEnvironmentApplyConfiguration represents a declarative configuration of the CustomAttributeEnvironment type for use
 // with apply.
+//
+// Environment type attribute with environment name and default value.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/type/tracing/v3/custom_tag.proto#type-tracing-v3-customtag-environment
 type CustomAttributeEnvironmentApplyConfiguration struct {
-	Name         *string `json:"name,omitempty"`
+	// Environment variable name to obtain the value to populate the attribute value.
+	Name *string `json:"name,omitempty"`
+	// When the environment variable is not found, the attribute value will be populated with this default value if specified,
+	// otherwise no attribute will be populated.
 	DefaultValue *string `json:"defaultValue,omitempty"`
 }
 

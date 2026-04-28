@@ -9,11 +9,17 @@ import (
 
 // AccessLogGrpcServiceApplyConfiguration represents a declarative configuration of the AccessLogGrpcService type for use
 // with apply.
+//
+// AccessLogGrpcService represents the gRPC service configuration for access logs.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/access_loggers/grpc/v3/als.proto#envoy-v3-api-msg-extensions-access-loggers-grpc-v3-httpgrpcaccesslogconfig
 type AccessLogGrpcServiceApplyConfiguration struct {
 	CommonAccessLogGrpcServiceApplyConfiguration `json:",inline"`
-	AdditionalRequestHeadersToLog                []string `json:"additionalRequestHeadersToLog,omitempty"`
-	AdditionalResponseHeadersToLog               []string `json:"additionalResponseHeadersToLog,omitempty"`
-	AdditionalResponseTrailersToLog              []string `json:"additionalResponseTrailersToLog,omitempty"`
+	// Additional request headers to log in the access log
+	AdditionalRequestHeadersToLog []string `json:"additionalRequestHeadersToLog,omitempty"`
+	// Additional response headers to log in the access log
+	AdditionalResponseHeadersToLog []string `json:"additionalResponseHeadersToLog,omitempty"`
+	// Additional response trailers to log in the access log
+	AdditionalResponseTrailersToLog []string `json:"additionalResponseTrailersToLog,omitempty"`
 }
 
 // AccessLogGrpcServiceApplyConfiguration constructs a declarative configuration of the AccessLogGrpcService type for use with

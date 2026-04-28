@@ -8,9 +8,14 @@ import (
 
 // BackoffStrategyApplyConfiguration represents a declarative configuration of the BackoffStrategy type for use
 // with apply.
+//
+// Configuration defining a jittered exponential back off strategy.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/backoff.proto#envoy-v3-api-msg-config-core-v3-backoffstrategy
 type BackoffStrategyApplyConfiguration struct {
+	// The base interval to be used for the next back off computation. It should be greater than zero and less than or equal to max_interval.
 	BaseInterval *v1.Duration `json:"baseInterval,omitempty"`
-	MaxInterval  *v1.Duration `json:"maxInterval,omitempty"`
+	// Specifies the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set. The default is 10 times the base_interval.
+	MaxInterval *v1.Duration `json:"maxInterval,omitempty"`
 }
 
 // BackoffStrategyApplyConfiguration constructs a declarative configuration of the BackoffStrategy type for use with

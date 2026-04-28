@@ -9,8 +9,11 @@ import (
 // LoadBalancerMaglevConfigApplyConfiguration represents a declarative configuration of the LoadBalancerMaglevConfig type for use
 // with apply.
 type LoadBalancerMaglevConfigApplyConfiguration struct {
-	UseHostnameForHashing *bool                     `json:"useHostnameForHashing,omitempty"`
-	HashPolicies          []*apiv1alpha1.HashPolicy `json:"hashPolicies,omitempty"`
+	// UseHostnameForHashing specifies whether to use the hostname instead of the resolved IP address for hashing.
+	// Defaults to false.
+	UseHostnameForHashing *bool `json:"useHostnameForHashing,omitempty"`
+	// HashPolicies specifies the hash policies for hashing load balancers (RingHash, Maglev).
+	HashPolicies []*apiv1alpha1.HashPolicy `json:"hashPolicies,omitempty"`
 }
 
 // LoadBalancerMaglevConfigApplyConfiguration constructs a declarative configuration of the LoadBalancerMaglevConfig type for use with

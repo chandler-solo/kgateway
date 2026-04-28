@@ -8,8 +8,12 @@ import (
 
 // HeaderModifiersApplyConfiguration represents a declarative configuration of the HeaderModifiers type for use
 // with apply.
+//
+// HeaderModifiers can be used to define the policy to modify request and response headers.
 type HeaderModifiersApplyConfiguration struct {
-	Request  *v1.HTTPHeaderFilter `json:"request,omitempty"`
+	// Request modifies request headers.
+	Request *v1.HTTPHeaderFilter `json:"request,omitempty"`
+	// Response modifies response headers.
 	Response *v1.HTTPHeaderFilter `json:"response,omitempty"`
 }
 

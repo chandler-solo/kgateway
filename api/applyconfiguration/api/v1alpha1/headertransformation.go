@@ -9,8 +9,13 @@ import (
 // HeaderTransformationApplyConfiguration represents a declarative configuration of the HeaderTransformation type for use
 // with apply.
 type HeaderTransformationApplyConfiguration struct {
-	Name  *apiv1alpha1.HeaderName `json:"name,omitempty"`
-	Value *apiv1alpha1.Template   `json:"value,omitempty"`
+	// Name is the name of the header to interact with.
+	Name *apiv1alpha1.HeaderName `json:"name,omitempty"`
+	// Value is the template to apply to generate the output value for the header.
+	// Inja templates are supported for Envoy-based data planes only.
+	// CEL expressions are supported for agentgateway data plane only.
+	// The system will auto-detect the appropriate template format based on the data plane.
+	Value *apiv1alpha1.Template `json:"value,omitempty"`
 }
 
 // HeaderTransformationApplyConfiguration constructs a declarative configuration of the HeaderTransformation type for use with

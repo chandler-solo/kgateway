@@ -8,8 +8,26 @@ import (
 
 // ProxyDeploymentApplyConfiguration represents a declarative configuration of the ProxyDeployment type for use
 // with apply.
+//
+// ProxyDeployment configures the Proxy deployment in Kubernetes.
 type ProxyDeploymentApplyConfiguration struct {
-	Replicas *int32                 `json:"replicas,omitempty"`
+	// The number of desired pods.
+	// If omitted, behavior will be managed by the K8s control plane, and will default to 1.
+	// If you are using an HPA, make sure to not explicitly define this.
+	// K8s reference: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#replicas
+	Replicas *int32 `json:"replicas,omitempty"`
+	// The deployment strategy to use to replace existing pods with new
+	// ones. The Kubernetes default is a RollingUpdate with 25% maxUnavailable,
+	// 25% maxSurge.
+	//
+	// E.g., to recreate pods, minimizing resources for the rollout but causing downtime:
+	// strategy:
+	// type: Recreate
+	// E.g., to roll out as a RollingUpdate but with non-default parameters:
+	// strategy:
+	// type: RollingUpdate
+	// rollingUpdate:
+	// maxSurge: 100%
 	Strategy *v1.DeploymentStrategy `json:"strategy,omitempty"`
 }
 

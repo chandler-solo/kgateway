@@ -4,9 +4,17 @@ package v1alpha1
 
 // OpenAIConfigApplyConfiguration represents a declarative configuration of the OpenAIConfig type for use
 // with apply.
+//
+// OpenAIConfig settings for the [OpenAI](https://platform.openai.com/docs/api-reference/streaming) LLM provider.
 type OpenAIConfigApplyConfiguration struct {
+	// The authorization token that the AI gateway uses to access the OpenAI API.
+	// This token is automatically sent in the `Authorization` header of the
+	// request and prefixed with `Bearer`.
 	AuthToken *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
-	Model     *string                            `json:"model,omitempty"`
+	// Optional: Override the model name, such as `gpt-4o-mini`.
+	// If unset, the model name is taken from the request.
+	// This setting can be useful when setting up model failover within the same LLM provider.
+	Model *string `json:"model,omitempty"`
 }
 
 // OpenAIConfigApplyConfiguration constructs a declarative configuration of the OpenAIConfig type for use with

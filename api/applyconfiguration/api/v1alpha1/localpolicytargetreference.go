@@ -8,10 +8,19 @@ import (
 
 // LocalPolicyTargetReferenceApplyConfiguration represents a declarative configuration of the LocalPolicyTargetReference type for use
 // with apply.
+//
+// Select the object to attach the policy by Group, Kind, and Name.
+// The object must be in the same namespace as the policy.
+// You can target only one object at a time.
 type LocalPolicyTargetReferenceApplyConfiguration struct {
-	Group *v1.Group      `json:"group,omitempty"`
-	Kind  *v1.Kind       `json:"kind,omitempty"`
-	Name  *v1.ObjectName `json:"name,omitempty"`
+	// The API group of the target resource.
+	// For Kubernetes Gateway API resources, the group is `gateway.networking.k8s.io`.
+	Group *v1.Group `json:"group,omitempty"`
+	// The API kind of the target resource,
+	// such as Gateway or HTTPRoute.
+	Kind *v1.Kind `json:"kind,omitempty"`
+	// The name of the target resource.
+	Name *v1.ObjectName `json:"name,omitempty"`
 }
 
 // LocalPolicyTargetReferenceApplyConfiguration constructs a declarative configuration of the LocalPolicyTargetReference type for use with

@@ -4,8 +4,35 @@ package v1alpha1
 
 // AIPromptGuardApplyConfiguration represents a declarative configuration of the AIPromptGuard type for use
 // with apply.
+//
+// AIPromptGuard configures a prompt guards to block unwanted requests to the LLM provider and mask sensitive data.
+// Prompt guards can be used to reject requests based on the content of the prompt, as well as
+// mask responses based on the content of the response.
+//
+// This example rejects any request prompts that contain
+// the string "credit card", and masks any credit card numbers in the response.
+// ```yaml
+// promptGuard:
+//
+// request:
+// customResponse:
+// message: "Rejected due to inappropriate content"
+// regex:
+// action: REJECT
+// matches:
+// - pattern: "credit card"
+// name: "CC"
+// response:
+// regex:
+// builtins:
+// - CREDIT_CARD
+// action: MASK
+//
+// ```
 type AIPromptGuardApplyConfiguration struct {
-	Request  *PromptguardRequestApplyConfiguration  `json:"request,omitempty"`
+	// Prompt guards to apply to requests sent by the client.
+	Request *PromptguardRequestApplyConfiguration `json:"request,omitempty"`
+	// Prompt guards to apply to responses returned by the LLM provider.
 	Response *PromptguardResponseApplyConfiguration `json:"response,omitempty"`
 }
 

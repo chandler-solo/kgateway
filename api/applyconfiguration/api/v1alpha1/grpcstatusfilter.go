@@ -8,6 +8,9 @@ import (
 
 // GrpcStatusFilterApplyConfiguration represents a declarative configuration of the GrpcStatusFilter type for use
 // with apply.
+//
+// GrpcStatusFilter filters gRPC requests based on their response status.
+// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#enum-config-accesslog-v3-grpcstatusfilter-status
 type GrpcStatusFilterApplyConfiguration struct {
 	Statuses []apiv1alpha1.GrpcStatus `json:"statuses,omitempty"`
 	Exclude  *bool                    `json:"exclude,omitempty"`

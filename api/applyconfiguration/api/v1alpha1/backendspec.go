@@ -8,13 +8,23 @@ import (
 
 // BackendSpecApplyConfiguration represents a declarative configuration of the BackendSpec type for use
 // with apply.
+//
+// BackendSpec defines the desired state of Backend.
 type BackendSpecApplyConfiguration struct {
-	Type                *apiv1alpha1.BackendType                      `json:"type,omitempty"`
-	AI                  *AIBackendApplyConfiguration                  `json:"ai,omitempty"`
-	Aws                 *AwsBackendApplyConfiguration                 `json:"aws,omitempty"`
-	Static              *StaticBackendApplyConfiguration              `json:"static,omitempty"`
+	// Type indicates the type of the backend to be used.
+	Type *apiv1alpha1.BackendType `json:"type,omitempty"`
+	// AI is the AI backend configuration.
+	AI *AIBackendApplyConfiguration `json:"ai,omitempty"`
+	// Aws is the AWS backend configuration.
+	// The Aws backend type is only supported with envoy-based gateways, it is not supported in agentgateway.
+	Aws *AwsBackendApplyConfiguration `json:"aws,omitempty"`
+	// Static is the static backend configuration.
+	Static *StaticBackendApplyConfiguration `json:"static,omitempty"`
+	// DynamicForwardProxy is the dynamic forward proxy backend configuration.
+	// The DynamicForwardProxy backend type is only supported with envoy-based gateways, it is not supported in agentgateway.
 	DynamicForwardProxy *DynamicForwardProxyBackendApplyConfiguration `json:"dynamicForwardProxy,omitempty"`
-	MCP                 *MCPApplyConfiguration                        `json:"mcp,omitempty"`
+	// MCP is the mcp backend configuration. The MCP backend type is only supported with agentgateway.
+	MCP *MCPApplyConfiguration `json:"mcp,omitempty"`
 }
 
 // BackendSpecApplyConfiguration constructs a declarative configuration of the BackendSpec type for use with

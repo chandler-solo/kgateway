@@ -4,13 +4,27 @@ package v1alpha1
 
 // ExtAuthProviderApplyConfiguration represents a declarative configuration of the ExtAuthProvider type for use
 // with apply.
+//
+// ExtAuthProvider defines the configuration for an ExtAuth provider.
 type ExtAuthProviderApplyConfiguration struct {
-	GrpcService     *ExtGrpcServiceApplyConfiguration        `json:"grpcService,omitempty"`
-	FailOpen        *bool                                    `json:"failOpen,omitempty"`
-	ClearRouteCache *bool                                    `json:"clearRouteCache,omitempty"`
+	// GrpcService is the GRPC service that will handle the auth.
+	GrpcService *ExtGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
+	// FailOpen determines if requests are allowed when the ext auth service is unavailable.
+	// Defaults to false, meaning requests will be denied if the ext auth service is unavailable.
+	FailOpen *bool `json:"failOpen,omitempty"`
+	// ClearRouteCache determines if the route cache should be cleared to allow the
+	// external authentication service to correctly affect routing decisions.
+	ClearRouteCache *bool `json:"clearRouteCache,omitempty"`
+	// WithRequestBody allows the request body to be buffered and sent to the auth service.
+	// Warning: buffering has implications for streaming and therefore performance.
 	WithRequestBody *ExtAuthBufferSettingsApplyConfiguration `json:"withRequestBody,omitempty"`
-	StatusOnError   *int32                                   `json:"statusOnError,omitempty"`
-	StatPrefix      *string                                  `json:"statPrefix,omitempty"`
+	// StatusOnError sets the HTTP status response code that is returned to the client when the
+	// auth server returns an error or cannot be reached. Must be in the range of 100-511 inclusive.
+	// The default matches the deny response code of 403 Forbidden.
+	StatusOnError *int32 `json:"statusOnError,omitempty"`
+	// StatPrefix is an optional prefix to include when emitting stats from the extauthz filter,
+	// enabling different instances of the filter to have unique stats.
+	StatPrefix *string `json:"statPrefix,omitempty"`
 }
 
 // ExtAuthProviderApplyConfiguration constructs a declarative configuration of the ExtAuthProvider type for use with

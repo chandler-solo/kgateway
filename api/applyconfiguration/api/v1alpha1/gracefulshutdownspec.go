@@ -5,7 +5,9 @@ package v1alpha1
 // GracefulShutdownSpecApplyConfiguration represents a declarative configuration of the GracefulShutdownSpec type for use
 // with apply.
 type GracefulShutdownSpecApplyConfiguration struct {
-	Enabled          *bool  `json:"enabled,omitempty"`
+	// Enable grace period before shutdown to finish current requests while Envoy health checks fail to e.g. notify external load balancers. *NOTE:* This will not have any effect if you have not defined health checks via the health check filter
+	Enabled *bool `json:"enabled,omitempty"`
+	// Time (in seconds) for the preStop hook to wait before allowing Envoy to terminate
 	SleepTimeSeconds *int64 `json:"sleepTimeSeconds,omitempty"`
 }
 

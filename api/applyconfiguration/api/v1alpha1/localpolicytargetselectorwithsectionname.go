@@ -8,9 +8,17 @@ import (
 
 // LocalPolicyTargetSelectorWithSectionNameApplyConfiguration represents a declarative configuration of the LocalPolicyTargetSelectorWithSectionName type for use
 // with apply.
+//
+// LocalPolicyTargetSelectorWithSectionName the object to attach the policy by Group, Kind, MatchLabels, and optionally SectionName.
+// The object must be in the same namespace as the policy and match the
+// specified labels.
+// Do not use targetSelectors when reconciliation times are critical, especially if you
+// have a large number of policies that target the same resource.
+// Instead, use targetRefs to attach the policy.
 type LocalPolicyTargetSelectorWithSectionNameApplyConfiguration struct {
 	LocalPolicyTargetSelectorApplyConfiguration `json:",inline"`
-	SectionName                                 *v1.SectionName `json:"sectionName,omitempty"`
+	// The section name of the target resource.
+	SectionName *v1.SectionName `json:"sectionName,omitempty"`
 }
 
 // LocalPolicyTargetSelectorWithSectionNameApplyConfiguration constructs a declarative configuration of the LocalPolicyTargetSelectorWithSectionName type for use with

@@ -8,15 +8,44 @@ import (
 
 // AiExtensionApplyConfiguration represents a declarative configuration of the AiExtension type for use
 // with apply.
+//
+// Configuration for the AI extension.
 type AiExtensionApplyConfiguration struct {
-	Enabled         *bool                               `json:"enabled,omitempty"`
-	Image           *ImageApplyConfiguration            `json:"image,omitempty"`
-	SecurityContext *v1.SecurityContext                 `json:"securityContext,omitempty"`
-	Resources       *v1.ResourceRequirements            `json:"resources,omitempty"`
-	Env             []v1.EnvVar                         `json:"env,omitempty"`
-	Ports           []v1.ContainerPort                  `json:"ports,omitempty"`
-	Stats           *AiExtensionStatsApplyConfiguration `json:"stats,omitempty"`
-	Tracing         *AiExtensionTraceApplyConfiguration `json:"tracing,omitempty"`
+	// Whether to enable the extension.
+	Enabled *bool `json:"enabled,omitempty"`
+	// The extension's container image. See
+	// https://kubernetes.io/docs/concepts/containers/images
+	// for details.
+	Image *ImageApplyConfiguration `json:"image,omitempty"`
+	// The security context for this container. See
+	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
+	// for details.
+	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
+	// The compute resources required by this container. See
+	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+	// for details.
+	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
+	// The extension's container environment variables.
+	Env []v1.EnvVar `json:"env,omitempty"`
+	// The extension's container ports.
+	Ports []v1.ContainerPort `json:"ports,omitempty"`
+	// Additional stats config for AI Extension.
+	// This config can be useful for adding custom labels to the request metrics.
+	//
+	// Example:
+	// ```yaml
+	// stats:
+	// customLabels:
+	// - name: "subject"
+	// metadataNamespace: "envoy.filters.http.jwt_authn"
+	// metadataKey: "principal:sub"
+	// - name: "issuer"
+	// metadataNamespace: "envoy.filters.http.jwt_authn"
+	// metadataKey: "principal:iss"
+	// ```
+	Stats *AiExtensionStatsApplyConfiguration `json:"stats,omitempty"`
+	// Additional OTel tracing config for AI Extension.
+	Tracing *AiExtensionTraceApplyConfiguration `json:"tracing,omitempty"`
 }
 
 // AiExtensionApplyConfiguration constructs a declarative configuration of the AiExtension type for use with

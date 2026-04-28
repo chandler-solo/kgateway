@@ -9,10 +9,21 @@ import (
 // Http2ProtocolOptionsApplyConfiguration represents a declarative configuration of the Http2ProtocolOptions type for use
 // with apply.
 type Http2ProtocolOptionsApplyConfiguration struct {
-	InitialStreamWindowSize                 *resource.Quantity `json:"initialStreamWindowSize,omitempty"`
-	InitialConnectionWindowSize             *resource.Quantity `json:"initialConnectionWindowSize,omitempty"`
-	MaxConcurrentStreams                    *int32             `json:"maxConcurrentStreams,omitempty"`
-	OverrideStreamErrorOnInvalidHttpMessage *bool              `json:"overrideStreamErrorOnInvalidHttpMessage,omitempty"`
+	// InitialStreamWindowSize is the initial window size for the stream.
+	// Valid values range from 65535 (2^16 - 1, HTTP/2 default) to 2147483647 (2^31 - 1, HTTP/2 maximum).
+	// Defaults to 268435456 (256 * 1024 * 1024).
+	// Values can be specified with units like "64Ki".
+	InitialStreamWindowSize *resource.Quantity `json:"initialStreamWindowSize,omitempty"`
+	// InitialConnectionWindowSize is similar to InitialStreamWindowSize, but for the connection level.
+	// Same range and default value as InitialStreamWindowSize.
+	// Values can be specified with units like "64Ki".
+	InitialConnectionWindowSize *resource.Quantity `json:"initialConnectionWindowSize,omitempty"`
+	// The maximum number of concurrent streams that the connection can have.
+	MaxConcurrentStreams *int32 `json:"maxConcurrentStreams,omitempty"`
+	// Allows invalid HTTP messaging and headers. When disabled (default), then
+	// the whole HTTP/2 connection is terminated upon receiving invalid HEADERS frame.
+	// When enabled, only the offending stream is terminated.
+	OverrideStreamErrorOnInvalidHttpMessage *bool `json:"overrideStreamErrorOnInvalidHttpMessage,omitempty"`
 }
 
 // Http2ProtocolOptionsApplyConfiguration constructs a declarative configuration of the Http2ProtocolOptions type for use with

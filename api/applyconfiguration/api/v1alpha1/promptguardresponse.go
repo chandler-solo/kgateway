@@ -4,8 +4,15 @@ package v1alpha1
 
 // PromptguardResponseApplyConfiguration represents a declarative configuration of the PromptguardResponse type for use
 // with apply.
+//
+// PromptguardResponse configures the response that the prompt guard applies to responses returned by the LLM provider.
+// Both webhook and regex can be set, they will be executed in the following order: webhook → regex, where each step
+// can reject the request and stop further processing.
+// Note: This is not yet supported for agentgateway.
 type PromptguardResponseApplyConfiguration struct {
-	Regex   *RegexApplyConfiguration   `json:"regex,omitempty"`
+	// Regular expression (regex) matching for prompt guards and data masking.
+	Regex *RegexApplyConfiguration `json:"regex,omitempty"`
+	// Configure a webhook to forward responses to for prompt guarding.
 	Webhook *WebhookApplyConfiguration `json:"webhook,omitempty"`
 }
 

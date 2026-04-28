@@ -8,7 +8,10 @@ import (
 
 // BackendStatusApplyConfiguration represents a declarative configuration of the BackendStatus type for use
 // with apply.
+//
+// BackendStatus defines the observed state of Backend.
 type BackendStatusApplyConfiguration struct {
+	// Conditions is the list of conditions for the backend.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 

@@ -32,29 +32,14 @@ func Backend(name, namespace string) *BackendApplyConfiguration {
 	return b
 }
 
-// ExtractBackend extracts the applied configuration owned by fieldManager from
-// backend. If no managedFields are found in backend for fieldManager, a
-// BackendApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
+// ExtractBackendFrom extracts the applied configuration owned by fieldManager from
+// backend for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
 // backend must be a unmodified Backend API object that was retrieved from the Kubernetes API.
-// ExtractBackend provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractBackendFrom provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-// Experimental!
-func ExtractBackend(backend *apiv1alpha1.Backend, fieldManager string) (*BackendApplyConfiguration, error) {
-	return extractBackend(backend, fieldManager, "")
-}
-
-// ExtractBackendStatus is the same as ExtractBackend except
-// that it extracts the status subresource applied configuration.
-// Experimental!
-func ExtractBackendStatus(backend *apiv1alpha1.Backend, fieldManager string) (*BackendApplyConfiguration, error) {
-	return extractBackend(backend, fieldManager, "status")
-}
-
-func extractBackend(backend *apiv1alpha1.Backend, fieldManager string, subresource string) (*BackendApplyConfiguration, error) {
+func ExtractBackendFrom(backend *apiv1alpha1.Backend, fieldManager string, subresource string) (*BackendApplyConfiguration, error) {
 	b := &BackendApplyConfiguration{}
 	err := managedfields.ExtractInto(backend, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.Backend"), fieldManager, b, subresource)
 	if err != nil {
@@ -67,6 +52,27 @@ func extractBackend(backend *apiv1alpha1.Backend, fieldManager string, subresour
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
+
+// ExtractBackend extracts the applied configuration owned by fieldManager from
+// backend. If no managedFields are found in backend for fieldManager, a
+// BackendApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// backend must be a unmodified Backend API object that was retrieved from the Kubernetes API.
+// ExtractBackend provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractBackend(backend *apiv1alpha1.Backend, fieldManager string) (*BackendApplyConfiguration, error) {
+	return ExtractBackendFrom(backend, fieldManager, "")
+}
+
+// ExtractBackendStatus extracts the applied configuration owned by fieldManager from
+// backend for the status subresource.
+func ExtractBackendStatus(backend *apiv1alpha1.Backend, fieldManager string) (*BackendApplyConfiguration, error) {
+	return ExtractBackendFrom(backend, fieldManager, "status")
+}
+
 func (b BackendApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

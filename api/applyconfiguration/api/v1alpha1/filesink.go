@@ -8,10 +8,17 @@ import (
 
 // FileSinkApplyConfiguration represents a declarative configuration of the FileSink type for use
 // with apply.
+//
+// FileSink represents the file sink configuration for access logs.
 type FileSinkApplyConfiguration struct {
-	Path         *string               `json:"path,omitempty"`
-	StringFormat *string               `json:"stringFormat,omitempty"`
-	JsonFormat   *runtime.RawExtension `json:"jsonFormat,omitempty"`
+	// the file path to which the file access logging service will sink
+	Path *string `json:"path,omitempty"`
+	// the format string by which envoy will format the log lines
+	// https://www.envoyproxy.io/docs/envoy/v1.33.0/configuration/observability/access_log/usage#format-strings
+	StringFormat *string `json:"stringFormat,omitempty"`
+	// the format object by which to envoy will emit the logs in a structured way.
+	// https://www.envoyproxy.io/docs/envoy/v1.33.0/configuration/observability/access_log/usage#format-dictionaries
+	JsonFormat *runtime.RawExtension `json:"jsonFormat,omitempty"`
 }
 
 // FileSinkApplyConfiguration constructs a declarative configuration of the FileSink type for use with

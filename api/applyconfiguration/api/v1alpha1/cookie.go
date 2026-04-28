@@ -9,12 +9,22 @@ import (
 // CookieApplyConfiguration represents a declarative configuration of the Cookie type for use
 // with apply.
 type CookieApplyConfiguration struct {
-	Name     *string      `json:"name,omitempty"`
-	Path     *string      `json:"path,omitempty"`
-	TTL      *v1.Duration `json:"ttl,omitempty"`
-	Secure   *bool        `json:"secure,omitempty"`
-	HttpOnly *bool        `json:"httpOnly,omitempty"`
-	SameSite *string      `json:"sameSite,omitempty"`
+	// Name of the cookie.
+	Name *string `json:"name,omitempty"`
+	// Path is the name of the path for the cookie.
+	Path *string `json:"path,omitempty"`
+	// TTL specifies the time to live of the cookie.
+	// If specified, a cookie with the TTL will be generated if the cookie is not present.
+	// If the TTL is present and zero, the generated cookie will be a session cookie.
+	TTL *v1.Duration `json:"ttl,omitempty"`
+	// Secure specifies whether the cookie is secure.
+	// If true, the cookie will only be sent over HTTPS.
+	Secure *bool `json:"secure,omitempty"`
+	// HttpOnly specifies whether the cookie is HTTP only, i.e. not accessible to JavaScript.
+	HttpOnly *bool `json:"httpOnly,omitempty"`
+	// SameSite controls cross-site sending of cookies.
+	// Supported values are Strict, Lax, and None.
+	SameSite *string `json:"sameSite,omitempty"`
 }
 
 // CookieApplyConfiguration constructs a declarative configuration of the Cookie type for use with

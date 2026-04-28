@@ -8,9 +8,21 @@ import (
 
 // LocalPolicyTargetSelectorApplyConfiguration represents a declarative configuration of the LocalPolicyTargetSelector type for use
 // with apply.
+//
+// LocalPolicyTargetSelector selects the object to attach the policy by Group, Kind, and MatchLabels.
+// The object must be in the same namespace as the policy and match the
+// specified labels.
+// Do not use targetSelectors when reconciliation times are critical, especially if you
+// have a large number of policies that target the same resource.
+// Instead, use targetRefs to attach the policy.
 type LocalPolicyTargetSelectorApplyConfiguration struct {
-	Group       *v1.Group         `json:"group,omitempty"`
-	Kind        *v1.Kind          `json:"kind,omitempty"`
+	// The API group of the target resource.
+	// For Kubernetes Gateway API resources, the group is `gateway.networking.k8s.io`.
+	Group *v1.Group `json:"group,omitempty"`
+	// The API kind of the target resource,
+	// such as Gateway or HTTPRoute.
+	Kind *v1.Kind `json:"kind,omitempty"`
+	// Label selector to select the target resource.
 	MatchLabels map[string]string `json:"matchLabels,omitempty"`
 }
 

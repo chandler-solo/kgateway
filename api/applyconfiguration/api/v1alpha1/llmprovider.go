@@ -4,17 +4,38 @@ package v1alpha1
 
 // LLMProviderApplyConfiguration represents a declarative configuration of the LLMProvider type for use
 // with apply.
+//
+// LLMProvider specifies the target large language model provider that the backend should route requests to.
+// TODO: Move auth options off of SupportedLLMProvider to BackendConfigPolicy: https://github.com/kgateway-dev/kgateway/issues/11930
 type LLMProviderApplyConfiguration struct {
-	OpenAI      *OpenAIConfigApplyConfiguration      `json:"openai,omitempty"`
+	// OpenAI provider
+	OpenAI *OpenAIConfigApplyConfiguration `json:"openai,omitempty"`
+	// Azure OpenAI provider
 	AzureOpenAI *AzureOpenAIConfigApplyConfiguration `json:"azureopenai,omitempty"`
-	Anthropic   *AnthropicConfigApplyConfiguration   `json:"anthropic,omitempty"`
-	Gemini      *GeminiConfigApplyConfiguration      `json:"gemini,omitempty"`
-	VertexAI    *VertexAIConfigApplyConfiguration    `json:"vertexai,omitempty"`
-	Bedrock     *BedrockConfigApplyConfiguration     `json:"bedrock,omitempty"`
-	Host        *string                              `json:"host,omitempty"`
-	Port        *int32                               `json:"port,omitempty"`
-	Path        *PathOverrideApplyConfiguration      `json:"path,omitempty"`
-	AuthHeader  *AuthHeaderApplyConfiguration        `json:"authHeader,omitempty"`
+	// Anthropic provider
+	Anthropic *AnthropicConfigApplyConfiguration `json:"anthropic,omitempty"`
+	// Gemini provider
+	Gemini *GeminiConfigApplyConfiguration `json:"gemini,omitempty"`
+	// Vertex AI provider
+	VertexAI *VertexAIConfigApplyConfiguration `json:"vertexai,omitempty"`
+	// Bedrock provider
+	Bedrock *BedrockConfigApplyConfiguration `json:"bedrock,omitempty"`
+	// Host specifies the hostname to send the requests to.
+	// If not specified, the default hostname for the provider is used.
+	Host *string `json:"host,omitempty"`
+	// Port specifies the port to send the requests to.
+	Port *int32 `json:"port,omitempty"`
+	// Path specifies the URL path to use for the LLM provider API requests.
+	// This is useful when you need to route requests to a different API endpoint while maintaining
+	// compatibility with the original provider's API structure.
+	// If not specified, the default path for the provider is used.
+	Path *PathOverrideApplyConfiguration `json:"path,omitempty"`
+	// AuthHeader specifies how the Authorization header is set in the request sent to the LLM provider.
+	// Allows changing the header name and/or the prefix (e.g., "Bearer").
+	// Note: Not all LLM providers use the Authorization header and prefix.
+	// For example, OpenAI uses header: "Authorization" and prefix: "Bearer" But Azure OpenAI uses header: "api-key"
+	// and no Bearer.
+	AuthHeader *AuthHeaderApplyConfiguration `json:"authHeader,omitempty"`
 }
 
 // LLMProviderApplyConfiguration constructs a declarative configuration of the LLMProvider type for use with

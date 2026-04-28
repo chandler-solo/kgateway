@@ -8,13 +8,28 @@ import (
 
 // ServiceApplyConfiguration represents a declarative configuration of the Service type for use
 // with apply.
+//
+// Configuration for a Kubernetes Service.
 type ServiceApplyConfiguration struct {
-	Type                  *v1.ServiceType          `json:"type,omitempty"`
-	ClusterIP             *string                  `json:"clusterIP,omitempty"`
-	ExtraLabels           map[string]string        `json:"extraLabels,omitempty"`
-	ExtraAnnotations      map[string]string        `json:"extraAnnotations,omitempty"`
-	Ports                 []PortApplyConfiguration `json:"ports,omitempty"`
-	ExternalTrafficPolicy *string                  `json:"externalTrafficPolicy,omitempty"`
+	// The Kubernetes Service type.
+	Type *v1.ServiceType `json:"type,omitempty"`
+	// The manually specified IP address of the service, if a randomly assigned
+	// IP is not desired. See
+	// https://kubernetes.io/docs/concepts/services-networking/service/#choosing-your-own-ip-address
+	// and
+	// https://kubernetes.io/docs/concepts/services-networking/service/#headless-services
+	// on the implications of setting `clusterIP`.
+	ClusterIP *string `json:"clusterIP,omitempty"`
+	// Additional labels to add to the Service object metadata.
+	ExtraLabels map[string]string `json:"extraLabels,omitempty"`
+	// Additional annotations to add to the Service object metadata.
+	ExtraAnnotations map[string]string `json:"extraAnnotations,omitempty"`
+	// Additional configuration for the service ports.
+	// The actual port numbers are specified in the Gateway resource.
+	Ports []PortApplyConfiguration `json:"ports,omitempty"`
+	// ExternalTrafficPolicy defines the external traffic policy for the service.
+	// Valid values are Cluster and Local. Default value is Cluster.
+	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty"`
 }
 
 // ServiceApplyConfiguration constructs a declarative configuration of the Service type for use with

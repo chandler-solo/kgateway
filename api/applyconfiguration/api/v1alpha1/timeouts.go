@@ -9,7 +9,14 @@ import (
 // TimeoutsApplyConfiguration represents a declarative configuration of the Timeouts type for use
 // with apply.
 type TimeoutsApplyConfiguration struct {
-	Request    *v1.Duration `json:"request,omitempty"`
+	// Request specifies a timeout for an individual request from the gateway to a backend.
+	// This spans between the point at which the entire downstream request (i.e. end-of-stream) has been
+	// processed and when the backend response has been completely processed.
+	// A value of 0 effectively disables the timeout.
+	// It is specified as a sequence of decimal numbers, each with optional fraction and a unit suffix, such as "1s" or "500ms".
+	Request *v1.Duration `json:"request,omitempty"`
+	// StreamIdle specifies a timeout for a requests' idle streams.
+	// A value of 0 effectively disables the timeout.
 	StreamIdle *v1.Duration `json:"streamIdle,omitempty"`
 }
 

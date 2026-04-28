@@ -4,12 +4,20 @@ package v1alpha1
 
 // CustomAttributeApplyConfiguration represents a declarative configuration of the CustomAttribute type for use
 // with apply.
+//
+// Describes attributes for the active span.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/type/tracing/v3/custom_tag.proto#envoy-v3-api-msg-type-tracing-v3-customtag
 type CustomAttributeApplyConfiguration struct {
-	Name          *string                                       `json:"name,omitempty"`
-	Literal       *CustomAttributeLiteralApplyConfiguration     `json:"literal,omitempty"`
-	Environment   *CustomAttributeEnvironmentApplyConfiguration `json:"environment,omitempty"`
-	RequestHeader *CustomAttributeHeaderApplyConfiguration      `json:"requestHeader,omitempty"`
-	Metadata      *CustomAttributeMetadataApplyConfiguration    `json:"metadata,omitempty"`
+	// The name of the attribute
+	Name *string `json:"name,omitempty"`
+	// A literal attribute value.
+	Literal *CustomAttributeLiteralApplyConfiguration `json:"literal,omitempty"`
+	// An environment attribute value.
+	Environment *CustomAttributeEnvironmentApplyConfiguration `json:"environment,omitempty"`
+	// A request header attribute value.
+	RequestHeader *CustomAttributeHeaderApplyConfiguration `json:"requestHeader,omitempty"`
+	// An attribute to obtain the value from the metadata.
+	Metadata *CustomAttributeMetadataApplyConfiguration `json:"metadata,omitempty"`
 }
 
 // CustomAttributeApplyConfiguration constructs a declarative configuration of the CustomAttribute type for use with

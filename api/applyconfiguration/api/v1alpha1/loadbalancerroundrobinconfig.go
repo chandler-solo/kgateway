@@ -4,7 +4,10 @@ package v1alpha1
 
 // LoadBalancerRoundRobinConfigApplyConfiguration represents a declarative configuration of the LoadBalancerRoundRobinConfig type for use
 // with apply.
+//
+// LoadBalancerRoundRobinConfig configures the round robin load balancer type.
 type LoadBalancerRoundRobinConfigApplyConfiguration struct {
+	// SlowStart configures the slow start configuration for the load balancer.
 	SlowStart *SlowStartApplyConfiguration `json:"slowStart,omitempty"`
 }
 

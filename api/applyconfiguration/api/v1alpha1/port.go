@@ -5,7 +5,10 @@ package v1alpha1
 // PortApplyConfiguration represents a declarative configuration of the Port type for use
 // with apply.
 type PortApplyConfiguration struct {
-	Port     *int32 `json:"port,omitempty"`
+	// The port number to match on the Gateway
+	Port *int32 `json:"port,omitempty"`
+	// The NodePort to be used for the service. If not specified, a random port
+	// will be assigned by the Kubernetes API server.
 	NodePort *int32 `json:"nodePort,omitempty"`
 }
 

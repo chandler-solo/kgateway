@@ -8,10 +8,16 @@ import (
 
 // GatewayExtensionSpecApplyConfiguration represents a declarative configuration of the GatewayExtensionSpec type for use
 // with apply.
+//
+// GatewayExtensionSpec defines the desired state of GatewayExtension.
 type GatewayExtensionSpecApplyConfiguration struct {
-	Type      *apiv1alpha1.GatewayExtensionType    `json:"type,omitempty"`
-	ExtAuth   *ExtAuthProviderApplyConfiguration   `json:"extAuth,omitempty"`
-	ExtProc   *ExtProcProviderApplyConfiguration   `json:"extProc,omitempty"`
+	// Type indicates the type of the GatewayExtension to be used.
+	Type *apiv1alpha1.GatewayExtensionType `json:"type,omitempty"`
+	// ExtAuth configuration for ExtAuth extension type.
+	ExtAuth *ExtAuthProviderApplyConfiguration `json:"extAuth,omitempty"`
+	// ExtProc configuration for ExtProc extension type.
+	ExtProc *ExtProcProviderApplyConfiguration `json:"extProc,omitempty"`
+	// RateLimit configuration for RateLimit extension type.
 	RateLimit *RateLimitProviderApplyConfiguration `json:"rateLimit,omitempty"`
 }
 

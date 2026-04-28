@@ -5,6 +5,8 @@ package v1alpha1
 // AiExtensionStatsApplyConfiguration represents a declarative configuration of the AiExtensionStats type for use
 // with apply.
 type AiExtensionStatsApplyConfiguration struct {
+	// Set of custom labels to be added to the request metrics.
+	// These will be added on each request which goes through the AI Extension.
 	CustomLabels []CustomLabelApplyConfiguration `json:"customLabels,omitempty"`
 }
 

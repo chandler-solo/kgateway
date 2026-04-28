@@ -8,9 +8,15 @@ import (
 
 // McpSelectorApplyConfiguration represents a declarative configuration of the McpSelector type for use
 // with apply.
+//
+// McpSelector defines the selector logic to search for MCP targets.
 type McpSelectorApplyConfiguration struct {
+	// Namespace is the label selector in which namespace the MCP targets
+	// are searched for.
 	Namespace *v1.LabelSelectorApplyConfiguration `json:"namespace,omitempty"`
-	Service   *v1.LabelSelectorApplyConfiguration `json:"service,omitempty"`
+	// Service is the label selector in which services the MCP targets
+	// are searched for.
+	Service *v1.LabelSelectorApplyConfiguration `json:"service,omitempty"`
 }
 
 // McpSelectorApplyConfiguration constructs a declarative configuration of the McpSelector type for use with

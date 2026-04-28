@@ -4,9 +4,13 @@ package v1alpha1
 
 // RegexMatchApplyConfiguration represents a declarative configuration of the RegexMatch type for use
 // with apply.
+//
+// RegexMatch configures the regular expression (regex) matching for prompt guards and data masking.
 type RegexMatchApplyConfiguration struct {
+	// The regex pattern to match against the request or response.
 	Pattern *string `json:"pattern,omitempty"`
-	Name    *string `json:"name,omitempty"`
+	// An optional name for this match, which can be used for debugging purposes.
+	Name *string `json:"name,omitempty"`
 }
 
 // RegexMatchApplyConfiguration constructs a declarative configuration of the RegexMatch type for use with

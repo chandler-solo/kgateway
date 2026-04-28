@@ -5,8 +5,10 @@ package v1alpha1
 // AWSGuardrailConfigApplyConfiguration represents a declarative configuration of the AWSGuardrailConfig type for use
 // with apply.
 type AWSGuardrailConfigApplyConfiguration struct {
+	// GuardrailIdentifier is the identifier of the Guardrail policy to use for the backend.
 	GuardrailIdentifier *string `json:"identifier,omitempty"`
-	GuardrailVersion    *string `json:"version,omitempty"`
+	// GuardrailVersion is the version of the Guardrail policy to use for the backend.
+	GuardrailVersion *string `json:"version,omitempty"`
 }
 
 // AWSGuardrailConfigApplyConfiguration constructs a declarative configuration of the AWSGuardrailConfig type for use with

@@ -8,9 +8,24 @@ import (
 
 // WebhookApplyConfiguration represents a declarative configuration of the Webhook type for use
 // with apply.
+//
+// Webhook configures a webhook to forward requests or responses to for prompt guarding.
 type WebhookApplyConfiguration struct {
-	Host                 *HostApplyConfiguration `json:"host,omitempty"`
-	ForwardHeaderMatches []v1.HTTPHeaderMatch    `json:"forwardHeaderMatches,omitempty"`
+	// Host to send the traffic to.
+	// Note: TLS is not currently supported for webhook.
+	// Example:
+	// ```yaml
+	// host:
+	// host: example.com  #The host name of the webhook endpoint.
+	// port: 443 	        #The port number on which the webhook is listening.
+	// ```
+	Host *HostApplyConfiguration `json:"host,omitempty"`
+	// ForwardHeaderMatches defines a list of HTTP header matches that will be
+	// used to select the headers to forward to the webhook.
+	// Request headers are used when forwarding requests and response headers
+	// are used when forwarding responses.
+	// By default, no headers are forwarded.
+	ForwardHeaderMatches []v1.HTTPHeaderMatch `json:"forwardHeaderMatches,omitempty"`
 }
 
 // WebhookApplyConfiguration constructs a declarative configuration of the Webhook type for use with

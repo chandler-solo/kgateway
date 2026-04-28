@@ -4,12 +4,20 @@ package v1alpha1
 
 // ProcessingModeApplyConfiguration represents a declarative configuration of the ProcessingMode type for use
 // with apply.
+//
+// ProcessingMode defines how the filter should interact with the request/response streams
 type ProcessingModeApplyConfiguration struct {
-	RequestHeaderMode   *string `json:"requestHeaderMode,omitempty"`
-	ResponseHeaderMode  *string `json:"responseHeaderMode,omitempty"`
-	RequestBodyMode     *string `json:"requestBodyMode,omitempty"`
-	ResponseBodyMode    *string `json:"responseBodyMode,omitempty"`
-	RequestTrailerMode  *string `json:"requestTrailerMode,omitempty"`
+	// RequestHeaderMode determines how to handle the request headers
+	RequestHeaderMode *string `json:"requestHeaderMode,omitempty"`
+	// ResponseHeaderMode determines how to handle the response headers
+	ResponseHeaderMode *string `json:"responseHeaderMode,omitempty"`
+	// RequestBodyMode determines how to handle the request body
+	RequestBodyMode *string `json:"requestBodyMode,omitempty"`
+	// ResponseBodyMode determines how to handle the response body
+	ResponseBodyMode *string `json:"responseBodyMode,omitempty"`
+	// RequestTrailerMode determines how to handle the request trailers
+	RequestTrailerMode *string `json:"requestTrailerMode,omitempty"`
+	// ResponseTrailerMode determines how to handle the response trailers
 	ResponseTrailerMode *string `json:"responseTrailerMode,omitempty"`
 }
 

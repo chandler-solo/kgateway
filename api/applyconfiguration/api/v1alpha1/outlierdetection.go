@@ -8,11 +8,27 @@ import (
 
 // OutlierDetectionApplyConfiguration represents a declarative configuration of the OutlierDetection type for use
 // with apply.
+//
+// OutlierDetection contains the options to configure passive health checks.
+// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/outlier#outlier-detection) for more details.
 type OutlierDetectionApplyConfiguration struct {
-	Consecutive5xx     *int32       `json:"consecutive5xx,omitempty"`
-	Interval           *v1.Duration `json:"interval,omitempty"`
-	BaseEjectionTime   *v1.Duration `json:"baseEjectionTime,omitempty"`
-	MaxEjectionPercent *int32       `json:"maxEjectionPercent,omitempty"`
+	// The number of consecutive server-side error responses (for HTTP traffic,
+	// 5xx responses; for TCP traffic, connection failures; etc.) before an
+	// ejection occurs. Defaults to 5. If this is zero, consecutive 5xx passive
+	// health checks will be disabled. In the future, other types of passive
+	// health checking might be added, but none will be enabled by default.
+	Consecutive5xx *int32 `json:"consecutive5xx,omitempty"`
+	// The time interval between ejection analysis sweeps. This can result in
+	// both new ejections as well as hosts being returned to service. Defaults
+	// to 10s.
+	Interval *v1.Duration `json:"interval,omitempty"`
+	// The base time that a host is ejected for. The real time is equal to the
+	// base time multiplied by the number of times the host has been ejected.
+	// Defaults to 30s.
+	BaseEjectionTime *v1.Duration `json:"baseEjectionTime,omitempty"`
+	// The maximum % of an upstream cluster that can be ejected due to outlier
+	// detection. Defaults to 10%.
+	MaxEjectionPercent *int32 `json:"maxEjectionPercent,omitempty"`
 }
 
 // OutlierDetectionApplyConfiguration constructs a declarative configuration of the OutlierDetection type for use with

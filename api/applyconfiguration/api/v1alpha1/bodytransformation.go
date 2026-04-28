@@ -8,9 +8,19 @@ import (
 
 // BodyTransformationApplyConfiguration represents a declarative configuration of the BodyTransformation type for use
 // with apply.
+//
+// BodyTransformation controls how the body should be parsed and transformed.
 type BodyTransformationApplyConfiguration struct {
+	// ParseAs defines what auto formatting should be applied to the body.
+	// This can make interacting with keys within a json body much easier if AsJson is selected.
+	// This field is only supported for kgateway (Envoy) data plane and is ignored by agentgateway.
+	// For agentgateway, use json(request.body) or json(response.body) directly in CEL expressions.
 	ParseAs *apiv1alpha1.BodyParseBehavior `json:"parseAs,omitempty"`
-	Value   *apiv1alpha1.Template          `json:"value,omitempty"`
+	// Value is the template to apply to generate the output value for the body.
+	// Inja templates are supported for Envoy-based data planes only.
+	// CEL expressions are supported for agentgateway data plane only.
+	// The system will auto-detect the appropriate template format based on the data plane.
+	Value *apiv1alpha1.Template `json:"value,omitempty"`
 }
 
 // BodyTransformationApplyConfiguration constructs a declarative configuration of the BodyTransformation type for use with

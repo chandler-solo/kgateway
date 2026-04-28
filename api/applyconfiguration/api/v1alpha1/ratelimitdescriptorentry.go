@@ -8,10 +8,18 @@ import (
 
 // RateLimitDescriptorEntryApplyConfiguration represents a declarative configuration of the RateLimitDescriptorEntry type for use
 // with apply.
+//
+// RateLimitDescriptorEntry defines a single entry in a rate limit descriptor.
+// Only one entry type may be specified.
 type RateLimitDescriptorEntryApplyConfiguration struct {
-	Type    *apiv1alpha1.RateLimitDescriptorEntryType          `json:"type,omitempty"`
+	// Type specifies what kind of rate limit descriptor entry this is.
+	Type *apiv1alpha1.RateLimitDescriptorEntryType `json:"type,omitempty"`
+	// Generic contains the configuration for a generic key-value descriptor entry.
+	// This field must be specified when Type is Generic.
 	Generic *RateLimitDescriptorEntryGenericApplyConfiguration `json:"generic,omitempty"`
-	Header  *string                                            `json:"header,omitempty"`
+	// Header specifies a request header to extract the descriptor value from.
+	// This field must be specified when Type is Header.
+	Header *string `json:"header,omitempty"`
 }
 
 // RateLimitDescriptorEntryApplyConfiguration constructs a declarative configuration of the RateLimitDescriptorEntry type for use with

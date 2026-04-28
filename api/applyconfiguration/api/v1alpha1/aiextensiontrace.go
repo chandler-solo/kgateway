@@ -11,11 +11,26 @@ import (
 
 // AiExtensionTraceApplyConfiguration represents a declarative configuration of the AiExtensionTrace type for use
 // with apply.
+//
+// AiExtensionTrace defines the tracing configuration for the AI extension
 type AiExtensionTraceApplyConfiguration struct {
-	EndPoint *v1.AbsoluteURI                      `json:"endpoint,omitempty"`
-	Sampler  *OTelTracesSamplerApplyConfiguration `json:"sampler,omitempty"`
-	Timeout  *metav1.Duration                     `json:"timeout,omitempty"`
-	Protocol *apiv1alpha1.OTLPTracesProtocolType  `json:"protocol,omitempty"`
+	// EndPoint specifies the URL of the OTLP Exporter for traces.
+	// Example: "http://my-otel-collector.svc.cluster.local:4317"
+	// https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/#otel_exporter_otlp_traces_endpoint
+	EndPoint *v1.AbsoluteURI `json:"endpoint,omitempty"`
+	// Sampler defines the sampling strategy for OpenTelemetry traces.
+	// Sampling helps in reducing the volume of trace data by selectively
+	// recording only a subset of traces.
+	// https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_traces_sampler
+	Sampler *OTelTracesSamplerApplyConfiguration `json:"sampler,omitempty"`
+	// OTLPTimeout specifies timeout configurations for OTLP (OpenTelemetry Protocol) exports.
+	// It allows setting general and trace-specific timeouts for sending data.
+	// https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/#otel_exporter_otlp_traces_timeout
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// OTLPProtocol specifies the protocol to be used for OTLP exports.
+	// This determines how tracing data is serialized and transported (e.g., gRPC, HTTP/Protobuf).
+	// https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/#otel_exporter_otlp_traces_protocol
+	Protocol *apiv1alpha1.OTLPTracesProtocolType `json:"protocol,omitempty"`
 }
 
 // AiExtensionTraceApplyConfiguration constructs a declarative configuration of the AiExtensionTrace type for use with

@@ -4,8 +4,12 @@ package v1alpha1
 
 // RateLimitDescriptorEntryGenericApplyConfiguration represents a declarative configuration of the RateLimitDescriptorEntryGeneric type for use
 // with apply.
+//
+// RateLimitDescriptorEntryGeneric defines a generic key-value descriptor entry.
 type RateLimitDescriptorEntryGenericApplyConfiguration struct {
-	Key   *string `json:"key,omitempty"`
+	// Key is the name of this descriptor entry.
+	Key *string `json:"key,omitempty"`
+	// Value is the static value for this descriptor entry.
 	Value *string `json:"value,omitempty"`
 }
 

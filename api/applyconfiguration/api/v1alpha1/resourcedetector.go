@@ -8,6 +8,8 @@ import (
 
 // ResourceDetectorApplyConfiguration represents a declarative configuration of the ResourceDetector type for use
 // with apply.
+//
+// ResourceDetector defines the list of supported ResourceDetectors
 type ResourceDetectorApplyConfiguration struct {
 	EnvironmentResourceDetector *apiv1alpha1.EnvironmentResourceDetectorConfig `json:"environmentResourceDetector,omitempty"`
 }

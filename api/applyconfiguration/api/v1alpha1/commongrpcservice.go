@@ -9,14 +9,29 @@ import (
 
 // CommonGrpcServiceApplyConfiguration represents a declarative configuration of the CommonGrpcService type for use
 // with apply.
+//
+// Common gRPC service configuration created by setting `envoy_grpc“ as the gRPC client
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/grpc_service.proto#envoy-v3-api-msg-config-core-v3-grpcservice
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/grpc_service.proto#envoy-v3-api-msg-config-core-v3-grpcservice-envoygrpc
 type CommonGrpcServiceApplyConfiguration struct {
-	BackendRef              *v1.BackendRef                  `json:"backendRef,omitempty"`
-	Authority               *string                         `json:"authority,omitempty"`
-	MaxReceiveMessageLength *int32                          `json:"maxReceiveMessageLength,omitempty"`
-	SkipEnvoyHeaders        *bool                           `json:"skipEnvoyHeaders,omitempty"`
-	Timeout                 *metav1.Duration                `json:"timeout,omitempty"`
-	InitialMetadata         []HeaderValueApplyConfiguration `json:"initialMetadata,omitempty"`
-	RetryPolicy             *RetryPolicyApplyConfiguration  `json:"retryPolicy,omitempty"`
+	// The backend gRPC service. Can be any type of supported backend (Kubernetes Service, kgateway Backend, etc..)
+	BackendRef *v1.BackendRef `json:"backendRef,omitempty"`
+	// The :authority header in the grpc request. If this field is not set, the authority header value will be cluster_name.
+	// Note that this authority does not override the SNI. The SNI is provided by the transport socket of the cluster.
+	Authority *string `json:"authority,omitempty"`
+	// Maximum gRPC message size that is allowed to be received. If a message over this limit is received, the gRPC stream is terminated with the RESOURCE_EXHAUSTED error.
+	// Defaults to 0, which means unlimited.
+	MaxReceiveMessageLength *int32 `json:"maxReceiveMessageLength,omitempty"`
+	// This provides gRPC client level control over envoy generated headers. If false, the header will be sent but it can be overridden by per stream option. If true, the header will be removed and can not be overridden by per stream option. Default to false.
+	SkipEnvoyHeaders *bool `json:"skipEnvoyHeaders,omitempty"`
+	// The timeout for the gRPC request. This is the timeout for a specific request
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	// Additional metadata to include in streams initiated to the GrpcService.
+	// This can be used for scenarios in which additional ad hoc authorization headers (e.g. x-foo-bar: baz-key) are to be injected
+	InitialMetadata []HeaderValueApplyConfiguration `json:"initialMetadata,omitempty"`
+	// Indicates the retry policy for re-establishing the gRPC stream.
+	// If max interval is not provided, it will be set to ten times the provided base interval
+	RetryPolicy *RetryPolicyApplyConfiguration `json:"retryPolicy,omitempty"`
 }
 
 // CommonGrpcServiceApplyConfiguration constructs a declarative configuration of the CommonGrpcService type for use with

@@ -4,11 +4,21 @@ package v1alpha1
 
 // AzureOpenAIConfigApplyConfiguration represents a declarative configuration of the AzureOpenAIConfig type for use
 // with apply.
+//
+// AzureOpenAIConfig settings for the [Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/) LLM provider.
 type AzureOpenAIConfigApplyConfiguration struct {
-	AuthToken      *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
-	Endpoint       *string                            `json:"endpoint,omitempty"`
-	DeploymentName *string                            `json:"deploymentName,omitempty"`
-	ApiVersion     *string                            `json:"apiVersion,omitempty"`
+	// The authorization token that the AI gateway uses to access the Azure OpenAI API.
+	// This token is automatically sent in the `api-key` header of the request.
+	AuthToken *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
+	// The endpoint for the Azure OpenAI API to use, such as `my-endpoint.openai.azure.com`.
+	// If the scheme is included, it is stripped.
+	Endpoint *string `json:"endpoint,omitempty"`
+	// The name of the Azure OpenAI model deployment to use.
+	// For more information, see the [Azure OpenAI model docs](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models).
+	DeploymentName *string `json:"deploymentName,omitempty"`
+	// The version of the Azure OpenAI API to use.
+	// For more information, see the [Azure OpenAI API version reference](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#api-specs).
+	ApiVersion *string `json:"apiVersion,omitempty"`
 }
 
 // AzureOpenAIConfigApplyConfiguration constructs a declarative configuration of the AzureOpenAIConfig type for use with

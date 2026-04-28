@@ -14,6 +14,10 @@ import (
 
 // GatewayParametersApplyConfiguration represents a declarative configuration of the GatewayParameters type for use
 // with apply.
+//
+// A GatewayParameters contains configuration that is used to dynamically
+// provision kgateway's data plane (Envoy or agentgateway proxy instance), based on a
+// Kubernetes Gateway.
 type GatewayParametersApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
@@ -32,29 +36,14 @@ func GatewayParameters(name, namespace string) *GatewayParametersApplyConfigurat
 	return b
 }
 
-// ExtractGatewayParameters extracts the applied configuration owned by fieldManager from
-// gatewayParameters. If no managedFields are found in gatewayParameters for fieldManager, a
-// GatewayParametersApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
+// ExtractGatewayParametersFrom extracts the applied configuration owned by fieldManager from
+// gatewayParameters for the specified subresource. Pass an empty string for subresource to extract
+// the main resource. Common subresources include "status", "scale", etc.
 // gatewayParameters must be a unmodified GatewayParameters API object that was retrieved from the Kubernetes API.
-// ExtractGatewayParameters provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractGatewayParametersFrom provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-// Experimental!
-func ExtractGatewayParameters(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string) (*GatewayParametersApplyConfiguration, error) {
-	return extractGatewayParameters(gatewayParameters, fieldManager, "")
-}
-
-// ExtractGatewayParametersStatus is the same as ExtractGatewayParameters except
-// that it extracts the status subresource applied configuration.
-// Experimental!
-func ExtractGatewayParametersStatus(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string) (*GatewayParametersApplyConfiguration, error) {
-	return extractGatewayParameters(gatewayParameters, fieldManager, "status")
-}
-
-func extractGatewayParameters(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string, subresource string) (*GatewayParametersApplyConfiguration, error) {
+func ExtractGatewayParametersFrom(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string, subresource string) (*GatewayParametersApplyConfiguration, error) {
 	b := &GatewayParametersApplyConfiguration{}
 	err := managedfields.ExtractInto(gatewayParameters, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.GatewayParameters"), fieldManager, b, subresource)
 	if err != nil {
@@ -67,6 +56,27 @@ func extractGatewayParameters(gatewayParameters *apiv1alpha1.GatewayParameters, 
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
+
+// ExtractGatewayParameters extracts the applied configuration owned by fieldManager from
+// gatewayParameters. If no managedFields are found in gatewayParameters for fieldManager, a
+// GatewayParametersApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
+// gatewayParameters must be a unmodified GatewayParameters API object that was retrieved from the Kubernetes API.
+// ExtractGatewayParameters provides a way to perform a extract/modify-in-place/apply workflow.
+// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
+// applied if another fieldManager has updated or force applied any of the previously applied fields.
+func ExtractGatewayParameters(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string) (*GatewayParametersApplyConfiguration, error) {
+	return ExtractGatewayParametersFrom(gatewayParameters, fieldManager, "")
+}
+
+// ExtractGatewayParametersStatus extracts the applied configuration owned by fieldManager from
+// gatewayParameters for the status subresource.
+func ExtractGatewayParametersStatus(gatewayParameters *apiv1alpha1.GatewayParameters, fieldManager string) (*GatewayParametersApplyConfiguration, error) {
+	return ExtractGatewayParametersFrom(gatewayParameters, fieldManager, "status")
+}
+
 func (b GatewayParametersApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

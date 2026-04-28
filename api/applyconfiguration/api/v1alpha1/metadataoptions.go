@@ -4,7 +4,11 @@ package v1alpha1
 
 // MetadataOptionsApplyConfiguration represents a declarative configuration of the MetadataOptions type for use
 // with apply.
+//
+// MetadataOptions allows configuring metadata namespaces to forward or receive from the external
+// processing server.
 type MetadataOptionsApplyConfiguration struct {
+	// Forwarding defines the typed or untyped dynamic metadata namespaces to forward to the external processing server.
 	Forwarding *MetadataNamespacesApplyConfiguration `json:"forwarding,omitempty"`
 }
 

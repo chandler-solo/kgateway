@@ -4,22 +4,55 @@ package v1alpha1
 
 // TrafficPolicySpecApplyConfiguration represents a declarative configuration of the TrafficPolicySpec type for use
 // with apply.
+//
+// TrafficPolicySpec defines the desired state of a traffic policy.
+// Note: Backend attachment is only supported for agentgateway.
 type TrafficPolicySpecApplyConfiguration struct {
-	TargetRefs      []LocalPolicyTargetReferenceWithSectionNameApplyConfiguration `json:"targetRefs,omitempty"`
-	TargetSelectors []LocalPolicyTargetSelectorWithSectionNameApplyConfiguration  `json:"targetSelectors,omitempty"`
-	AI              *AIPolicyApplyConfiguration                                   `json:"ai,omitempty"`
-	Transformation  *TransformationPolicyApplyConfiguration                       `json:"transformation,omitempty"`
-	ExtProc         *ExtProcPolicyApplyConfiguration                              `json:"extProc,omitempty"`
-	ExtAuth         *ExtAuthPolicyApplyConfiguration                              `json:"extAuth,omitempty"`
-	RateLimit       *RateLimitApplyConfiguration                                  `json:"rateLimit,omitempty"`
-	Cors            *CorsPolicyApplyConfiguration                                 `json:"cors,omitempty"`
-	Csrf            *CSRFPolicyApplyConfiguration                                 `json:"csrf,omitempty"`
-	HeaderModifiers *HeaderModifiersApplyConfiguration                            `json:"headerModifiers,omitempty"`
-	AutoHostRewrite *bool                                                         `json:"autoHostRewrite,omitempty"`
-	Buffer          *BufferApplyConfiguration                                     `json:"buffer,omitempty"`
-	Timeouts        *TimeoutsApplyConfiguration                                   `json:"timeouts,omitempty"`
-	Retry           *RetryApplyConfiguration                                      `json:"retry,omitempty"`
-	RBAC            *RBACApplyConfiguration                                       `json:"rbac,omitempty"`
+	// TargetRefs specifies the target resources by reference to attach the policy to.
+	TargetRefs []LocalPolicyTargetReferenceWithSectionNameApplyConfiguration `json:"targetRefs,omitempty"`
+	// TargetSelectors specifies the target selectors to select resources to attach the policy to.
+	TargetSelectors []LocalPolicyTargetSelectorWithSectionNameApplyConfiguration `json:"targetSelectors,omitempty"`
+	// AI is used to configure AI-based policies for the policy.
+	AI *AIPolicyApplyConfiguration `json:"ai,omitempty"`
+	// Transformation is used to mutate and transform requests and responses
+	// before forwarding them to the destination.
+	Transformation *TransformationPolicyApplyConfiguration `json:"transformation,omitempty"`
+	// ExtProc specifies the external processing configuration for the policy.
+	ExtProc *ExtProcPolicyApplyConfiguration `json:"extProc,omitempty"`
+	// ExtAuth specifies the external authentication configuration for the policy.
+	// This controls what external server to send requests to for authentication.
+	ExtAuth *ExtAuthPolicyApplyConfiguration `json:"extAuth,omitempty"`
+	// RateLimit specifies the rate limiting configuration for the policy.
+	// This controls the rate at which requests are allowed to be processed.
+	RateLimit *RateLimitApplyConfiguration `json:"rateLimit,omitempty"`
+	// Cors specifies the CORS configuration for the policy.
+	Cors *CorsPolicyApplyConfiguration `json:"cors,omitempty"`
+	// Csrf specifies the Cross-Site Request Forgery (CSRF) policy for this traffic policy.
+	Csrf *CSRFPolicyApplyConfiguration `json:"csrf,omitempty"`
+	// HeaderModifiers defines the policy to modify request and response headers.
+	HeaderModifiers *HeaderModifiersApplyConfiguration `json:"headerModifiers,omitempty"`
+	// AutoHostRewrite rewrites the Host header to the DNS name of the selected upstream.
+	// NOTE: This field is only honoured for HTTPRoute targets.
+	// NOTE: If `autoHostRewrite` is set on a route that also has a [URLRewrite filter](https://gateway-api.sigs.k8s.io/reference/spec/#httpurlrewritefilter)
+	// configured to override the `hostname`, the `hostname` value will be used and `autoHostRewrite` will be ignored.
+	AutoHostRewrite *bool `json:"autoHostRewrite,omitempty"`
+	// Buffer can be used to set the maximum request size that will be buffered.
+	// Requests exceeding this size will return a 413 response.
+	Buffer *BufferApplyConfiguration `json:"buffer,omitempty"`
+	// Timeouts defines the timeouts for requests
+	// It is applicable to HTTPRoutes and ignored for other targeted kinds.
+	Timeouts *TimeoutsApplyConfiguration `json:"timeouts,omitempty"`
+	// Retry defines the policy for retrying requests.
+	// It is applicable to HTTPRoutes, Gateway listeners and XListenerSets, and ignored for other targeted kinds.
+	Retry *RetryApplyConfiguration `json:"retry,omitempty"`
+	// RBAC specifies the role-based access control configuration for the policy.
+	// This defines the rules for authorization based on roles and permissions.
+	// With an Envoy-based Gateway, RBAC policies applied at different attachment points in the configuration
+	// hierarchy are not cumulative, and only the most specific policy is enforced. In Envoy, this means an RBAC policy
+	// attached to a route will override any RBAC policies applied to the gateway or listener. In contrast, an
+	// Agentgateway-based Gateway supports cumulative RBAC policies across different attachment points, such that
+	// an RBAC policy attached to a route augments policies applied to the gateway or listener without overriding them.
+	RBAC *RBACApplyConfiguration `json:"rbac,omitempty"`
 }
 
 // TrafficPolicySpecApplyConfiguration constructs a declarative configuration of the TrafficPolicySpec type for use with

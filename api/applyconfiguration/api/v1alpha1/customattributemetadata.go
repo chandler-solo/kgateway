@@ -8,10 +8,16 @@ import (
 
 // CustomAttributeMetadataApplyConfiguration represents a declarative configuration of the CustomAttributeMetadata type for use
 // with apply.
+//
+// Metadata type attribute using MetadataKey to retrieve the protobuf value from Metadata, and populate the attribute value with the canonical JSON representation of it.
+// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/type/tracing/v3/custom_tag.proto#type-tracing-v3-customtag-metadata
 type CustomAttributeMetadataApplyConfiguration struct {
-	Kind         *apiv1alpha1.MetadataKind      `json:"kind,omitempty"`
-	MetadataKey  *MetadataKeyApplyConfiguration `json:"metadataKey,omitempty"`
-	DefaultValue *string                        `json:"defaultValue,omitempty"`
+	// Specify what kind of metadata to obtain attribute value from
+	Kind *apiv1alpha1.MetadataKind `json:"kind,omitempty"`
+	// Metadata key to define the path to retrieve the attribute value.
+	MetadataKey *MetadataKeyApplyConfiguration `json:"metadataKey,omitempty"`
+	// When no valid metadata is found, the attribute value would be populated with this default value if specified, otherwise no attribute would be populated.
+	DefaultValue *string `json:"defaultValue,omitempty"`
 }
 
 // CustomAttributeMetadataApplyConfiguration constructs a declarative configuration of the CustomAttributeMetadata type for use with

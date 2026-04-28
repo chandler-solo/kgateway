@@ -8,9 +8,14 @@ import (
 
 // TCPKeepaliveApplyConfiguration represents a declarative configuration of the TCPKeepalive type for use
 // with apply.
+//
+// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/address.proto#envoy-v3-api-msg-config-core-v3-tcpkeepalive) for more details.
 type TCPKeepaliveApplyConfiguration struct {
-	KeepAliveProbes   *int32       `json:"keepAliveProbes,omitempty"`
-	KeepAliveTime     *v1.Duration `json:"keepAliveTime,omitempty"`
+	// Maximum number of keep-alive probes to send before dropping the connection.
+	KeepAliveProbes *int32 `json:"keepAliveProbes,omitempty"`
+	// The number of seconds a connection needs to be idle before keep-alive probes start being sent.
+	KeepAliveTime *v1.Duration `json:"keepAliveTime,omitempty"`
+	// The number of seconds between keep-alive probes.
 	KeepAliveInterval *v1.Duration `json:"keepAliveInterval,omitempty"`
 }
 

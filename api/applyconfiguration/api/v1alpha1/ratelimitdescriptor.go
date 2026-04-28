@@ -4,7 +4,12 @@ package v1alpha1
 
 // RateLimitDescriptorApplyConfiguration represents a declarative configuration of the RateLimitDescriptor type for use
 // with apply.
+//
+// RateLimitDescriptor defines a descriptor for rate limiting.
+// A descriptor is a group of entries that form a single rate limit rule.
 type RateLimitDescriptorApplyConfiguration struct {
+	// Entries are the individual components that make up this descriptor.
+	// When translated to Envoy, these entries combine to form a single descriptor.
 	Entries []RateLimitDescriptorEntryApplyConfiguration `json:"entries,omitempty"`
 }
 

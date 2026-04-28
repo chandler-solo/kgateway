@@ -4,8 +4,13 @@ package v1alpha1
 
 // TransformationPolicyApplyConfiguration represents a declarative configuration of the TransformationPolicy type for use
 // with apply.
+//
+// TransformationPolicy config is used to modify envoy behavior at a route level.
+// These modifications can be performed on the request and response paths.
 type TransformationPolicyApplyConfiguration struct {
-	Request  *TransformApplyConfiguration `json:"request,omitempty"`
+	// Request is used to modify the request path.
+	Request *TransformApplyConfiguration `json:"request,omitempty"`
+	// Response is used to modify the response path.
 	Response *TransformApplyConfiguration `json:"response,omitempty"`
 }
 
