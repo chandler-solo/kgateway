@@ -87,14 +87,28 @@
           "type": "object",
           "description": "Resource requests (cpu, memory, ephemeral-storage, hugepages, etc.)",
           "additionalProperties": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
           }
         },
         "limits": {
           "type": "object",
           "description": "Resource limits (cpu, memory, ephemeral-storage, hugepages, etc.)",
           "additionalProperties": {
-            "type": "string"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
           }
         }
       }
@@ -352,7 +366,13 @@
             },
             "trafficDistribution": {
               "type": "string",
-              "description": "Traffic distribution."
+              "description": "Traffic distribution.",
+              "enum": [
+                "",
+                "PreferClose",
+                "PreferSameZone",
+                "PreferSameNode"
+              ]
             }
           }
         },
@@ -507,14 +527,7 @@
         "level": {
           "type": "string",
           "description": "Validation level. Accepted values: standard or strict (case-insensitive).",
-          "enum": [
-            "standard",
-            "strict",
-            "Standard",
-            "Strict",
-            "STANDARD",
-            "STRICT"
-          ]
+          "pattern": "^\\s*([sS][tT][aA][nN][dD][aA][rR][dD]|[sS][tT][rR][iI][cC][tT])\\s*$"
         }
       }
     }

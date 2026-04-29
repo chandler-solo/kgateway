@@ -187,6 +187,75 @@ func TestImageTagVPrefix(t *testing.T) {
 	}
 }
 
+func TestHelmValuesSchemaValidation(t *testing.T) {
+	helmChartPath := filepath.Join("..", "..", "install", "helm", "kgateway")
+	absHelmChartPath, err := filepath.Abs(helmChartPath)
+	require.NoError(t, err, "failed to get absolute path for helm chart")
+
+	_, err = os.Stat(absHelmChartPath)
+	require.NoError(t, err, "helm chart not found at %s", absHelmChartPath)
+
+	testCases := []struct {
+		name       string
+		valuesYAML string
+		wantErr    string
+	}{
+		{
+			name: "resources allow numeric quantities",
+			valuesYAML: `resources:
+  requests:
+    cpu: 1
+    memory: 128Mi
+  limits:
+    cpu: 2
+`,
+		},
+		{
+			name: "validation level is trimmed and case insensitive",
+			valuesYAML: `validation:
+  level: " sTrIcT "
+`,
+		},
+		{
+			name: "traffic distribution rejects unknown values",
+			valuesYAML: `controller:
+  service:
+    trafficDistribution: SomewhereElse
+`,
+			wantErr: "trafficDistribution",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			valuesFile, err := os.CreateTemp("", "values-*.yaml")
+			require.NoError(t, err, "failed to create temp values file")
+			defer os.Remove(valuesFile.Name())
+
+			_, err = valuesFile.WriteString(tc.valuesYAML)
+			require.NoError(t, err, "failed to write values file")
+			err = valuesFile.Close()
+			require.NoError(t, err, "failed to close values file")
+
+			args := []string{"template", "test-release", absHelmChartPath, "--namespace", "default", "-f", valuesFile.Name()}
+			helmCmd := exec.Command("helm", args...)
+			var output bytes.Buffer
+			var stderr bytes.Buffer
+			helmCmd.Stdout = &output
+			helmCmd.Stderr = &stderr
+
+			err = helmCmd.Run()
+			if tc.wantErr == "" {
+				require.NoError(t, err, "helm template failed: %s", stderr.String())
+				return
+			}
+
+			require.Error(t, err, "helm template should fail")
+			require.Contains(t, stderr.String(), tc.wantErr)
+		})
+	}
+}
+
 // extractImageLines extracts lines containing "image:" from the output for debugging
 func extractImageLines(output string) string {
 	var lines []string
