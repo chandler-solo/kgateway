@@ -217,6 +217,19 @@ func TestHelmValuesSchemaValidation(t *testing.T) {
 `,
 		},
 		{
+			name: "replicas allow null",
+			valuesYAML: `controller:
+  replicaCount: null
+`,
+		},
+		{
+			name: "replicas reject negative values",
+			valuesYAML: `controller:
+  replicaCount: -1
+`,
+			wantErr: "replicaCount",
+		},
+		{
 			name: "traffic distribution rejects unknown values",
 			valuesYAML: `controller:
   service:

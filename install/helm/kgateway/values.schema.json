@@ -144,9 +144,16 @@
       "additionalProperties": false,
       "properties": {
         "replicaCount": {
-          "type": "integer",
           "description": "Set the number of controller pod replicas.",
-          "minimum": 0
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "priorityClassName": {
           "type": "string",
