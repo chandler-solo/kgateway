@@ -927,16 +927,6 @@ envoyversion:
 	echo "Current ABI in envoyinit can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"
 
 #----------------------------------------------------------------------------------
-# Helm schema verification
-#----------------------------------------------------------------------------------
-
-.PHONY: verify-helm-schema
-verify-helm-schema: ## Verify values.yaml and values.schema.json are in sync
-	go -C hack/utils/verify-helm-schema run . \
-		-values $(CURDIR)/install/helm/kgateway/values.yaml \
-		-schema $(CURDIR)/install/helm/kgateway/values.schema.json
-
-#----------------------------------------------------------------------------------
 # Printing makefile variables utility
 #----------------------------------------------------------------------------------
 
