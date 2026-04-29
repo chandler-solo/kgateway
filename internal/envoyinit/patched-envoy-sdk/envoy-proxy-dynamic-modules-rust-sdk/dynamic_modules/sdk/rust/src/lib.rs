@@ -2,6 +2,9 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(dead_code)]
+// Vendored upstream SDK; suppress the lifetime-syntax lint added in Rust 1.83+
+// rather than churning the patched copy. To be removed with REMOVE-ENVOY-1.37.
+#![allow(mismatched_lifetime_syntaxes)]
 
 pub mod buffer;
 pub use buffer::{EnvoyBuffer, EnvoyMutBuffer};
