@@ -932,7 +932,9 @@ envoyversion:
 
 .PHONY: verify-helm-schema
 verify-helm-schema: ## Verify values.yaml and values.schema.json are in sync
-	python3 hack/helm/verify-schema-sync.py
+	go -C hack/utils/verify-helm-schema run . \
+		-values $(CURDIR)/install/helm/kgateway/values.yaml \
+		-schema $(CURDIR)/install/helm/kgateway/values.schema.json
 
 #----------------------------------------------------------------------------------
 # Printing makefile variables utility
