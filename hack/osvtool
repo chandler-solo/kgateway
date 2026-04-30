@@ -60,8 +60,12 @@ header_value() {
     local header="$2"
 
     awk -v header="$header" '
-        BEGIN { IGNORECASE = 1 }
-        index($0, header ":") == 1 {
+        BEGIN {
+            IGNORECASE = 1
+            header_re = header
+            gsub(/[][(){}.*+?^$|\\-]/, "\\\\&", header_re)
+        }
+        $0 ~ ("^" header_re ":[[:space:]]*") {
             sub(/^[^:]+:[[:space:]]*/, "")
             sub(/\r$/, "")
             value = $0
