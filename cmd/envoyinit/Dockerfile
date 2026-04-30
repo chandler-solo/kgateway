@@ -5,6 +5,9 @@ FROM --platform=$TARGETPLATFORM ${CARGO_ZBUILD_IMAGE} AS rust_build_deps
 WORKDIR /build
 RUN apt update && apt install -y clang
 ARG RUSTFORMATIONS_DIR=./rustformations
+# Copy rust-toolchain.toml first so rustup auto-installs the pinned toolchain
+# (single source of truth for Rust version; .github/workflows/lint.yaml also reads this file).
+COPY ${RUSTFORMATIONS_DIR}/rust-toolchain.toml ./
 # Unfortunately, there is no easy way to find all the Cargo.toml files and iterate
 # through the directories in Dockerfile. If we add more local crate, will need to add
 # it's Cargo.toml file below
