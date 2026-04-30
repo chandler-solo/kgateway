@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
@@ -70,9 +69,8 @@ var applyCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fieldValidationVerifier := resource.NewQueryParamVerifier(dynamicClient, factory.OpenAPIGetter(), resource.QueryParamFieldValidation)
 
-		validator, err := factory.Validator(validationDirective, fieldValidationVerifier)
+		validator, err := factory.Validator(validationDirective)
 		if err != nil {
 			return err
 		}
