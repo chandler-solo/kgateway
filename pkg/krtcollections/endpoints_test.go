@@ -571,14 +571,14 @@ func TestEndpoints(t *testing.T) {
 						{
 							Addresses: []string{"1.2.3.4"},
 							Conditions: discoveryv1.EndpointConditions{
-								Ready: new(true),
+								Ready: ptr.To(true),
 							},
 						},
 					},
 					Ports: []discoveryv1.EndpointPort{
 						{
-							Name:     new("not-second-port"),
-							Port:     new(int32(3001)),
+							Name:     ptr.To("not-second-port"),
+							Port:     ptr.To(int32(3001)),
 							Protocol: ptr.To(corev1.ProtocolTCP),
 						},
 					},
