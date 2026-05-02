@@ -209,6 +209,23 @@ func setupGateway(ctx context.Context) {
 
 	waitForGatewayService(ctx, gw)
 
+	// The gateway reconcile creates the Service mid-body; the deferred metric
+	// recording fires after the Service is committed. Wait for the gateway
+	// controller's reconcile metric so subsequent assertions don't race.
+	if metrics.Active() {
+		Eventually(func() bool {
+			gathered := metricstest.MustGatherMetrics(GinkgoT())
+			return gathered.HasMetricWithLabels(
+				"kgateway_controller_reconcile_duration_seconds",
+				[]metrics.Label{
+					{Name: "controller", Value: "gateway"},
+					{Name: "name", Value: gw.Name},
+					{Name: "namespace", Value: gw.Namespace},
+				},
+			)
+		}, timeout, interval).Should(BeTrue(), "gateway controller reconcile metric not recorded")
+	}
+
 	if probs, err := metricstest.GatherAndLint(); err != nil || len(probs) > 0 {
 		Fail("metrics linter error: " + err.Error())
 	}

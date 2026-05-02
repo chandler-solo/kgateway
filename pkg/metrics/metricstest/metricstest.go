@@ -94,6 +94,7 @@ type GatheredMetrics interface {
 	AssertMetric(name string, expectedMetric ExpectMetric)
 	AssertMetrics(name string, expectedMetrics []ExpectMetric)
 	AssertMetricsInclude(name string, expectedMetrics []ExpectMetric)
+	HasMetricWithLabels(name string, expectedLabels []metrics.Label) bool
 	Length() int
 	MetricLength(name string) int
 }
@@ -363,6 +364,23 @@ func (g *prometheusGatheredMetrics) AssertHistogramBuckets(name string, expected
 	for i, bucket := range buckets {
 		assert.Equal(g.t, expectedBuckets[i], bucket.GetUpperBound(), "Bucket %d for histogram %s does not match expected value", i, name)
 	}
+}
+
+// HasMetricWithLabels reports whether any gathered metric with the given name
+// has labels matching expectedLabels exactly. Useful as a polling predicate
+// inside Eventually blocks while waiting for a specific reconcile to record
+// metrics.
+func (g *prometheusGatheredMetrics) HasMetricWithLabels(name string, expectedLabels []metrics.Label) bool {
+	ms, ok := g.metrics[name]
+	if !ok {
+		return false
+	}
+	for _, m := range ms {
+		if g.metricObjLabelsMatch(m, expectedLabels) == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // AssertMetricExists asserts that a metric with the given name exists.
