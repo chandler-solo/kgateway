@@ -3,7 +3,6 @@ package validator
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +14,8 @@ import (
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	protojson "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	_ "embed"
 )
 
 // protoDebugPrefixRe matches the non-deterministic "goo.gle/..." URL that newer
