@@ -4,7 +4,7 @@ Kgateway maintains **releases through a GitHub-Actions + GoReleaser pipeline**. 
 instructions for creating a *minor* or a *patch* release.
 
 > **Making any changes here?** See if you should update the issue template at
-> [.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md](../../.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md) to keep its checklist in sync.
+> [.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md](/.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md) to keep its checklist in sync.
 
 ## Background
 
