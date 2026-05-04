@@ -34,10 +34,11 @@ Name|Version|License
 [stretchr/testify](https://github.com/stretchr/testify)|v1.11.1|MIT License
 [go.opencensus.io](https://go.opencensus.io)|v0.24.0|Apache License 2.0
 [proto/otlp](https://go.opentelemetry.io/proto/otlp)|v1.10.0|Apache License 2.0
+[go.uber.org/mock](https://go.uber.org/mock)|v0.6.0|Apache License 2.0
 [go.uber.org/zap](https://go.uber.org/zap)|v1.27.1|MIT License
-[x/exp](https://golang.org/x/exp)|v0.0.0-20260112195511-716be5621a96|BSD 3-clause "New" or "Revised" License
+[x/exp](https://golang.org/x/exp)|v0.0.0-20251209150349-8475f28825e9|BSD 3-clause "New" or "Revised" License
 [x/net](https://golang.org/x/net)|v0.52.0|BSD 3-clause "New" or "Revised" License
-[google.golang.org/grpc](https://google.golang.org/grpc)|v1.80.0|Apache License 2.0
+[google.golang.org/grpc](https://google.golang.org/grpc)|v1.79.2|Apache License 2.0
 [google.golang.org/protobuf](https://google.golang.org/protobuf)|v1.36.11|BSD 3-clause "New" or "Revised" License
 [helm/v3](https://helm.sh/helm/v3)|v3.20.2|Apache License 2.0
 [istio.io/api](https://istio.io/api)|v1.30.0-alpha.1.0.20260415171154-7fa57afdea51|Apache License 2.0

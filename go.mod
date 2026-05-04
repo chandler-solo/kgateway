@@ -16,7 +16,6 @@ require (
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/zapr v1.3.0
-	github.com/golang/mock v1.7.0-rc.1
 	github.com/google/go-cmp v0.7.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -33,10 +32,11 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	go.opencensus.io v0.24.0
+	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.27.1
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96
+	golang.org/x/exp v0.0.0-20251209150349-8475f28825e9
 	golang.org/x/net v0.52.0
-	google.golang.org/grpc v1.80.0
+	google.golang.org/grpc v1.79.2
 	google.golang.org/protobuf v1.36.11
 	helm.sh/helm/v3 v3.20.2
 	istio.io/api v1.30.0-alpha.1.0.20260415171154-7fa57afdea51
@@ -656,11 +656,11 @@ require (
 replace sigs.k8s.io/controller-tools => github.com/shashankram/controller-tools v0.0.0-20250626172831-f7be064a9132
 
 tool (
-	github.com/golang/mock/mockgen
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/goreleaser/goreleaser/v2
 	github.com/mikefarah/yq/v4
 	github.com/onsi/ginkgo/v2/ginkgo
+	go.uber.org/mock/mockgen
 	golang.org/x/tools/cmd/goimports
 	helm.sh/helm/v3/cmd/helm
 	k8s.io/code-generator/cmd/applyconfiguration-gen
