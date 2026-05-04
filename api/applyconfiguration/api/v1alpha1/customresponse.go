@@ -4,15 +4,9 @@ package v1alpha1
 
 // CustomResponseApplyConfiguration represents a declarative configuration of the CustomResponse type for use
 // with apply.
-//
-// CustomResponse configures a response to return to the client if request content
-// is matched against a regex pattern and the action is `REJECT`.
 type CustomResponseApplyConfiguration struct {
-	// A custom response message to return to the client. If not specified, defaults to
-	// "The request was rejected due to inappropriate content".
-	Message *string `json:"message,omitempty"`
-	// The status code to return to the client. Defaults to 403.
-	StatusCode *int32 `json:"statusCode,omitempty"`
+	Message    *string `json:"message,omitempty"`
+	StatusCode *int32  `json:"statusCode,omitempty"`
 }
 
 // CustomResponseApplyConfiguration constructs a declarative configuration of the CustomResponse type for use with

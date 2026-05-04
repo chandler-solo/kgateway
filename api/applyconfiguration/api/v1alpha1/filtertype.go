@@ -4,22 +4,15 @@ package v1alpha1
 
 // FilterTypeApplyConfiguration represents a declarative configuration of the FilterType type for use
 // with apply.
-//
-// FilterType represents the type of filter to apply (only one of these should be set).
-// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#envoy-v3-api-msg-config-accesslog-v3-accesslogfilter
 type FilterTypeApplyConfiguration struct {
-	StatusCodeFilter *StatusCodeFilterApplyConfiguration `json:"statusCodeFilter,omitempty"`
-	DurationFilter   *DurationFilterApplyConfiguration   `json:"durationFilter,omitempty"`
-	// Filters for requests that are not health check requests.
-	// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-nothealthcheckfilter
-	NotHealthCheckFilter *bool `json:"notHealthCheckFilter,omitempty"`
-	// Filters for requests that are traceable.
-	// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-traceablefilter
-	TraceableFilter    *bool                                 `json:"traceableFilter,omitempty"`
-	HeaderFilter       *HeaderFilterApplyConfiguration       `json:"headerFilter,omitempty"`
-	ResponseFlagFilter *ResponseFlagFilterApplyConfiguration `json:"responseFlagFilter,omitempty"`
-	GrpcStatusFilter   *GrpcStatusFilterApplyConfiguration   `json:"grpcStatusFilter,omitempty"`
-	CELFilter          *CELFilterApplyConfiguration          `json:"celFilter,omitempty"`
+	StatusCodeFilter     *StatusCodeFilterApplyConfiguration   `json:"statusCodeFilter,omitempty"`
+	DurationFilter       *DurationFilterApplyConfiguration     `json:"durationFilter,omitempty"`
+	NotHealthCheckFilter *bool                                 `json:"notHealthCheckFilter,omitempty"`
+	TraceableFilter      *bool                                 `json:"traceableFilter,omitempty"`
+	HeaderFilter         *HeaderFilterApplyConfiguration       `json:"headerFilter,omitempty"`
+	ResponseFlagFilter   *ResponseFlagFilterApplyConfiguration `json:"responseFlagFilter,omitempty"`
+	GrpcStatusFilter     *GrpcStatusFilterApplyConfiguration   `json:"grpcStatusFilter,omitempty"`
+	CELFilter            *CELFilterApplyConfiguration          `json:"celFilter,omitempty"`
 }
 
 // FilterTypeApplyConfiguration constructs a declarative configuration of the FilterType type for use with

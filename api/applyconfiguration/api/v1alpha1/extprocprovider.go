@@ -10,32 +10,15 @@ import (
 
 // ExtProcProviderApplyConfiguration represents a declarative configuration of the ExtProcProvider type for use
 // with apply.
-//
-// ExtProcProvider defines the configuration for an ExtProc provider.
 type ExtProcProviderApplyConfiguration struct {
-	// GrpcService is the GRPC service that will handle the processing.
-	GrpcService *ExtGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
-	// FailOpen determines if requests are allowed when the ext proc service is unavailable.
-	// Defaults to true, meaning requests are allowed upstream even if the ext proc service is unavailable.
-	FailOpen *bool `json:"failOpen,omitempty"`
-	// ProcessingMode defines how the filter should interact with the request/response streams.
-	ProcessingMode *ProcessingModeApplyConfiguration `json:"processingMode,omitempty"`
-	// MessageTimeout is the timeout for each message sent to the external processing server.
-	MessageTimeout *v1.Duration `json:"messageTimeout,omitempty"`
-	// MaxMessageTimeout specifies the upper bound of override_message_timeout that may be sent from the external processing server.
-	// The default value 0, which effectively disables the override_message_timeout API.
-	MaxMessageTimeout *v1.Duration `json:"maxMessageTimeout,omitempty"`
-	// StatPrefix is an optional prefix to include when emitting stats from the extproc filter,
-	// enabling different instances of the filter to have unique stats.
-	StatPrefix *string `json:"statPrefix,omitempty"`
-	// RouteCacheAction describes the route cache action to be taken when an
-	// external processor response is received in response to request headers.
-	// The default behavior is "FromResponse" which will only clear the route cache when
-	// an external processing response has the clear_route_cache field set.
-	RouteCacheAction *apiv1alpha1.ExtProcRouteCacheAction `json:"routeCacheAction,omitempty"`
-	// MetadataOptions allows configuring metadata namespaces to forwarded or received from the external
-	// processing server.
-	MetadataOptions *MetadataOptionsApplyConfiguration `json:"metadataOptions,omitempty"`
+	GrpcService       *ExtGrpcServiceApplyConfiguration    `json:"grpcService,omitempty"`
+	FailOpen          *bool                                `json:"failOpen,omitempty"`
+	ProcessingMode    *ProcessingModeApplyConfiguration    `json:"processingMode,omitempty"`
+	MessageTimeout    *v1.Duration                         `json:"messageTimeout,omitempty"`
+	MaxMessageTimeout *v1.Duration                         `json:"maxMessageTimeout,omitempty"`
+	StatPrefix        *string                              `json:"statPrefix,omitempty"`
+	RouteCacheAction  *apiv1alpha1.ExtProcRouteCacheAction `json:"routeCacheAction,omitempty"`
+	MetadataOptions   *MetadataOptionsApplyConfiguration   `json:"metadataOptions,omitempty"`
 }
 
 // ExtProcProviderApplyConfiguration constructs a declarative configuration of the ExtProcProvider type for use with

@@ -4,10 +4,6 @@ package v1alpha1
 
 // MetadataNamespacesApplyConfiguration represents a declarative configuration of the MetadataNamespaces type for use
 // with apply.
-//
-// MetadataNamespaces configures which metadata namespaces to use.
-// See [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ext_proc/v3/ext_proc.proto#envoy-v3-api-msg-extensions-filters-http-ext-proc-v3-metadataoptions-metadatanamespaces)
-// for specifics.
 type MetadataNamespacesApplyConfiguration struct {
 	Typed   []string `json:"typed,omitempty"`
 	Untyped []string `json:"untyped,omitempty"`

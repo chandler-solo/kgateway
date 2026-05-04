@@ -4,11 +4,7 @@ package v1alpha1
 
 // CustomAttributeLiteralApplyConfiguration represents a declarative configuration of the CustomAttributeLiteral type for use
 // with apply.
-//
-// Literal type attribute with a static value.
-// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/type/tracing/v3/custom_tag.proto#type-tracing-v3-customtag-literal
 type CustomAttributeLiteralApplyConfiguration struct {
-	// Static literal value to populate the attribute value.
 	Value *string `json:"value,omitempty"`
 }
 

@@ -12,9 +12,7 @@ import (
 // with apply.
 type CorsPolicyApplyConfiguration struct {
 	v1.HTTPCORSFilter `json:",inline"`
-	// Disable the CORS filter.
-	// Can be used to disable CORS policies applied at a higher level in the config hierarchy.
-	Disable *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
+	Disable           *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
 }
 
 // CorsPolicyApplyConfiguration constructs a declarative configuration of the CorsPolicy type for use with

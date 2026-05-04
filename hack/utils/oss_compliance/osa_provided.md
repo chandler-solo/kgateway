@@ -38,20 +38,20 @@ Name|Version|License
 [go.uber.org/zap](https://go.uber.org/zap)|v1.27.1|MIT License
 [x/exp](https://golang.org/x/exp)|v0.0.0-20251209150349-8475f28825e9|BSD 3-clause "New" or "Revised" License
 [x/net](https://golang.org/x/net)|v0.52.0|BSD 3-clause "New" or "Revised" License
-[google.golang.org/grpc](https://google.golang.org/grpc)|v1.79.2|Apache License 2.0
+[google.golang.org/grpc](https://google.golang.org/grpc)|v1.79.3|Apache License 2.0
 [google.golang.org/protobuf](https://google.golang.org/protobuf)|v1.36.11|BSD 3-clause "New" or "Revised" License
-[helm/v3](https://helm.sh/helm/v3)|v3.20.2|Apache License 2.0
-[istio.io/api](https://istio.io/api)|v1.30.0-alpha.1.0.20260415171154-7fa57afdea51|Apache License 2.0
-[istio.io/client-go](https://istio.io/client-go)|v1.30.0-alpha.1.0.20260415171554-0d069047cd3c|Apache License 2.0
+[helm/v3](https://helm.sh/helm/v3)|v3.19.5|Apache License 2.0
+[istio.io/api](https://istio.io/api)|v1.26.0-alpha.0.0.20251002142010-859b66f07fad|Apache License 2.0
+[istio.io/client-go](https://istio.io/client-go)|v1.26.0-alpha.0.0.20251002142408-752760d8f171|Apache License 2.0
 [istio.io/istio](https://istio.io/istio)|v0.0.0-20251009125038-5ab6df7e5282|Apache License 2.0
-[k8s.io/api](https://k8s.io/api)|v0.35.3|Apache License 2.0
-[k8s.io/apiextensions-apiserver](https://k8s.io/apiextensions-apiserver)|v0.35.3|Apache License 2.0
-[k8s.io/apimachinery](https://k8s.io/apimachinery)|v0.35.3|Apache License 2.0
-[k8s.io/client-go](https://k8s.io/client-go)|v0.35.3|Apache License 2.0
-[klog/v2](https://k8s.io/klog/v2)|v2.140.0|Apache License 2.0
-[k8s.io/kube-openapi](https://k8s.io/kube-openapi)|v0.0.0-20260127142750-a19766b6e2d4|Apache License 2.0
-[k8s.io/utils](https://k8s.io/utils)|v0.0.0-20260319190234-28399d86e0b5|Apache License 2.0
-[sigs.k8s.io/controller-runtime](https://sigs.k8s.io/controller-runtime)|v0.23.3|Apache License 2.0
+[k8s.io/api](https://k8s.io/api)|v0.34.3|Apache License 2.0
+[k8s.io/apiextensions-apiserver](https://k8s.io/apiextensions-apiserver)|v0.34.3|Apache License 2.0
+[k8s.io/apimachinery](https://k8s.io/apimachinery)|v0.34.3|Apache License 2.0
+[k8s.io/client-go](https://k8s.io/client-go)|v0.34.3|Apache License 2.0
+[klog/v2](https://k8s.io/klog/v2)|v2.130.1|Apache License 2.0
+[k8s.io/kube-openapi](https://k8s.io/kube-openapi)|v0.0.0-20251125145642-4e65d59e963e|Apache License 2.0
+[k8s.io/utils](https://k8s.io/utils)|v0.0.0-20251219084037-98d557b7f1e7|Apache License 2.0
+[sigs.k8s.io/controller-runtime](https://sigs.k8s.io/controller-runtime)|v0.22.3|Apache License 2.0
 [sigs.k8s.io/gateway-api](https://sigs.k8s.io/gateway-api)|v1.4.0|Apache License 2.0
 [sigs.k8s.io/gateway-api-inference-extension](https://sigs.k8s.io/gateway-api-inference-extension)|v1.1.0|Apache License 2.0
 [structured-merge-diff/v6](https://sigs.k8s.io/structured-merge-diff/v6)|v6.3.2|Apache License 2.0

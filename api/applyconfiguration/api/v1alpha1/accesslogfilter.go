@@ -4,17 +4,10 @@ package v1alpha1
 
 // AccessLogFilterApplyConfiguration represents a declarative configuration of the AccessLogFilter type for use
 // with apply.
-//
-// AccessLogFilter represents the top-level filter structure.
-// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-accesslogfilter
 type AccessLogFilterApplyConfiguration struct {
 	FilterTypeApplyConfiguration `json:",inline"`
-	// Performs a logical "and" operation on the result of each individual filter.
-	// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-andfilter
-	AndFilter []FilterTypeApplyConfiguration `json:"andFilter,omitempty"`
-	// Performs a logical "or" operation on the result of each individual filter.
-	// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-orfilter
-	OrFilter []FilterTypeApplyConfiguration `json:"orFilter,omitempty"`
+	AndFilter                    []FilterTypeApplyConfiguration `json:"andFilter,omitempty"`
+	OrFilter                     []FilterTypeApplyConfiguration `json:"orFilter,omitempty"`
 }
 
 // AccessLogFilterApplyConfiguration constructs a declarative configuration of the AccessLogFilter type for use with

@@ -4,10 +4,7 @@ package v1alpha1
 
 // KeyAnyValueListApplyConfiguration represents a declarative configuration of the KeyAnyValueList type for use
 // with apply.
-//
-// A list of key-value pair that is used to store Span attributes, Link attributes, etc.
 type KeyAnyValueListApplyConfiguration struct {
-	// A collection of key/value pairs of key-value pairs.
 	Values []KeyAnyValueApplyConfiguration `json:"values,omitempty"`
 }
 

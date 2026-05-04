@@ -8,38 +8,19 @@ import (
 
 // BackendConfigPolicySpecApplyConfiguration represents a declarative configuration of the BackendConfigPolicySpec type for use
 // with apply.
-//
-// BackendConfigPolicySpec defines the desired state of BackendConfigPolicy.
 type BackendConfigPolicySpecApplyConfiguration struct {
-	// TargetRefs specifies the target references to attach the policy to.
-	TargetRefs []LocalPolicyTargetReferenceApplyConfiguration `json:"targetRefs,omitempty"`
-	// TargetSelectors specifies the target selectors to select resources to attach the policy to.
-	TargetSelectors []LocalPolicyTargetSelectorApplyConfiguration `json:"targetSelectors,omitempty"`
-	// The timeout for new network connections to hosts in the cluster.
-	ConnectTimeout *v1.Duration `json:"connectTimeout,omitempty"`
-	// Soft limit on the size of the cluster's connections read and write buffers.
-	// If unspecified, an implementation-defined default is applied (1MiB).
-	PerConnectionBufferLimitBytes *int32 `json:"perConnectionBufferLimitBytes,omitempty"`
-	// Configure OS-level TCP keepalive checks.
-	TCPKeepalive *TCPKeepaliveApplyConfiguration `json:"tcpKeepalive,omitempty"`
-	// Additional options when handling HTTP requests upstream, applicable to
-	// both HTTP1 and HTTP2 requests.
-	CommonHttpProtocolOptions *CommonHttpProtocolOptionsApplyConfiguration `json:"commonHttpProtocolOptions,omitempty"`
-	// Additional options when handling HTTP1 requests upstream.
-	Http1ProtocolOptions *Http1ProtocolOptionsApplyConfiguration `json:"http1ProtocolOptions,omitempty"`
-	// Http2ProtocolOptions contains the options necessary to configure HTTP/2 backends.
-	// Note: Http2ProtocolOptions can only be applied to HTTP/2 backends.
-	// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/tls.proto#envoy-v3-api-msg-extensions-transport-sockets-tls-v3-sslconfig) for more details.
-	Http2ProtocolOptions *Http2ProtocolOptionsApplyConfiguration `json:"http2ProtocolOptions,omitempty"`
-	// TLS contains the options necessary to configure a backend to use TLS origination.
-	// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/tls.proto#envoy-v3-api-msg-extensions-transport-sockets-tls-v3-sslconfig) for more details.
-	TLS *TLSApplyConfiguration `json:"tls,omitempty"`
-	// LoadBalancer contains the options necessary to configure the load balancer.
-	LoadBalancer *LoadBalancerApplyConfiguration `json:"loadBalancer,omitempty"`
-	// HealthCheck contains the options necessary to configure the health check.
-	HealthCheck *HealthCheckApplyConfiguration `json:"healthCheck,omitempty"`
-	// OutlierDetection contains the options necessary to configure passive health checking.
-	OutlierDetection *OutlierDetectionApplyConfiguration `json:"outlierDetection,omitempty"`
+	TargetRefs                    []LocalPolicyTargetReferenceApplyConfiguration `json:"targetRefs,omitempty"`
+	TargetSelectors               []LocalPolicyTargetSelectorApplyConfiguration  `json:"targetSelectors,omitempty"`
+	ConnectTimeout                *v1.Duration                                   `json:"connectTimeout,omitempty"`
+	PerConnectionBufferLimitBytes *int32                                         `json:"perConnectionBufferLimitBytes,omitempty"`
+	TCPKeepalive                  *TCPKeepaliveApplyConfiguration                `json:"tcpKeepalive,omitempty"`
+	CommonHttpProtocolOptions     *CommonHttpProtocolOptionsApplyConfiguration   `json:"commonHttpProtocolOptions,omitempty"`
+	Http1ProtocolOptions          *Http1ProtocolOptionsApplyConfiguration        `json:"http1ProtocolOptions,omitempty"`
+	Http2ProtocolOptions          *Http2ProtocolOptionsApplyConfiguration        `json:"http2ProtocolOptions,omitempty"`
+	TLS                           *TLSApplyConfiguration                         `json:"tls,omitempty"`
+	LoadBalancer                  *LoadBalancerApplyConfiguration                `json:"loadBalancer,omitempty"`
+	HealthCheck                   *HealthCheckApplyConfiguration                 `json:"healthCheck,omitempty"`
+	OutlierDetection              *OutlierDetectionApplyConfiguration            `json:"outlierDetection,omitempty"`
 }
 
 // BackendConfigPolicySpecApplyConfiguration constructs a declarative configuration of the BackendConfigPolicySpec type for use with

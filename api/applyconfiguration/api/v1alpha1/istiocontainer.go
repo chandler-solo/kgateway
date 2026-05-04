@@ -8,30 +8,14 @@ import (
 
 // IstioContainerApplyConfiguration represents a declarative configuration of the IstioContainer type for use
 // with apply.
-//
-// IstioContainer configures the container running the istio-proxy.
 type IstioContainerApplyConfiguration struct {
-	// The container image. See
-	// https://kubernetes.io/docs/concepts/containers/images
-	// for details.
-	Image *ImageApplyConfiguration `json:"image,omitempty"`
-	// The security context for this container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
-	// for details.
-	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
-	// The compute resources required by this container. See
-	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-	// for details.
-	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
-	// Log level for istio-proxy. Options include "info", "debug", "warning", and "error".
-	// Default level is info Default is "warning".
-	LogLevel *string `json:"logLevel,omitempty"`
-	// The address of the istio discovery service. Defaults to "istiod.istio-system.svc:15012".
-	IstioDiscoveryAddress *string `json:"istioDiscoveryAddress,omitempty"`
-	// The mesh id of the istio mesh. Defaults to "cluster.local".
-	IstioMetaMeshId *string `json:"istioMetaMeshId,omitempty"`
-	// The cluster id of the istio cluster. Defaults to "Kubernetes".
-	IstioMetaClusterId *string `json:"istioMetaClusterId,omitempty"`
+	Image                 *ImageApplyConfiguration `json:"image,omitempty"`
+	SecurityContext       *v1.SecurityContext      `json:"securityContext,omitempty"`
+	Resources             *v1.ResourceRequirements `json:"resources,omitempty"`
+	LogLevel              *string                  `json:"logLevel,omitempty"`
+	IstioDiscoveryAddress *string                  `json:"istioDiscoveryAddress,omitempty"`
+	IstioMetaMeshId       *string                  `json:"istioMetaMeshId,omitempty"`
+	IstioMetaClusterId    *string                  `json:"istioMetaClusterId,omitempty"`
 }
 
 // IstioContainerApplyConfiguration constructs a declarative configuration of the IstioContainer type for use with

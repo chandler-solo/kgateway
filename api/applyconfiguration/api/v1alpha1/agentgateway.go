@@ -8,43 +8,15 @@ import (
 
 // AgentgatewayApplyConfiguration represents a declarative configuration of the Agentgateway type for use
 // with apply.
-//
-// Agentgateway configures the agentgateway dataplane integration to be enabled if the `agentgateway` GatewayClass is used.
 type AgentgatewayApplyConfiguration struct {
-	// Whether to enable the extension.
-	Enabled *bool `json:"enabled,omitempty"`
-	// Log level for the agentgateway. Defaults to info.
-	// Levels include "trace", "debug", "info", "error", "warn". See: https://docs.rs/tracing/latest/tracing/struct.Level.html
-	LogLevel *string `json:"logLevel,omitempty"`
-	// The agentgateway container image. See
-	// https://kubernetes.io/docs/concepts/containers/images
-	// for details.
-	//
-	// Default values, which may be overridden individually:
-	//
-	// registry: ghcr.io/agentgateway
-	// repository: agentgateway
-	// tag: <agentgateway version>
-	// pullPolicy: IfNotPresent
-	Image *ImageApplyConfiguration `json:"image,omitempty"`
-	// The security context for this container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
-	// for details.
-	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
-	// The compute resources required by this container. See
-	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-	// for details.
-	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
-	// The container environment variables.
-	Env []v1.EnvVar `json:"env,omitempty"`
-	// Name of the custom configmap to use instead of the default generated one.
-	// When set, the agent gateway will use this configmap instead of creating the default one.
-	// The configmap must contain a 'config.yaml' key with the agent gateway configuration.
-	CustomConfigMapName *string `json:"customConfigMapName,omitempty"`
-	// Additional volume mounts to add to the container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#volumemount-v1-core
-	// for details.
-	ExtraVolumeMounts []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
+	Enabled             *bool                    `json:"enabled,omitempty"`
+	LogLevel            *string                  `json:"logLevel,omitempty"`
+	Image               *ImageApplyConfiguration `json:"image,omitempty"`
+	SecurityContext     *v1.SecurityContext      `json:"securityContext,omitempty"`
+	Resources           *v1.ResourceRequirements `json:"resources,omitempty"`
+	Env                 []v1.EnvVar              `json:"env,omitempty"`
+	CustomConfigMapName *string                  `json:"customConfigMapName,omitempty"`
+	ExtraVolumeMounts   []v1.VolumeMount         `json:"extraVolumeMounts,omitempty"`
 }
 
 // AgentgatewayApplyConfiguration constructs a declarative configuration of the Agentgateway type for use with

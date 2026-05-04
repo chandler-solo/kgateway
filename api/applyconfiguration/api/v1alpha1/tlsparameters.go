@@ -9,9 +9,7 @@ import (
 // TLSParametersApplyConfiguration represents a declarative configuration of the TLSParameters type for use
 // with apply.
 type TLSParametersApplyConfiguration struct {
-	// Minimum TLS version.
-	MinVersion *apiv1alpha1.TLSVersion `json:"minVersion,omitempty"`
-	// Maximum TLS version.
+	MinVersion   *apiv1alpha1.TLSVersion `json:"minVersion,omitempty"`
 	MaxVersion   *apiv1alpha1.TLSVersion `json:"maxVersion,omitempty"`
 	CipherSuites []string                `json:"cipherSuites,omitempty"`
 	EcdhCurves   []string                `json:"ecdhCurves,omitempty"`

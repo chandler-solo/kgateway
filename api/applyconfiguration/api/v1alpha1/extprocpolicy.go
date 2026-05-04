@@ -8,16 +8,10 @@ import (
 
 // ExtProcPolicyApplyConfiguration represents a declarative configuration of the ExtProcPolicy type for use
 // with apply.
-//
-// ExtProcPolicy defines the configuration for the Envoy External Processing filter.
 type ExtProcPolicyApplyConfiguration struct {
-	// ExtensionRef references the GatewayExtension that should be used for external processing.
-	ExtensionRef *NamespacedObjectReferenceApplyConfiguration `json:"extensionRef,omitempty"`
-	// ProcessingMode defines how the filter should interact with the request/response streams
-	ProcessingMode *ProcessingModeApplyConfiguration `json:"processingMode,omitempty"`
-	// Disable all external processing filters.
-	// Can be used to disable external processing policies applied at a higher level in the config hierarchy.
-	Disable *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
+	ExtensionRef   *NamespacedObjectReferenceApplyConfiguration `json:"extensionRef,omitempty"`
+	ProcessingMode *ProcessingModeApplyConfiguration            `json:"processingMode,omitempty"`
+	Disable        *apiv1alpha1.PolicyDisable                   `json:"disable,omitempty"`
 }
 
 // ExtProcPolicyApplyConfiguration constructs a declarative configuration of the ExtProcPolicy type for use with

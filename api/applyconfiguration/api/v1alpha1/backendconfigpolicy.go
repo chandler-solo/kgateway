@@ -33,14 +33,29 @@ func BackendConfigPolicy(name, namespace string) *BackendConfigPolicyApplyConfig
 	return b
 }
 
-// ExtractBackendConfigPolicyFrom extracts the applied configuration owned by fieldManager from
-// backendConfigPolicy for the specified subresource. Pass an empty string for subresource to extract
-// the main resource. Common subresources include "status", "scale", etc.
+// ExtractBackendConfigPolicy extracts the applied configuration owned by fieldManager from
+// backendConfigPolicy. If no managedFields are found in backendConfigPolicy for fieldManager, a
+// BackendConfigPolicyApplyConfiguration is returned with only the Name, Namespace (if applicable),
+// APIVersion and Kind populated. It is possible that no managed fields were found for because other
+// field managers have taken ownership of all the fields previously owned by fieldManager, or because
+// the fieldManager never owned fields any fields.
 // backendConfigPolicy must be a unmodified BackendConfigPolicy API object that was retrieved from the Kubernetes API.
-// ExtractBackendConfigPolicyFrom provides a way to perform a extract/modify-in-place/apply workflow.
+// ExtractBackendConfigPolicy provides a way to perform a extract/modify-in-place/apply workflow.
 // Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
 // applied if another fieldManager has updated or force applied any of the previously applied fields.
-func ExtractBackendConfigPolicyFrom(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string, subresource string) (*BackendConfigPolicyApplyConfiguration, error) {
+// Experimental!
+func ExtractBackendConfigPolicy(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string) (*BackendConfigPolicyApplyConfiguration, error) {
+	return extractBackendConfigPolicy(backendConfigPolicy, fieldManager, "")
+}
+
+// ExtractBackendConfigPolicyStatus is the same as ExtractBackendConfigPolicy except
+// that it extracts the status subresource applied configuration.
+// Experimental!
+func ExtractBackendConfigPolicyStatus(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string) (*BackendConfigPolicyApplyConfiguration, error) {
+	return extractBackendConfigPolicy(backendConfigPolicy, fieldManager, "status")
+}
+
+func extractBackendConfigPolicy(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string, subresource string) (*BackendConfigPolicyApplyConfiguration, error) {
 	b := &BackendConfigPolicyApplyConfiguration{}
 	err := managedfields.ExtractInto(backendConfigPolicy, internal.Parser().Type("com.github.kgateway-dev.kgateway.v2.api.v1alpha1.BackendConfigPolicy"), fieldManager, b, subresource)
 	if err != nil {
@@ -53,27 +68,6 @@ func ExtractBackendConfigPolicyFrom(backendConfigPolicy *apiv1alpha1.BackendConf
 	b.WithAPIVersion("gateway.kgateway.dev/v1alpha1")
 	return b, nil
 }
-
-// ExtractBackendConfigPolicy extracts the applied configuration owned by fieldManager from
-// backendConfigPolicy. If no managedFields are found in backendConfigPolicy for fieldManager, a
-// BackendConfigPolicyApplyConfiguration is returned with only the Name, Namespace (if applicable),
-// APIVersion and Kind populated. It is possible that no managed fields were found for because other
-// field managers have taken ownership of all the fields previously owned by fieldManager, or because
-// the fieldManager never owned fields any fields.
-// backendConfigPolicy must be a unmodified BackendConfigPolicy API object that was retrieved from the Kubernetes API.
-// ExtractBackendConfigPolicy provides a way to perform a extract/modify-in-place/apply workflow.
-// Note that an extracted apply configuration will contain fewer fields than what the fieldManager previously
-// applied if another fieldManager has updated or force applied any of the previously applied fields.
-func ExtractBackendConfigPolicy(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string) (*BackendConfigPolicyApplyConfiguration, error) {
-	return ExtractBackendConfigPolicyFrom(backendConfigPolicy, fieldManager, "")
-}
-
-// ExtractBackendConfigPolicyStatus extracts the applied configuration owned by fieldManager from
-// backendConfigPolicy for the status subresource.
-func ExtractBackendConfigPolicyStatus(backendConfigPolicy *apiv1alpha1.BackendConfigPolicy, fieldManager string) (*BackendConfigPolicyApplyConfiguration, error) {
-	return ExtractBackendConfigPolicyFrom(backendConfigPolicy, fieldManager, "status")
-}
-
 func (b BackendConfigPolicyApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value

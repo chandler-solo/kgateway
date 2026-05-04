@@ -8,29 +8,11 @@ import (
 
 // CommonHttpProtocolOptionsApplyConfiguration represents a declarative configuration of the CommonHttpProtocolOptions type for use
 // with apply.
-//
-// CommonHttpProtocolOptions are options that are applicable to both HTTP1 and HTTP2 requests.
-// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-msg-config-core-v3-httpprotocoloptions) for more details.
 type CommonHttpProtocolOptionsApplyConfiguration struct {
-	// The idle timeout for connections. The idle timeout is defined as the
-	// period in which there are no active requests. When the
-	// idle timeout is reached the connection will be closed. If the connection is an HTTP/2
-	// downstream connection a drain sequence will occur prior to closing the connection.
-	// Note that request based timeouts mean that HTTP/2 PINGs will not keep the connection alive.
-	// If not specified, this defaults to 1 hour. To disable idle timeouts explicitly set this to 0.
-	// Disabling this timeout has a highly likelihood of yielding connection leaks due to lost TCP
-	// FIN packets, etc.
-	IdleTimeout *v1.Duration `json:"idleTimeout,omitempty"`
-	// Specifies the maximum number of headers that the connection will accept.
-	// If not specified, the default of 100 is used. Requests that exceed this limit will receive
-	// a 431 response for HTTP/1.x and cause a stream reset for HTTP/2.
-	MaxHeadersCount *int32 `json:"maxHeadersCount,omitempty"`
-	// Total duration to keep alive an HTTP request/response stream. If the time limit is reached the stream will be
-	// reset independent of any other timeouts. If not specified, this value is not set.
-	MaxStreamDuration *v1.Duration `json:"maxStreamDuration,omitempty"`
-	// Maximum requests for a single upstream connection.
-	// If set to 0 or unspecified, defaults to unlimited.
-	MaxRequestsPerConnection *int32 `json:"maxRequestsPerConnection,omitempty"`
+	IdleTimeout              *v1.Duration `json:"idleTimeout,omitempty"`
+	MaxHeadersCount          *int32       `json:"maxHeadersCount,omitempty"`
+	MaxStreamDuration        *v1.Duration `json:"maxStreamDuration,omitempty"`
+	MaxRequestsPerConnection *int32       `json:"maxRequestsPerConnection,omitempty"`
 }
 
 // CommonHttpProtocolOptionsApplyConfiguration constructs a declarative configuration of the CommonHttpProtocolOptions type for use with

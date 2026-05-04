@@ -8,13 +8,9 @@ import (
 
 // StatusCodeFilterApplyConfiguration represents a declarative configuration of the StatusCodeFilter type for use
 // with apply.
-//
-// StatusCodeFilter filters based on HTTP status code.
-// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#envoy-v3-api-msg-config-accesslog-v3-statuscodefilter
 type StatusCodeFilterApplyConfiguration struct {
-	Op *apiv1alpha1.Op `json:"op,omitempty"`
-	// Value to compare against.
-	Value *int32 `json:"value,omitempty"`
+	Op    *apiv1alpha1.Op `json:"op,omitempty"`
+	Value *int32          `json:"value,omitempty"`
 }
 
 // StatusCodeFilterApplyConfiguration constructs a declarative configuration of the StatusCodeFilter type for use with

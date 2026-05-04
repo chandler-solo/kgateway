@@ -4,13 +4,8 @@ package v1alpha1
 
 // HeaderValueApplyConfiguration represents a declarative configuration of the HeaderValue type for use
 // with apply.
-//
-// Header name/value pair.
-// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/base.proto#envoy-v3-api-msg-config-core-v3-headervalue
 type HeaderValueApplyConfiguration struct {
-	// Header name.
-	Key *string `json:"key,omitempty"`
-	// Header value.
+	Key   *string `json:"key,omitempty"`
 	Value *string `json:"value,omitempty"`
 }
 

@@ -4,14 +4,8 @@ package v1alpha1
 
 // AuthHeaderApplyConfiguration represents a declarative configuration of the AuthHeader type for use
 // with apply.
-//
-// AuthHeader allows customization of the default Authorization header sent to the LLM Provider.
-// The default header is `Authorization: Bearer <token>`. HeaderName can change the Authorization
-// header name and Prefix can change the Bearer prefix
 type AuthHeaderApplyConfiguration struct {
-	// Prefix specifies the prefix to use in the Authorization header.
-	Prefix *string `json:"prefix,omitempty"`
-	// HeaderName specifies the name of the header to use for authorization.
+	Prefix     *string `json:"prefix,omitempty"`
 	HeaderName *string `json:"headerName,omitempty"`
 }
 

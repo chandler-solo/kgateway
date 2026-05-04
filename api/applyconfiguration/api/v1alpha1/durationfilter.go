@@ -8,13 +8,9 @@ import (
 
 // DurationFilterApplyConfiguration represents a declarative configuration of the DurationFilter type for use
 // with apply.
-//
-// DurationFilter filters based on request duration.
-// Based on: https://www.envoyproxy.io/docs/envoy/v1.33.0/api-v3/config/accesslog/v3/accesslog.proto#config-accesslog-v3-durationfilter
 type DurationFilterApplyConfiguration struct {
-	Op *apiv1alpha1.Op `json:"op,omitempty"`
-	// Value to compare against.
-	Value *int32 `json:"value,omitempty"`
+	Op    *apiv1alpha1.Op `json:"op,omitempty"`
+	Value *int32          `json:"value,omitempty"`
 }
 
 // DurationFilterApplyConfiguration constructs a declarative configuration of the DurationFilter type for use with

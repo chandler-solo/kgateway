@@ -4,17 +4,11 @@ package v1alpha1
 
 // AccessLogApplyConfiguration represents a declarative configuration of the AccessLog type for use
 // with apply.
-//
-// AccessLog represents the top-level access log configuration.
 type AccessLogApplyConfiguration struct {
-	// Output access logs to local file
-	FileSink *FileSinkApplyConfiguration `json:"fileSink,omitempty"`
-	// Send access logs to gRPC service
-	GrpcService *AccessLogGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
-	// Send access logs to an OTel collector
+	FileSink      *FileSinkApplyConfiguration                      `json:"fileSink,omitempty"`
+	GrpcService   *AccessLogGrpcServiceApplyConfiguration          `json:"grpcService,omitempty"`
 	OpenTelemetry *OpenTelemetryAccessLogServiceApplyConfiguration `json:"openTelemetry,omitempty"`
-	// Filter access logs configuration
-	Filter *AccessLogFilterApplyConfiguration `json:"filter,omitempty"`
+	Filter        *AccessLogFilterApplyConfiguration               `json:"filter,omitempty"`
 }
 
 // AccessLogApplyConfiguration constructs a declarative configuration of the AccessLog type for use with

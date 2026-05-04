@@ -8,17 +8,10 @@ import (
 
 // McpTargetApplyConfiguration represents a declarative configuration of the McpTarget type for use
 // with apply.
-//
-// McpTarget defines a single MCP target configuration.
 type McpTargetApplyConfiguration struct {
-	// Host is the hostname or IP address of the MCP target.
-	Host *string `json:"host,omitempty"`
-	// Port is the port number of the MCP target.
-	Port *int32 `json:"port,omitempty"`
-	// Path is the URL path of the MCP target endpoint.
-	// Defaults to "/sse" for SSE protocol or "/mcp" for StreamableHTTP protocol if not specified.
-	Path *string `json:"path,omitempty"`
-	// Protocol is the protocol to use for the connection to the MCP target.
+	Host     *string                  `json:"host,omitempty"`
+	Port     *int32                   `json:"port,omitempty"`
+	Path     *string                  `json:"path,omitempty"`
 	Protocol *apiv1alpha1.MCPProtocol `json:"protocol,omitempty"`
 }
 

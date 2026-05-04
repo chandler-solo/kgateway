@@ -4,52 +4,10 @@ package v1alpha1
 
 // FieldDefaultApplyConfiguration represents a declarative configuration of the FieldDefault type for use
 // with apply.
-//
-// FieldDefault provides default values for specific fields in the JSON request body sent to the LLM provider.
-// These defaults are merged with the user-provided request to ensure missing fields are populated.
-//
-// User input fields here refer to the fields in the JSON request body that a client sends when making a request to the LLM provider.
-// Defaults set here do _not_ override those user-provided values unless you explicitly set `override` to `true`.
-//
-// Example: Setting a default system field for Anthropic, which does not support system role messages:
-// ```yaml
-// defaults:
-// - field: "system"
-// value: "answer all questions in French"
-//
-// ```
-//
-// Example: Setting a default temperature and overriding `max_tokens`:
-// ```yaml
-// defaults:
-// - field: "temperature"
-// value: "0.5"
-// - field: "max_tokens"
-// value: "100"
-// override: true
-//
-// ```
-//
-// Example: Setting custom lists fields:
-// ```yaml
-// defaults:
-// - field: "custom_integer_list"
-// value: "[1,2,3]"
-// - field: "custom_string_list"
-// value: '["one","two","three"]'
-// override: true
-//
-// ```
-//
-// Note: The `field` values correspond to keys in the JSON request body, not fields in this CRD.
 type FieldDefaultApplyConfiguration struct {
-	// The name of the field.
-	Field *string `json:"field,omitempty"`
-	// The field default value, which can be any JSON Data Type.
-	Value *string `json:"value,omitempty"`
-	// Whether to override the field's value if it already exists.
-	// Defaults to false.
-	Override *bool `json:"override,omitempty"`
+	Field    *string `json:"field,omitempty"`
+	Value    *string `json:"value,omitempty"`
+	Override *bool   `json:"override,omitempty"`
 }
 
 // FieldDefaultApplyConfiguration constructs a declarative configuration of the FieldDefault type for use with

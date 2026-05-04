@@ -9,25 +9,9 @@ import (
 // SlowStartApplyConfiguration represents a declarative configuration of the SlowStart type for use
 // with apply.
 type SlowStartApplyConfiguration struct {
-	// Represents the size of slow start window.
-	// If set, the newly created host remains in slow start mode starting from its creation time
-	// for the duration of slow start window.
-	Window *v1.Duration `json:"window,omitempty"`
-	// This parameter controls the speed of traffic increase over the slow start window. Defaults to 1.0,
-	// so that endpoint would get linearly increasing amount of traffic.
-	// When increasing the value for this parameter, the speed of traffic ramp-up increases non-linearly.
-	// The value of aggression parameter should be greater than 0.0.
-	// By tuning the parameter, is possible to achieve polynomial or exponential shape of ramp-up curve.
-	//
-	// During slow start window, effective weight of an endpoint would be scaled with time factor and aggression:
-	// `new_weight = weight * max(min_weight_percent, time_factor ^ (1 / aggression))`,
-	// where `time_factor=(time_since_start_seconds / slow_start_time_seconds)`.
-	//
-	// As time progresses, more and more traffic would be sent to endpoint, which is in slow start window.
-	// Once host exits slow start, time_factor and aggression no longer affect its weight.
-	Aggression *string `json:"aggression,omitempty"`
-	// Minimum weight percentage of an endpoint during slow start.
-	MinWeightPercent *int32 `json:"minWeightPercent,omitempty"`
+	Window           *v1.Duration `json:"window,omitempty"`
+	Aggression       *string      `json:"aggression,omitempty"`
+	MinWeightPercent *int32       `json:"minWeightPercent,omitempty"`
 }
 
 // SlowStartApplyConfiguration constructs a declarative configuration of the SlowStart type for use with

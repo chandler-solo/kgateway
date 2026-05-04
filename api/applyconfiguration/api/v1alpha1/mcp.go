@@ -4,12 +4,7 @@ package v1alpha1
 
 // MCPApplyConfiguration represents a declarative configuration of the MCP type for use
 // with apply.
-//
-// MCP configures mcp backends
 type MCPApplyConfiguration struct {
-	// Targets is a list of MCP targets to use for this backend.
-	// Policies targeting MCP targets must use targetRefs[].sectionName
-	// to select the target by name.
 	Targets []McpTargetSelectorApplyConfiguration `json:"targets,omitempty"`
 }
 

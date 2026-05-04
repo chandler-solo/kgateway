@@ -4,10 +4,7 @@ package v1alpha1
 
 // UpgradeConfigApplyConfiguration represents a declarative configuration of the UpgradeConfig type for use
 // with apply.
-//
-// UpgradeConfig represents configuration for HTTP upgrades.
 type UpgradeConfigApplyConfiguration struct {
-	// List of upgrade types to enable (e.g. "websocket", "CONNECT", etc.)
 	EnabledUpgrades []string `json:"enabledUpgrades,omitempty"`
 }
 

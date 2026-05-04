@@ -4,21 +4,10 @@ package v1alpha1
 
 // ExtAuthBufferSettingsApplyConfiguration represents a declarative configuration of the ExtAuthBufferSettings type for use
 // with apply.
-//
-// ExtAuthBufferSettings configures how the request body should be buffered.
 type ExtAuthBufferSettingsApplyConfiguration struct {
-	// MaxRequestBytes sets the maximum size of a message body to buffer.
-	// Requests exceeding this size will receive HTTP 413 and not be sent to the auth service.
-	MaxRequestBytes *int32 `json:"maxRequestBytes,omitempty"`
-	// AllowPartialMessage determines if partial messages should be allowed.
-	// When true, requests will be sent to the auth service even if they exceed maxRequestBytes.
-	// The default behavior is false.
-	AllowPartialMessage *bool `json:"allowPartialMessage,omitempty"`
-	// PackAsBytes determines if the body should be sent as raw bytes.
-	// When true, the body is sent as raw bytes in the raw_body field.
-	// When false, the body is sent as UTF-8 string in the body field.
-	// The default behavior is false.
-	PackAsBytes *bool `json:"packAsBytes,omitempty"`
+	MaxRequestBytes     *int32 `json:"maxRequestBytes,omitempty"`
+	AllowPartialMessage *bool  `json:"allowPartialMessage,omitempty"`
+	PackAsBytes         *bool  `json:"packAsBytes,omitempty"`
 }
 
 // ExtAuthBufferSettingsApplyConfiguration constructs a declarative configuration of the ExtAuthBufferSettings type for use with

@@ -8,28 +8,14 @@ import (
 
 // VertexAIConfigApplyConfiguration represents a declarative configuration of the VertexAIConfig type for use
 // with apply.
-//
-// VertexAIConfig settings for the [Vertex AI](https://cloud.google.com/vertex-ai/docs) LLM provider.
-// To find the values for the project ID, project location, and publisher, you can check the fields of an API request, such as
-// `https://{LOCATION}-aiplatform.googleapis.com/{VERSION}/projects/{PROJECT_ID}/locations/{LOCATION}/publishers/{PROVIDER}/<model-path>`.
 type VertexAIConfigApplyConfiguration struct {
-	// The authorization token that the AI gateway uses to access the Vertex AI API.
-	// This token is automatically sent in the `key` header of the request.
-	AuthToken *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
-	// The Vertex AI model to use.
-	// For more information, see the [Vertex AI model docs](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/models).
-	Model *string `json:"model,omitempty"`
-	// The version of the Vertex AI API to use.
-	// For more information, see the [Vertex AI API reference](https://cloud.google.com/vertex-ai/docs/reference#versions).
-	ApiVersion *string `json:"apiVersion,omitempty"`
-	// The ID of the Google Cloud Project that you use for the Vertex AI.
-	ProjectId *string `json:"projectId,omitempty"`
-	// The location of the Google Cloud Project that you use for the Vertex AI.
-	Location *string `json:"location,omitempty"`
-	// Optional: The model path to route to. Defaults to the Gemini model path, `generateContent`.
-	ModelPath *string `json:"modelPath,omitempty"`
-	// The type of publisher model to use. Currently, only Google is supported.
-	Publisher *apiv1alpha1.Publisher `json:"publisher,omitempty"`
+	AuthToken  *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
+	Model      *string                            `json:"model,omitempty"`
+	ApiVersion *string                            `json:"apiVersion,omitempty"`
+	ProjectId  *string                            `json:"projectId,omitempty"`
+	Location   *string                            `json:"location,omitempty"`
+	ModelPath  *string                            `json:"modelPath,omitempty"`
+	Publisher  *apiv1alpha1.Publisher             `json:"publisher,omitempty"`
 }
 
 // VertexAIConfigApplyConfiguration constructs a declarative configuration of the VertexAIConfig type for use with

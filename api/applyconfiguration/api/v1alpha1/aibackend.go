@@ -4,39 +4,8 @@ package v1alpha1
 
 // AIBackendApplyConfiguration represents a declarative configuration of the AIBackend type for use
 // with apply.
-//
-// AIBackend specifies the AI backend configuration
 type AIBackendApplyConfiguration struct {
-	// The LLM configures the AI gateway to use a single LLM provider backend.
-	LLM *LLMProviderApplyConfiguration `json:"llm,omitempty"`
-	// PriorityGroups specifies a list of groups in priority order where each group defines
-	// a set of LLM providers. The priority determines the priority of the backend endpoints chosen.
-	// Note: provider names must be unique across all providers in all priority groups. Backend policies
-	// may target a specific provider by name using targetRefs[].sectionName.
-	//
-	// Example configuration with two priority groups:
-	// ```yaml
-	// priorityGroups:
-	// - providers:
-	// - azureOpenai:
-	// deploymentName: gpt-4o-mini
-	// apiVersion: 2024-02-15-preview
-	// endpoint: ai-gateway.openai.azure.com
-	// authToken:
-	// secretRef:
-	// name: azure-secret
-	// namespace: kgateway-system
-	// - providers:
-	// - azureOpenai:
-	// deploymentName: gpt-4o-mini-2
-	// apiVersion: 2024-02-15-preview
-	// endpoint: ai-gateway-2.openai.azure.com
-	// authToken:
-	// secretRef:
-	// name: azure-secret-2
-	// namespace: kgateway-system
-	// ```
-	// TODO: enable this rule when we don't need to support older k8s versions where this rule breaks // +kubebuilder:validation:XValidation:message="provider names must be unique across groups",rule="self.map(pg, pg.providers.map(pp, pp.name)).map(p, self.map(pg, pg.providers.map(pp, pp.name)).filter(cp, cp != p).exists(cp, p.exists(pn, pn in cp))).exists(p, !p)"
+	LLM            *LLMProviderApplyConfiguration    `json:"llm,omitempty"`
 	PriorityGroups []PriorityGroupApplyConfiguration `json:"priorityGroups,omitempty"`
 }
 

@@ -8,21 +8,11 @@ import (
 
 // ImageApplyConfiguration represents a declarative configuration of the Image type for use
 // with apply.
-//
-// A container image. See https://kubernetes.io/docs/concepts/containers/images
-// for details.
 type ImageApplyConfiguration struct {
-	// The image registry.
-	Registry *string `json:"registry,omitempty"`
-	// The image repository (name).
-	Repository *string `json:"repository,omitempty"`
-	// The image tag.
-	Tag *string `json:"tag,omitempty"`
-	// The hash digest of the image, e.g. `sha256:12345...`
-	Digest *string `json:"digest,omitempty"`
-	// The image pull policy for the container. See
-	// https://kubernetes.io/docs/concepts/containers/images/#image-pull-policy
-	// for details.
+	Registry   *string        `json:"registry,omitempty"`
+	Repository *string        `json:"repository,omitempty"`
+	Tag        *string        `json:"tag,omitempty"`
+	Digest     *string        `json:"digest,omitempty"`
 	PullPolicy *v1.PullPolicy `json:"pullPolicy,omitempty"`
 }
 

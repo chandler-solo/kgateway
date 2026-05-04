@@ -10,25 +10,11 @@ import (
 
 // RateLimitProviderApplyConfiguration represents a declarative configuration of the RateLimitProvider type for use
 // with apply.
-//
-// RateLimitProvider defines the configuration for a RateLimit service provider.
 type RateLimitProviderApplyConfiguration struct {
-	// GrpcService is the GRPC service that will handle the rate limiting.
-	GrpcService *ExtGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
-	// Domain identifies a rate limiting configuration for the rate limit service.
-	// All rate limit requests must specify a domain, which enables the configuration
-	// to be per application without fear of overlap (e.g., "api", "web", "admin").
-	Domain *string `json:"domain,omitempty"`
-	// FailOpen determines if requests are limited when the rate limit service is unavailable.
-	// Defaults to true, meaning requests are allowed upstream and not limited if the rate limit service is unavailable.
-	FailOpen *bool `json:"failOpen,omitempty"`
-	// Timeout provides an optional timeout value for requests to the rate limit service.
-	// For rate limiting, prefer using this timeout rather than setting the generic `timeout` on the `GrpcService`.
-	// See [envoy issue](https://github.com/envoyproxy/envoy/issues/20070) for more info.
-	Timeout *v1.Duration `json:"timeout,omitempty"`
-	// XRateLimitHeaders configures the standard version to use for X-RateLimit headers emitted.
-	// See [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto#envoy-v3-api-field-extensions-filters-http-ratelimit-v3-ratelimit-enable-x-ratelimit-headers) for more info.
-	// Disabled by default.
+	GrpcService       *ExtGrpcServiceApplyConfiguration      `json:"grpcService,omitempty"`
+	Domain            *string                                `json:"domain,omitempty"`
+	FailOpen          *bool                                  `json:"failOpen,omitempty"`
+	Timeout           *v1.Duration                           `json:"timeout,omitempty"`
 	XRateLimitHeaders *apiv1alpha1.XRateLimitHeadersStandard `json:"xRateLimitHeaders,omitempty"`
 }
 

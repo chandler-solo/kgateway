@@ -8,23 +8,11 @@ import (
 
 // SdsContainerApplyConfiguration represents a declarative configuration of the SdsContainer type for use
 // with apply.
-//
-// SdsContainer configures the container running SDS sidecar.
 type SdsContainerApplyConfiguration struct {
-	// The SDS container image. See
-	// https://kubernetes.io/docs/concepts/containers/images
-	// for details.
-	Image *ImageApplyConfiguration `json:"image,omitempty"`
-	// The security context for this container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
-	// for details.
-	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
-	// The compute resources required by this container. See
-	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-	// for details.
-	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
-	// Initial SDS container configuration.
-	Bootstrap *SdsBootstrapApplyConfiguration `json:"bootstrap,omitempty"`
+	Image           *ImageApplyConfiguration        `json:"image,omitempty"`
+	SecurityContext *v1.SecurityContext             `json:"securityContext,omitempty"`
+	Resources       *v1.ResourceRequirements        `json:"resources,omitempty"`
+	Bootstrap       *SdsBootstrapApplyConfiguration `json:"bootstrap,omitempty"`
 }
 
 // SdsContainerApplyConfiguration constructs a declarative configuration of the SdsContainer type for use with

@@ -8,10 +8,7 @@ import (
 
 // GatewayExtensionStatusApplyConfiguration represents a declarative configuration of the GatewayExtensionStatus type for use
 // with apply.
-//
-// GatewayExtensionStatus defines the observed state of GatewayExtension.
 type GatewayExtensionStatusApplyConfiguration struct {
-	// Conditions is the list of conditions for the GatewayExtension.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 }
 

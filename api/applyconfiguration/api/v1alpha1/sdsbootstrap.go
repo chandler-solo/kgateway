@@ -4,11 +4,7 @@ package v1alpha1
 
 // SdsBootstrapApplyConfiguration represents a declarative configuration of the SdsBootstrap type for use
 // with apply.
-//
-// SdsBootstrap configures the SDS instance that is provisioned from a Kubernetes Gateway.
 type SdsBootstrapApplyConfiguration struct {
-	// Log level for SDS. Options include "info", "debug", "warn", "error", "panic" and "fatal".
-	// Default level is "info".
 	LogLevel *string `json:"logLevel,omitempty"`
 }
 

@@ -8,28 +8,13 @@ import (
 
 // HealthCheckApplyConfiguration represents a declarative configuration of the HealthCheck type for use
 // with apply.
-//
-// HealthCheck contains the options to configure the health check.
-// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/health_check.proto) for more details.
 type HealthCheckApplyConfiguration struct {
-	// Timeout is time to wait for a health check response. If the timeout is reached the
-	// health check attempt will be considered a failure.
-	Timeout *v1.Duration `json:"timeout,omitempty"`
-	// Interval is the time between health checks.
-	Interval *v1.Duration `json:"interval,omitempty"`
-	// UnhealthyThreshold is the number of consecutive failed health checks that will be considered
-	// unhealthy.
-	// Note that for HTTP health checks, if a host responds with a code not in ExpectedStatuses or RetriableStatuses,
-	// this threshold is ignored and the host is considered immediately unhealthy.
-	UnhealthyThreshold *int32 `json:"unhealthyThreshold,omitempty"`
-	// HealthyThreshold is the number of healthy health checks required before a host is marked
-	// healthy. Note that during startup, only a single successful health check is
-	// required to mark a host healthy.
-	HealthyThreshold *int32 `json:"healthyThreshold,omitempty"`
-	// Http contains the options to configure the HTTP health check.
-	Http *HealthCheckHttpApplyConfiguration `json:"http,omitempty"`
-	// Grpc contains the options to configure the gRPC health check.
-	Grpc *HealthCheckGrpcApplyConfiguration `json:"grpc,omitempty"`
+	Timeout            *v1.Duration                       `json:"timeout,omitempty"`
+	Interval           *v1.Duration                       `json:"interval,omitempty"`
+	UnhealthyThreshold *int32                             `json:"unhealthyThreshold,omitempty"`
+	HealthyThreshold   *int32                             `json:"healthyThreshold,omitempty"`
+	Http               *HealthCheckHttpApplyConfiguration `json:"http,omitempty"`
+	Grpc               *HealthCheckGrpcApplyConfiguration `json:"grpc,omitempty"`
 }
 
 // HealthCheckApplyConfiguration constructs a declarative configuration of the HealthCheck type for use with

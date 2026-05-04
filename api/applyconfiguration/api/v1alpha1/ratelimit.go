@@ -4,13 +4,9 @@ package v1alpha1
 
 // RateLimitApplyConfiguration represents a declarative configuration of the RateLimit type for use
 // with apply.
-//
-// RateLimit defines a rate limiting policy.
 type RateLimitApplyConfiguration struct {
-	// Local defines a local rate limiting policy.
-	Local *LocalRateLimitPolicyApplyConfiguration `json:"local,omitempty"`
-	// Global defines a global rate limiting policy using an external service.
-	Global *RateLimitPolicyApplyConfiguration `json:"global,omitempty"`
+	Local  *LocalRateLimitPolicyApplyConfiguration `json:"local,omitempty"`
+	Global *RateLimitPolicyApplyConfiguration      `json:"global,omitempty"`
 }
 
 // RateLimitApplyConfiguration constructs a declarative configuration of the RateLimit type for use with

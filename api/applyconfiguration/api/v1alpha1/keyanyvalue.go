@@ -4,12 +4,8 @@ package v1alpha1
 
 // KeyAnyValueApplyConfiguration represents a declarative configuration of the KeyAnyValue type for use
 // with apply.
-//
-// KeyValue is a key-value pair that is used to store Span attributes, Link attributes, etc.
 type KeyAnyValueApplyConfiguration struct {
-	// Attribute keys must be unique
-	Key *string `json:"key,omitempty"`
-	// Value may contain a primitive value such as a string or integer or it may contain an arbitrary nested object containing arrays, key-value lists and primitives.
+	Key   *string                     `json:"key,omitempty"`
 	Value *AnyValueApplyConfiguration `json:"value,omitempty"`
 }
 

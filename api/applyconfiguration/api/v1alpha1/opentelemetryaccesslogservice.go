@@ -4,22 +4,12 @@ package v1alpha1
 
 // OpenTelemetryAccessLogServiceApplyConfiguration represents a declarative configuration of the OpenTelemetryAccessLogService type for use
 // with apply.
-//
-// OpenTelemetryAccessLogService represents the OTel configuration for access logs.
-// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/access_loggers/open_telemetry/v3/logs_service.proto
 type OpenTelemetryAccessLogServiceApplyConfiguration struct {
-	// Send access logs to gRPC service
-	GrpcService *CommonAccessLogGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
-	// OpenTelemetry LogResource fields, following Envoy access logging formatting.
-	Body *string `json:"body,omitempty"`
-	// If specified, Envoy will not generate built-in resource labels like log_name, zone_name, cluster_name, node_name.
-	DisableBuiltinLabels *bool `json:"disableBuiltinLabels,omitempty"`
-	// Additional attributes that describe the specific event occurrence.
-	Attributes *KeyAnyValueListApplyConfiguration `json:"attributes,omitempty"`
-	// Additional resource attributes that describe the resource.
-	// If the `service.name` resource attribute is not specified, it adds it with the default value
-	// of the envoy cluster name, ie: `<gateway-name>.<gateway-namespace>`
-	ResourceAttributes *KeyAnyValueListApplyConfiguration `json:"resourceAttributes,omitempty"`
+	GrpcService          *CommonAccessLogGrpcServiceApplyConfiguration `json:"grpcService,omitempty"`
+	Body                 *string                                       `json:"body,omitempty"`
+	DisableBuiltinLabels *bool                                         `json:"disableBuiltinLabels,omitempty"`
+	Attributes           *KeyAnyValueListApplyConfiguration            `json:"attributes,omitempty"`
+	ResourceAttributes   *KeyAnyValueListApplyConfiguration            `json:"resourceAttributes,omitempty"`
 }
 
 // OpenTelemetryAccessLogServiceApplyConfiguration constructs a declarative configuration of the OpenTelemetryAccessLogService type for use with

@@ -5,14 +5,8 @@ package v1alpha1
 // HealthCheckHttpApplyConfiguration represents a declarative configuration of the HealthCheckHttp type for use
 // with apply.
 type HealthCheckHttpApplyConfiguration struct {
-	// Host is the value of the host header in the HTTP health check request. If
-	// unset, the name of the cluster this health check is associated
-	// with will be used.
-	Host *string `json:"host,omitempty"`
-	// Path is the HTTP path requested.
-	Path *string `json:"path,omitempty"`
-	// Method is the HTTP method to use.
-	// If unset, GET is used.
+	Host   *string `json:"host,omitempty"`
+	Path   *string `json:"path,omitempty"`
 	Method *string `json:"method,omitempty"`
 }
 

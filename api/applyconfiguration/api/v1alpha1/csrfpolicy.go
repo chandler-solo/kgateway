@@ -4,17 +4,10 @@ package v1alpha1
 
 // CSRFPolicyApplyConfiguration represents a declarative configuration of the CSRFPolicy type for use
 // with apply.
-//
-// CSRFPolicy can be used to set percent of requests for which the CSRF filter is enabled,
-// enable shadow-only mode where policies will be evaluated and tracked, but not enforced and
-// add additional source origins that will be allowed in addition to the destination origin.
 type CSRFPolicyApplyConfiguration struct {
-	// Specifies the percentage of requests for which the CSRF filter is enabled.
-	PercentageEnabled *int32 `json:"percentageEnabled,omitempty"`
-	// Specifies that CSRF policies will be evaluated and tracked, but not enforced.
-	PercentageShadowed *int32 `json:"percentageShadowed,omitempty"`
-	// Specifies additional source origins that will be allowed in addition to the destination origin.
-	AdditionalOrigins []StringMatcherApplyConfiguration `json:"additionalOrigins,omitempty"`
+	PercentageEnabled  *int32                            `json:"percentageEnabled,omitempty"`
+	PercentageShadowed *int32                            `json:"percentageShadowed,omitempty"`
+	AdditionalOrigins  []StringMatcherApplyConfiguration `json:"additionalOrigins,omitempty"`
 }
 
 // CSRFPolicyApplyConfiguration constructs a declarative configuration of the CSRFPolicy type for use with

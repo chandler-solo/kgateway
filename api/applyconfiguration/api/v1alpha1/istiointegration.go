@@ -8,16 +8,9 @@ import (
 
 // IstioIntegrationApplyConfiguration represents a declarative configuration of the IstioIntegration type for use
 // with apply.
-//
-// IstioIntegration configures the Istio integration settings used by kgateway's data plane
 type IstioIntegrationApplyConfiguration struct {
-	// Configuration for the container running istio-proxy.
-	// Note that if Istio integration is not enabled, the istio container will not be injected
-	// into the gateway proxy deployment.
 	IstioProxyContainer *IstioContainerApplyConfiguration `json:"istioProxyContainer,omitempty"`
-	// do not use slice of pointers: https://github.com/kubernetes/code-generator/issues/166
-	// Override the default Istio sidecar in gateway-proxy with a custom container.
-	CustomSidecars []v1.Container `json:"customSidecars,omitempty"`
+	CustomSidecars      []v1.Container                    `json:"customSidecars,omitempty"`
 }
 
 // IstioIntegrationApplyConfiguration constructs a declarative configuration of the IstioIntegration type for use with

@@ -8,14 +8,9 @@ import (
 
 // LocalPolicyTargetReferenceWithSectionNameApplyConfiguration represents a declarative configuration of the LocalPolicyTargetReferenceWithSectionName type for use
 // with apply.
-//
-// Select the object to attach the policy by Group, Kind, Name and SectionName.
-// The object must be in the same namespace as the policy.
-// You can target only one object at a time.
 type LocalPolicyTargetReferenceWithSectionNameApplyConfiguration struct {
 	LocalPolicyTargetReferenceApplyConfiguration `json:",inline"`
-	// The section name of the target resource.
-	SectionName *v1.SectionName `json:"sectionName,omitempty"`
+	SectionName                                  *v1.SectionName `json:"sectionName,omitempty"`
 }
 
 // LocalPolicyTargetReferenceWithSectionNameApplyConfiguration constructs a declarative configuration of the LocalPolicyTargetReferenceWithSectionName type for use with

@@ -4,11 +4,7 @@ package v1alpha1
 
 // CELFilterApplyConfiguration represents a declarative configuration of the CELFilter type for use
 // with apply.
-//
-// CELFilter filters requests based on Common Expression Language (CEL).
 type CELFilterApplyConfiguration struct {
-	// The CEL expressions to evaluate. AccessLogs are only emitted when the CEL expressions evaluates to true.
-	// see: https://www.envoyproxy.io/docs/envoy/v1.33.0/xds/type/v3/cel.proto.html#common-expression-language-cel-proto
 	Match *string `json:"match,omitempty"`
 }
 

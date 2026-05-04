@@ -4,13 +4,8 @@ package v1alpha1
 
 // MessageApplyConfiguration represents a declarative configuration of the Message type for use
 // with apply.
-//
-// An entry for a message to prepend or append to each prompt.
 type MessageApplyConfiguration struct {
-	// Role of the message. The available roles depend on the backend
-	// LLM provider model, such as `SYSTEM` or `USER` in the OpenAI API.
-	Role *string `json:"role,omitempty"`
-	// String content of the message.
+	Role    *string `json:"role,omitempty"`
 	Content *string `json:"content,omitempty"`
 }
 

@@ -8,12 +8,8 @@ import (
 
 // StaticBackendApplyConfiguration represents a declarative configuration of the StaticBackend type for use
 // with apply.
-//
-// StaticBackend references a static list of hosts.
 type StaticBackendApplyConfiguration struct {
-	// Hosts is a list of hosts to use for the backend.
-	Hosts []HostApplyConfiguration `json:"hosts,omitempty"`
-	// AppProtocol is the application protocol to use when communicating with the backend.
+	Hosts       []HostApplyConfiguration `json:"hosts,omitempty"`
 	AppProtocol *apiv1alpha1.AppProtocol `json:"appProtocol,omitempty"`
 }
 

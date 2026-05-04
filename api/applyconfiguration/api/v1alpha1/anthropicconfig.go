@@ -4,19 +4,10 @@ package v1alpha1
 
 // AnthropicConfigApplyConfiguration represents a declarative configuration of the AnthropicConfig type for use
 // with apply.
-//
-// AnthropicConfig settings for the [Anthropic](https://docs.anthropic.com/en/release-notes/api) LLM provider.
 type AnthropicConfigApplyConfiguration struct {
-	// The authorization token that the AI gateway uses to access the Anthropic API.
-	// This token is automatically sent in the `x-api-key` header of the request.
 	AuthToken *SingleAuthTokenApplyConfiguration `json:"authToken,omitempty"`
-	// Optional: A version header to pass to the Anthropic API.
-	// For more information, see the [Anthropic API versioning docs](https://docs.anthropic.com/en/api/versioning).
-	Version *string `json:"apiVersion,omitempty"`
-	// Optional: Override the model name.
-	// If unset, the model name is taken from the request.
-	// This setting can be useful when testing model failover scenarios.
-	Model *string `json:"model,omitempty"`
+	Version   *string                            `json:"apiVersion,omitempty"`
+	Model     *string                            `json:"model,omitempty"`
 }
 
 // AnthropicConfigApplyConfiguration constructs a declarative configuration of the AnthropicConfig type for use with

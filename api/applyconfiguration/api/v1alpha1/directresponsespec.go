@@ -4,15 +4,9 @@ package v1alpha1
 
 // DirectResponseSpecApplyConfiguration represents a declarative configuration of the DirectResponseSpec type for use
 // with apply.
-//
-// DirectResponseSpec describes the desired state of a DirectResponse.
 type DirectResponseSpecApplyConfiguration struct {
-	// StatusCode defines the HTTP status code to return for this route.
-	StatusCode *int32 `json:"status,omitempty"`
-	// Body defines the content to be returned in the HTTP response body.
-	// The maximum length of the body is restricted to prevent excessively large responses.
-	// If this field is omitted, no body is included in the response.
-	Body *string `json:"body,omitempty"`
+	StatusCode *int32  `json:"status,omitempty"`
+	Body       *string `json:"body,omitempty"`
 }
 
 // DirectResponseSpecApplyConfiguration constructs a declarative configuration of the DirectResponseSpec type for use with

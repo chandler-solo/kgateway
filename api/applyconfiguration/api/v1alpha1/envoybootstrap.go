@@ -4,31 +4,8 @@ package v1alpha1
 
 // EnvoyBootstrapApplyConfiguration represents a declarative configuration of the EnvoyBootstrap type for use
 // with apply.
-//
-// EnvoyBootstrap configures the Envoy proxy instance that is provisioned from a
-// Kubernetes Gateway.
 type EnvoyBootstrapApplyConfiguration struct {
-	// Envoy log level. Options include "trace", "debug", "info", "warn", "error",
-	// "critical" and "off". Defaults to "info". See
-	// https://www.envoyproxy.io/docs/envoy/latest/start/quick-start/run-envoy#debugging-envoy
-	// for more information.
-	LogLevel *string `json:"logLevel,omitempty"`
-	// Envoy log levels for specific components. The keys are component names and
-	// the values are one of "trace", "debug", "info", "warn", "error",
-	// "critical", or "off", e.g.
-	//
-	// ```yaml
-	// componentLogLevels:
-	// upstream: debug
-	// connection: trace
-	// ```
-	//
-	// These will be converted to the `--component-log-level` Envoy argument
-	// value. See
-	// https://www.envoyproxy.io/docs/envoy/latest/start/quick-start/run-envoy#debugging-envoy
-	// for more information.
-	//
-	// Note: the keys and values cannot be empty, but they are not otherwise validated.
+	LogLevel           *string           `json:"logLevel,omitempty"`
 	ComponentLogLevels map[string]string `json:"componentLogLevels,omitempty"`
 }
 

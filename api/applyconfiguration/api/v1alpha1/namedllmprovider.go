@@ -8,10 +8,7 @@ import (
 
 // NamedLLMProviderApplyConfiguration represents a declarative configuration of the NamedLLMProvider type for use
 // with apply.
-//
-// NamedLLMProvider wraps an LLMProvider with a name.
 type NamedLLMProviderApplyConfiguration struct {
-	// Name of the provider. Policies can target this provider by name.
 	Name                          *v1.SectionName `json:"name,omitempty"`
 	LLMProviderApplyConfiguration `json:",inline"`
 }

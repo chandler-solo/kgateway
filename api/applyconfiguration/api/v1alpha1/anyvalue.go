@@ -4,12 +4,8 @@ package v1alpha1
 
 // AnyValueApplyConfiguration represents a declarative configuration of the AnyValue type for use
 // with apply.
-//
-// AnyValue is used to represent any type of attribute value. AnyValue may contain a primitive value such as a string or integer or it may contain an arbitrary nested object containing arrays, key-value lists and primitives.
-// This is limited to string and nested values as OTel only supports them
 type AnyValueApplyConfiguration struct {
-	StringValue *string `json:"stringValue,omitempty"`
-	// TODO: Add support for ArrayValue && KvListValue
+	StringValue *string                            `json:"stringValue,omitempty"`
 	ArrayValue  []AnyValueApplyConfiguration       `json:"arrayValue,omitempty"`
 	KvListValue *KeyAnyValueListApplyConfiguration `json:"kvListValue,omitempty"`
 }

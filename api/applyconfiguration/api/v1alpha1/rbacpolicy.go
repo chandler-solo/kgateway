@@ -4,12 +4,7 @@ package v1alpha1
 
 // RBACPolicyApplyConfiguration represents a declarative configuration of the RBACPolicy type for use
 // with apply.
-//
-// RBACPolicy defines a single RBAC rule.
 type RBACPolicyApplyConfiguration struct {
-	// MatchExpressions defines a set of conditions that must be satisfied for the rule to match.
-	// These expression should be in the form of a Common Expression Language (CEL) expression.
-	// See: https://www.envoyproxy.io/docs/envoy/latest/xds/type/matcher/v3/cel.proto
 	MatchExpressions []string `json:"matchExpressions,omitempty"`
 }
 

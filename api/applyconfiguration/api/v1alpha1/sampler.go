@@ -8,8 +8,6 @@ import (
 
 // SamplerApplyConfiguration represents a declarative configuration of the Sampler type for use
 // with apply.
-//
-// Sampler defines the list of supported Samplers
 type SamplerApplyConfiguration struct {
 	AlwaysOn *apiv1alpha1.AlwaysOnConfig `json:"alwaysOnConfig,omitempty"`
 }

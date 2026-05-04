@@ -4,21 +4,11 @@ package v1alpha1
 
 // PromptguardRequestApplyConfiguration represents a declarative configuration of the PromptguardRequest type for use
 // with apply.
-//
-// PromptguardRequest defines the prompt guards to apply to requests sent by the client.
-// Multiple prompt guard configurations can be set, and they will be executed in the following order:
-// webhook → regex → moderation for requests, where each step can reject the request and stop further processing.
 type PromptguardRequestApplyConfiguration struct {
-	// A custom response message to return to the client. If not specified, defaults to
-	// "The request was rejected due to inappropriate content".
 	CustomResponse *CustomResponseApplyConfiguration `json:"customResponse,omitempty"`
-	// Regular expression (regex) matching for prompt guards and data masking.
-	Regex *RegexApplyConfiguration `json:"regex,omitempty"`
-	// Configure a webhook to forward requests to for prompt guarding.
-	Webhook *WebhookApplyConfiguration `json:"webhook,omitempty"`
-	// Pass prompt data through an external moderation model endpoint,
-	// which compares the request prompt input to predefined content rules.
-	Moderation *ModerationApplyConfiguration `json:"moderation,omitempty"`
+	Regex          *RegexApplyConfiguration          `json:"regex,omitempty"`
+	Webhook        *WebhookApplyConfiguration        `json:"webhook,omitempty"`
+	Moderation     *ModerationApplyConfiguration     `json:"moderation,omitempty"`
 }
 
 // PromptguardRequestApplyConfiguration constructs a declarative configuration of the PromptguardRequest type for use with

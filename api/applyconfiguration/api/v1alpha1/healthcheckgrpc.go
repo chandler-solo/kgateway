@@ -5,12 +5,8 @@ package v1alpha1
 // HealthCheckGrpcApplyConfiguration represents a declarative configuration of the HealthCheckGrpc type for use
 // with apply.
 type HealthCheckGrpcApplyConfiguration struct {
-	// ServiceName is the optional name of the service to check.
 	ServiceName *string `json:"serviceName,omitempty"`
-	// Authority is the authority header used to make the gRPC health check request.
-	// If unset, the name of the cluster this health check is associated
-	// with will be used.
-	Authority *string `json:"authority,omitempty"`
+	Authority   *string `json:"authority,omitempty"`
 }
 
 // HealthCheckGrpcApplyConfiguration constructs a declarative configuration of the HealthCheckGrpc type for use with

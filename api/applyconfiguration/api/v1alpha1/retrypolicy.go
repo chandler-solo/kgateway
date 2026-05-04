@@ -4,15 +4,9 @@ package v1alpha1
 
 // RetryPolicyApplyConfiguration represents a declarative configuration of the RetryPolicy type for use
 // with apply.
-//
-// Specifies the retry policy of remote data source when fetching fails.
-// Ref: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/base.proto#envoy-v3-api-msg-config-core-v3-retrypolicy
 type RetryPolicyApplyConfiguration struct {
-	// Specifies parameters that control retry backoff strategy.
-	// the default base interval is 1000 milliseconds and the default maximum interval is 10 times the base interval.
 	RetryBackOff *BackoffStrategyApplyConfiguration `json:"retryBackOff,omitempty"`
-	// Specifies the allowed number of retries. Defaults to 1.
-	NumRetries *int32 `json:"numRetries,omitempty"`
+	NumRetries   *int32                             `json:"numRetries,omitempty"`
 }
 
 // RetryPolicyApplyConfiguration constructs a declarative configuration of the RetryPolicy type for use with

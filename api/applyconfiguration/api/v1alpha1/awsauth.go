@@ -10,13 +10,8 @@ import (
 
 // AwsAuthApplyConfiguration represents a declarative configuration of the AwsAuth type for use
 // with apply.
-//
-// AwsAuth specifies the authentication method to use for the backend.
 type AwsAuthApplyConfiguration struct {
-	// Type specifies the authentication method to use for the backend.
-	Type *apiv1alpha1.AwsAuthType `json:"type,omitempty"`
-	// SecretRef references a Kubernetes Secret containing the AWS credentials.
-	// The Secret must have keys "accessKey", "secretKey", and optionally "sessionToken".
+	Type      *apiv1alpha1.AwsAuthType `json:"type,omitempty"`
 	SecretRef *v1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 

@@ -4,54 +4,19 @@ package v1alpha1
 
 // KubernetesProxyConfigApplyConfiguration represents a declarative configuration of the KubernetesProxyConfig type for use
 // with apply.
-//
-// KubernetesProxyConfig configures the set of Kubernetes resources that will be provisioned
-// for a given Gateway.
 type KubernetesProxyConfigApplyConfiguration struct {
-	// Use a Kubernetes deployment as the proxy workload type. Currently, this is the only
-	// supported workload type.
-	Deployment *ProxyDeploymentApplyConfiguration `json:"deployment,omitempty"`
-	// Configuration for the container running Envoy.
-	// If agentgateway is enabled, the EnvoyContainer values will be ignored.
-	EnvoyContainer *EnvoyContainerApplyConfiguration `json:"envoyContainer,omitempty"`
-	// Configuration for the container running the Secret Discovery Service (SDS).
-	SdsContainer *SdsContainerApplyConfiguration `json:"sdsContainer,omitempty"`
-	// Configuration for the pods that will be created.
-	PodTemplate *PodApplyConfiguration `json:"podTemplate,omitempty"`
-	// Configuration for the Kubernetes Service that exposes the proxy over
-	// the network.
-	Service *ServiceApplyConfiguration `json:"service,omitempty"`
-	// Configuration for the Kubernetes ServiceAccount used by the proxy pods.
-	ServiceAccount *ServiceAccountApplyConfiguration `json:"serviceAccount,omitempty"`
-	// Configuration for the Istio integration.
-	Istio *IstioIntegrationApplyConfiguration `json:"istio,omitempty"`
-	// Configuration for the stats server.
-	Stats *StatsConfigApplyConfiguration `json:"stats,omitempty"`
-	// Deprecated: `aiExtension` is deprecated in v2.1 and will be removed in v2.2.
-	// Prefer to use `agentgateway` instead.
-	//
-	// Configuration for the AI extension.
-	AiExtension *AiExtensionApplyConfiguration `json:"aiExtension,omitempty"`
-	// Configure the agentgateway integration. If agentgateway is disabled, the
-	// EnvoyContainer values will be used by default to configure the data
-	// plane proxy.
-	Agentgateway *AgentgatewayApplyConfiguration `json:"agentgateway,omitempty"`
-	// Deprecated: Prefer to use omitDefaultSecurityContext instead. Will be
-	// removed in the next release.
-	//
-	// Used to unset the `runAsUser` values in security contexts.
-	FloatingUserId *bool `json:"floatingUserId,omitempty"`
-	// OmitDefaultSecurityContext is used to control whether or not
-	// `securityContext` fields should be rendered for the various generated
-	// Deployments/Containers that are dynamically provisioned by the deployer.
-	//
-	// When set to true, no `securityContexts` will be provided and will left
-	// to the user/platform to be provided.
-	//
-	// This should be enabled on platforms such as Red Hat OpenShift where the
-	// `securityContext` will be dynamically added to enforce the appropriate
-	// level of security.
-	OmitDefaultSecurityContext *bool `json:"omitDefaultSecurityContext,omitempty"`
+	Deployment                 *ProxyDeploymentApplyConfiguration  `json:"deployment,omitempty"`
+	EnvoyContainer             *EnvoyContainerApplyConfiguration   `json:"envoyContainer,omitempty"`
+	SdsContainer               *SdsContainerApplyConfiguration     `json:"sdsContainer,omitempty"`
+	PodTemplate                *PodApplyConfiguration              `json:"podTemplate,omitempty"`
+	Service                    *ServiceApplyConfiguration          `json:"service,omitempty"`
+	ServiceAccount             *ServiceAccountApplyConfiguration   `json:"serviceAccount,omitempty"`
+	Istio                      *IstioIntegrationApplyConfiguration `json:"istio,omitempty"`
+	Stats                      *StatsConfigApplyConfiguration      `json:"stats,omitempty"`
+	AiExtension                *AiExtensionApplyConfiguration      `json:"aiExtension,omitempty"`
+	Agentgateway               *AgentgatewayApplyConfiguration     `json:"agentgateway,omitempty"`
+	FloatingUserId             *bool                               `json:"floatingUserId,omitempty"`
+	OmitDefaultSecurityContext *bool                               `json:"omitDefaultSecurityContext,omitempty"`
 }
 
 // KubernetesProxyConfigApplyConfiguration constructs a declarative configuration of the KubernetesProxyConfig type for use with

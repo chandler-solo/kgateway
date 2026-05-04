@@ -4,21 +4,11 @@ package v1alpha1
 
 // TransformApplyConfiguration represents a declarative configuration of the Transform type for use
 // with apply.
-//
-// Transform defines the operations to be performed by the transformation.
-// These operations may include changing the actual request/response but may also cause side effects.
-// Side effects may include setting info that can be used in future steps (e.g. dynamic metadata) and can cause envoy to buffer.
 type TransformApplyConfiguration struct {
-	// Set is a list of headers and the value they should be set to.
-	Set []HeaderTransformationApplyConfiguration `json:"set,omitempty"`
-	// Add is a list of headers to add to the request and what that value should be set to.
-	// If there is already a header with these values then append the value as an extra entry.
-	Add []HeaderTransformationApplyConfiguration `json:"add,omitempty"`
-	// Remove is a list of header names to remove from the request/response.
-	Remove []string `json:"remove,omitempty"`
-	// Body controls both how to parse the body and if needed how to set.
-	// If empty, body will not be buffered.
-	Body *BodyTransformationApplyConfiguration `json:"body,omitempty"`
+	Set    []HeaderTransformationApplyConfiguration `json:"set,omitempty"`
+	Add    []HeaderTransformationApplyConfiguration `json:"add,omitempty"`
+	Remove []string                                 `json:"remove,omitempty"`
+	Body   *BodyTransformationApplyConfiguration    `json:"body,omitempty"`
 }
 
 // TransformApplyConfiguration constructs a declarative configuration of the Transform type for use with

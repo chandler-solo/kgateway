@@ -4,21 +4,7 @@ package v1alpha1
 
 // ModerationApplyConfiguration represents a declarative configuration of the Moderation type for use
 // with apply.
-//
-// Moderation configures an external moderation model endpoint. This endpoint evaluates
-// request prompt data against predefined content rules to determine if the content
-// adheres to those rules.
-//
-// Any requests routed through the AI Gateway are processed by the specified
-// moderation model. If the model identifies the content as harmful based on its rules,
-// the request is automatically rejected.
-//
-// You can configure a moderation endpoint either as a standalone prompt guard setting
-// or alongside other request and response guard settings.
 type ModerationApplyConfiguration struct {
-	// Pass prompt data through an external moderation model endpoint,
-	// which compares the request prompt input to predefined content rules.
-	// Configure an OpenAI moderation endpoint.
 	OpenAIModeration *OpenAIConfigApplyConfiguration `json:"openAIModeration,omitempty"`
 }
 

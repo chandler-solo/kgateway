@@ -8,24 +8,11 @@ import (
 
 // AwsLambdaApplyConfiguration represents a declarative configuration of the AwsLambda type for use
 // with apply.
-//
-// AwsLambda configures the AWS lambda service.
 type AwsLambdaApplyConfiguration struct {
-	// EndpointURL is the URL or domain for the Lambda service. This is primarily
-	// useful for testing and development purposes. When omitted, the default
-	// lambda hostname will be used.
-	EndpointURL *string `json:"endpointURL,omitempty"`
-	// FunctionName is the name of the Lambda function to invoke.
-	FunctionName *string `json:"functionName,omitempty"`
-	// InvocationMode defines how to invoke the Lambda function.
-	// Defaults to Sync.
-	InvocationMode *string `json:"invocationMode,omitempty"`
-	// Qualifier is the alias or version for the Lambda function.
-	// Valid values include a numeric version (e.g. "1"), an alias name
-	// (alphanumeric plus "-" or "_"), or the special literal "$LATEST".
-	Qualifier *string `json:"qualifier,omitempty"`
-	// PayloadTransformation specifies payload transformation mode before it is sent to the Lambda function.
-	// Defaults to Envoy.
+	EndpointURL          *string                                    `json:"endpointURL,omitempty"`
+	FunctionName         *string                                    `json:"functionName,omitempty"`
+	InvocationMode       *string                                    `json:"invocationMode,omitempty"`
+	Qualifier            *string                                    `json:"qualifier,omitempty"`
 	PayloadTransformMode *apiv1alpha1.AWSLambdaPayloadTransformMode `json:"payloadTransformMode,omitempty"`
 }
 

@@ -4,8 +4,6 @@ package v1alpha1
 
 // PathOverrideApplyConfiguration represents a declarative configuration of the PathOverride type for use
 // with apply.
-//
-// PathOverride allows overriding the default URL path used for LLM provider API requests.
 type PathOverrideApplyConfiguration struct {
 	Full *string `json:"full,omitempty"`
 }

@@ -4,10 +4,7 @@ package v1alpha1
 
 // TracingProviderApplyConfiguration represents a declarative configuration of the TracingProvider type for use
 // with apply.
-//
-// TracingProvider defines the list of providers for tracing
 type TracingProviderApplyConfiguration struct {
-	// Tracing contains various settings for Envoy's OTel tracer.
 	OpenTelemetry *OpenTelemetryTracingConfigApplyConfiguration `json:"openTelemetry,omitempty"`
 }
 

@@ -8,14 +8,8 @@ import (
 
 // RBACApplyConfiguration represents a declarative configuration of the RBAC type for use
 // with apply.
-//
-// RBAC defines the configuration for role-based access control.
 type RBACApplyConfiguration struct {
-	// Policy specifies the RBAC rule to evaluate.
-	// A policy matches only **all** the conditions evaluates to true.
-	Policy *RBACPolicyApplyConfiguration `json:"policy,omitempty"`
-	// Action defines whether the rule allows or denies the request if matched.
-	// If unspecified, the default is "Allow".
+	Policy *RBACPolicyApplyConfiguration          `json:"policy,omitempty"`
 	Action *apiv1alpha1.AuthorizationPolicyAction `json:"action,omitempty"`
 }
 

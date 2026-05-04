@@ -11,39 +11,15 @@ import (
 // LoadBalancerApplyConfiguration represents a declarative configuration of the LoadBalancer type for use
 // with apply.
 type LoadBalancerApplyConfiguration struct {
-	// HealthyPanicThreshold configures envoy's panic threshold percentage between 0-100. Once the number of non-healthy hosts
-	// reaches this percentage, envoy disregards health information.
-	// See [Envoy documentation](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/panic_threshold.html).
-	HealthyPanicThreshold *int32 `json:"healthyPanicThreshold,omitempty"`
-	// This allows batch updates of endpoints health/weight/metadata that happen during a time window.
-	// this help lower cpu usage when endpoint change rate is high. defaults to 1 second.
-	// Set to 0 to disable and have changes applied immediately.
-	UpdateMergeWindow *v1.Duration `json:"updateMergeWindow,omitempty"`
-	// LeastRequest configures the least request load balancer type.
-	LeastRequest *LoadBalancerLeastRequestConfigApplyConfiguration `json:"leastRequest,omitempty"`
-	// RoundRobin configures the round robin load balancer type.
-	RoundRobin *LoadBalancerRoundRobinConfigApplyConfiguration `json:"roundRobin,omitempty"`
-	// RingHash configures the ring hash load balancer type.
-	RingHash *LoadBalancerRingHashConfigApplyConfiguration `json:"ringHash,omitempty"`
-	// Maglev configures the maglev load balancer type.
-	Maglev *LoadBalancerMaglevConfigApplyConfiguration `json:"maglev,omitempty"`
-	// Random configures the random load balancer type.
-	Random *apiv1alpha1.LoadBalancerRandomConfig `json:"random,omitempty"`
-	// LocalityType specifies the locality config type to use.
-	// See https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/load_balancing_policies/common/v3/common.proto#envoy-v3-api-msg-extensions-load-balancing-policies-common-v3-localitylbconfig
-	LocalityType *apiv1alpha1.LocalityType `json:"localityType,omitempty"`
-	// If set to true, the load balancer will drain connections when the host set changes.
-	//
-	// Ring Hash or Maglev can be used to ensure that clients with the same key
-	// are routed to the same upstream host.
-	// Distruptions can cause new connections with the same key as existing connections
-	// to be routed to different hosts.
-	// Enabling this feature will cause the load balancer to drain existing connections
-	// when the host set changes, ensuring that new connections with the same key are
-	// consistently routed to the same host.
-	// Connections are not immediately closed, but are allowed to drain
-	// before being closed.
-	CloseConnectionsOnHostSetChange *bool `json:"closeConnectionsOnHostSetChange,omitempty"`
+	HealthyPanicThreshold           *int32                                            `json:"healthyPanicThreshold,omitempty"`
+	UpdateMergeWindow               *v1.Duration                                      `json:"updateMergeWindow,omitempty"`
+	LeastRequest                    *LoadBalancerLeastRequestConfigApplyConfiguration `json:"leastRequest,omitempty"`
+	RoundRobin                      *LoadBalancerRoundRobinConfigApplyConfiguration   `json:"roundRobin,omitempty"`
+	RingHash                        *LoadBalancerRingHashConfigApplyConfiguration     `json:"ringHash,omitempty"`
+	Maglev                          *LoadBalancerMaglevConfigApplyConfiguration       `json:"maglev,omitempty"`
+	Random                          *apiv1alpha1.LoadBalancerRandomConfig             `json:"random,omitempty"`
+	LocalityType                    *apiv1alpha1.LocalityType                         `json:"localityType,omitempty"`
+	CloseConnectionsOnHostSetChange *bool                                             `json:"closeConnectionsOnHostSetChange,omitempty"`
 }
 
 // LoadBalancerApplyConfiguration constructs a declarative configuration of the LoadBalancer type for use with

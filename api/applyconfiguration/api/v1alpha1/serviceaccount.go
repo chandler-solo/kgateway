@@ -5,9 +5,7 @@ package v1alpha1
 // ServiceAccountApplyConfiguration represents a declarative configuration of the ServiceAccount type for use
 // with apply.
 type ServiceAccountApplyConfiguration struct {
-	// Additional labels to add to the ServiceAccount object metadata.
-	ExtraLabels map[string]string `json:"extraLabels,omitempty"`
-	// Additional annotations to add to the ServiceAccount object metadata.
+	ExtraLabels      map[string]string `json:"extraLabels,omitempty"`
 	ExtraAnnotations map[string]string `json:"extraAnnotations,omitempty"`
 }
 

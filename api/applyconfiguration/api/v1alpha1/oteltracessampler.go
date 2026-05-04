@@ -8,19 +8,9 @@ import (
 
 // OTelTracesSamplerApplyConfiguration represents a declarative configuration of the OTelTracesSampler type for use
 // with apply.
-//
-// OTelTracesSampler defines the configuration for an OpenTelemetry trace sampler.
-// It combines the sampler type with any required arguments for that type.
 type OTelTracesSamplerApplyConfiguration struct {
-	// SamplerType specifies the type of sampler to use (default value: "parentbased_always_on").
-	// Refer to OTelTracesSamplerType for available options.
-	// https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_traces_sampler
 	SamplerType *apiv1alpha1.OTelTracesSamplerType `json:"type,omitempty"`
-	// SamplerArg provides an argument for the chosen sampler type.
-	// For "traceidratio" or "parentbased_traceidratio" samplers: Sampling probability, a number in the [0..1] range,
-	// e.g. 0.25. Default is 1.0 if unset.
-	// https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_traces_sampler_arg
-	SamplerArg *string `json:"arg,omitempty"`
+	SamplerArg  *string                            `json:"arg,omitempty"`
 }
 
 // OTelTracesSamplerApplyConfiguration constructs a declarative configuration of the OTelTracesSampler type for use with

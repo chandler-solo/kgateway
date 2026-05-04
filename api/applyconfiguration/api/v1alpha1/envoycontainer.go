@@ -8,36 +8,13 @@ import (
 
 // EnvoyContainerApplyConfiguration represents a declarative configuration of the EnvoyContainer type for use
 // with apply.
-//
-// EnvoyContainer configures the container running Envoy.
 type EnvoyContainerApplyConfiguration struct {
-	// Initial envoy configuration.
-	Bootstrap *EnvoyBootstrapApplyConfiguration `json:"bootstrap,omitempty"`
-	// The envoy container image. See
-	// https://kubernetes.io/docs/concepts/containers/images
-	// for details.
-	//
-	// Default values, which may be overridden individually:
-	//
-	// registry: quay.io/solo-io
-	// repository: envoy-wrapper
-	// tag: <kgateway version>
-	// pullPolicy: IfNotPresent
-	Image *ImageApplyConfiguration `json:"image,omitempty"`
-	// The security context for this container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#securitycontext-v1-core
-	// for details.
-	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
-	// The compute resources required by this container. See
-	// https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-	// for details.
-	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
-	// The container environment variables.
-	Env []v1.EnvVar `json:"env,omitempty"`
-	// Additional volume mounts to add to the container. See
-	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.26/#volumemount-v1-core
-	// for details.
-	ExtraVolumeMounts []v1.VolumeMount `json:"extraVolumeMounts,omitempty"`
+	Bootstrap         *EnvoyBootstrapApplyConfiguration `json:"bootstrap,omitempty"`
+	Image             *ImageApplyConfiguration          `json:"image,omitempty"`
+	SecurityContext   *v1.SecurityContext               `json:"securityContext,omitempty"`
+	Resources         *v1.ResourceRequirements          `json:"resources,omitempty"`
+	Env               []v1.EnvVar                       `json:"env,omitempty"`
+	ExtraVolumeMounts []v1.VolumeMount                  `json:"extraVolumeMounts,omitempty"`
 }
 
 // EnvoyContainerApplyConfiguration constructs a declarative configuration of the EnvoyContainer type for use with

@@ -5,22 +5,10 @@ package v1alpha1
 // CustomLabelApplyConfiguration represents a declarative configuration of the CustomLabel type for use
 // with apply.
 type CustomLabelApplyConfiguration struct {
-	// Name of the label to use in the prometheus metrics
-	Name *string `json:"name,omitempty"`
-	// The dynamic metadata namespace to get the data from. If not specified, the default namespace will be
-	// the envoy JWT filter namespace.
-	// This can also be used in combination with early_transformations to insert custom data.
+	Name              *string `json:"name,omitempty"`
 	MetadataNamespace *string `json:"metadataNamespace,omitempty"`
-	// The key to use to get the data from the metadata namespace.
-	// If using a JWT data please see the following envoy docs: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/jwt_authn/v3/config.proto#envoy-v3-api-field-extensions-filters-http-jwt-authn-v3-jwtprovider-payload-in-metadata
-	// This key follows the same format as the envoy access logging for dynamic metadata.
-	// Examples can be found here: https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage
-	MetdataKey *string `json:"metadataKey,omitempty"`
-	// The key delimiter to use, by default this is set to `:`.
-	// This allows for keys with `.` in them to be used.
-	// For example, if you have keys in your path with `:` in them, (e.g. `key1:key2:value`)
-	// you can instead set this to `~` to be able to split those keys properly.
-	KeyDelimiter *string `json:"keyDelimiter,omitempty"`
+	MetdataKey        *string `json:"metadataKey,omitempty"`
+	KeyDelimiter      *string `json:"keyDelimiter,omitempty"`
 }
 
 // CustomLabelApplyConfiguration constructs a declarative configuration of the CustomLabel type for use with

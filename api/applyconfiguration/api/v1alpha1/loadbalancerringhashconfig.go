@@ -8,18 +8,11 @@ import (
 
 // LoadBalancerRingHashConfigApplyConfiguration represents a declarative configuration of the LoadBalancerRingHashConfig type for use
 // with apply.
-//
-// LoadBalancerRingHashConfig configures the ring hash load balancer type.
 type LoadBalancerRingHashConfigApplyConfiguration struct {
-	// MinimumRingSize is the minimum size of the ring.
-	MinimumRingSize *int64 `json:"minimumRingSize,omitempty"`
-	// MaximumRingSize is the maximum size of the ring.
-	MaximumRingSize *int64 `json:"maximumRingSize,omitempty"`
-	// UseHostnameForHashing specifies whether to use the hostname instead of the resolved IP address for hashing.
-	// Defaults to false.
-	UseHostnameForHashing *bool `json:"useHostnameForHashing,omitempty"`
-	// HashPolicies specifies the hash policies for hashing load balancers (RingHash, Maglev).
-	HashPolicies []*apiv1alpha1.HashPolicy `json:"hashPolicies,omitempty"`
+	MinimumRingSize       *int64                    `json:"minimumRingSize,omitempty"`
+	MaximumRingSize       *int64                    `json:"maximumRingSize,omitempty"`
+	UseHostnameForHashing *bool                     `json:"useHostnameForHashing,omitempty"`
+	HashPolicies          []*apiv1alpha1.HashPolicy `json:"hashPolicies,omitempty"`
 }
 
 // LoadBalancerRingHashConfigApplyConfiguration constructs a declarative configuration of the LoadBalancerRingHashConfig type for use with

@@ -4,13 +4,8 @@ package v1alpha1
 
 // MetadataKeyApplyConfiguration represents a declarative configuration of the MetadataKey type for use
 // with apply.
-//
-// MetadataKey provides a way to retrieve values from Metadata using a key and a path.
 type MetadataKeyApplyConfiguration struct {
-	// The key name of the Metadata from which to retrieve the Struct
-	Key *string `json:"key,omitempty"`
-	// The path used to retrieve a specific Value from the Struct. This can be either a prefix or a full path,
-	// depending on the use case
+	Key  *string                                 `json:"key,omitempty"`
 	Path []MetadataPathSegmentApplyConfiguration `json:"path,omitempty"`
 }
 

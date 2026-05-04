@@ -4,11 +4,7 @@ package v1alpha1
 
 // DynamicForwardProxyBackendApplyConfiguration represents a declarative configuration of the DynamicForwardProxyBackend type for use
 // with apply.
-//
-// DynamicForwardProxyBackend is the dynamic forward proxy backend configuration.
 type DynamicForwardProxyBackendApplyConfiguration struct {
-	// EnableTls enables TLS. When true, the backend will be configured to use TLS. System CA will be used for validation.
-	// The hostname will be used for SNI and auto SAN validation.
 	EnableTls *bool `json:"enableTls,omitempty"`
 }
 

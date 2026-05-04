@@ -8,23 +8,11 @@ import (
 
 // ExtAuthPolicyApplyConfiguration represents a declarative configuration of the ExtAuthPolicy type for use
 // with apply.
-//
-// ExtAuthPolicy configures external authentication/authorization for a route.
-// This policy will determine the ext auth server to use and how to talk to it.
-// Note that most of these fields are passed along as is to Envoy.
-// For more details on particular fields please see the Envoy ExtAuth documentation.
-// https://raw.githubusercontent.com/envoyproxy/envoy/f910f4abea24904aff04ec33a00147184ea7cffa/api/envoy/extensions/filters/http/ext_authz/v3/ext_authz.proto
 type ExtAuthPolicyApplyConfiguration struct {
-	// ExtensionRef references the GatewayExtension that should be used for auth.
-	ExtensionRef *NamespacedObjectReferenceApplyConfiguration `json:"extensionRef,omitempty"`
-	// WithRequestBody allows the request body to be buffered and sent to the auth service.
-	// Warning buffering has implications for streaming and therefore performance.
-	WithRequestBody *ExtAuthBufferSettingsApplyConfiguration `json:"withRequestBody,omitempty"`
-	// Additional context for the auth service.
-	ContextExtensions map[string]string `json:"contextExtensions,omitempty"`
-	// Disable all external auth filters.
-	// Can be used to disable external auth policies applied at a higher level in the config hierarchy.
-	Disable *apiv1alpha1.PolicyDisable `json:"disable,omitempty"`
+	ExtensionRef      *NamespacedObjectReferenceApplyConfiguration `json:"extensionRef,omitempty"`
+	WithRequestBody   *ExtAuthBufferSettingsApplyConfiguration     `json:"withRequestBody,omitempty"`
+	ContextExtensions map[string]string                            `json:"contextExtensions,omitempty"`
+	Disable           *apiv1alpha1.PolicyDisable                   `json:"disable,omitempty"`
 }
 
 // ExtAuthPolicyApplyConfiguration constructs a declarative configuration of the ExtAuthPolicy type for use with
