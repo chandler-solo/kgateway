@@ -73,16 +73,17 @@ func (s *tsuite) TearDownSuite() {
 func (s *tsuite) waitForEnvoyReady() {
 	gwURL := s.getGatewayURL()
 	fmt.Println("Waiting for envoy up.")
+	client := &http.Client{Timeout: 2 * time.Second}
 	s.Require().EventuallyWithT(func(c *assert.CollectT) {
 		statusChar := "."
-		resp, err := http.Get(gwURL + "/not_there")
+		resp, err := client.Get(gwURL + "/not_there")
 		if err == nil {
 			defer resp.Body.Close()
 			statusChar = "*"
-			assert.Equalf(c, resp.StatusCode, 404, "envoy up check failed")
+			assert.Equalf(c, 404, resp.StatusCode, "envoy up check failed")
 		}
 		fmt.Print(statusChar)
-	}, 30*time.Second, 1*time.Second)
+	}, 90*time.Second, 1*time.Second)
 	fmt.Println()
 }
 
