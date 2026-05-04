@@ -142,6 +142,20 @@ func (s *tsuite) TestBackendTLSPolicyAndStatus() {
 		Message:            fmt.Sprintf("invalid CA certificate ref ConfigMap/ca: %s: kgateway-base/ca", backendtlspolicy.ErrConfigMapNotFound),
 		ObservedGeneration: backendTlsPolicy.Generation,
 	})
+
+	// The policy is now invalid, but Envoy should keep serving with the last good backend clusters.
+	for _, tc := range tt {
+		common.BaseGateway.Send(
+			s.T(),
+			&matchers.HttpResponse{
+				StatusCode: http.StatusOK,
+				Body:       gomega.ContainSubstring(defaults.NginxResponse),
+			},
+			curl.WithPort(80),
+			curl.WithHostHeader(tc.host),
+			curl.WithPath("/"),
+		)
+	}
 }
 
 func (s *tsuite) assertPolicyStatus(inCondition metav1.Condition) {
