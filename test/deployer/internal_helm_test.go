@@ -162,6 +162,19 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			InputFile: "envoy-dns-resolver-zero",
 		},
 		{
+			Name:      "envoy readiness listener proxy protocol",
+			InputFile: "envoy-readiness-listener-proxy-protocol",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "envoy.filters.listener.proxy_protocol",
+					"readiness listener should include the proxy_protocol listener filter when enableReadinessProbeProxyProtocol is enabled")
+				assert.Contains(t, outputYaml, "allow_requests_without_proxy_protocol: true",
+					"proxy_protocol filter on the readiness listener must allow requests without PROXY headers so kubelet probes still succeed")
+				assert.Equal(t, 1, strings.Count(outputYaml, "envoy.filters.listener.proxy_protocol"),
+					"enableReadinessProbeProxyProtocol must wrap only the readiness listener")
+			},
+		},
+		{
 			Name:      "envoy JSON log",
 			InputFile: "envoy-log-json",
 		},

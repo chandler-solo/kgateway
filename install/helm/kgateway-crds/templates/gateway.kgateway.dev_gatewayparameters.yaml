@@ -257,6 +257,17 @@ spec:
                                 minimum: 0
                                 type: integer
                             type: object
+                          enableReadinessProbeProxyProtocol:
+                            description: |-
+                              EnableReadinessProbeProxyProtocol enables the PROXY protocol listener filter
+                              on the kgateway readiness listener (port 8082).
+                              Set this to true if and only if the load balancer in front of the gateway
+                              prepends PROXY protocol headers to incoming TCP connections targeting the
+                              readiness port. For example, when using an AWS NLB with proxy protocol v2
+                              enabled at the target group level
+                              (`service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"`).
+                              Defaults to false.
+                            type: boolean
                           logFormat:
                             description: |-
                               Envoy application log format. Does *not* affect access logs. Can be JSON or custom text format.
