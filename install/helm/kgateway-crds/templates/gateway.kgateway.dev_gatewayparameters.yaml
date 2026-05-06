@@ -5902,11 +5902,56 @@ spec:
                         description: If specified, the pod's graceful shutdown spec.
                         properties:
                           enabled:
-                            description: Enable grace period before shutdown to finish
-                              current requests while Envoy health checks fail to e.g.
-                              notify external load balancers. *NOTE:* This will not
-                              have any effect if you have not defined health checks
-                              via the health check filter
+                            description: |-
+                              Enable a preStop hook that calls Envoy's /healthcheck/fail admin endpoint and then
+                              sleeps for SleepTimeSeconds before Envoy receives SIGTERM.
+
+                              During pod termination, Kubernetes removes the pod from EndpointSlices as soon as the
+                              DeletionTimestamp is set - it does not wait for the readiness probe to fail. The
+                              kgateway readiness probe at :8082/ready is proxied to Envoy's admin /ready, which
+                              reflects server lifecycle state (LIVE) and is unaffected by /healthcheck/fail, so the
+                              pod stays Ready throughout the hook. The sleep is what gives in-flight requests time
+                              to drain and endpoint removal time to propagate to kube-proxy and external load
+                              balancers.
+
+                              /healthcheck/fail toggles a per-process flag that the HTTP health check filter
+                              reads. Listener config is shared across replicas via xDS, but this flag is
+                              runtime state local to one Envoy process, so only the terminating replica's
+                              filter starts returning 503; other replicas are unaffected. If an external LB
+                              probes the terminating pod's IP at a port whose Envoy listener has the HTTP
+                              health check filter installed in its filter chain, that probe will start
+                              receiving 503s during the sleep window and the LB will drop the pod from
+                              rotation. Without an HTTP health check filter on the data plane,
+                              /healthcheck/fail has no externally visible effect and only the sleep matters.
+
+                              The external LB does not need access to Envoy's admin port. It reaches the
+                              health check through the same Kubernetes Service port that exposes the
+                              Gateway listener; kgateway adds Gateway listener ports to the generated
+                              proxy Service. A separate Service port is only needed if you put the health
+                              check on a dedicated Gateway listener/port instead of an existing traffic
+                              listener.
+
+                              If the health check filter is installed on an internet-facing listener,
+                              clients that can reach that listener may also be able to request the health
+                              check path. That path only returns the filter's health response and does
+                              not expose Envoy admin APIs. If exposing that health state is not
+                              acceptable, use a dedicated health check listener/port or
+                              network/authorization policy that allows the load balancer's health check
+                              traffic while denying ordinary client traffic.
+
+                              For AWS Application Load Balancers, configure the target group's HTTP or
+                              HTTPS health check to use a health check port that reaches the Gateway
+                              listener with the Envoy filter and set HealthCheckPath to the filter's
+                              path. For AWS Network Load Balancers, configure the target group's
+                              HealthCheckProtocol as HTTP or HTTPS and set HealthCheckPath to that same
+                              path if the NLB should observe the Envoy drain signal; the default TCP
+                              health check only verifies that the port accepts connections, so it will
+                              not notice /healthcheck/fail.
+
+                              KEP-1669 (Proxy Terminating Endpoints, GA in 1.28) does not change this picture for
+                              ordinary rolling updates: kube-proxy only falls back to Serving+Terminating endpoints
+                              when no Ready endpoints remain (e.g. brief gaps during scale-to-zero). When other
+                              Ready pods exist, terminating endpoints are not used regardless of this hook.
                             type: boolean
                           sleepTimeSeconds:
                             description: Time (in seconds) for the preStop hook to

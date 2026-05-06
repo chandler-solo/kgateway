@@ -451,6 +451,30 @@ type GracefulShutdownSpec struct {
 	// rotation. Without an HTTP health check filter on the data plane,
 	// /healthcheck/fail has no externally visible effect and only the sleep matters.
 	//
+	// The external LB does not need access to Envoy's admin port. It reaches the
+	// health check through the same Kubernetes Service port that exposes the
+	// Gateway listener; kgateway adds Gateway listener ports to the generated
+	// proxy Service. A separate Service port is only needed if you put the health
+	// check on a dedicated Gateway listener/port instead of an existing traffic
+	// listener.
+	//
+	// If the health check filter is installed on an internet-facing listener,
+	// clients that can reach that listener may also be able to request the health
+	// check path. That path only returns the filter's health response and does
+	// not expose Envoy admin APIs. If exposing that health state is not
+	// acceptable, use a dedicated health check listener/port or
+	// network/authorization policy that allows the load balancer's health check
+	// traffic while denying ordinary client traffic.
+	//
+	// For AWS Application Load Balancers, configure the target group's HTTP or
+	// HTTPS health check to use a health check port that reaches the Gateway
+	// listener with the Envoy filter and set HealthCheckPath to the filter's
+	// path. For AWS Network Load Balancers, configure the target group's
+	// HealthCheckProtocol as HTTP or HTTPS and set HealthCheckPath to that same
+	// path if the NLB should observe the Envoy drain signal; the default TCP
+	// health check only verifies that the port accepts connections, so it will
+	// not notice /healthcheck/fail.
+	//
 	// KEP-1669 (Proxy Terminating Endpoints, GA in 1.28) does not change this picture for
 	// ordinary rolling updates: kube-proxy only falls back to Serving+Terminating endpoints
 	// when no Ready endpoints remain (e.g. brief gaps during scale-to-zero). When other
