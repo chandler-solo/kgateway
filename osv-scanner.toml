@@ -1,0 +1,46 @@
+# OSV-Scanner ignore list.
+#
+# Only entries that are unambiguous false positives belong here. Each entry
+# must explain *why* it is a false positive so a future reader can re-verify.
+#
+# Format reference: https://google.github.io/osv-scanner/configuration/
+
+# The following five CVEs are flagged against istio.io/istio, which we pin
+# to the Go pseudo-version `v0.0.0-20251218162427-600ea84d2996`.
+#
+# OSV-Scanner compares the literal "0.0.0" prefix against the CVE's fixed
+# version (all of which are Istio 1.x releases from 2019-2022) and concludes
+# "0.0.0 < 1.x", firing a false positive. In reality the pseudo-version's
+# embedded timestamp (20251218162427 = 2025-12-18 16:24:27 UTC) is years
+# after every fix below, so the pinned commit includes all of these fixes.
+
+[[IgnoredVulns]]
+id = "CVE-2019-14993"
+reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251218162427-600ea84d2996 is a 2025-12-18 commit, ~6 years after the fix in Istio 1.1.13 / 1.2.4 (2019-08)."
+
+[[IgnoredVulns]]
+id = "CVE-2021-39155"
+reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251218162427-600ea84d2996 is a 2025-12-18 commit, ~4 years after the fix in Istio 1.11.1 / 1.10.4 / 1.9.8 (2021-08)."
+
+[[IgnoredVulns]]
+id = "CVE-2021-39156"
+reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251218162427-600ea84d2996 is a 2025-12-18 commit, ~4 years after the fix in Istio 1.11.1 / 1.10.4 / 1.9.8 (2021-08)."
+
+[[IgnoredVulns]]
+id = "CVE-2022-23635"
+reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251218162427-600ea84d2996 is a 2025-12-18 commit, ~3 years after the fix in Istio 1.13.1 / 1.12.4 / 1.11.7 (2022-02)."
+
+[[IgnoredVulns]]
+id = "CVE-2022-31045"
+reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251218162427-600ea84d2996 is a 2025-12-18 commit, ~3 years after the fix in Istio 1.12.18 / 1.13.5 / 1.14.1 (2022-06)."
+
+# helm.sh/helm/v3 is pinned to 3.19.5. The fix in 3.20.2 cascades a forced
+# upgrade to k8s.io/client-go v0.35+, which adds bookmark-event requirements
+# that the istio fake client (pinned for backport stability) cannot satisfy,
+# causing unit test hangs. The CVE only affects `helm pull --untar` with
+# attacker-controlled chart names; kgateway uses helm as a Go library to
+# render its own bundled charts and never pulls or extracts external charts
+# from untrusted sources.
+[[IgnoredVulns]]
+id = "CVE-2026-35206"
+reason = "Not exploitable: kgateway uses helm as a library to render its own bundled charts; it never invokes `helm pull --untar` or extracts attacker-controlled chart archives. Cannot bump to 3.20.2 because that forces k8s.io/client-go v0.35+, which is incompatible with the pinned istio fake client used in unit tests."
