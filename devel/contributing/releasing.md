@@ -52,7 +52,7 @@ If the release branch **does not** exist, create one:
 
 ### Patch Release
 
-A patch release is generated from an existing release branch, i.e. [v2.0.x](https://github.com/kgateway-dev/kgateway/commits/v2.0.x/).
+A patch release is generated from an existing release branch, e.g. [v2.2.x](https://github.com/kgateway-dev/kgateway/commits/v2.2.x/).
 After all the necessary backport pull requests have merged, you can proceed to the next section.
 
 ## Publish the Release
@@ -63,12 +63,13 @@ Use the "Run workflow" drop-down in the right corner of the page to dispatch a r
 
 - Select the branch to release from
   - Minor release: Select the `main` branch.
-  - Patch release: Select the release branch, e.g. `v2.0.x`, that will be patched.
+  - Patch release: Select the release branch, e.g. `v2.2.x`, that will be patched.
 - Enter the version for the release to create, e.g. `v2.0.3`. This will trigger
   the release process and result in a new GitHub release, [v2.0.3](https://github.com/kgateway-dev/kgateway/releases/tag/v2.0.3)
   for example.
 - Click on the "validate release" option, which bootstraps an environment from the
   generated artifacts and runs the conformance suite against that deployed environment.
+- The workflow automatically generates release notes and publishes them with the GitHub release. If you need to preview them locally, see [Generating Release Notes](#generating-release-notes) below.
 
 The workflow generates release notes automatically (see [Release Notes](#release-notes) below).
 Once the workflow completes, review the release notes on the GitHub release and edit the description
