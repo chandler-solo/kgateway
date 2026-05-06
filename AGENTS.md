@@ -210,18 +210,33 @@ Gateway API version is in `go.mod` and CRD install URL in Makefile (`CONFORMANCE
 
 ### PR Body Structure
 
-Every PR must include these sections:
+Every PR body must use this Markdown structure. Use heading lines exactly as shown, not bold labels or alternate heading levels:
 
-1. **Description** - Explain motivation, what changed, and link issues (`Fixes #123`)
+````markdown
+# Description
 
-2. **Change Type** - Include one or more `/kind` commands in the PR body:
-   - `/kind feature`, `/kind fix`, `/kind cleanup`, `/kind documentation`
-   - `/kind breaking_change`, `/kind deprecation`, `/kind design`
-   - `/kind bump`, `/kind flake`, `/kind install`
+Explain the motivation, what changed, and related issues such as `Fixes #123`.
 
-3. **Changelog** - A fenced code block with `release-note` as the language identifier containing the release note text, or `NONE` if not user-facing
+# Change Type
 
-4. **Additional Notes** (optional) - Extra context for reviewers
+/kind fix
+
+Replace `/kind fix` with the applicable `/kind` command or commands.
+
+# Changelog
+
+```release-note
+NONE
+```
+
+# Additional Notes
+
+Add reviewer context or edge cases. Delete this section if it does not apply.
+````
+
+When returning a PR body in chat, wrap the entire PR body in a four-backtick `markdown` fence so nested triple-backtick blocks, especially the `release-note` block, render and copy correctly.
+
+Allowed `/kind` commands are: `/kind feature`, `/kind fix`, `/kind cleanup`, `/kind documentation`, `/kind breaking_change`, `/kind deprecation`, `/kind design`, `/kind bump`, `/kind flake`, and `/kind install`.
 
 ## Style
 
