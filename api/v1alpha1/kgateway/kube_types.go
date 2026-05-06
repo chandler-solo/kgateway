@@ -430,7 +430,31 @@ func (in *Pod) GetPriorityClassName() *string {
 }
 
 type GracefulShutdownSpec struct {
-	// Enable grace period before shutdown to finish current requests while Envoy health checks fail to e.g. notify external load balancers. *NOTE:* This will not have any effect if you have not defined health checks via the health check filter
+	// Enable a preStop hook that calls Envoy's /healthcheck/fail admin endpoint and then
+	// sleeps for SleepTimeSeconds before Envoy receives SIGTERM.
+	//
+	// During pod termination, Kubernetes removes the pod from EndpointSlices as soon as the
+	// DeletionTimestamp is set - it does not wait for the readiness probe to fail. The
+	// kgateway readiness probe at :8082/ready is proxied to Envoy's admin /ready, which
+	// reflects server lifecycle state (LIVE) and is unaffected by /healthcheck/fail, so the
+	// pod stays Ready throughout the hook. The sleep is what gives in-flight requests time
+	// to drain and endpoint removal time to propagate to kube-proxy and external load
+	// balancers.
+	//
+	// /healthcheck/fail toggles a per-process flag that the HTTP health check filter
+	// reads. Listener config is shared across replicas via xDS, but this flag is
+	// runtime state local to one Envoy process, so only the terminating replica's
+	// filter starts returning 503; other replicas are unaffected. If an external LB
+	// probes the terminating pod's IP at a port whose Envoy listener has the HTTP
+	// health check filter installed in its filter chain, that probe will start
+	// receiving 503s during the sleep window and the LB will drop the pod from
+	// rotation. Without an HTTP health check filter on the data plane,
+	// /healthcheck/fail has no externally visible effect and only the sleep matters.
+	//
+	// KEP-1669 (Proxy Terminating Endpoints, GA in 1.28) does not change this picture for
+	// ordinary rolling updates: kube-proxy only falls back to Serving+Terminating endpoints
+	// when no Ready endpoints remain (e.g. brief gaps during scale-to-zero). When other
+	// Ready pods exist, terminating endpoints are not used regardless of this hook.
 	//
 	// +optional
 	Enabled *bool `json:"enabled,omitempty"`
