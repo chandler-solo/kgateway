@@ -4,7 +4,7 @@ Kgateway maintains **releases through a GitHub-Actions + GoReleaser pipeline**. 
 instructions for creating a *minor* or a *patch* release.
 
 > **Making any changes here?** See if you should update the issue template at
-> [.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md](../../.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md) to keep its checklist in sync.
+> [.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md](/.github/ISSUE_TEMPLATE/RELEASE-REQUEST.md) to keep its checklist in sync.
 
 ## Background
 
@@ -69,27 +69,30 @@ Use the "Run workflow" drop-down in the right corner of the page to dispatch a r
   for example.
 - Click on the "validate release" option, which bootstraps an environment from the
   generated artifacts and runs the conformance suite against that deployed environment.
-- Generate the release notes using the provided script (see [Generating Release Notes](#generating-release-notes) below).
 
-## Generating Release Notes
+The workflow generates release notes automatically (see [Release Notes](#release-notes) below).
+Once the workflow completes, review the release notes on the GitHub release and edit the description
+if anything was miscategorized.
 
-Use the `hack/generate-release-notes.sh` script to generate release notes from merged PRs:
+## Release Notes
+
+The Release workflow runs `make release-notes` automatically and feeds the output to GoReleaser, so no
+manual step is required when cutting a release. Under the hood it invokes
+[`hack/generate-release-notes.sh`](../../hack/generate-release-notes.sh), which:
+
+- Finds all PR numbers from commit messages between the previous tag and the new release
+- Fetches PR details via the GitHub API
+- Extracts content from `release-note` code blocks in PR descriptions
+- Categorizes entries by `kind/` labels (breaking_change, feature, fix, deprecation, documentation, cleanup, install, bump)
+
+To preview release notes locally — for example to sanity-check what an upcoming release will include —
+you can invoke the script directly:
 
 ```bash
 GITHUB_TOKEN=<your_token> ./hack/generate-release-notes.sh -p v2.0.3 -c v2.1.0
 ```
 
-The script does the following:
-
-- Finds all PR numbers from commit messages between the two tags
-- Fetches PR details via the GitHub API
-- Extracts content from `release-note` code blocks in PR descriptions
-- Categorizes entries by `kind/` labels (breaking_change, feature, fix, deprecation, documentation, cleanup, install, bump)
-- Generates `_output/RELEASE_NOTES.md` by default
-
-Run `./hack/generate-release-notes.sh --help` to see all options.
-
-After running the script, review the generated file for accuracy, then add the content to the GitHub release description.
+This writes `_output/RELEASE_NOTES.md`. Run `./hack/generate-release-notes.sh --help` for all options.
 
 ## Verification
 
