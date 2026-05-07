@@ -20,8 +20,8 @@ PRs and/or issues that need to land before this release is cut. List the headlin
 - [ ] You are a kgateway maintainer (have push permissions to `kgateway-dev/kgateway`)
 - [ ] All required backports are merged to the `v<MAJOR>.<MINOR>.x` release branch (the merge queue wouldn't allow any CI failures)
 - [ ] You are aware that nightly tests run only on `main`, and that they are the only thing that runs against a vector of Kubernetes versions and a vector of Gateway API versions.
-  - [ ] And you have decided not to run them manually (workflow_dispatch) against the tip of v2.2.x
-  - [ ] And you have run them manually and it passed or had irrelevant failures
+  - [ ] And you have decided not to run them manually (workflow_dispatch) against the tip of v<MAJOR>.<MINOR>.x
+  - [ ] Or you have run them manually and it passed or had irrelevant failures
 - [ ] osv-scanner's scan from last night is acceptably clean for this branch (see `https://github.com/kgateway-dev/kgateway/security/code-scanning?query=is%3Aopen+branch%3Av<MAJOR>.<MINOR>.x` substituting MAJOR and MINOR). If not, fix things and run the OSV scan GitHub Action manually to confirm that you've fixed things.
 
 ### First-time setup for a new minor release branch (skip for patch releases)
