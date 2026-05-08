@@ -1349,6 +1349,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("HTTPListenerPolicy with http2ProtocolOptions", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "httplistenerpolicy/http2-protocol-options.yaml",
+			outputFile: "httplistenerpolicy/http2-protocol-options.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("HTTPListenerPolicy with preserveHttp1HeaderCase", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "httplistenerpolicy/preserve-http1-header-case.yaml",
@@ -1470,6 +1481,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("HTTPListenerPolicy with forwardClientCertDetails (mode defaulted)", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "httplistenerpolicy/forward-client-cert-details.yaml",
+			outputFile: "httplistenerpolicy/forward-client-cert-details.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("HTTPListenerPolicy with uuidRequestIdConfig defaults", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "httplistenerpolicy/request-id-config-defaults.yaml",
@@ -1529,6 +1551,28 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "listener-policy-http/idle-timeout.yaml",
 			outputFile: "listener-policy-http/idle-timeout.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with http2ProtocolOptions", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/http2-protocol-options.yaml",
+			outputFile: "listener-policy-http/http2-protocol-options.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with tcpKeepalive", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/tcp-keepalive.yaml",
+			outputFile: "listener-policy-http/tcp-keepalive.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -1712,10 +1756,65 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("ListenerPolicy with forwardClientCertDetails (AppendForward)", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/forward-client-cert-details.yaml",
+			outputFile: "listener-policy-http/forward-client-cert-details.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("ListenerPolicy with maxRequestHeadersKb", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "listener-policy-http/max-request-headers-kb.yaml",
 			outputFile: "listener-policy-http/max-request-headers-kb.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with maxRequestsPerConnection", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/max-requests-per-connection.yaml",
+			outputFile: "listener-policy-http/max-requests-per-connection.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with maxRequestsPerConnection set to zero", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/max-requests-per-connection-zero.yaml",
+			outputFile: "listener-policy-http/max-requests-per-connection-zero.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with maxRequestsPerConnection and idleTimeout", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/max-requests-per-connection-with-idle-timeout.yaml",
+			outputFile: "listener-policy-http/max-requests-per-connection-with-idle-timeout.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy maxRequestsPerConnection merge conflict", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "listener-policy-http/max-requests-per-connection-merge-conflict.yaml",
+			outputFile: "listener-policy-http/max-requests-per-connection-merge-conflict.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -2075,6 +2174,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("HttpACL Policy with invalid CIDR rejected", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "http-acl/invalid-cidr.yaml",
+			outputFile: "http-acl/invalid-cidr.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("RBAC Policy at route level", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "rbac/route-cel-rbac.yaml",
@@ -2244,6 +2354,17 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFile:  "invalid-filter-chains/https-listener-invalid-secret-ref.yaml",
 			outputFile: "invalid-filter-chains/https-listener-invalid-secret-ref.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("HTTPS listener with multiple cert refs, one missing", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFile:  "invalid-filter-chains/https-listener-multi-cert-one-missing.yaml",
+			outputFile: "invalid-filter-chains/https-listener-multi-cert-one-missing.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -2914,13 +3035,12 @@ func TestValidation(t *testing.T) {
 			inputFile: "policy-csrf-regex-invalid.yaml",
 			minMode:   apisettings.ValidationStrict,
 		},
-		// TODO(tim): Uncomment this test once #11995 is fixed.
-		// {
-		// 	name:      "Multiple Invalid Policies Conflict",
-		// 	category:  "policy",
-		// 	inputFile: "policy-multiple-invalid-conflict.yaml",
-		// 	minMode:   apisettings.ValidationStandard,
-		// },
+		{
+			name:      "Multiple Invalid Policies Conflict",
+			category:  "policy",
+			inputFile: "policy-multiple-invalid-conflict.yaml",
+			minMode:   apisettings.ValidationStandard,
+		},
 		{
 			name:      "ExtAuth Extension Ref Invalid",
 			category:  "policy",
@@ -3012,6 +3132,12 @@ func TestValidation(t *testing.T) {
 			category:  "backendconfigpolicy",
 			inputFile: "invalid-outlier-detection-zero-interval.yaml",
 			minMode:   apisettings.ValidationStandard,
+		},
+		{
+			name:      "Route delegation is not rejected",
+			category:  "delegation",
+			inputFile: "route-delegation.yaml",
+			minMode:   apisettings.ValidationStrict,
 		},
 	}
 
