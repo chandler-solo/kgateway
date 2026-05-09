@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
@@ -35,6 +33,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
+	"github.com/kgateway-dev/kgateway/v2/test/envtestassets"
 )
 
 // SharedEnv holds a shared envtest environment that can be reused across tests.
@@ -48,7 +47,7 @@ type SharedEnv struct {
 
 // NewSharedEnv creates a new shared envtest environment. Call Start() to start it.
 func NewSharedEnv(crdDirs []string) (*SharedEnv, error) {
-	assetsDir, err := getEnvTestAssetsDir()
+	assetsDir, err := envtestassets.GetEnvTestAssetsDir()
 	if err != nil {
 		return nil, err
 	}
@@ -60,30 +59,6 @@ func NewSharedEnv(crdDirs []string) (*SharedEnv, error) {
 			BinaryAssetsDirectory: assetsDir,
 		},
 	}, nil
-}
-
-func getEnvTestAssetsDir() (string, error) {
-	assetsDir := os.Getenv("KUBEBUILDER_ASSETS")
-	if assetsDir == "" {
-		out, err := exec.Command("sh", "-c", "make -s --no-print-directory -C $(dirname $(go env GOMOD)) envtest-path").CombinedOutput()
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve envtest assets directory: %w: %s", err, strings.TrimSpace(string(out)))
-		}
-		assetsDir = strings.TrimSpace(string(out))
-	}
-	if assetsDir == "" {
-		return "", fmt.Errorf("envtest assets directory is empty")
-	}
-
-	info, err := os.Stat(assetsDir)
-	if err != nil {
-		return "", fmt.Errorf("envtest assets directory does not exist: %s: %w", assetsDir, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("envtest assets path is not a directory: %s", assetsDir)
-	}
-
-	return assetsDir, nil
 }
 
 // Start starts the envtest environment if not already started.

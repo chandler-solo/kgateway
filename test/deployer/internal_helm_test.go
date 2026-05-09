@@ -5,13 +5,13 @@ package deployer
 //
 // # Test Client and Server-Side Apply Semantics
 //
-// These tests use the fast fake client by default and can use an envtest API
-// server when USE_ENVTEST=true. The fake client preserves null values in CRD
-// fields marked with x-kubernetes-preserve-unknown-fields, matching the
-// behavior we need to cover for resources submitted through
-// `kubectl apply --server-side` and other server-side apply clients. This
-// differs from regular client-side `kubectl apply`, which strips null values
-// before sending them to the API server.
+// These tests use an envtest API server by default and can use the fast fake
+// client when USE_ENVTEST=false. The fake client preserves null values in CRD
+// fields marked with x-kubernetes-preserve-unknown-fields, matching the behavior
+// we need to cover for resources submitted through `kubectl apply --server-side`
+// and other server-side apply clients. This differs from regular client-side
+// `kubectl apply`, which strips null values before sending them to the API
+// server.
 //
 // This means tests here accurately reflect what happens when users apply
 // GatewayParameters with `kubectl apply --server-side`, helm 4 in default
@@ -53,11 +53,11 @@ import (
 
 var sharedEnvTest *envtestutil.SharedEnv
 
-// getEnvTestConfig returns nil unless USE_ENVTEST=true.
+// getEnvTestConfig returns nil only when USE_ENVTEST=false.
 func getEnvTestConfig(t *testing.T) *rest.Config {
 	t.Helper()
 
-	if !envutils.IsEnvTruthy("USE_ENVTEST") {
+	if !envutils.IsEnvTruthyOrDefault("USE_ENVTEST", true) {
 		return nil
 	}
 
