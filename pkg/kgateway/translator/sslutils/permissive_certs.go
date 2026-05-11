@@ -1,40 +1,33 @@
 package sslutils
 
 import (
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"strings"
 
 	"golang.org/x/crypto/cryptobyte"
 	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
-// Permissive parsing helpers that accept X.509 certificates whose serial
-// numbers are negative. Go 1.23 made x509.ParseCertificate reject such certs
-// by default, gated behind GODEBUG=x509negativeserial=1, and the Go team plans
-// to remove that escape hatch in a future release. Envoy accepts these certs,
-// so kgateway must continue to accept them too.
+// Go 1.23 changed crypto/x509.ParseCertificate to reject certificates with
+// negative serial numbers by default. The transitional escape hatch
+// GODEBUG=x509negativeserial=1 is documented for removal in a future Go
+// release. Envoy accepts these certs, so kgateway must continue to accept
+// them without depending on the GODEBUG flag.
 //
-// The helpers below try the strict stdlib parser first. If the only objection
-// was the serial number, they validate the certificate's ASN.1 envelope and
-// extract the minimum information downstream callers need. Real cryptographic
-// validation still happens in Envoy on the data plane.
+// The helpers here delegate all real cert parsing to crypto/x509: if the
+// strict parser rejects a cert solely because its serial is negative, we
+// rewrite the first byte of the serial-number INTEGER to 0x01 (a
+// minimally-encoded positive value), let the stdlib parse the rewritten
+// bytes, and — for ParseCertsPEMPermissive — restore the original DER in
+// Certificate.Raw so re-encoders see the user's original bytes.
 
-const negativeSerialErr = "negative serial number"
-
-// ParseCertsPEMPermissive parses one or more PEM-encoded certificates from the
-// given bytes. It is a drop-in replacement for k8s.io/client-go/util/cert.ParseCertsPEM
-// that additionally accepts certificates with negative serial numbers.
-//
-// When a certificate trips the strict parser only because of a negative serial,
-// the returned *x509.Certificate has only Raw populated. That is sufficient for
-// callers that re-encode through cert.EncodeCertificates (which reads Raw).
+// ParseCertsPEMPermissive is a drop-in replacement for
+// k8s.io/client-go/util/cert.ParseCertsPEM that additionally accepts
+// certificates with negative serial numbers.
 func ParseCertsPEMPermissive(pemBytes []byte) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	found := false
@@ -48,15 +41,9 @@ func ParseCertsPEMPermissive(pemBytes []byte) ([]*x509.Certificate, error) {
 		if block.Type != "CERTIFICATE" || len(block.Headers) != 0 {
 			continue
 		}
-		c, err := x509.ParseCertificate(block.Bytes)
+		c, err := parseCertificateAllowingNegativeSerial(block.Bytes)
 		if err != nil {
-			if !isNegativeSerialError(err) {
-				return certs, err
-			}
-			c, err = permissiveParseCertificate(block.Bytes)
-			if err != nil {
-				return certs, err
-			}
+			return certs, err
 		}
 		certs = append(certs, c)
 		found = true
@@ -67,203 +54,134 @@ func ParseCertsPEMPermissive(pemBytes []byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-// permissiveParseCertificate validates that der is a well-formed X.509
-// Certificate ASN.1 structure without enforcing the serial-number sign rule.
-// On success the returned *x509.Certificate has only Raw populated.
-func permissiveParseCertificate(der []byte) (*x509.Certificate, error) {
-	input := cryptobyte.String(der)
-	var body cryptobyte.String
-	if !input.ReadASN1(&body, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed certificate")
+// ValidateCertKeyPairPermissive verifies that the PEM-encoded certificate
+// chain and private key are a valid pair, accepting leaf certs with negative
+// serial numbers. It is used purely for validation; the parsed tls.Certificate
+// is discarded.
+func ValidateCertKeyPairPermissive(certPEM, keyPEM []byte) error {
+	sanitized, err := rewriteNegativeSerialsInPEM(certPEM)
+	if err != nil {
+		return err
 	}
-	if !input.Empty() {
-		return nil, errors.New("x509: trailing data after certificate")
-	}
-	var tbs cryptobyte.String
-	if !body.ReadASN1Element(&tbs, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed tbs certificate")
-	}
-	var sigAlg cryptobyte.String
-	if !body.ReadASN1(&sigAlg, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed signature algorithm")
-	}
-	var sig cryptobyte.String
-	if !body.ReadASN1(&sig, cryptobyte_asn1.BIT_STRING) {
-		return nil, errors.New("x509: malformed signature value")
-	}
-	return &x509.Certificate{Raw: der}, nil
+	_, err = tls.X509KeyPair(sanitized, keyPEM)
+	return err
 }
 
-// ValidateCertKeyPairPermissive verifies that the supplied PEM-encoded
-// certificate chain and private key are a valid pair. It is a drop-in
-// replacement for tls.X509KeyPair used purely for validation; the resulting
-// tls.Certificate is intentionally not returned because the existing callers
-// discard it.
-//
-// Like ParseCertsPEMPermissive, it accepts leaf certificates with negative
-// serial numbers. The cert <-> key match is still enforced in the fallback
-// path by extracting the SubjectPublicKeyInfo from the leaf cert manually and
-// comparing it to the parsed private key.
-func ValidateCertKeyPairPermissive(certPEM, keyPEM []byte) error {
-	_, err := tls.X509KeyPair(certPEM, keyPEM)
+// parseCertificateAllowingNegativeSerial calls x509.ParseCertificate on der.
+// If parsing fails solely because of a negative serial, the serial is
+// temporarily rewritten to a positive value, the cert is reparsed, and the
+// returned Certificate.Raw is restored to the original DER.
+func parseCertificateAllowingNegativeSerial(der []byte) (*x509.Certificate, error) {
+	c, err := x509.ParseCertificate(der)
 	if err == nil {
-		return nil
+		return c, nil
 	}
 	if !isNegativeSerialError(err) {
-		return err
+		return nil, err
 	}
-	return validateCertKeyPairFallback(certPEM, keyPEM)
+	sanitized, err := rewriteSerialToPositive(der)
+	if err != nil {
+		return nil, err
+	}
+	c, err = x509.ParseCertificate(sanitized)
+	if err != nil {
+		return nil, err
+	}
+	c.Raw = der
+	return c, nil
 }
 
-func validateCertKeyPairFallback(certPEM, keyPEM []byte) error {
-	leafDER, err := firstCertificateDER(certPEM)
-	if err != nil {
-		return err
-	}
-	pubKey, err := extractPublicKey(leafDER)
-	if err != nil {
-		return fmt.Errorf("tls: failed to extract leaf public key: %w", err)
-	}
-	privKey, err := parsePrivateKeyPEM(keyPEM)
-	if err != nil {
-		return err
-	}
-	return matchPublicAndPrivateKeys(pubKey, privKey)
-}
-
-// firstCertificateDER returns the DER bytes of the first CERTIFICATE PEM block.
-func firstCertificateDER(certPEM []byte) ([]byte, error) {
-	rest := certPEM
+// rewriteNegativeSerialsInPEM returns pemBytes with any CERTIFICATE block
+// whose serial number is negative rewritten to have a positive serial.
+// Non-CERTIFICATE blocks pass through unchanged.
+func rewriteNegativeSerialsInPEM(pemBytes []byte) ([]byte, error) {
+	var out bytes.Buffer
+	rewrote := false
+	rest := pemBytes
 	for len(rest) > 0 {
 		var block *pem.Block
 		block, rest = pem.Decode(rest)
 		if block == nil {
 			break
 		}
-		if block.Type == "CERTIFICATE" && len(block.Headers) == 0 {
-			return block.Bytes, nil
+		if block.Type == "CERTIFICATE" && len(block.Headers) == 0 && serialIsNegative(block.Bytes) {
+			rewritten, err := rewriteSerialToPositive(block.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			block.Bytes = rewritten
+			rewrote = true
+		}
+		if err := pem.Encode(&out, block); err != nil {
+			return nil, err
 		}
 	}
-	return nil, errors.New("tls: failed to find any PEM data in certificate input")
+	if !rewrote {
+		return pemBytes, nil
+	}
+	return out.Bytes(), nil
 }
 
-// extractPublicKey pulls the SubjectPublicKeyInfo from a DER-encoded X.509
-// certificate and parses it as a PKIX public key. It does not enforce the
-// negative-serial rule.
-func extractPublicKey(der []byte) (any, error) {
+// rewriteSerialToPositive returns a copy of der with the first content byte
+// of the serial-number INTEGER replaced by 0x01. The resulting INTEGER is a
+// minimally-encoded positive value regardless of the original bytes, so the
+// strict x509 parser accepts it. The cert's signature no longer matches but
+// no signature verification happens on this path.
+func rewriteSerialToPositive(der []byte) ([]byte, error) {
+	off, err := serialContentOffset(der)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(der))
+	copy(out, der)
+	out[off] = 0x01
+	return out, nil
+}
+
+func serialIsNegative(der []byte) bool {
+	off, err := serialContentOffset(der)
+	if err != nil {
+		return false
+	}
+	return der[off]&0x80 != 0
+}
+
+// serialContentOffset returns the offset within der of the first content byte
+// of the serial-number INTEGER in an X.509 Certificate DER.
+func serialContentOffset(der []byte) (int, error) {
 	input := cryptobyte.String(der)
-	var body cryptobyte.String
-	if !input.ReadASN1(&body, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed certificate")
+	var outer cryptobyte.String
+	if !input.ReadASN1(&outer, cryptobyte_asn1.SEQUENCE) {
+		return 0, errors.New("x509: malformed certificate")
 	}
 	var tbs cryptobyte.String
-	if !body.ReadASN1(&tbs, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed tbs certificate")
+	if !outer.ReadASN1(&tbs, cryptobyte_asn1.SEQUENCE) {
+		return 0, errors.New("x509: malformed tbs certificate")
 	}
-	// TBSCertificate ::= SEQUENCE {
-	//   version [0] EXPLICIT Version DEFAULT v1,
-	//   serialNumber CertificateSerialNumber,
-	//   signature AlgorithmIdentifier,
-	//   issuer Name,
-	//   validity Validity,
-	//   subject Name,
-	//   subjectPublicKeyInfo SubjectPublicKeyInfo,
-	//   ...
-	// }
-	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(0).Constructed().ContextSpecific()) {
-		return nil, errors.New("x509: malformed version")
+	tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(0).Constructed().ContextSpecific())
+	if len(tbs) < 2 || tbs[0] != byte(cryptobyte_asn1.INTEGER) {
+		return 0, errors.New("x509: malformed serial number")
 	}
-	if !tbs.SkipASN1(cryptobyte_asn1.INTEGER) {
-		return nil, errors.New("x509: malformed serial number")
-	}
-	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed signature algorithm")
-	}
-	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed issuer")
-	}
-	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed validity")
-	}
-	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed subject")
-	}
-	var spki cryptobyte.String
-	if !tbs.ReadASN1Element(&spki, cryptobyte_asn1.SEQUENCE) {
-		return nil, errors.New("x509: malformed subjectPublicKeyInfo")
-	}
-	return x509.ParsePKIXPublicKey(spki)
-}
-
-// parsePrivateKeyPEM mirrors crypto/tls.parsePrivateKey, which is unexported.
-func parsePrivateKeyPEM(keyPEM []byte) (any, error) {
-	var keyDER []byte
-	rest := keyPEM
-	for len(rest) > 0 {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			break
+	// cryptobyte's slice reads preserve the backing array's full capacity, so
+	// cap(der) - cap(tbs) is the absolute offset of tbs's first byte in der.
+	// (Using len(der) is wrong when der itself has cap > len, as happens with
+	// slices returned by pem.Decode.)
+	serialTagOff := cap(der) - cap(tbs)
+	lenByte := tbs[1]
+	contentOff := serialTagOff + 2
+	if lenByte >= 0x80 {
+		n := int(lenByte & 0x7f)
+		if n == 0 || 2+n > len(tbs) {
+			return 0, errors.New("x509: malformed serial length")
 		}
-		if block.Type == "PRIVATE KEY" || strings.HasSuffix(block.Type, " PRIVATE KEY") {
-			keyDER = block.Bytes
-			break
-		}
+		contentOff += n
 	}
-	if keyDER == nil {
-		return nil, errors.New("tls: failed to find any PEM data in key input")
+	if contentOff >= len(der) {
+		return 0, errors.New("x509: malformed serial content")
 	}
-	if key, err := x509.ParsePKCS1PrivateKey(keyDER); err == nil {
-		return key, nil
-	}
-	if key, err := x509.ParsePKCS8PrivateKey(keyDER); err == nil {
-		switch key.(type) {
-		case *rsa.PrivateKey, *ecdsa.PrivateKey, ed25519.PrivateKey:
-			return key, nil
-		default:
-			return nil, errors.New("tls: found unknown private key type in PKCS#8 wrapping")
-		}
-	}
-	if key, err := x509.ParseECPrivateKey(keyDER); err == nil {
-		return key, nil
-	}
-	return nil, errors.New("tls: failed to parse private key")
-}
-
-// matchPublicAndPrivateKeys returns nil if pub belongs to priv. The checks
-// mirror what crypto/tls.X509KeyPair performs internally.
-func matchPublicAndPrivateKeys(pub, priv any) error {
-	switch pub := pub.(type) {
-	case *rsa.PublicKey:
-		priv, ok := priv.(*rsa.PrivateKey)
-		if !ok {
-			return errors.New("tls: private key type does not match public key type")
-		}
-		if pub.N.Cmp(priv.N) != 0 {
-			return errors.New("tls: private key does not match public key")
-		}
-	case *ecdsa.PublicKey:
-		priv, ok := priv.(*ecdsa.PrivateKey)
-		if !ok {
-			return errors.New("tls: private key type does not match public key type")
-		}
-		if !pub.Equal(&priv.PublicKey) {
-			return errors.New("tls: private key does not match public key")
-		}
-	case ed25519.PublicKey:
-		priv, ok := priv.(ed25519.PrivateKey)
-		if !ok {
-			return errors.New("tls: private key type does not match public key type")
-		}
-		if !pub.Equal(priv.Public()) {
-			return errors.New("tls: private key does not match public key")
-		}
-	default:
-		return errors.New("tls: unsupported public key type")
-	}
-	return nil
+	return contentOff, nil
 }
 
 func isNegativeSerialError(err error) bool {
-	return err != nil && strings.Contains(err.Error(), negativeSerialErr)
+	return err != nil && strings.Contains(err.Error(), "negative serial number")
 }
