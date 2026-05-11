@@ -33,3 +33,34 @@ reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251009125038-5a
 [[IgnoredVulns]]
 id = "CVE-2022-31045"
 reason = "False positive: istio.io/istio pseudo-version v0.0.0-20251009125038-5ab6df7e5282 is a 2025-10-09 commit, ~3 years after the fix in Istio 1.12.18 / 1.13.5 / 1.14.1 (2022-06)."
+
+# The next two CVEs are flagged against github.com/docker/docker. Both are
+# daemon-only code paths (plugin install / AuthZ plugin handling) — kgateway
+# is a control-plane library consumer that does not run the Docker daemon
+# and the dep is `// indirect` in go.mod. `go mod why github.com/docker/docker`
+# reports "main module does not need package github.com/docker/docker", so
+# none of these code paths are linked into the kgateway binary.
+
+[[IgnoredVulns]]
+id = "CVE-2026-33997"
+reason = "Not applicable: docker/docker daemon-only off-by-one in plugin privilege validation (`docker plugin install`). kgateway pulls docker/docker as an indirect dep and does not import any docker package — `go mod why` confirms the main module does not need it."
+
+[[IgnoredVulns]]
+id = "CVE-2026-34040"
+reason = "Not applicable: docker/docker daemon-only AuthZ plugin bypass that requires AuthZ plugins to be configured on a running Docker daemon. kgateway pulls docker/docker as an indirect dep only — `go mod why` confirms the main module does not need it, and we do not run a Docker daemon."
+
+[[IgnoredVulns]]
+id = "CVE-2026-24122"
+reason = "Not applicable: sigstore/cosign/v2 signature verification accepts expired intermediates only when transparency-log verification is explicitly skipped (`--insecure-ignore-tlog` / SDK `IgnoreTlog: true`). Two reasons this does not affect us: (1) kgateway does not import cosign as a library — it is `// indirect` in go.mod and `go mod why github.com/sigstore/cosign/v2` reports the main module does not need the package; (2) the cosign binary used in CI does not invoke verify with tlog skipped, so the vulnerable code path is unreachable there as well."
+
+[[IgnoredVulns]]
+id = "CVE-2026-35206"
+reason = "Not applicable: helm.sh/helm/v3 path traversal is in the `helm pull --untar` chart-extraction code path. The advisory explicitly states `helm template`, `helm install`, and `helm upgrade` are unaffected. kgateway only renders manifests via `action.NewInstall` with `ClientOnly=true` and an in-memory storage driver (see pkg/deployer/deployer.go RenderManifest) — the vulnerable pull/untar path is never reached."
+
+[[IgnoredVulns]]
+id = "CVE-2026-41413"
+reason = "Not applicable: istiod SSRF when a RequestAuthentication's `jwksUri` points to localhost / link-local — istiod fetches the URL unauthenticated and without filtering. The vulnerable code path is in istiod's RequestAuthentication reconciler (pilot/pkg/security/authn/... and the JWKS resolver it calls). kgateway does not import pilot/pkg/security/authn, does not watch or process RequestAuthentication CRs, and does no jwksUri/JWKS fetching anywhere — the kgateway use of `pkg/security` is only for xDS-server caller-identity types (Authenticator, Caller, ExtractBearerToken) used to authenticate Envoy clients via Kubernetes service-account JWTs. The vulnerable code path is unreachable at runtime."
+
+[[IgnoredVulns]]
+id = "CVE-2026-39350"
+reason = "Mitigated locally: the only consumer of Source.ServiceAccounts/NotServiceAccounts in kgateway is internal/kgateway/extensions2/plugins/waypoint/rbac.go BuildRBAC, which routes through separateAndDeduplicatePolicies. That function calls quoteMetaServiceAccounts to apply regexp.QuoteMeta to every entry of those slices BEFORE the policy is handed to istio's authz builder. The pinned istio commit's serviceAccountRegex emits `fmt.Sprintf(\"spiffe://.+/ns/%s/(.+/|)sa/%s(/.+)?\", ns, sa)` with no further escaping, so our pre-quoted value flows through verbatim and produces a regex that matches only the literal SPIFFE id (verified by TestQuoteMetaServiceAccountsCVE_2026_39350). K8s namespaces cannot contain `.` per RFC 1123, so the policy's defaultNamespace does not require escaping. This mirrors the istio fix in commit 692e460c342d8f308a35b6ecbdace47807da8ade applied one layer upstream of where istio applied it."

@@ -70,6 +70,14 @@ ifeq ($(MULTIARCH), true)
 	endif
 endif
 
+ifeq ($(IS_ARM_MACHINE), )
+	OSV_SCANNER_PLATFORM :=
+else
+	OSV_SCANNER_PLATFORM := --platform=linux/amd64
+endif
+
+OSV_SCANNER_IMAGE ?= ghcr.io/google/osv-scanner-action:v2.3.5
+
 GOOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 
 GO_BUILD_FLAGS := GO111MODULE=on CGO_ENABLED=0 GOARCH=$(GOARCH)
@@ -147,6 +155,73 @@ ANALYZE_ARGS ?= --fix --verbose
 .PHONY: analyze
 analyze:  ## Run golangci-lint. Override options with ANALYZE_ARGS.
 	GOTOOLCHAIN=$(GOTOOLCHAIN) $(GOLANGCI_LINT) run $(ANALYZE_ARGS) ./...
+
+.PHONY: osv-scan
+osv-scan: ## Run OSV-Scanner locally for the current branch and write JSON/SARIF results under _output/osv/
+	@set -euo pipefail; \
+	branch="$$(git rev-parse --abbrev-ref HEAD)"; \
+	if [[ "$$branch" == "HEAD" ]]; then \
+		branch="detached-$$(git rev-parse --short=12 HEAD)"; \
+	fi; \
+	safe_branch="$$(printf '%s' "$$branch" | tr '/.' '--')"; \
+	out_dir="$(OUTPUT_DIR)/osv/$$safe_branch"; \
+	mkdir -p "$$out_dir"; \
+	echo "Running OSV-Scanner for branch: $$branch"; \
+	echo "Writing results to: $$out_dir"; \
+	scanner_status=0; \
+	if docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
+		--entrypoint /root/osv-scanner \
+		-v "$(ROOTDIR):/workspace" \
+		-v "$(OUTPUT_DIR):/output" \
+		-w /workspace \
+		"$(OSV_SCANNER_IMAGE)" \
+		scan source \
+		--output-file=/output/osv/$$safe_branch/results.json \
+		--format=json \
+		--no-call-analysis=go \
+		--no-call-analysis=rust \
+		--verbosity=warn \
+		-r \
+		./; then \
+		:; \
+	else \
+		scanner_status=$$?; \
+	fi; \
+	if [[ ! -f "$$out_dir/results.json" ]]; then \
+		echo "osv-scanner did not produce $$out_dir/results.json" >&2; \
+		exit 1; \
+	fi; \
+	reporter_status=0; \
+	if docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
+		--entrypoint /root/osv-reporter \
+		-v "$(ROOTDIR):/workspace" \
+		-v "$(OUTPUT_DIR):/output" \
+		-w /workspace \
+		"$(OSV_SCANNER_IMAGE)" \
+		--output-files=sarif:/output/osv/$$safe_branch/results.sarif \
+		--new=/output/osv/$$safe_branch/results.json \
+		--fail-on-vuln=false; then \
+		:; \
+	else \
+		reporter_status=$$?; \
+	fi; \
+	if [[ ! -f "$$out_dir/results.sarif" ]]; then \
+		echo "osv-reporter did not produce $$out_dir/results.sarif" >&2; \
+		exit 1; \
+	fi; \
+	docker run --rm \
+		$(OSV_SCANNER_PLATFORM) \
+		--entrypoint /bin/chown \
+		-v "$(OUTPUT_DIR):/output" \
+		"$(OSV_SCANNER_IMAGE)" \
+		-R "$$(id -u):$$(id -g)" "/output/osv/$$safe_branch" > /dev/null; \
+	if [[ "$$scanner_status" -ne 0 || "$$reporter_status" -ne 0 ]]; then \
+		echo "OSV scan completed and wrote results despite non-zero scanner/reporter exit status."; \
+	fi; \
+	echo "JSON: $$out_dir/results.json"; \
+	echo "SARIF: $$out_dir/results.sarif"
 
 #----------------------------------------------------------------------------
 # Info

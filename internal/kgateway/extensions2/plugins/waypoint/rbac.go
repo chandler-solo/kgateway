@@ -2,6 +2,7 @@ package waypoint
 
 import (
 	"fmt"
+	"regexp"
 
 	"google.golang.org/protobuf/types/known/anypb"
 	authpb "istio.io/api/security/v1"
@@ -96,6 +97,31 @@ func applyTCPRBACFilters(tcpChain *ir.TcpIR, tcpRBAC []*ir.CustomEnvoyFilter) {
 	}
 }
 
+// quoteMetaServiceAccounts escapes regex metacharacters in Source.ServiceAccounts
+// and Source.NotServiceAccounts. Mitigates CVE-2026-39350: the pinned istio.io/istio
+// commit (pre-fix-692e460) builds Envoy SafeRegex principals via
+// fmt.Sprintf("spiffe://.+/ns/%s/(.+/|)sa/%s(/.+)?", ns, sa) without escaping the
+// SA token, so a `.` in user input acts as a regex wildcard. Quoting before the
+// builder runs makes the unfixed template emit a literal-only match. K8s namespaces
+// cannot contain `.` per RFC 1123, so the policy's namespace (used as defaultNamespace
+// when the SA string has no `/`) does not need escaping.
+func quoteMetaServiceAccounts(spec *authpb.AuthorizationPolicy) {
+	for _, rule := range spec.GetRules() {
+		for _, from := range rule.GetFrom() {
+			src := from.GetSource()
+			if src == nil {
+				continue
+			}
+			for i, v := range src.ServiceAccounts {
+				src.ServiceAccounts[i] = regexp.QuoteMeta(v)
+			}
+			for i, v := range src.NotServiceAccounts {
+				src.NotServiceAccounts[i] = regexp.QuoteMeta(v)
+			}
+		}
+	}
+}
+
 // separateAndDeduplicatePolicies takes a list of policies and returns them
 // separated by action type with duplicates removed
 func separateAndDeduplicatePolicies(policies []*authcr.AuthorizationPolicy) model.AuthorizationPoliciesResult {
@@ -115,6 +141,7 @@ func separateAndDeduplicatePolicies(policies []*authcr.AuthorizationPolicy) mode
 
 		// Convert to Istio model type
 		convertedSpec := crdclient.TranslateObject(policy, gvk.AuthorizationPolicy, "").Spec.(*authpb.AuthorizationPolicy)
+		quoteMetaServiceAccounts(convertedSpec)
 		convertedPolicy := model.AuthorizationPolicy{
 			Name:        policy.Name,
 			Namespace:   policy.Namespace,

@@ -1,6 +1,9 @@
 package waypoint
 
 import (
+	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/onsi/gomega"
@@ -354,6 +357,75 @@ var separateAndDeduplicatePoliciesTests = []struct {
 			custom: 0,
 		},
 	},
+}
+
+// istioServiceAccountRegex mirrors istio.io/istio/pilot/pkg/security/authz/model.serviceAccountRegex
+// at the pinned (pre-CVE-2026-39350-fix) commit. Used by the test below to
+// verify that quoteMetaServiceAccounts produces a regex matching only the
+// literal SPIFFE identifier — the same behavior that istio's own QuoteMeta
+// fix achieves at the emission layer.
+func istioServiceAccountRegex(defaultNamespace, value string) string {
+	ns, sa, ok := strings.Cut(value, "/")
+	if !ok {
+		ns = defaultNamespace
+		sa = value
+	}
+	return fmt.Sprintf("spiffe://.+/ns/%s/(.+/|)sa/%s(/.+)?", ns, sa)
+}
+
+// TestQuoteMetaServiceAccountsCVE_2026_39350 verifies that pre-escaping
+// Source.ServiceAccounts / NotServiceAccounts yields an Envoy SafeRegex
+// that matches only the literal SPIFFE id. Without the mitigation, dots
+// in the SA value would behave as regex wildcards.
+func TestQuoteMetaServiceAccountsCVE_2026_39350(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	spec := &authpb.AuthorizationPolicy{
+		Rules: []*authpb.Rule{{
+			From: []*authpb.Rule_From{{
+				Source: &authpb.Source{
+					ServiceAccounts:    []string{"my-ns/my.sa", "my.ns/my.sa"},
+					NotServiceAccounts: []string{"evil/sa.bad"},
+				},
+			}},
+		}},
+	}
+
+	quoteMetaServiceAccounts(spec)
+
+	src := spec.Rules[0].From[0].Source
+	g.Expect(src.ServiceAccounts).To(gomega.Equal([]string{`my-ns/my\.sa`, `my\.ns/my\.sa`}))
+	g.Expect(src.NotServiceAccounts).To(gomega.Equal([]string{`evil/sa\.bad`}))
+
+	// Verify that feeding the escaped value through istio's unfixed
+	// serviceAccountRegex template yields a regex anchored to the literal SA.
+	cases := []struct {
+		value        string
+		shouldMatch  string
+		shouldNotHit string
+		defaultNS    string
+	}{
+		{
+			value:        `my-ns/my\.sa`,
+			defaultNS:    "policy-ns",
+			shouldMatch:  "spiffe://cluster.local/ns/my-ns/sa/my.sa",
+			shouldNotHit: "spiffe://cluster.local/ns/my-ns/sa/myXsa",
+		},
+		{
+			value:        `my\.ns/my\.sa`,
+			defaultNS:    "policy-ns",
+			shouldMatch:  "spiffe://cluster.local/ns/my.ns/sa/my.sa",
+			shouldNotHit: "spiffe://cluster.local/ns/myXns/sa/my.sa",
+		},
+	}
+	for _, tc := range cases {
+		regex := istioServiceAccountRegex(tc.defaultNS, tc.value)
+		re := regexp.MustCompile("^" + regex + "$")
+		g.Expect(re.MatchString(tc.shouldMatch)).To(gomega.BeTrue(),
+			"escaped value %q should match literal SPIFFE id %q (regex=%q)", tc.value, tc.shouldMatch, regex)
+		g.Expect(re.MatchString(tc.shouldNotHit)).To(gomega.BeFalse(),
+			"escaped value %q must not match wildcard variant %q (regex=%q)", tc.value, tc.shouldNotHit, regex)
+	}
 }
 
 func TestSeparateAndDeduplicatePolicies(t *testing.T) {
