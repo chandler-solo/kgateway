@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
@@ -24,6 +23,8 @@ import (
 	server "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"github.com/mitchellh/hashstructure"
 	"google.golang.org/grpc"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/sslutils"
 )
 
 var grpcOptions = []grpc.ServerOption{
@@ -169,7 +170,7 @@ func readAndValidateSecret(ctx context.Context, sec Secret) ([][]byte, []cache_t
 				return fmt.Errorf("reading certificate chain %q: %w", sec.SslCertFile, err)
 			}
 
-			if _, err := tls.X509KeyPair(certChain, key); err != nil {
+			if err := sslutils.ValidateCertKeyPairPermissive(certChain, key); err != nil {
 				return fmt.Errorf("validating certificate chain %q with private key %q: %w", sec.SslCertFile, sec.SslKeyFile, err)
 			}
 

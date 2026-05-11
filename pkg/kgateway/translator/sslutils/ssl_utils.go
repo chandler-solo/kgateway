@@ -1,7 +1,6 @@
 package sslutils
 
 import (
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -91,8 +90,7 @@ func cleanedSslKeyPair(certChain, privateKey, rootCa string) (cleanedChain strin
 	}
 
 	// validate that the cert and key are a valid pair
-	_, err = tls.X509KeyPair([]byte(certChain), []byte(privateKey))
-	if err != nil {
+	if err := ValidateCertKeyPairPermissive([]byte(certChain), []byte(privateKey)); err != nil {
 		return "", err
 	}
 
@@ -100,7 +98,7 @@ func cleanedSslKeyPair(certChain, privateKey, rootCa string) (cleanedChain strin
 	// this is still faster than a call out to openssl despite this second parsing pass of the cert
 	// pem parsing in go is permissive while envoy is not
 	// this might not be needed once we have larger envoy validation
-	candidateCert, err := cert.ParseCertsPEM([]byte(certChain))
+	candidateCert, err := ParseCertsPEMPermissive([]byte(certChain))
 	if err != nil {
 		// return err rather than sanitize. This is to maintain UX with older versions and to keep in line with kgateway pkg.
 		return "", err
@@ -137,7 +135,7 @@ func getCACertFromBytes(caCrtBytes []byte, name, namespace string) (string, erro
 	}
 
 	// Validate CA certificate by trying to parse it
-	candidateCert, err := cert.ParseCertsPEM(caCrtBytes)
+	candidateCert, err := ParseCertsPEMPermissive(caCrtBytes)
 	if err != nil {
 		return "", ErrInvalidCACertificate(name, namespace, err)
 	}
