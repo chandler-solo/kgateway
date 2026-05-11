@@ -14,17 +14,17 @@ on:
           - main
           - v2.1.x
           - v2.2.x
-      docker_images:
-        description: "Optional whitespace-separated Docker image refs to scan"
-        type: string
-        required: false
-        default: ""
 
 permissions:
   actions: read
   contents: read
   packages: read
   security-events: write
+
+env:
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  OSV_SCANNER_IMAGE: ghcr.io/google/osv-scanner-action:v2.3.5
+  OSV_DOCKER_PLATFORM: linux/amd64
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -73,7 +73,7 @@ jobs:
     needs: determine_branches
     name: Scan (${{ matrix.branch }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -96,6 +96,49 @@ jobs:
             echo "sha=$(git rev-parse HEAD)"
             echo "category=osv-scanner-$(echo '${{ matrix.branch }}' | tr '/.' '--')"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve image scan targets
+        id: image-targets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch="${{ matrix.branch }}"
+          case "${branch}" in
+            main)
+              image_version="$(make --no-print-directory print-ROLLING_MAIN_VERSION)"
+              ;;
+            v[0-9]*.[0-9]*.x)
+              series="${branch%.x}"
+              series_regex="${series//./\\.}"
+              image_version="$(
+                git ls-remote --tags --refs origin "${series}.*" \
+                  | sed -E 's#.*refs/tags/##' \
+                  | grep -E "^${series_regex}\\.[0-9]+$" \
+                  | sort -V \
+                  | tail -n 1 || true
+              )"
+              if [[ -z "${image_version}" ]]; then
+                echo "::error::No stable patch release tag found for ${branch}"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Unsupported branch for image scan: ${branch}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "image_version=${image_version}"
+            echo "images<<EOF"
+            echo "${IMAGE_REGISTRY}/kgateway:${image_version}"
+            echo "${IMAGE_REGISTRY}/sds:${image_version}"
+            echo "${IMAGE_REGISTRY}/envoy-wrapper:${image_version}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved image version for ${branch}: ${image_version}"
 
       - name: Run source scanner
         uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
@@ -128,18 +171,22 @@ jobs:
           category: ${{ steps.metadata.outputs.category }}
 
       - name: Log in to GHCR for image scans
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_images != '' }}
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
+      - name: Install skopeo
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y skopeo
+
       - name: Run image scanner
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_images != '' }}
         shell: bash
         env:
-          OSV_DOCKER_IMAGES: ${{ inputs.docker_images }}
-          OSV_SCANNER_IMAGE: ghcr.io/google/osv-scanner-action:v2.3.5
+          OSV_DOCKER_IMAGES: ${{ steps.image-targets.outputs.images }}
         run: |
           set -euo pipefail
 
@@ -156,11 +203,16 @@ jobs:
             result_json="image-results/${safe_image}.json"
             result_sarif="image-results/${safe_image}.sarif"
 
-            if ! docker image inspect "${image}" > /dev/null 2>&1; then
-              echo "Pulling Docker image: ${image}"
-              docker pull "${image}"
-            fi
-            docker save "${image}" -o "${image_archive}"
+            image_platform="${OSV_DOCKER_PLATFORM}"
+            image_os="${image_platform%%/*}"
+            image_arch="${image_platform#*/}"
+            image_arch="${image_arch%%/*}"
+            rm -f "${image_archive}"
+            skopeo copy \
+              --override-os "${image_os}" \
+              --override-arch "${image_arch}" \
+              "docker://${image}" \
+              "docker-archive:${image_archive}:${image}"
 
             echo "Running OSV-Scanner for Docker image: ${image}"
             if docker run \
