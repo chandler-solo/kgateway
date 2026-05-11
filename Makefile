@@ -43,6 +43,7 @@ BUILD_TOOLS_IMAGE ?= kgateway-build-tools:dev
 BUILD_TOOLS_VERSION ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo dev)
 OSV_SCANNER_IMAGE ?= ghcr.io/google/osv-scanner-action:v2.3.5
 OSV_SCAN_IMAGES ?=
+OSV_SCAN_IMAGE_PLATFORM ?= linux/$(GOARCH)
 
 .PHONY: build-tools-image
 build-tools-image: ## Build the devcontainer build-tools image locally (override BUILD_TOOLS_IMAGE=... to change tag)
@@ -62,6 +63,7 @@ comma := ,
 # where actual semver is desired.
 VERSION ?= v1.0.1-dev
 export VERSION
+ROLLING_MAIN_VERSION ?= v2.3.0-main
 
 SOURCES := $(shell find . -name "*.go" | grep -v test.go)
 
@@ -272,7 +274,26 @@ osv-scan: ## Run OSV-Scanner locally; set OSV_SCAN_IMAGES="image-ref ..." to als
 				echo "Pulling Docker image: $$image"; \
 				docker pull "$$image"; \
 			fi; \
-			docker save "$$image" -o "$$host_image_archive"; \
+			image_platform="$(OSV_SCAN_IMAGE_PLATFORM)"; \
+			image_os="$${image_platform%%/*}"; \
+			image_arch="$${image_platform#*/}"; \
+			image_arch="$${image_arch%%/*}"; \
+			rm -f "$$host_image_archive"; \
+			if command -v skopeo > /dev/null 2>&1; then \
+				if skopeo copy \
+					--override-os "$$image_os" \
+					--override-arch "$$image_arch" \
+					"docker://$$image" \
+					"docker-archive:$$host_image_archive:$$image"; then \
+					:; \
+				else \
+					echo "skopeo archive export failed for $$image; falling back to docker save"; \
+					rm -f "$$host_image_archive"; \
+					docker save "$$image" -o "$$host_image_archive"; \
+				fi; \
+			else \
+				docker save "$$image" -o "$$host_image_archive"; \
+			fi; \
 			echo "Running OSV-Scanner for Docker image: $$image"; \
 			if docker run --rm \
 				$(OSV_SCANNER_PLATFORM) \
@@ -330,6 +351,10 @@ osv-scan: ## Run OSV-Scanner locally; set OSV_SCAN_IMAGES="image-ref ..." to als
 	fi; \
 	echo "JSON: $$out_dir/results.json"; \
 	echo "SARIF: $$out_dir/results.sarif"
+
+.PHONY: osv-scan-latest-main-images
+osv-scan-latest-main-images:
+	$(MAKE) osv-scan OSV_SCAN_IMAGES="ghcr.io/kgateway-dev/kgateway:$(ROLLING_MAIN_VERSION) ghcr.io/kgateway-dev/sds:$(ROLLING_MAIN_VERSION) ghcr.io/kgateway-dev/envoy-wrapper:$(ROLLING_MAIN_VERSION)"
 
 #----------------------------------------------------------------------------------
 # Ginkgo Tests
