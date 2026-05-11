@@ -24,7 +24,6 @@ permissions:
 env:
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
   OSV_SCANNER_IMAGE: ghcr.io/google/osv-scanner-action:v2.3.5
-  OSV_DOCKER_PLATFORM: linux/amd64
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -71,13 +70,16 @@ jobs:
 
   scan:
     needs: determine_branches
-    name: Scan (${{ matrix.branch }})
+    name: Scan (${{ matrix.branch }}, ${{ matrix.platform }})
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         branch: ${{ fromJson(needs.determine_branches.outputs.branches) }}
+        platform:
+          - linux/amd64
+          - linux/arm64
     steps:
       - name: Checkout branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -95,6 +97,7 @@ jobs:
             echo "ref=refs/heads/${{ matrix.branch }}"
             echo "sha=$(git rev-parse HEAD)"
             echo "category=osv-scanner-$(echo '${{ matrix.branch }}' | tr '/.' '--')"
+            echo "image_category=osv-scanner-$(echo '${{ matrix.branch }}' | tr '/.' '--')-images-$(echo '${{ matrix.platform }}' | tr '/.' '--')"
           } >> "$GITHUB_OUTPUT"
 
       - name: Resolve image scan targets
@@ -141,6 +144,7 @@ jobs:
           echo "Resolved image version for ${branch}: ${image_version}"
 
       - name: Run source scanner
+        if: ${{ matrix.platform == 'linux/amd64' }}
         uses: google/osv-scanner-action/osv-scanner-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
         with:
           scan-args: |-
@@ -153,6 +157,7 @@ jobs:
         continue-on-error: true
 
       - name: Convert source results to SARIF
+        if: ${{ matrix.platform == 'linux/amd64' }}
         uses: google/osv-scanner-action/osv-reporter-action@c51854704019a247608d928f370c98740469d4b5 # v2.3.5
         with:
           scan-args: |-
@@ -162,7 +167,7 @@ jobs:
             --fail-on-vuln=false
 
       - name: Upload source SARIF
-        if: ${{ !cancelled() && hashFiles('results.sarif') != '' }}
+        if: ${{ matrix.platform == 'linux/amd64' && !cancelled() && hashFiles('results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
           sarif_file: results.sarif
@@ -187,6 +192,7 @@ jobs:
         shell: bash
         env:
           OSV_DOCKER_IMAGES: ${{ steps.image-targets.outputs.images }}
+          OSV_DOCKER_PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
 
@@ -271,10 +277,10 @@ jobs:
           sarif_file: image-results
           ref: ${{ steps.metadata.outputs.ref }}
           sha: ${{ steps.metadata.outputs.sha }}
-          category: ${{ steps.metadata.outputs.category }}-images
+          category: ${{ steps.metadata.outputs.image_category }}
 
       - name: Print Code Scanning URL
-        if: ${{ !cancelled() && hashFiles('results.sarif') != '' }}
+        if: ${{ matrix.platform == 'linux/amd64' && !cancelled() && hashFiles('results.sarif') != '' }}
         shell: bash
         run: |
           echo "View the branch-specific OSV-Scanner results in Security -> Code scanning:"
