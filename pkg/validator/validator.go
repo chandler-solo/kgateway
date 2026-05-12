@@ -78,6 +78,7 @@ func (b *binaryValidator) Validate(ctx context.Context, bootstrap *envoybootstra
 	defer func() {
 		b.duration += time.Since(before)
 		b.calls++
+		// Print the cost every 10 calls so the logs aren't spammed
 		if b.calls%10 == 0 {
 			logger.Debug(fmt.Sprintf("total calls to envoy validation [%d] took [%v]", b.calls, b.duration))
 		}
