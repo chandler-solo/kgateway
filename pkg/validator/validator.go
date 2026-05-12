@@ -13,11 +13,12 @@ import (
 	"time"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
-	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 	protojson "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	_ "embed"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 )
 
 var logger = logging.New("validator")
