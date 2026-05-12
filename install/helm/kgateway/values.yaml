@@ -175,7 +175,7 @@ controller:
   #     port: 9093
   #   initialDelaySeconds: 0
   #   periodSeconds: 1
-  #   failureThreshold: 120
+  #   failureThreshold: 600
   #
   # It is deep merged with the above config (9093 is replaced with service.ports.health)
   startupProbe: {}
