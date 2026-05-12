@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
@@ -60,6 +61,7 @@ type Validator interface {
 type binaryValidator struct {
 	calls    int64
 	duration time.Duration
+	mu       sync.Mutex
 	path     string
 }
 
@@ -76,12 +78,14 @@ func NewBinary(path ...string) Validator {
 func (b *binaryValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
 	before := time.Now()
 	defer func() {
+		b.mu.Lock()
 		b.duration += time.Since(before)
 		b.calls++
 		// Print the cost every 10 calls so the logs aren't spammed
 		if b.calls%10 == 0 {
 			logger.Debug("total calls to envoy validation", "calls", b.calls, "duration", b.duration)
 		}
+		b.mu.Unlock()
 	}()
 	marshalled, err := prepareBootstrapConfig(bootstrap)
 	if err != nil {
