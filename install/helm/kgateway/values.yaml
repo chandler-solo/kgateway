@@ -164,7 +164,7 @@ controller:
   #   initialDelaySeconds: 1
   #   periodSeconds: 10
   #
-  # It is deep merged with the above config (9093 is replaced with service.ports.health)
+  # It is deep merged with the above config (9093 is replaced with service.ports.health unless overridden)
   readinessProbe: {}
   # -- Configure the startup probe for the controller container. Overrides the default probe when set.
   # E.g.:
@@ -177,7 +177,7 @@ controller:
   #   periodSeconds: 1
   #   failureThreshold: 600
   #
-  # It is deep merged with the above config (9093 is replaced with service.ports.health)
+  # It is deep merged with the above config (9093 is replaced with service.ports.health unless overridden)
   startupProbe: {}
   # -- Add extra environment variables to the controller container.
   extraEnv: {}
