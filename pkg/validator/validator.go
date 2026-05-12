@@ -80,7 +80,7 @@ func (b *binaryValidator) Validate(ctx context.Context, bootstrap *envoybootstra
 		b.calls++
 		// Print the cost every 10 calls so the logs aren't spammed
 		if b.calls%10 == 0 {
-			logger.Debug(fmt.Sprintf("total calls to envoy validation [%d] took [%v]", b.calls, b.duration))
+			logger.Debug("total calls to envoy validation", "calls", b.calls, "duration", b.duration)
 		}
 	}()
 	marshalled, err := prepareBootstrapConfig(bootstrap)
