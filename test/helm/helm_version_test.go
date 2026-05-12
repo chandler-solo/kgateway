@@ -492,6 +492,41 @@ controller:
   replicaCount: null
 `,
 		},
+		{
+			name: "readiness-probe-override",
+			valuesYAML: `controller:
+  readinessProbe:
+    periodSeconds: 30
+    failureThreshold: 5
+`,
+		},
+		{
+			name: "startup-probe-override",
+			valuesYAML: `controller:
+  startupProbe:
+    failureThreshold: 300
+    periodSeconds: 2
+`,
+		},
+		{
+			name: "probes-full-override",
+			valuesYAML: `controller:
+  readinessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 5
+    periodSeconds: 20
+    failureThreshold: 3
+  startupProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 60
+`,
+		},
 	}
 
 	for _, chart := range charts {
