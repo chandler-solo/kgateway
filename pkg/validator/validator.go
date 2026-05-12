@@ -10,13 +10,17 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
+	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 	protojson "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	_ "embed"
 )
+
+var logger = logging.New("validator")
 
 // protoDebugPrefixRe matches the non-deterministic "goo.gle/..." URL that newer
 // protobuf C++ DebugString() prepends to text-format output.
@@ -53,7 +57,9 @@ type Validator interface {
 
 // binaryValidator validates envoy using the binary.
 type binaryValidator struct {
-	path string
+	calls    int64
+	duration time.Duration
+	path     string
 }
 
 var _ Validator = &binaryValidator{}
@@ -67,6 +73,14 @@ func NewBinary(path ...string) Validator {
 }
 
 func (b *binaryValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
+	before := time.Now()
+	defer func() {
+		b.duration += time.Since(before)
+		b.calls++
+		if b.calls%10 == 0 {
+			logger.Debug(fmt.Sprintf("total calls to envoy validation [%d] took [%v]", b.calls, b.duration))
+		}
+	}()
 	marshalled, err := prepareBootstrapConfig(bootstrap)
 	if err != nil {
 		return fmt.Errorf("could not marshal bootstrap config: %w", err)
