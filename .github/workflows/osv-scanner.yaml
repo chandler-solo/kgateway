@@ -322,21 +322,36 @@ jobs:
             ($runs | map(.graphs // []) | add // []) as $graphs |
             ($runs | map(.taxonomies // []) | add // []) as $taxonomies |
             ($runs | map(.results // [] | map(del(.ruleIndex))) | add // []) as $rawResults |
+            def result_subject:
+              (.message.text // .message.markdown // "") as $message |
+              (try ($message | capture("Package \u0027(?<package>[^\u0027]+)\u0027 is vulnerable").package) catch "") as $package |
+              if $package == "" then
+                $message
+              else
+                $package | sub("@[^@]*$"; "")
+              end;
             def result_key:
               [
                 (.ruleId // ""),
-                (.message.text // .message.markdown // ""),
-                ([.locations[]?.physicalLocation.artifactLocation.uri // ""] | join("|"))
+                result_subject,
+                ([.locations[]?.physicalLocation.artifactLocation.uri // ""] | sort | join("|"))
               ];
+            def result_fingerprint:
+              (["osv-image-result-v1"] + result_key) | @json | @base64;
             ($rawResults |
               sort_by(result_key) |
               group_by(result_key) |
               map(
                 .[0] as $first |
+                ($first | result_fingerprint) as $fingerprint |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.containerImage? // empty) | unique) as $images |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.containerPlatform? // empty) | unique) as $platforms |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.originalContainerPath? // empty) | unique) as $paths |
                 $first |
+                .partialFingerprints = ((.partialFingerprints // {}) + {
+                  primaryLocationLineHash: $fingerprint,
+                  osvImageScannerV1: $fingerprint
+                }) |
                 .properties = ((.properties // {}) + {
                   containerImages: $images,
                   containerPlatforms: $platforms,
