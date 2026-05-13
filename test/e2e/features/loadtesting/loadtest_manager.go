@@ -12,6 +12,7 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -351,7 +352,7 @@ func (ltm *LoadTestManager) CollectKGatewayValidationMetrics() (ValidationMetric
 		return out, err
 	}
 
-	parser := expfmt.TextParser{}
+	parser := expfmt.NewTextParser(model.LegacyValidation)
 	families, err := parser.TextToMetricFamilies(strings.NewReader(string(rawMetrics)))
 	if err != nil {
 		return out, fmt.Errorf("parse kgateway metrics: %w", err)
