@@ -265,10 +265,18 @@ jobs:
               exit 1
             fi
 
+            image_without_digest="${image%%@*}"
+            if [[ "${image_without_digest}" == *:* ]]; then
+              image_version="${image_without_digest##*:}"
+            else
+              image_version="untagged"
+            fi
             safe_platform="$(printf '%s' "${OSV_DOCKER_PLATFORM}" | sed 's/[^A-Za-z0-9_.-]/-/g')"
+            safe_image_version="$(printf '%s' "${image_version}" | sed 's/[^A-Za-z0-9_.-]/-/g')"
             jq \
               --arg image "${image}" \
-              --arg safe_image "${safe_image}" \
+              --arg image_version "${image_version}" \
+              --arg safe_image_version "${safe_image_version}" \
               --arg platform "${OSV_DOCKER_PLATFORM}" \
               --arg safe_platform "${safe_platform}" \
               '
@@ -276,12 +284,13 @@ jobs:
                   if ((.uri? // "") | startswith("file:///")) then
                     . as $location |
                     ($location.uri | sub("^file://"; "")) as $container_path |
-                    .uri = ("container-images/" + $safe_platform + "/" + ($container_path | sub("^/"; ""))) |
+                    .uri = ("container-images/" + $safe_image_version + "/" + $safe_platform + "/" + ($container_path | sub("^/"; ""))) |
                     .description = {
                       text: ("Container image " + $image + " (" + $platform + "): " + $container_path)
                     } |
                     .properties = ((.properties // {}) + {
                       containerImage: $image,
+                      containerImageVersion: $image_version,
                       containerPlatform: $platform,
                       originalContainerPath: $container_path
                     }) |
@@ -345,6 +354,7 @@ jobs:
                 .[0] as $first |
                 ($first | result_fingerprint) as $fingerprint |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.containerImage? // empty) | unique) as $images |
+                (map(.locations[]?.physicalLocation.artifactLocation.properties.containerImageVersion? // empty) | unique) as $imageVersions |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.containerPlatform? // empty) | unique) as $platforms |
                 (map(.locations[]?.physicalLocation.artifactLocation.properties.originalContainerPath? // empty) | unique) as $paths |
                 $first |
@@ -354,6 +364,7 @@ jobs:
                 }) |
                 .properties = ((.properties // {}) + {
                   containerImages: $images,
+                  containerImageVersions: $imageVersions,
                   containerPlatforms: $platforms,
                   originalContainerPaths: $paths
                 }) |
@@ -365,11 +376,13 @@ jobs:
                     } |
                     .physicalLocation.artifactLocation.properties = ((.physicalLocation.artifactLocation.properties // {}) + {
                       containerImages: $images,
+                      containerImageVersions: $imageVersions,
                       containerPlatforms: $platforms,
                       originalContainerPaths: $paths
                     }) |
                     del(
                       .physicalLocation.artifactLocation.properties.containerImage,
+                      .physicalLocation.artifactLocation.properties.containerImageVersion,
                       .physicalLocation.artifactLocation.properties.containerPlatform,
                       .physicalLocation.artifactLocation.properties.originalContainerPath
                     )
