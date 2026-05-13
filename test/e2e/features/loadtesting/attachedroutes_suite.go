@@ -138,8 +138,8 @@ func (s *AttachedRoutesSuite) runTestWithConfig(routeCount int) {
 	}
 
 	results := s.runIncrementalRouteTestWithSimulation(config)
-	s.validateIncrementalPerformanceThresholds(results)
 	s.reportIncrementalResults(results)
+	s.validateIncrementalPerformanceThresholds(results)
 }
 
 func (s *AttachedRoutesSuite) runIncrementalRouteTestWithSimulation(config *AttachedRoutesConfig) *TestResults {

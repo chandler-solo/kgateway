@@ -176,7 +176,7 @@ controller:
   #     port: 9093
   #   initialDelaySeconds: 0
   #   periodSeconds: 1
-  #   failureThreshold: 600
+  #   failureThreshold: 1800
   #
   # Probe settings are deep merged with the above config. Custom `exec`, `grpc`,
   # or `tcpSocket` handlers replace the default `httpGet` handler.

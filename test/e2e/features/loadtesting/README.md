@@ -148,7 +148,8 @@ Add this configuration to your `.vscode/launch.json` file:
 The nightly Gateway API version matrix runs the startup benchmark through the
 `TestKgateway/StartupBenchmark` suite. The benchmark emits a
 `startup_benchmark_result` log line with the Gateway API CRD version/channel,
-controller image, rollout generation, duration, and failure diagnostics.
+validation mode, controller image, rollout generation, duration, and failure
+diagnostics.
 
 The nightly load-test action runs the full attached-routes suite twice: once
 with `validation.level=standard` and once with `validation.level=strict`.

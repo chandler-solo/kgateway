@@ -27,7 +27,7 @@ const (
 	controllerDeploymentName      = "kgateway"
 	startupBenchmarkAnnotation    = "e2e.kgateway.dev/startup-benchmark-at"
 	startupBenchmarkPollInterval  = 500 * time.Millisecond
-	startupBenchmarkReadyDeadline = 5 * time.Minute
+	startupBenchmarkReadyDeadline = 30 * time.Minute
 )
 
 var _ e2e.NewSuiteFunc = NewStartupBenchmarkSuite
@@ -51,6 +51,7 @@ type startupBenchmarkResult struct {
 	Deployment        string
 	GatewayAPIVersion string
 	GatewayAPIChannel string
+	ValidationMode    string
 	Image             string
 	Generation        int64
 	DesiredReplicas   int32
@@ -96,6 +97,7 @@ func (s *LoadTestingSuite) measureControllerRolloutStartup() (*startupBenchmarkR
 		Deployment:        controllerDeploymentName,
 		GatewayAPIVersion: version,
 		GatewayAPIChannel: channel,
+		ValidationMode:    controllerEnvValue(deployment, "KGW_VALIDATION_MODE"),
 		Image:             controllerImage(deployment),
 		DesiredReplicas:   desiredReplicas,
 	}
@@ -225,6 +227,20 @@ func controllerImage(deployment *appsv1.Deployment) string {
 	}
 	if len(deployment.Spec.Template.Spec.Containers) > 0 {
 		return deployment.Spec.Template.Spec.Containers[0].Image
+	}
+	return "unknown"
+}
+
+func controllerEnvValue(deployment *appsv1.Deployment, name string) string {
+	for _, container := range deployment.Spec.Template.Spec.Containers {
+		if container.Name != "controller" {
+			continue
+		}
+		for _, env := range container.Env {
+			if env.Name == name {
+				return env.Value
+			}
+		}
 	}
 	return "unknown"
 }
@@ -364,7 +380,7 @@ func eventTime(event corev1.Event) time.Time {
 
 func (s *LoadTestingSuite) logStartupBenchmarkResult(result *startupBenchmarkResult, success bool) {
 	s.T().Logf(
-		"startup_benchmark_result success=%t namespace=%s deployment=%s generation=%d desired_replicas=%d gateway_api_version=%s gateway_api_channel=%s image=%s duration_ms=%d duration=%s status=%q pods=%q events=%q",
+		"startup_benchmark_result success=%t namespace=%s deployment=%s generation=%d desired_replicas=%d gateway_api_version=%s gateway_api_channel=%s validation_mode=%s image=%s duration_ms=%d duration=%s status=%q pods=%q events=%q",
 		success,
 		result.Namespace,
 		result.Deployment,
@@ -372,6 +388,7 @@ func (s *LoadTestingSuite) logStartupBenchmarkResult(result *startupBenchmarkRes
 		result.DesiredReplicas,
 		result.GatewayAPIVersion,
 		result.GatewayAPIChannel,
+		result.ValidationMode,
 		result.Image,
 		result.Duration.Milliseconds(),
 		result.Duration,

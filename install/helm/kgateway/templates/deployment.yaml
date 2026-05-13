@@ -15,7 +15,7 @@
 {{- $readinessProbeDefaults = omit $readinessProbeDefaults "httpGet" }}
 {{- end }}
 {{- $controllerReadinessProbe = merge $controllerReadinessProbe $readinessProbeDefaults }}
-{{- $defaultStartupProbe := dict "httpGet" (dict "path" "/readyz" "port" .Values.controller.service.ports.health) "initialDelaySeconds" 0 "periodSeconds" 1 "failureThreshold" 600 }}
+{{- $defaultStartupProbe := dict "httpGet" (dict "path" "/readyz" "port" .Values.controller.service.ports.health) "initialDelaySeconds" 0 "periodSeconds" 1 "failureThreshold" 1800 }}
 {{- $startupProbeDefaults := deepCopy $defaultStartupProbe }}
 {{- $controllerStartupProbe := deepCopy (.Values.controller.startupProbe | default dict) }}
 {{- if or (hasKey $controllerStartupProbe "exec") (hasKey $controllerStartupProbe "tcpSocket") (hasKey $controllerStartupProbe "grpc") }}

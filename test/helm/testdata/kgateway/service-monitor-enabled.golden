@@ -244,6 +244,7 @@ rules:
   - get
   - list
   - watch
+
 ---
 # Source: kgateway/templates/serviceaccount.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -258,6 +259,7 @@ roleRef:
   kind: ClusterRole
   name: kgateway-default
   apiGroup: rbac.authorization.k8s.io
+
 ---
 # Source: kgateway/templates/service.yaml
 apiVersion: v1
@@ -292,6 +294,7 @@ spec:
     kgateway: kgateway
     app.kubernetes.io/name: kgateway
     app.kubernetes.io/instance: test-release
+
 ---
 # Source: kgateway/templates/deployment.yaml
 apiVersion: apps/v1
@@ -348,7 +351,7 @@ spec:
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
-            failureThreshold: 600
+            failureThreshold: 1800
             httpGet:
               path: /readyz
               port: 9093
@@ -399,6 +402,7 @@ spec:
                   fieldPath: metadata.namespace
           resources:
             {}
+
 ---
 # Source: kgateway/templates/servicemonitor.yaml
 apiVersion: monitoring.coreos.com/v1
