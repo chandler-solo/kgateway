@@ -365,6 +365,13 @@ jobs:
             $base |
             .runs = [
               ($baseRun |
+                .tool.driver.name = "osv-image-scanner" |
+                .tool.driver.fullName = "OSV Image Scanner" |
+                .tool.driver.informationUri = "https://google.github.io/osv-scanner/usage/scan-image/" |
+                .tool.driver.properties = ((.tool.driver.properties // {}) + {
+                  sourceTool: "osv-scanner",
+                  scanTarget: "container-image"
+                }) |
                 .tool.driver.rules = $rules |
                 .artifacts = $artifacts |
                 .invocations = $invocations |
