@@ -2,6 +2,8 @@ package validator
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,6 +23,18 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 )
+
+type countingValidator struct {
+	calls int
+	err   error
+}
+
+var _ Validator = &countingValidator{}
+
+func (v *countingValidator) Validate(context.Context, *envoybootstrapv3.Bootstrap) error {
+	v.calls++
+	return v.err
+}
 
 func TestBinaryValidator_Validate(t *testing.T) {
 	// note: actual config content doesn't matter for these tests. we cannot easily
@@ -133,6 +147,100 @@ func TestNewDocker_OptionsOverrideEnv(t *testing.T) {
 	assert.Equal(t, "ghcr.io/kgateway-dev/envoy-wrapper:explicit", validator.img)
 	assert.Equal(t, "always", validator.pull)
 	assert.Equal(t, []string{"run", "--rm", "-i", "--pull", "always"}, validator.args()[:5])
+}
+
+func TestCachedValidatorCachesSuccessfulValidation(t *testing.T) {
+	delegate := &countingValidator{}
+	validator := NewCached(delegate, 2)
+	bootstrap := testBootstrap("same")
+
+	require.NoError(t, validator.Validate(context.Background(), bootstrap))
+	require.NoError(t, validator.Validate(context.Background(), bootstrap))
+
+	assert.Equal(t, 1, delegate.calls)
+}
+
+func TestCachedValidatorKeyUsesSanitizedBootstrap(t *testing.T) {
+	delegate := &countingValidator{}
+	validator := NewCached(delegate, 2)
+
+	first := testBootstrap("same")
+	first.ApplicationLogConfig = &envoybootstrapv3.Bootstrap_ApplicationLogConfig{
+		LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat{
+			LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat_TextFormat{
+				TextFormat: "first",
+			},
+		},
+	}
+	second := testBootstrap("same")
+	second.ApplicationLogConfig = &envoybootstrapv3.Bootstrap_ApplicationLogConfig{
+		LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat{
+			LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat_TextFormat{
+				TextFormat: "second",
+			},
+		},
+	}
+
+	require.NoError(t, validator.Validate(context.Background(), first))
+	require.NoError(t, validator.Validate(context.Background(), second))
+
+	assert.Equal(t, 1, delegate.calls)
+}
+
+func TestCachedValidatorCachesInvalidXDS(t *testing.T) {
+	delegate := &countingValidator{err: fmt.Errorf("%w: bad route", ErrInvalidXDS)}
+	validator := NewCached(delegate, 2)
+	bootstrap := testBootstrap("invalid")
+
+	err := validator.Validate(context.Background(), bootstrap)
+	require.ErrorIs(t, err, ErrInvalidXDS)
+	err = validator.Validate(context.Background(), bootstrap)
+	require.ErrorIs(t, err, ErrInvalidXDS)
+
+	assert.Equal(t, 1, delegate.calls)
+}
+
+func TestCachedValidatorDoesNotCacheInvocationFailure(t *testing.T) {
+	delegate := &countingValidator{err: errors.New("envoy validate invocation failed")}
+	validator := NewCached(delegate, 2)
+	bootstrap := testBootstrap("invocation-failure")
+
+	require.Error(t, validator.Validate(context.Background(), bootstrap))
+	require.Error(t, validator.Validate(context.Background(), bootstrap))
+
+	assert.Equal(t, 2, delegate.calls)
+}
+
+func TestCachedValidatorEvictsLeastRecentlyUsedEntry(t *testing.T) {
+	delegate := &countingValidator{}
+	validator := NewCached(delegate, 2)
+	first := testBootstrap("first")
+	second := testBootstrap("second")
+	third := testBootstrap("third")
+
+	require.NoError(t, validator.Validate(context.Background(), first))
+	require.NoError(t, validator.Validate(context.Background(), second))
+	require.NoError(t, validator.Validate(context.Background(), first))
+	require.NoError(t, validator.Validate(context.Background(), third))
+	require.NoError(t, validator.Validate(context.Background(), second))
+
+	assert.Equal(t, 4, delegate.calls)
+}
+
+func TestCachedValidatorRespectsContextCancellationAndDoesNotCache(t *testing.T) {
+	delegate := &countingValidator{}
+	validator := NewCached(delegate, 2)
+	bootstrap := testBootstrap("cancelled")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := validator.Validate(ctx, bootstrap)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 0, delegate.calls)
+
+	require.NoError(t, validator.Validate(context.Background(), bootstrap))
+	assert.Equal(t, 1, delegate.calls)
 }
 
 func TestDockerValidator_Validate(t *testing.T) {
@@ -538,4 +646,12 @@ func createMockBinary(t *testing.T, script string) string {
 	require.NoError(t, err)
 
 	return mockPath
+}
+
+func testBootstrap(nodeID string) *envoybootstrapv3.Bootstrap {
+	return &envoybootstrapv3.Bootstrap{
+		Node: &envoycorev3.Node{
+			Id: nodeID,
+		},
+	}
 }

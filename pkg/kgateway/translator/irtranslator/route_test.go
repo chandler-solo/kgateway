@@ -1,16 +1,34 @@
 package irtranslator
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
 )
+
+type routeMockValidator struct {
+	validateFunc func(context.Context, *envoybootstrapv3.Bootstrap) error
+}
+
+var _ validator.Validator = &routeMockValidator{}
+
+func (m *routeMockValidator) Validate(ctx context.Context, config *envoybootstrapv3.Bootstrap) error {
+	if m.validateFunc != nil {
+		return m.validateFunc(ctx, config)
+	}
+	return nil
+}
 
 func TestValidateWeightedClusters(t *testing.T) {
 	tests := []struct {
@@ -148,6 +166,123 @@ func TestSetEnvoyPathMatcher_PathPrefix(t *testing.T) {
 	}
 }
 
+func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *testing.T) {
+	pathPrefix := gwv1.PathMatchPathPrefix
+	pathExact := gwv1.PathMatchExact
+
+	tests := []struct {
+		name  string
+		match gwv1.HTTPRouteMatch
+	}{
+		{
+			name: "prefix",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathPrefix,
+					Value: ptrTo("/"),
+				},
+			},
+		},
+		{
+			name: "exact",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathExact,
+					Value: ptrTo("/exact"),
+				},
+			},
+		},
+		{
+			name: "path separated prefix",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathPrefix,
+					Value: ptrTo("/separated"),
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			v := &routeMockValidator{validateFunc: func(context.Context, *envoybootstrapv3.Bootstrap) error {
+				calls++
+				return nil
+			}}
+
+			err := validateRoute(context.Background(), testRouteWithMatch(translateMatcher(tt.match)), v, apisettings.ValidationStrict)
+
+			require.NoError(t, err)
+			assert.Equal(t, 1, calls, "strict validation should only run full-route Envoy validation")
+		})
+	}
+}
+
+func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
+	pathRegex := gwv1.PathMatchRegularExpression
+	headerRegex := gwv1.HeaderMatchRegularExpression
+	queryRegex := gwv1.QueryParamMatchRegularExpression
+
+	tests := []struct {
+		name  string
+		match gwv1.HTTPRouteMatch
+	}{
+		{
+			name: "path regex",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathRegex,
+					Value: ptrTo("[[invalid"),
+				},
+			},
+		},
+		{
+			name: "header regex",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathPrefixPtr,
+					Value: ptrTo("/"),
+				},
+				Headers: []gwv1.HTTPHeaderMatch{{
+					Type:  &headerRegex,
+					Name:  "x-test",
+					Value: "[[invalid",
+				}},
+			},
+		},
+		{
+			name: "query regex",
+			match: gwv1.HTTPRouteMatch{
+				Path: &gwv1.HTTPPathMatch{
+					Type:  &pathPrefixPtr,
+					Value: ptrTo("/"),
+				},
+				QueryParams: []gwv1.HTTPQueryParamMatch{{
+					Type:  &queryRegex,
+					Name:  "q",
+					Value: "[[invalid",
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			v := &routeMockValidator{validateFunc: func(context.Context, *envoybootstrapv3.Bootstrap) error {
+				calls++
+				return nil
+			}}
+
+			err := validateRoute(context.Background(), testRouteWithMatch(translateMatcher(tt.match)), v, apisettings.ValidationStrict)
+
+			require.ErrorIs(t, err, ErrInvalidMatcher)
+			assert.Equal(t, 0, calls, "invalid generated matcher should be rejected before Envoy validation")
+		})
+	}
+}
+
 func refFor(name string) *ir.AttachedPolicyRef {
 	return &ir.AttachedPolicyRef{
 		Group:     "gateway.kgateway.dev",
@@ -156,6 +291,26 @@ func refFor(name string) *ir.AttachedPolicyRef {
 		Name:      name,
 	}
 }
+
+func testRouteWithMatch(match *envoyroutev3.RouteMatch) *envoyroutev3.Route {
+	return &envoyroutev3.Route{
+		Name:  "test-route",
+		Match: match,
+		Action: &envoyroutev3.Route_Route{
+			Route: &envoyroutev3.RouteAction{
+				ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{
+					Cluster: "test-cluster",
+				},
+			},
+		},
+	}
+}
+
+func ptrTo[T any](v T) *T {
+	return &v
+}
+
+var pathPrefixPtr = gwv1.PathMatchPathPrefix
 
 func TestSummarizeRuleErrors_NilReturnsEmpty(t *testing.T) {
 	assert.Equal(t, "", summarizeRuleErrors(nil))

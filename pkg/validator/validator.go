@@ -258,18 +258,35 @@ func validatorDockerPullPolicy() string {
 }
 
 func prepareBootstrapConfig(bootstrap *envoybootstrapv3.Bootstrap) ([]byte, error) {
-	// Deep copy to perform "destructive" operations on the data
-	clone := proto.CloneOf(bootstrap)
-	// We set a custom log format that outputs a "raw" error message for validation purposes, so we do not want any user-provided log format.
-	clone.ApplicationLogConfig = nil
+	clone, err := sanitizedBootstrapConfig(bootstrap)
+	if err != nil {
+		return nil, err
+	}
 
 	return protojson.Marshal(clone)
 }
 
-// cacheKeyFor returns a stable content hash of the marshalled bootstrap config,
+func sanitizedBootstrapConfig(bootstrap *envoybootstrapv3.Bootstrap) (*envoybootstrapv3.Bootstrap, error) {
+	if bootstrap == nil {
+		return nil, errors.New("bootstrap config cannot be nil")
+	}
+
+	// Deep copy to perform "destructive" operations on the data.
+	clone := proto.CloneOf(bootstrap)
+	// We set a custom log format that outputs a "raw" error message for validation purposes,
+	// so we do not want any user-provided log format.
+	clone.ApplicationLogConfig = nil
+	return clone, nil
+}
+
+// cacheKeyFor returns a stable content hash of the sanitized bootstrap config,
 // suitable as a cache key.
 func cacheKeyFor(bootstrap *envoybootstrapv3.Bootstrap) (string, error) {
-	marshalled, err := prepareBootstrapConfig(bootstrap)
+	sanitized, err := sanitizedBootstrapConfig(bootstrap)
+	if err != nil {
+		return "", err
+	}
+	marshalled, err := proto.MarshalOptions{Deterministic: true}.Marshal(sanitized)
 	if err != nil {
 		return "", err
 	}
