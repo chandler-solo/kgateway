@@ -7,6 +7,7 @@ This directory contains the KGateway load testing framework that implements perf
 The load testing framework provides:
 
 - **Attached Routes Test**: Measures Gateway API route attachment performance
+- **Startup Benchmark**: Measures kgateway controller rollout startup time
 - **VCluster Simulation**: Creates fake cluster resources to simulate production-scale environments
 - **Scale-Aware Testing**: Automatically adjusts thresholds based on route count (1000 vs 5000+ routes)
 - **Performance Monitoring**: Tracks setup time, teardown time, and status propagation
@@ -63,6 +64,13 @@ make run-load-tests-production
 
 # Run all load tests (baseline + production)
 make run-load-tests
+
+# Run the startup benchmark against the normal TestKgateway installation
+go test -tags e2e -timeout 10m ./test/e2e/tests -run '^TestKgateway$/^StartupBenchmark$'
+
+# Run the startup benchmark against an already-installed release
+SKIP_INSTALL=true CLUSTER_NAME=kind INSTALL_NAMESPACE=kgateway-system \
+  go test -tags e2e -timeout 10m ./test/e2e/tests -run '^TestStartupBenchmark$'
 ```
 
 ### VS Code Debug Configuration
@@ -134,6 +142,11 @@ Add this configuration to your `.vscode/launch.json` file:
 - `CLUSTER_NAME=kind`: Targets the kind cluster named "kind"
 - `INSTALL_NAMESPACE=kgateway-system`: Specifies where KGateway is installed
 
+The nightly Gateway API version matrix runs the startup benchmark through the
+`TestKgateway/StartupBenchmark` suite. The benchmark emits a
+`startup_benchmark_result` log line with the Gateway API CRD version/channel,
+controller image, rollout generation, duration, and failure diagnostics.
+
 ## Test Types and Metrics
 
 ### Baseline Test (1000 routes)
@@ -148,11 +161,18 @@ Add this configuration to your `.vscode/launch.json` file:
 - **Thresholds**: Setup <90s, Teardown <20s
 - **Batch Size**: 500 routes per batch
 
+### Startup Benchmark
+
+- **Purpose**: Measures the time from a controller rollout restart to a fully ready new deployment generation
+- **Failure Signal**: Fails if the controller deployment does not become ready within 5 minutes
+- **Diagnostics**: Records deployment status, controller pod state, recent pod events, and installed Gateway API metadata
+
 ### Key Metrics Measured
 
 - **Setup Time**: Time to add 1 incremental route to existing baseline
 - **Route Ready Time**: Time until route accepts traffic
 - **Teardown Time**: Time to remove 1 route
+- **Controller Restart Time**: Time for the controller deployment to roll out after baseline resources are created
 - **Total Writes**: Number of status updates during test
 - **Resource Usage**: CPU, memory, and API call metrics
 
@@ -171,10 +191,11 @@ Add this configuration to your `.vscode/launch.json` file:
 2. Set up test infrastructure (namespaces, services, gateways)
 3. Create baseline routes (1000 or 5000) in batches
 4. Wait for all routes to be attached to gateways
-5. **Start stopwatch** → Add 1 incremental route
-6. Measure time until route is ready and status propagates
-7. **Stop stopwatch** → Record performance metrics
-8. Measure teardown time for incremental route cleanup
+5. Restart the controller and wait for the restarted deployment to become ready
+6. **Start stopwatch** → Add 1 incremental route
+7. Measure time until route is ready and status propagates
+8. **Stop stopwatch** → Record performance metrics
+9. Measure teardown time for incremental route cleanup
 
 ## The "Attached Routes" Test Methodology
 

@@ -54,12 +54,14 @@ type TestResults struct {
 	GatewayCount int                               `json:"gatewayCount"`
 	Watchers     map[types.NamespacedName]*Watcher `json:"watchers"`
 
-	SetupTime        time.Duration   `json:"setupTime"`
-	TeardownTime     time.Duration   `json:"teardownTime"`
-	RouteReadyTime   time.Duration   `json:"routeReadyTime"`
-	TotalWrites      int             `json:"totalWrites"`
-	KGatewayMetrics  KGatewayMetrics `json:"kgatewayMetrics"`
-	SimulatedCluster VClusterMetrics `json:"simulatedCluster"`
+	SetupTime                  time.Duration   `json:"setupTime"`
+	TeardownTime               time.Duration   `json:"teardownTime"`
+	RouteReadyTime             time.Duration   `json:"routeReadyTime"`
+	ControllerRestartTime      time.Duration   `json:"controllerRestartTime"`
+	PostRestartTranslationTime time.Duration   `json:"postRestartTranslationTime"`
+	TotalWrites                int             `json:"totalWrites"`
+	KGatewayMetrics            KGatewayMetrics `json:"kgatewayMetrics"`
+	SimulatedCluster           VClusterMetrics `json:"simulatedCluster"`
 }
 
 // BaseMetrics contains common metrics fields shared across different metric types

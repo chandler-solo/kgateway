@@ -157,8 +157,13 @@ func (s *AttachedRoutesSuite) runIncrementalRouteTestWithSimulation(config *Atta
 	s.setupInfrastructure()
 	s.createAndWaitForGateways(config)
 	s.createBaselineRoutes(config)
-	s.waitForTranslationCompletion(config.Gateways, config.Routes, translationCompletionTimeout)
-	s.verifyRouteValid(config.Gateways[0])
+	s.Require().True(
+		s.waitForTranslationCompletion(config.Gateways, config.Routes, translationCompletionTimeout),
+		"Baseline routes should attach before controller restart",
+	)
+	err := s.verifyRouteValid(config.Gateways[0])
+	s.Require().NoError(err, "Routes should be valid before controller restart")
+	s.restartControllerAfterBaselineResources(config, results)
 
 	// Monitoring and incremental test
 	monitorCtx, cancelMonitor := context.WithCancel(s.ctx)
@@ -186,6 +191,31 @@ func (s *AttachedRoutesSuite) runIncrementalRouteTestWithSimulation(config *Atta
 
 	s.T().Logf("Final monitoring results: %d total status updates captured during incremental test", results.TotalWrites)
 	return results
+}
+
+func (s *AttachedRoutesSuite) restartControllerAfterBaselineResources(config *AttachedRoutesConfig, results *TestResults) {
+	s.T().Log("Phase 8: Restarting controller after baseline resources are created")
+	restartResult, err := s.measureControllerRolloutStartup()
+	results.ControllerRestartTime = restartResult.Duration
+	s.logStartupBenchmarkResult(restartResult, err == nil)
+	s.Require().NoError(
+		err,
+		"Controller should restart after baseline resources are created: status=%s pods=%s events=%s",
+		restartResult.LastStatus,
+		restartResult.PodSnapshot,
+		restartResult.RecentEvents,
+	)
+
+	s.T().Log("Phase 8b: Waiting for baseline translation after controller restart")
+	translationStart := time.Now()
+	s.Require().True(
+		s.waitForTranslationCompletion(config.Gateways, config.Routes, translationCompletionTimeout),
+		"Baseline routes should remain attached after controller restart",
+	)
+	results.PostRestartTranslationTime = time.Since(translationStart)
+
+	err = s.verifyRouteValid(config.Gateways[0])
+	s.Require().NoError(err, "Routes should remain valid after controller restart")
 }
 
 func (s *AttachedRoutesSuite) setupSimulation(config *AttachedRoutesConfig) {
@@ -576,6 +606,8 @@ func (s *AttachedRoutesSuite) reportIncrementalResults(results *TestResults) {
 	s.T().Logf("Setup Time (Stopwatch): %v", results.SetupTime)
 	s.T().Logf("Route Ready Time: %v", results.RouteReadyTime)
 	s.T().Logf("Teardown Time: %v", results.TeardownTime)
+	s.T().Logf("Controller Restart Time: %v", results.ControllerRestartTime)
+	s.T().Logf("Post-Restart Translation Check Time: %v", results.PostRestartTranslationTime)
 	s.T().Logf("Total Writes: %d", results.TotalWrites)
 
 	s.T().Log("=== DETAILED RESULTS ===")
