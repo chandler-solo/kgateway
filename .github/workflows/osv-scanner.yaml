@@ -270,11 +270,49 @@ jobs:
             echo "OSV image scan completed and wrote results despite non-zero scanner/reporter exit status."
           fi
 
+      - name: Consolidate image SARIF
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t sarif_files < <(find image-results -maxdepth 1 -type f -name '*.sarif' | sort)
+          if [[ "${#sarif_files[@]}" -eq 0 ]]; then
+            echo "::error::No image SARIF files found to consolidate"
+            exit 1
+          fi
+
+          jq -s '
+            [.[].runs[0]] as $runs |
+            .[0] as $base |
+            $base.runs[0] as $baseRun |
+            ($runs | map(.tool.driver.rules // []) | add // [] | unique_by(.id)) as $rules |
+            ($runs | map(.artifacts // []) | add // [] | unique_by(.location.uri // tostring)) as $artifacts |
+            ($runs | map(.invocations // []) | add // []) as $invocations |
+            ($runs | map(.logicalLocations // []) | add // [] | unique_by(.fullyQualifiedName // .name // tostring)) as $logicalLocations |
+            ($runs | map(.graphs // []) | add // []) as $graphs |
+            ($runs | map(.taxonomies // []) | add // []) as $taxonomies |
+            ($runs | map(.results // [] | map(del(.ruleIndex))) | add // []) as $results |
+            $base |
+            .runs = [
+              ($baseRun |
+                .tool.driver.rules = $rules |
+                .artifacts = $artifacts |
+                .invocations = $invocations |
+                .logicalLocations = $logicalLocations |
+                .graphs = $graphs |
+                .taxonomies = $taxonomies |
+                .results = $results
+              )
+            ]
+          ' "${sarif_files[@]}" > image-results.sarif
+
+          jq -e '.runs | length == 1' image-results.sarif > /dev/null
+
       - name: Upload image SARIF
-        if: ${{ !cancelled() && hashFiles('image-results/*.sarif') != '' }}
+        if: ${{ !cancelled() && hashFiles('image-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
-          sarif_file: image-results
+          sarif_file: image-results.sarif
           ref: ${{ steps.metadata.outputs.ref }}
           sha: ${{ steps.metadata.outputs.sha }}
           category: ${{ steps.metadata.outputs.image_category }}
