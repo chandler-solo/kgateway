@@ -264,6 +264,36 @@ jobs:
               echo "::error::osv-reporter did not produce ${result_sarif}"
               exit 1
             fi
+
+            safe_platform="$(printf '%s' "${OSV_DOCKER_PLATFORM}" | sed 's/[^A-Za-z0-9_.-]/-/g')"
+            jq \
+              --arg image "${image}" \
+              --arg safe_image "${safe_image}" \
+              --arg platform "${OSV_DOCKER_PLATFORM}" \
+              --arg safe_platform "${safe_platform}" \
+              '
+                def rewrite_artifact_location:
+                  if ((.uri? // "") | startswith("file:///")) then
+                    . as $location |
+                    ($location.uri | sub("^file://"; "")) as $container_path |
+                    .uri = ("container-images/" + $safe_platform + "/" + ($container_path | sub("^/"; ""))) |
+                    .description = {
+                      text: ("Container image " + $image + " (" + $platform + "): " + $container_path)
+                    } |
+                    .properties = ((.properties // {}) + {
+                      containerImage: $image,
+                      containerPlatform: $platform,
+                      originalContainerPath: $container_path
+                    }) |
+                    del(.index)
+                  else
+                    .
+                  end;
+
+                (.runs[]?.artifacts[]?.location) |= rewrite_artifact_location |
+                (.runs[]?.results[]?.locations[]?.physicalLocation.artifactLocation) |= rewrite_artifact_location
+              ' "${result_sarif}" > "${result_sarif}.tmp"
+            mv "${result_sarif}.tmp" "${result_sarif}"
           done
 
           if [[ "${scanner_status}" -ne 0 || "${reporter_status}" -ne 0 ]]; then
@@ -291,7 +321,47 @@ jobs:
             ($runs | map(.logicalLocations // []) | add // [] | unique_by(.fullyQualifiedName // .name // tostring)) as $logicalLocations |
             ($runs | map(.graphs // []) | add // []) as $graphs |
             ($runs | map(.taxonomies // []) | add // []) as $taxonomies |
-            ($runs | map(.results // [] | map(del(.ruleIndex))) | add // []) as $results |
+            ($runs | map(.results // [] | map(del(.ruleIndex))) | add // []) as $rawResults |
+            def result_key:
+              [
+                (.ruleId // ""),
+                (.message.text // .message.markdown // ""),
+                ([.locations[]?.physicalLocation.artifactLocation.uri // ""] | join("|"))
+              ];
+            ($rawResults |
+              sort_by(result_key) |
+              group_by(result_key) |
+              map(
+                .[0] as $first |
+                (map(.locations[]?.physicalLocation.artifactLocation.properties.containerImage? // empty) | unique) as $images |
+                (map(.locations[]?.physicalLocation.artifactLocation.properties.containerPlatform? // empty) | unique) as $platforms |
+                (map(.locations[]?.physicalLocation.artifactLocation.properties.originalContainerPath? // empty) | unique) as $paths |
+                $first |
+                .properties = ((.properties // {}) + {
+                  containerImages: $images,
+                  containerPlatforms: $platforms,
+                  originalContainerPaths: $paths
+                }) |
+                .locations = (
+                  .locations |
+                  map(
+                    .physicalLocation.artifactLocation.description = {
+                      text: ("Container image scan (" + ($platforms | join(", ")) + "): " + ($paths | join(", ")) + " in " + ($images | join(", ")))
+                    } |
+                    .physicalLocation.artifactLocation.properties = ((.physicalLocation.artifactLocation.properties // {}) + {
+                      containerImages: $images,
+                      containerPlatforms: $platforms,
+                      originalContainerPaths: $paths
+                    }) |
+                    del(
+                      .physicalLocation.artifactLocation.properties.containerImage,
+                      .physicalLocation.artifactLocation.properties.containerPlatform,
+                      .physicalLocation.artifactLocation.properties.originalContainerPath
+                    )
+                  )
+                )
+              )
+            ) as $results |
             $base |
             .runs = [
               ($baseRun |
