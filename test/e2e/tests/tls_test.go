@@ -9,15 +9,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
+	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/tls"
 	. "github.com/kgateway-dev/kgateway/v2/test/e2e/tests"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/testutils/install"
+	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
@@ -78,6 +82,13 @@ func TestControlPlaneTLS(t *testing.T) {
 		testInstallation.UninstallKgateway(cleanupCtx, t)
 	})
 	testInstallation.InstallKgatewayFromLocalChart(t.Context(), t)
+	testInstallation.AssertionsT(t).EventuallyPodContainerContainsEnvVar(
+		t.Context(),
+		installNs,
+		metav1.ListOptions{LabelSelector: testdefaults.KGatewayPodLabel},
+		helpers.KgatewayContainerName,
+		corev1.EnvVar{Name: "KGW_XDS_TLS", Value: "true"},
+	)
 
 	gatewayManifest := filepath.Join(fsutils.MustGetThisDir(), "../features/tls/testdata", "gateway.yaml")
 	common.SetupBaseConfig(t.Context(), t, testInstallation, gatewayManifest)
