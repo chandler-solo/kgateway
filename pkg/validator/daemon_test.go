@@ -16,11 +16,11 @@ import (
 // blockingValidator returns from Validate only after the test signals it.
 // It records the maximum number of concurrent in-flight calls observed.
 type blockingValidator struct {
-	mu         sync.Mutex
-	inFlight   int
+	mu          sync.Mutex
+	inFlight    int
 	maxInFlight int
-	release    chan struct{}
-	err        error
+	release     chan struct{}
+	err         error
 }
 
 func newBlockingValidator() *blockingValidator {
@@ -81,12 +81,10 @@ func TestDaemonValidator_BoundsConcurrency(t *testing.T) {
 	v := NewDaemon(bv, poolSize)
 
 	var wg sync.WaitGroup
-	for i := 0; i < callers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range callers {
+		wg.Go(func() {
 			_ = v.Validate(context.Background(), bootstrapForNode("a"))
-		}()
+		})
 	}
 
 	// Wait for concurrency to ramp up to the cap, then release.
@@ -109,13 +107,11 @@ func TestDaemonValidator_PoolExhaustionUnderConcurrentCallers(t *testing.T) {
 	const callers = 8
 	var wg sync.WaitGroup
 	var done atomic.Int32
-	for i := 0; i < callers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range callers {
+		wg.Go(func() {
 			_ = v.Validate(context.Background(), bootstrapForNode("a"))
 			done.Add(1)
-		}()
+		})
 	}
 
 	// Allow the first caller to acquire the slot.
@@ -141,11 +137,9 @@ func TestDaemonValidator_ContextCancellationWhileWaiting(t *testing.T) {
 	v := NewDaemon(bv, 1)
 
 	var first sync.WaitGroup
-	first.Add(1)
-	go func() {
-		defer first.Done()
+	first.Go(func() {
 		_ = v.Validate(context.Background(), bootstrapForNode("a"))
-	}()
+	})
 	require.Eventually(t, func() bool {
 		return bv.MaxInFlight() == 1
 	}, 2*time.Second, 5*time.Millisecond)

@@ -74,7 +74,7 @@ func TestCachingValidator_DoesNotCacheTransientErrors(t *testing.T) {
 	v := NewCaching(stub, 16)
 
 	bs := bootstrapForNode("a")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		err := v.Validate(context.Background(), bs)
 		require.Error(t, err)
 	}
@@ -85,14 +85,14 @@ func TestCachingValidator_KeyStability(t *testing.T) {
 	// Two structurally-identical bootstraps must hash to the same key.
 	a := bootstrapForNode("same")
 	b := bootstrapForNode("same")
-	keyA, _, err := cacheKeyFor(a)
+	keyA, err := cacheKeyFor(a)
 	require.NoError(t, err)
-	keyB, _, err := cacheKeyFor(b)
+	keyB, err := cacheKeyFor(b)
 	require.NoError(t, err)
 	assert.Equal(t, keyA, keyB)
 
 	// Different content must produce different keys.
-	keyC, _, err := cacheKeyFor(bootstrapForNode("different"))
+	keyC, err := cacheKeyFor(bootstrapForNode("different"))
 	require.NoError(t, err)
 	assert.NotEqual(t, keyA, keyC)
 }
@@ -129,14 +129,12 @@ func TestCachingValidator_ConcurrentSameKey(t *testing.T) {
 	const goroutines = 16
 	var wg sync.WaitGroup
 	var errs atomic.Int32
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			if err := v.Validate(context.Background(), bs); err != nil {
 				errs.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	assert.Zero(t, errs.Load())

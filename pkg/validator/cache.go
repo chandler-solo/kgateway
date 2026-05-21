@@ -46,7 +46,7 @@ func NewCaching(v Validator, size int) Validator {
 }
 
 func (c *cachingValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
-	key, _, err := cacheKeyFor(bootstrap)
+	key, err := cacheKeyFor(bootstrap)
 	if err != nil {
 		// If we can't compute a key, fall through to the inner validator.
 		return c.inner.Validate(ctx, bootstrap)

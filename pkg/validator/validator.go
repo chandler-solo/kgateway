@@ -249,14 +249,12 @@ func prepareBootstrapConfig(bootstrap *envoybootstrapv3.Bootstrap) ([]byte, erro
 }
 
 // cacheKeyFor returns a stable content hash of the marshalled bootstrap config,
-// suitable as a cache key. It returns both the key and the marshalled bytes so
-// that callers (e.g. cachingValidator wrapping an inner Validator) can avoid
-// re-marshalling.
-func cacheKeyFor(bootstrap *envoybootstrapv3.Bootstrap) (string, []byte, error) {
+// suitable as a cache key.
+func cacheKeyFor(bootstrap *envoybootstrapv3.Bootstrap) (string, error) {
 	marshalled, err := prepareBootstrapConfig(bootstrap)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	sum := sha256.Sum256(marshalled)
-	return string(sum[:]), marshalled, nil
+	return string(sum[:]), nil
 }
