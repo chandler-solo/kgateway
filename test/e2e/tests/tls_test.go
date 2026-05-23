@@ -133,6 +133,20 @@ func assertXDSWireTrafficIsEncrypted(ctx context.Context, t *testing.T, testInst
 
 	proxyPod := getReadyProxyPod(ctx, t, testInstallation)
 	startXDSCapture(ctx, t, testInstallation, proxyPod)
+	testutils.Cleanup(t, func() {
+		// Best-effort: if a t.Fatalf between start and stopXDSCapture left tcpdump
+		// running, kill it now and surface the log so early failures aren't blind.
+		stdout, _, _ := testInstallation.Actions.Kubectl().Execute(
+			context.Background(),
+			"exec", "-n", proxyPod.Namespace, proxyPod.Name,
+			"-c", xdsWiretapContainer, "--",
+			"sh", "-c",
+			fmt.Sprintf("if [ -s %[1]s ]; then kill -INT $(cat %[1]s) 2>/dev/null || true; fi; cat %[2]s 2>/dev/null || true", xdsWiretapPID, xdsWiretapLog),
+		)
+		if t.Failed() && stdout != "" {
+			t.Logf("xDS wiretap tcpdump log on failure:\n%s", stdout)
+		}
+	})
 
 	markerHost := fmt.Sprintf("xds-wire-%d.example.com", time.Now().UnixNano())
 	markerRoute := xdsWireProbeRouteManifest(markerHost)
