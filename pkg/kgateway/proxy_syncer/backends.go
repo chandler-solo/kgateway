@@ -43,8 +43,11 @@ func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
 }
 
 // uccClusterDelta is a per-client cluster materialized only when at least one
-// PerClientClusterOverlay returns non-nil for (ucc, backend) or when the cluster
-// needs an inline CLA (which is always per-client via PrioritizeEndpoints).
+// PerClientClusterOverlay returns non-nil for (ucc, backend), when the cluster
+// needs an inline CLA (which is always per-client via PrioritizeEndpoints), or
+// when strict-mode validation fails on the per-client cluster (the delta then
+// carries the blackhole + error so the snapshot tracks it as errored for this
+// UCC only — other UCCs may still see a valid cluster).
 //
 // The KRT manyCollection that produces these entries emits nothing for the
 // dominant case where no overlay applies — that is what shrinks the per-client
@@ -56,6 +59,8 @@ type uccClusterDelta struct {
 	// +krtEqualsTodo include full cluster diff in equality
 	Cluster        *envoyclusterv3.Cluster
 	ClusterVersion uint64
+	// +krtEqualsTodo surface translation errors in equality or drop field
+	Error error
 }
 
 func (d uccClusterDelta) ResourceName() string {
@@ -152,12 +157,21 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 	for _, b := range bases {
 		seen[b.Name] = struct{}{}
 		if d, ok := deltaByName[b.Name]; ok {
+			// Delta wins on cluster + version. Delta error wins over base error
+			// because a per-UCC failure (e.g. strict-mode validation of the
+			// post-overlay cluster) is the more specific signal — base errors
+			// are caught by the short-circuit in the deltas builder, so reaching
+			// this branch with a base.Error set is impossible in production.
+			derr := d.Error
+			if derr == nil {
+				derr = b.Error
+			}
 			out = append(out, uccWithCluster{
 				Client:         ucc,
 				Cluster:        d.Cluster,
 				ClusterVersion: d.ClusterVersion,
 				Name:           d.Name,
-				Error:          b.Error,
+				Error:          derr,
 			})
 			continue
 		}
@@ -178,6 +192,7 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 			Cluster:        deltas[i].Cluster,
 			ClusterVersion: deltas[i].ClusterVersion,
 			Name:           deltas[i].Name,
+			Error:          deltas[i].Error,
 		})
 	}
 	return out
@@ -231,8 +246,24 @@ func NewPerClientEnvoyClusters(
 		for _, ucc := range clients {
 			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, b.Backend, b.Base)
 			if err != nil {
+				// Emit a delta entry that carries the error so the snapshot
+				// tracks this cluster as errored for THIS UCC only. Falling
+				// back to the (valid) base would defeat strict-mode validation;
+				// the user opted in to having broken configs surface as errors
+				// rather than NACKs at the Envoy data plane.
 				logger.Error("failed to apply per-client overlay",
 					"backend", b.Name, "ucc", ucc.ResourceName(), "error", err)
+				name := b.Name
+				if perClient != nil {
+					name = perClient.GetName()
+				}
+				out = append(out, uccClusterDelta{
+					Client:         ucc,
+					Name:           name,
+					Cluster:        perClient,
+					ClusterVersion: utils.HashString(err.Error()),
+					Error:          err,
+				})
 				continue
 			}
 			if perClient == nil {

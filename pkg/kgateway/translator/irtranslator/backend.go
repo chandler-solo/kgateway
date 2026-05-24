@@ -229,6 +229,20 @@ func (t *BackendTranslator) ApplyPerClient(
 		}
 	}
 
+	// Strict-mode validation on the post-overlay cluster. The base was already
+	// validated in TranslateBackendBase, but overlays (destrule, waypoint, …)
+	// run here and can produce invalid configs that Envoy would NACK at runtime.
+	// We must reject them at translation time when the user opted into strict
+	// validation. Returning the blackhole keeps the same shape as base errors,
+	// so the snapshot consumer's erroredClusters tracking still works.
+	if t.Mode == apisettings.ValidationStrict && t.Validator != nil {
+		if err := t.validateClusterConfig(ctx, out); err != nil {
+			logger.Error("per-client cluster failed xDS validation in strict mode",
+				"cluster", out.GetName(), "ucc", ucc.ResourceName(), "error", err)
+			return buildBlackholeCluster(backend), err
+		}
+	}
+
 	return out, nil
 }
 

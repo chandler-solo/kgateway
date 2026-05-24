@@ -507,3 +507,135 @@ func (t *testPolicyIR) Equals(other any) bool {
 	_, ok := other.(*testPolicyIR)
 	return ok
 }
+
+// TestApplyPerClient_StrictModeRejectsInvalidOverlay is a regression test for
+// the strict-mode bypass: PerClientClusterOverlay hooks (destrule, waypoint,
+// …) mutate the cluster AFTER TranslateBackendBase has validated it. Without
+// per-client validation, invalid overlay output would only surface as Envoy
+// NACKs at the data plane. The fix runs strict-mode validation on the
+// post-overlay cluster too. This test:
+//
+//  1. Sets up a translator where the validator rejects only clusters that have
+//     an OutlierDetection set (the marker of our test overlay).
+//  2. Translates the base — passes validation (no outlier).
+//  3. Calls ApplyPerClient with an overlay that sets OutlierDetection.
+//  4. Asserts the result is an error + the blackhole cluster.
+func TestApplyPerClient_StrictModeRejectsInvalidOverlay(t *testing.T) {
+	backend := &ir.BackendObjectIR{
+		ObjectSource: ir.ObjectSource{
+			Group:     "core",
+			Kind:      "Service",
+			Name:      "svc",
+			Namespace: "ns",
+		},
+		Port: 80,
+		AttachedPolicies: ir.AttachedPolicies{
+			Policies: map[schema.GroupKind][]ir.PolicyAtt{},
+		},
+	}
+
+	overlayGK := schema.GroupKind{Group: "test", Kind: "DestructiveOverlay"}
+
+	var bt irtranslator.BackendTranslator
+	bt.ContributedBackends = map[schema.GroupKind]ir.BackendInit{
+		{Group: "core", Kind: "Service"}: {
+			InitEnvoyBackend: func(ctx context.Context, in ir.BackendObjectIR, out *envoyclusterv3.Cluster) *ir.EndpointsForBackend {
+				return nil
+			},
+		},
+	}
+	bt.ContributedPolicies = map[schema.GroupKind]sdk.PolicyPlugin{
+		overlayGK: {
+			PerClientClusterOverlay: func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR) *sdk.ClusterOverlay {
+				return &sdk.ClusterOverlay{
+					Mutate: func(out *envoyclusterv3.Cluster) {
+						out.OutlierDetection = &envoyclusterv3.OutlierDetection{}
+					},
+				}
+			},
+		},
+	}
+	bt.Mode = apisettings.ValidationStrict
+	bt.Validator = &mockValidator{
+		validateFunc: func(ctx context.Context, config *envoybootstrapv3.Bootstrap) error {
+			for _, c := range config.GetStaticResources().GetClusters() {
+				if c.GetOutlierDetection() != nil {
+					return errors.New("overlay produced invalid cluster")
+				}
+			}
+			return nil
+		},
+	}
+
+	ctx := context.Background()
+	base := bt.TranslateBackendBase(ctx, backend)
+	require.NotNil(t, base)
+	require.NoError(t, base.Error, "base must pass strict validation (no overlay applied yet)")
+
+	cluster, err := bt.ApplyPerClient(krt.TestingDummyContext{}, ctx, ir.UniquelyConnectedClient{}, backend, base)
+	require.Error(t, err, "strict-mode validation must reject invalid overlay output")
+	assert.Contains(t, err.Error(), "overlay produced invalid cluster")
+	require.NotNil(t, cluster, "must return a blackhole cluster so the snapshot can mark it errored")
+	assert.Equal(t, envoyclusterv3.Cluster_STATIC, cluster.GetType(),
+		"errored per-client cluster should be the blackhole STATIC cluster")
+}
+
+// TestApplyPerClient_StrictModePassesValidOverlay confirms the validator is
+// invoked on overlay output but does not reject when the result is valid.
+func TestApplyPerClient_StrictModePassesValidOverlay(t *testing.T) {
+	backend := &ir.BackendObjectIR{
+		ObjectSource: ir.ObjectSource{
+			Group:     "core",
+			Kind:      "Service",
+			Name:      "svc",
+			Namespace: "ns",
+		},
+		Port: 80,
+		AttachedPolicies: ir.AttachedPolicies{
+			Policies: map[schema.GroupKind][]ir.PolicyAtt{},
+		},
+	}
+
+	overlayGK := schema.GroupKind{Group: "test", Kind: "MarkerOverlay"}
+
+	var validatorCalls int
+	var bt irtranslator.BackendTranslator
+	bt.ContributedBackends = map[schema.GroupKind]ir.BackendInit{
+		{Group: "core", Kind: "Service"}: {
+			InitEnvoyBackend: func(ctx context.Context, in ir.BackendObjectIR, out *envoyclusterv3.Cluster) *ir.EndpointsForBackend {
+				return nil
+			},
+		},
+	}
+	bt.ContributedPolicies = map[schema.GroupKind]sdk.PolicyPlugin{
+		overlayGK: {
+			PerClientClusterOverlay: func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR) *sdk.ClusterOverlay {
+				return &sdk.ClusterOverlay{
+					Mutate: func(out *envoyclusterv3.Cluster) {
+						out.OutlierDetection = &envoyclusterv3.OutlierDetection{}
+					},
+				}
+			},
+		},
+	}
+	bt.Mode = apisettings.ValidationStrict
+	bt.Validator = &mockValidator{
+		validateFunc: func(ctx context.Context, config *envoybootstrapv3.Bootstrap) error {
+			validatorCalls++
+			return nil
+		},
+	}
+
+	ctx := context.Background()
+	base := bt.TranslateBackendBase(ctx, backend)
+	require.NotNil(t, base)
+	require.NoError(t, base.Error)
+	require.Equal(t, 1, validatorCalls, "base translation must invoke the validator once")
+
+	cluster, err := bt.ApplyPerClient(krt.TestingDummyContext{}, ctx, ir.UniquelyConnectedClient{}, backend, base)
+	require.NoError(t, err)
+	require.NotNil(t, cluster)
+	require.NotNil(t, cluster.OutlierDetection, "overlay mutation must be retained on the returned cluster")
+	assert.Equal(t, 2, validatorCalls,
+		"strict mode must invoke the validator a second time on the post-overlay cluster")
+}
