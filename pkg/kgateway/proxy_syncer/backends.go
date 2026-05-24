@@ -3,6 +3,7 @@ package proxy_syncer
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"istio.io/istio/pkg/kube/krt"
@@ -77,6 +78,29 @@ type uccWithCluster struct {
 
 func (c uccWithCluster) ResourceName() string {
 	return fmt.Sprintf("%s/%s", c.Client.ResourceName(), c.Name)
+}
+
+// baseClusterVersion returns the equality hash for a base translation result.
+// It folds the inline endpoints hash into the cluster proto hash when the cluster
+// type supports an inline CLA: the per-client CLA is built from
+// BaseCluster.EndpointInputs and is NOT part of the base proto, so without this
+// the base would not re-publish when endpoints change — leaving clients pinned
+// to stale LoadAssignments for non-EDS backends (e.g. ServiceEntry-style).
+//
+// For EDS clusters EndpointInputs may also be non-nil, but those endpoints feed
+// the separate EDS pipeline and are not used by ApplyPerClient; gating on
+// SupportsInlineCLA keeps the version stable for the EDS case so equivalent
+// translations do not churn the snapshot.
+func baseClusterVersion(b *irtranslator.BaseCluster) uint64 {
+	if b.Error != nil {
+		return 0
+	}
+	hasher := fnv.New64a()
+	utils.HashProtoWithHasher(hasher, b.Cluster)
+	if b.SupportsInlineCLA && b.EndpointInputs != nil {
+		utils.HashUint64(hasher, b.EndpointInputs.EndpointsForBackend.LbEpsEqualityHash)
+	}
+	return hasher.Sum64()
 }
 
 type PerClientEnvoyClusters struct {
@@ -176,14 +200,10 @@ func NewPerClientEnvoyClusters(
 		if baseRes == nil {
 			return nil
 		}
-		var version uint64
-		if baseRes.Error == nil {
-			version = utils.HashProto(baseRes.Cluster)
-		}
 		return &baseEnvoyCluster{
 			Name:           baseRes.Cluster.GetName(),
 			Cluster:        baseRes.Cluster,
-			ClusterVersion: version,
+			ClusterVersion: baseClusterVersion(baseRes),
 			Error:          baseRes.Error,
 			Base:           baseRes,
 			Backend:        backendObj,
