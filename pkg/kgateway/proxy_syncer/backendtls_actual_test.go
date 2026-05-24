@@ -169,7 +169,7 @@ func TestPerClientClustersUpdateWhenActualBackendTLSPolicyAddedLater(t *testing.
 			commoncol.BackendIndex.HasSynced() &&
 			plugins.HasSynced() &&
 			finalBackends.HasSynced() &&
-			clusters.clusters.HasSynced()
+			clusters.HasSynced()
 	}, 5*time.Second, 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
@@ -260,7 +260,7 @@ func TestPerClientClustersUseActualBackendTLSPolicyWhenConflictsExistAtStartup(t
 			commoncol.BackendIndex.HasSynced() &&
 			plugins.HasSynced() &&
 			finalBackends.HasSynced() &&
-			clusters.clusters.HasSynced()
+			clusters.HasSynced()
 	}, 5*time.Second, 50*time.Millisecond)
 
 	require.Eventually(t, func() bool {
