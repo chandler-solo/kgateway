@@ -20,10 +20,9 @@ import (
 // so we generate a normal positive-serial cert and then surgically rewrite the
 // serial-number bytes in the DER to a negative value. The signature won't
 // verify but the permissive parser is signature-agnostic.
-func mustNegativeSerialCert(t *testing.T) (keyPEM, certPEM, certDER []byte, key *rsa.PrivateKey) {
+func mustNegativeSerialCert(t *testing.T) (keyPEM, certPEM, certDER []byte) {
 	t.Helper()
-	var err error
-	key, err = rsa.GenerateKey(rand.Reader, 2048)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1), // gets rewritten to -1 below
@@ -38,7 +37,7 @@ func mustNegativeSerialCert(t *testing.T) (keyPEM, certPEM, certDER []byte, key 
 	certDER = injectNegativeSerial(t, posDER)
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return
+	return keyPEM, certPEM, certDER
 }
 
 // injectNegativeSerial walks the certificate DER to the serial-number INTEGER
@@ -46,9 +45,9 @@ func mustNegativeSerialCert(t *testing.T) (keyPEM, certPEM, certDER []byte, key 
 // without changing its length.
 func injectNegativeSerial(t *testing.T, der []byte) []byte {
 	t.Helper()
-	pos := skipTagAndLen(t, der, 0, 0x30)        // outer SEQUENCE -> contents of Certificate
-	pos = skipTagAndLen(t, der, pos, 0x30)       // TBSCertificate SEQUENCE -> contents
-	if der[pos] == 0xA0 {                        // optional [0] EXPLICIT Version
+	pos := skipTagAndLen(t, der, 0, 0x30)  // outer SEQUENCE -> contents of Certificate
+	pos = skipTagAndLen(t, der, pos, 0x30) // TBSCertificate SEQUENCE -> contents
+	if der[pos] == 0xA0 {                  // optional [0] EXPLICIT Version
 		_, hdrLen, contentLen := readTagAndLen(t, der, pos)
 		pos += hdrLen + contentLen
 	}
@@ -81,7 +80,7 @@ func readTagAndLen(t *testing.T, der []byte, pos int) (tag byte, hdrLen int, con
 	require.GreaterOrEqual(t, n, 1)
 	require.LessOrEqual(t, n, 4)
 	length := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		length = length<<8 | int(der[pos+2+i])
 	}
 	return tag, 2 + n, length
@@ -103,21 +102,21 @@ func mustPositiveSerialCert(t *testing.T) (keyPEM, certPEM []byte) {
 	require.NoError(t, err)
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return
+	return keyPEM, certPEM
 }
 
 // Sanity check: ensure the upstream parser actually rejects negative-serial
 // certs in this Go version, so the test fixture meaningfully exercises the
 // permissive code path.
 func TestNegativeSerialCertIsRejectedByStdlib(t *testing.T) {
-	_, _, certDER, _ := mustNegativeSerialCert(t)
+	_, _, certDER := mustNegativeSerialCert(t)
 	_, err := x509.ParseCertificate(certDER)
 	require.Error(t, err, "stdlib should reject the negative-serial fixture; if this passes, the permissive path is no longer exercised")
 	assert.Contains(t, err.Error(), "negative serial number")
 }
 
 func TestParseCertsPEMPermissive_NegativeSerial(t *testing.T) {
-	_, certPEM, certDER, _ := mustNegativeSerialCert(t)
+	_, certPEM, certDER := mustNegativeSerialCert(t)
 
 	got, err := ParseCertsPEMPermissive(certPEM)
 	require.NoError(t, err)
@@ -143,7 +142,7 @@ func TestParseCertsPEMPermissive_NormalCert(t *testing.T) {
 }
 
 func TestParseCertsPEMPermissive_MixedChain(t *testing.T) {
-	_, negPEM, _, _ := mustNegativeSerialCert(t)
+	_, negPEM, _ := mustNegativeSerialCert(t)
 	_, posPEM := mustPositiveSerialCert(t)
 	chain := append([]byte{}, negPEM...)
 	chain = append(chain, posPEM...)
@@ -163,7 +162,7 @@ func TestParseCertsPEMPermissive_Garbage(t *testing.T) {
 }
 
 func TestValidateCertKeyPairPermissive_NegativeSerial(t *testing.T) {
-	keyPEM, certPEM, _, _ := mustNegativeSerialCert(t)
+	keyPEM, certPEM, _ := mustNegativeSerialCert(t)
 	assert.NoError(t, ValidateCertKeyPairPermissive(certPEM, keyPEM))
 }
 
@@ -173,7 +172,7 @@ func TestValidateCertKeyPairPermissive_NormalCert(t *testing.T) {
 }
 
 func TestValidateCertKeyPairPermissive_Mismatch(t *testing.T) {
-	_, certPEM, _, _ := mustNegativeSerialCert(t)
+	_, certPEM, _ := mustNegativeSerialCert(t)
 	wrongKeyPEM, _ := mustPositiveSerialCert(t)
 	err := ValidateCertKeyPairPermissive(certPEM, wrongKeyPEM)
 	require.Error(t, err)

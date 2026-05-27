@@ -3,7 +3,6 @@ package sds
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 
@@ -63,14 +62,16 @@ func RunMain() {
 	for _, s := range secrets {
 		// Check to see if files exist first to avoid crashloops
 		if err := checkFilesExist([]string{s.SslKeyFile, s.SslCertFile, s.SslCaFile}); err != nil {
-			log.Fatalf("secrets check failed: %v", err)
+			logger.Error("secrets check failed", "error", err)
+			os.Exit(1)
 		}
 	}
 
 	logger.Info("secrets confirmed present, proceeding to start SDS server")
 
 	if err := run.Run(context.Background(), secrets, c.SdsClient, c.SdsServerAddress, logger); err != nil {
-		log.Fatalf("failed to run SDS server: %v", err)
+		logger.Error("failed to run SDS server", "error", err)
+		os.Exit(1)
 	}
 }
 
@@ -78,7 +79,8 @@ func setup() Config {
 	var c Config
 	err := envconfig.Process("", &c)
 	if err != nil {
-		log.Fatalf("failed to process env config: %v", err)
+		logger.Error("failed to process env config", "error", err)
+		os.Exit(1)
 	}
 
 	// Use default node ID from env vars if SDS_CLIENT not explicitly set.
@@ -88,7 +90,8 @@ func setup() Config {
 
 	if !c.IstioMtlsSdsEnabled {
 		err := fmt.Errorf("Istio Cert rotation must be enabled, using env var ISTIO_MTLS_SDS_ENABLED")
-		log.Fatalf("invalid config: %v", err)
+		logger.Error("invalid config", "error", err)
+		os.Exit(1)
 	}
 	return c
 }

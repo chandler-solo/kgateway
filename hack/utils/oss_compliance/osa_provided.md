@@ -35,6 +35,7 @@ Name|Version|License
 [go.uber.org/atomic](https://go.uber.org/atomic)|v1.11.0|MIT License
 [go.uber.org/mock](https://go.uber.org/mock)|v0.6.0|Apache License 2.0
 [go.uber.org/zap](https://go.uber.org/zap)|v1.27.1|MIT License
+[x/crypto](https://golang.org/x/crypto)|v0.52.0|BSD 3-clause "New" or "Revised" License
 [x/exp](https://golang.org/x/exp)|v0.0.0-20260112195511-716be5621a96|BSD 3-clause "New" or "Revised" License
 [x/sync](https://golang.org/x/sync)|v0.20.0|BSD 3-clause "New" or "Revised" License
 [x/time](https://golang.org/x/time)|v0.15.0|BSD 3-clause "New" or "Revised" License
