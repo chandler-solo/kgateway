@@ -14,6 +14,7 @@ import (
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/annotations"
+	"github.com/kgateway-dev/kgateway/v2/pkg/permissivecerts"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
@@ -90,7 +91,7 @@ func cleanedSslKeyPair(certChain, privateKey, rootCa string) (cleanedChain strin
 	}
 
 	// validate that the cert and key are a valid pair
-	if err := ValidateCertKeyPairPermissive([]byte(certChain), []byte(privateKey)); err != nil {
+	if err := permissivecerts.ValidateCertKeyPair([]byte(certChain), []byte(privateKey)); err != nil {
 		return "", err
 	}
 
@@ -98,7 +99,7 @@ func cleanedSslKeyPair(certChain, privateKey, rootCa string) (cleanedChain strin
 	// this is still faster than a call out to openssl despite this second parsing pass of the cert
 	// pem parsing in go is permissive while envoy is not
 	// this might not be needed once we have larger envoy validation
-	candidateCert, err := ParseCertsPEMPermissive([]byte(certChain))
+	candidateCert, err := permissivecerts.ParseCertsPEM([]byte(certChain))
 	if err != nil {
 		// return err rather than sanitize. This is to maintain UX with older versions and to keep in line with kgateway pkg.
 		return "", err
@@ -135,7 +136,7 @@ func getCACertFromBytes(caCrtBytes []byte, name, namespace string) (string, erro
 	}
 
 	// Validate CA certificate by trying to parse it
-	candidateCert, err := ParseCertsPEMPermissive(caCrtBytes)
+	candidateCert, err := permissivecerts.ParseCertsPEM(caCrtBytes)
 	if err != nil {
 		return "", ErrInvalidCACertificate(name, namespace, err)
 	}

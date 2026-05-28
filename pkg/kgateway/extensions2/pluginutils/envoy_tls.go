@@ -5,7 +5,7 @@ import (
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"k8s.io/client-go/util/cert"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/sslutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/permissivecerts"
 )
 
 // ResolveUpstreamSslConfigFromCA creates an UpstreamTlsContext from a CA certificate string.
@@ -41,7 +41,7 @@ func ResolveCommonSslConfigFromCA(caCert string, validation *envoytlsv3.Certific
 // CleanedSslKeyPair validates and cleans a certificate and key pair.
 func CleanedSslKeyPair(certChain, privateKey string) (cleanedChain string, err error) {
 	// validate that the cert and key are a valid pair
-	if err := sslutils.ValidateCertKeyPairPermissive([]byte(certChain), []byte(privateKey)); err != nil {
+	if err := permissivecerts.ValidateCertKeyPair([]byte(certChain), []byte(privateKey)); err != nil {
 		return "", err
 	}
 
@@ -49,7 +49,7 @@ func CleanedSslKeyPair(certChain, privateKey string) (cleanedChain string, err e
 	// this is still faster than a call out to openssl despite this second parsing pass of the cert
 	// pem parsing in go is permissive while envoy is not
 	// this might not be needed once we have larger envoy validation
-	candidateCert, err := sslutils.ParseCertsPEMPermissive([]byte(certChain))
+	candidateCert, err := permissivecerts.ParseCertsPEM([]byte(certChain))
 	if err != nil {
 		// return err rather than sanitize. This is to maintain UX with older versions and to keep in line with gateway2 pkg.
 		return "", err

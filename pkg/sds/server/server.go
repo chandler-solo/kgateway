@@ -24,7 +24,7 @@ import (
 	"github.com/mitchellh/hashstructure"
 	"google.golang.org/grpc"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/sslutils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/permissivecerts"
 )
 
 var grpcOptions = []grpc.ServerOption{
@@ -170,7 +170,7 @@ func readAndValidateSecret(ctx context.Context, sec Secret) ([][]byte, []cache_t
 				return fmt.Errorf("reading certificate chain %q: %w", sec.SslCertFile, err)
 			}
 
-			if err := sslutils.ValidateCertKeyPairPermissive(certChain, key); err != nil {
+			if err := permissivecerts.ValidateCertKeyPair(certChain, key); err != nil {
 				return fmt.Errorf("validating certificate chain %q with private key %q: %w", sec.SslCertFile, sec.SslKeyFile, err)
 			}
 

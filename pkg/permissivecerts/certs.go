@@ -1,4 +1,9 @@
-package sslutils
+// Package permissivecerts parses and validates X.509 certificates while
+// tolerating negative serial numbers, which Go 1.23+ rejects by default but
+// Envoy still accepts. It depends only on the standard library and
+// golang.org/x/crypto so that lightweight binaries (e.g. sds) can use it
+// without pulling in the heavy translation/IR dependency tree.
+package permissivecerts
 
 import (
 	"bytes"
@@ -22,13 +27,13 @@ import (
 // strict parser rejects a cert solely because its serial is negative, we
 // rewrite the first byte of the serial-number INTEGER to 0x01 (a
 // minimally-encoded positive value), let the stdlib parse the rewritten
-// bytes, and — for ParseCertsPEMPermissive — restore the original DER in
+// bytes, and -- for ParseCertsPEM -- restore the original DER in
 // Certificate.Raw so re-encoders see the user's original bytes.
 
-// ParseCertsPEMPermissive is a drop-in replacement for
+// ParseCertsPEM is a drop-in replacement for
 // k8s.io/client-go/util/cert.ParseCertsPEM that additionally accepts
 // certificates with negative serial numbers.
-func ParseCertsPEMPermissive(pemBytes []byte) ([]*x509.Certificate, error) {
+func ParseCertsPEM(pemBytes []byte) ([]*x509.Certificate, error) {
 	var certs []*x509.Certificate
 	found := false
 	rest := pemBytes
@@ -54,11 +59,11 @@ func ParseCertsPEMPermissive(pemBytes []byte) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-// ValidateCertKeyPairPermissive verifies that the PEM-encoded certificate
+// ValidateCertKeyPair verifies that the PEM-encoded certificate
 // chain and private key are a valid pair, accepting leaf certs with negative
 // serial numbers. It is used purely for validation; the parsed tls.Certificate
 // is discarded.
-func ValidateCertKeyPairPermissive(certPEM, keyPEM []byte) error {
+func ValidateCertKeyPair(certPEM, keyPEM []byte) error {
 	sanitized, err := rewriteNegativeSerialsInPEM(certPEM)
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-package sslutils
+package permissivecerts
 
 import (
 	"crypto/rand"
@@ -115,10 +115,10 @@ func TestNegativeSerialCertIsRejectedByStdlib(t *testing.T) {
 	assert.Contains(t, err.Error(), "negative serial number")
 }
 
-func TestParseCertsPEMPermissive_NegativeSerial(t *testing.T) {
+func TestParseCertsPEM_NegativeSerial(t *testing.T) {
 	_, certPEM, certDER := mustNegativeSerialCert(t)
 
-	got, err := ParseCertsPEMPermissive(certPEM)
+	got, err := ParseCertsPEM(certPEM)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, certDER, got[0].Raw, "Raw should hold the original DER so cert.EncodeCertificates round-trips")
@@ -131,50 +131,50 @@ func TestParseCertsPEMPermissive_NegativeSerial(t *testing.T) {
 	assert.Equal(t, certDER, block.Bytes)
 }
 
-func TestParseCertsPEMPermissive_NormalCert(t *testing.T) {
+func TestParseCertsPEM_NormalCert(t *testing.T) {
 	_, certPEM := mustPositiveSerialCert(t)
 
-	got, err := ParseCertsPEMPermissive(certPEM)
+	got, err := ParseCertsPEM(certPEM)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	// For a positive-serial cert, the strict parser populates the full struct.
 	assert.Equal(t, "positive-serial.test", got[0].Subject.CommonName)
 }
 
-func TestParseCertsPEMPermissive_MixedChain(t *testing.T) {
+func TestParseCertsPEM_MixedChain(t *testing.T) {
 	_, negPEM, _ := mustNegativeSerialCert(t)
 	_, posPEM := mustPositiveSerialCert(t)
 	chain := append([]byte{}, negPEM...)
 	chain = append(chain, posPEM...)
 
-	got, err := ParseCertsPEMPermissive(chain)
+	got, err := ParseCertsPEM(chain)
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 }
 
-func TestParseCertsPEMPermissive_Garbage(t *testing.T) {
-	_, err := ParseCertsPEMPermissive([]byte("not a cert"))
+func TestParseCertsPEM_Garbage(t *testing.T) {
+	_, err := ParseCertsPEM([]byte("not a cert"))
 	assert.Error(t, err)
 
 	bogusBlock := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte{0x30, 0x05, 0xff, 0xff, 0xff}})
-	_, err = ParseCertsPEMPermissive(bogusBlock)
+	_, err = ParseCertsPEM(bogusBlock)
 	assert.Error(t, err)
 }
 
-func TestValidateCertKeyPairPermissive_NegativeSerial(t *testing.T) {
+func TestValidateCertKeyPair_NegativeSerial(t *testing.T) {
 	keyPEM, certPEM, _ := mustNegativeSerialCert(t)
-	assert.NoError(t, ValidateCertKeyPairPermissive(certPEM, keyPEM))
+	assert.NoError(t, ValidateCertKeyPair(certPEM, keyPEM))
 }
 
-func TestValidateCertKeyPairPermissive_NormalCert(t *testing.T) {
+func TestValidateCertKeyPair_NormalCert(t *testing.T) {
 	keyPEM, certPEM := mustPositiveSerialCert(t)
-	assert.NoError(t, ValidateCertKeyPairPermissive(certPEM, keyPEM))
+	assert.NoError(t, ValidateCertKeyPair(certPEM, keyPEM))
 }
 
-func TestValidateCertKeyPairPermissive_Mismatch(t *testing.T) {
+func TestValidateCertKeyPair_Mismatch(t *testing.T) {
 	_, certPEM, _ := mustNegativeSerialCert(t)
 	wrongKeyPEM, _ := mustPositiveSerialCert(t)
-	err := ValidateCertKeyPairPermissive(certPEM, wrongKeyPEM)
+	err := ValidateCertKeyPair(certPEM, wrongKeyPEM)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match")
 }
