@@ -95,31 +95,31 @@ func (s *testingSuite) SetupSuite() {
 
 func (s *testingSuite) TestBasic() {
 	// Assert traffic to team1 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1))
 
 	// Assert traffic to team2 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
 		curl.WithPath(pathTeam2))
 }
 
 func (s *testingSuite) TestRecursive() {
 	// Assert traffic to team1 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1))
 
 	// Assert traffic to team2 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
 		curl.WithPath(pathTeam2))
 }
 
 func (s *testingSuite) TestCyclic() {
 	// Assert traffic to team1 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1))
 
 	// Assert traffic to team2 route fails with HTTP 500 as it is a cyclic route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
 		curl.WithPath(pathTeam2))
 
 	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteStatusContainsMessage(s.Ctx, routeTeam2.Name, routeTeam2.Namespace,
@@ -128,11 +128,11 @@ func (s *testingSuite) TestCyclic() {
 
 func (s *testingSuite) TestInvalidChild() {
 	// Assert traffic to team1 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1))
 
 	// Assert traffic to team2 route fails with HTTP 500 as the route is invalid due to specifying a hostname on the child route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
+	s.gateway.Send(s.T(), &testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
 		curl.WithPath(pathTeam2))
 
 	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteStatusContainsMessage(s.Ctx, routeTeam2.Name, routeTeam2.Namespace,
@@ -141,7 +141,7 @@ func (s *testingSuite) TestInvalidChild() {
 
 func (s *testingSuite) TestHeaderQueryMatch() {
 	// Assert traffic to team1 route with matching header and query parameters
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1),
 		curl.WithHeader("header1", "val1"),
@@ -150,7 +150,7 @@ func (s *testingSuite) TestHeaderQueryMatch() {
 	)
 
 	// Assert traffic to team2 child route fails with HTTP 404 as it does not match the parent's header and query parameters
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusNotFound},
 		curl.WithPath(pathTeam2),
 		curl.WithHeader("headerX", "valX"),
@@ -158,7 +158,7 @@ func (s *testingSuite) TestHeaderQueryMatch() {
 	)
 
 	// Assert traffic to team2 parent route fails with HTTP 500 due to unresolved child route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
 		curl.WithPath(pathTeam2),
 		curl.WithHeader("header2", "val2"),
@@ -168,28 +168,28 @@ func (s *testingSuite) TestHeaderQueryMatch() {
 
 func (s *testingSuite) TestMultipleParents() {
 	// Assert traffic to parent1.com/anything/team1
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1),
 		curl.WithHostHeader(routeParent1Host),
 	)
 
 	// Assert traffic to parent1.com/anything/team2
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
 		curl.WithPath(pathTeam2),
 		curl.WithHostHeader(routeParent1Host),
 	)
 
 	// Assert traffic to parent2.com/anything/team1
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1),
 		curl.WithHostHeader(routeParent2Host),
 	)
 
 	// Assert traffic to parent2.com/anything/team2 fails as it is not selected by parent2 route
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
 		curl.WithPath(pathTeam2),
 		curl.WithHostHeader(routeParent2Host),
@@ -198,21 +198,21 @@ func (s *testingSuite) TestMultipleParents() {
 
 func (s *testingSuite) TestInvalidChildValidStandalone() {
 	// Assert traffic to team1 route
-	s.testGateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.testGateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam1)},
 		curl.WithPath(pathTeam1),
 		curl.WithHostHeader(routeParentHost),
 	)
 
 	// Assert traffic to team2 route on parent hostname fails with HTTP 500 as the route is invalid due to specifying a hostname on the child route
-	s.testGateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.testGateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusInternalServerError},
 		curl.WithPath(pathTeam2),
 		curl.WithHostHeader(routeParentHost),
 	)
 
 	// Assert traffic to team2 route on standalone host succeeds
-	s.testGateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.testGateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring(pathTeam2)},
 		curl.WithPath(pathTeam2),
 		curl.WithHostHeader(routeTeam2Host),
@@ -237,19 +237,19 @@ func (s *testingSuite) TestMatcherInheritance() {
 		string(gwv1.RouteReasonAccepted), 10*time.Second, 1*time.Second)
 
 	// Assert traffic on parent1's prefix
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring("/anything/foo/child")},
 		curl.WithPath("/anything/foo/child"))
 
 	// Assert traffic on parent2's prefix
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Body: ContainSubstring("/anything/baz/child")},
 		curl.WithPath("/anything/baz/child"))
 }
 
 func (s *testingSuite) TestRouteWeight() {
 	// Assert traffic to /anything path prefix is always routed to svc1
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam1),
@@ -259,7 +259,7 @@ func (s *testingSuite) TestRouteWeight() {
 		},
 		curl.WithPath(pathTeam1))
 	// Assert traffic to /anything/team2 is also routed to svc1 since its route has higher weight
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam2),
@@ -273,7 +273,7 @@ func (s *testingSuite) TestRouteWeight() {
 func (s *testingSuite) TestPolicyMerging() {
 	s.T().Skip("skipping. See https://github.com/kgateway-dev/kgateway/issues/13314 for details")
 	// Assert traffic to parent1.com/anything/team1 uses svc1's transformation policy
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam1),
@@ -286,7 +286,7 @@ func (s *testingSuite) TestPolicyMerging() {
 	)
 
 	// Assert traffic to parent1.com/anything/team2 uses svc2's transformation policy
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam2),
@@ -299,7 +299,7 @@ func (s *testingSuite) TestPolicyMerging() {
 	)
 
 	// Assert traffic to parent2.com/anything/team1 uses parent2's transformation policy
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam1),
@@ -312,7 +312,7 @@ func (s *testingSuite) TestPolicyMerging() {
 	)
 
 	// Assert traffic to parent2.com/anything/team2 uses parent2's transformation policy
-	s.gateway.SendEventuallyConsistent(s.Ctx, s.T(),
+	s.gateway.Send(s.T(),
 		&testmatchers.HttpResponse{
 			StatusCode: http.StatusOK,
 			Body:       ContainSubstring(pathTeam2),

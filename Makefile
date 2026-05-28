@@ -403,6 +403,15 @@ test: ## Run all tests with ginkgo, or only run the test package at {TEST_PKG} i
 # common.Gateway values cannot disambiguate multiple gateways with a single env
 # var and are therefore out of scope under k3d.
 CLUSTER_TYPE ?= kind
+SKIP_EXTPROC_SERVER_SETUP ?= false
+
+E2E_SHARED_IMAGE_ARCHIVE ?= $(OUTPUT_DIR)/e2e-images/shared-images.tar
+E2E_SHARED_IMAGE_TAGS = \
+	$(IMAGE_REGISTRY)/$(CONTROLLER_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(SDS_IMAGE_REPO):$(VERSION) \
+	$(IMAGE_REGISTRY)/$(DUMMY_IDP_IMAGE_REPO):$(DUMMY_IDP_VERSION) \
+	$(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION)
 
 .PHONY: cluster-load-extproc-server
 ifeq ($(CLUSTER_TYPE),k3d)
@@ -412,10 +421,26 @@ cluster-load-extproc-server: kind-load-extproc-server
 endif
 
 .PHONY: e2e-test
-e2e-test: extproc-server-docker cluster-load-extproc-server
+e2e-test: maybe-setup-extproc-server
 e2e-test: go-test
 e2e-test: TEST_TAG = e2e
 e2e-test: GO_TEST_ARGS = $(E2E_GO_TEST_ARGS)
+
+.PHONY: e2e-shared-images-docker
+e2e-shared-images-docker: kgateway-docker envoy-wrapper-docker sds-docker dummy-idp-docker extproc-server-docker ## Build shared docker images for e2e shards
+
+.PHONY: save-e2e-shared-images
+save-e2e-shared-images: e2e-shared-images-docker ## Save shared e2e shard images to a docker archive
+	@mkdir -p $(dir $(E2E_SHARED_IMAGE_ARCHIVE))
+	docker save -o $(E2E_SHARED_IMAGE_ARCHIVE) $(E2E_SHARED_IMAGE_TAGS)
+
+.PHONY: maybe-setup-extproc-server
+ifeq ($(SKIP_EXTPROC_SERVER_SETUP),true)
+maybe-setup-extproc-server:
+	@echo "Skipping extproc-server build and load"
+else
+maybe-setup-extproc-server: extproc-server-docker cluster-load-extproc-server
+endif
 
 
 # https://go.dev/blog/cover#heat-maps
@@ -787,14 +812,20 @@ export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 
 # Registry cache for envoyinit Docker build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-wrapper-cache)
 
-# Only --cache-from is used here because --cache-to type=registry requires the
-# docker-container buildx driver, but we use --load (though a Kind local
-# registry with --push would probably be better) which requires the docker
-# driver. Cache is populated by goreleaser when a PR lands on main or a release
-# is cut.
+# Registry cache-from targets the image goreleaser publishes on main/release.
 # The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
 ENVOYINIT_CACHE_REF ?=
 ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH),)
+
+# Optional local BuildKit cache paths, typically wired to actions/cache in CI
+# so PR runs can read AND write layer cache without needing registry push auth.
+# Requires the docker-container buildx driver (docker/setup-buildx-action).
+# mode=max exports intermediate stages, which is what lets rust_build_deps and
+# rust_builder stay cached across runs even when the registry cache has gaps.
+ENVOYINIT_LOCAL_CACHE_FROM ?=
+ENVOYINIT_LOCAL_CACHE_TO ?=
+ENVOYINIT_LOCAL_CACHE_FROM_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_FROM),--cache-from type=local$(comma)src=$(ENVOYINIT_LOCAL_CACHE_FROM),)
+ENVOYINIT_LOCAL_CACHE_TO_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_TO),--cache-to type=local$(comma)dest=$(ENVOYINIT_LOCAL_CACHE_TO)$(comma)mode=max,)
 
 ENVOY_MODULES_DIR := internal/envoy_modules/
 # find all the files under the envoy modules directory but exclude the target, vendor and pkg directory
@@ -824,6 +855,8 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
 		--build-arg ENVOY_MODULES_DIR=./envoy_modules \
 		$(ENVOYINIT_CACHE_FROM) \
+		$(ENVOYINIT_LOCAL_CACHE_FROM_ARG) \
+		$(ENVOYINIT_LOCAL_CACHE_TO_ARG) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
 	@touch $@
 
@@ -1122,6 +1155,12 @@ k3d-build-and-load: k3d-build-and-load-kgateway
 k3d-build-and-load: k3d-build-and-load-envoy-wrapper
 k3d-build-and-load: k3d-build-and-load-sds
 k3d-build-and-load: k3d-build-and-load-dummy-idp
+
+.PHONY: k3d-load ## Use to load all images into k3d
+k3d-load: k3d-load-kgateway
+k3d-load: k3d-load-envoy-wrapper
+k3d-load: k3d-load-sds
+k3d-load: k3d-load-dummy-idp
 
 .PHONY: k3d-load-dummy-idp
 k3d-load-dummy-idp:
