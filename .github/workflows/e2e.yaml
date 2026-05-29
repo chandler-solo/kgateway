@@ -119,6 +119,11 @@ jobs:
             go-test-args: '-timeout=5m'
             go-test-run-regex: '^TestMultipleInstalls'
             localstack: 'false'
+          - cluster-name: 'cluster-upgrade'
+            go-test-args: '-timeout=10m'
+            go-test-run-regex: '^TestUpgrade'
+            localstack: 'false'
+            gateway-api-version: 'v1.4.1'
         # In our PR tests, we run the suite of tests using the upper ends of versions that we claim to support
         # The versions should mirror: https://kgateway.dev/docs/reference/versions/
         version-files:
@@ -156,6 +161,7 @@ jobs:
           kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
           istio-version: ${{ steps.dotenv.outputs.istio_version }}
           localstack: ${{ matrix.test.localstack }}
+          gateway-api-version: ${{ matrix.test.gateway-api-version }}
       - id: setup-k3d-cluster
         name: Setup k3d Cluster
         if: ${{ steps.dotenv.outputs.cluster_type == 'k3d' }}
