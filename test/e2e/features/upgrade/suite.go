@@ -21,6 +21,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 var (
@@ -66,7 +67,7 @@ func (s *testingSuite) applyManifests() func() {
 func (s *testingSuite) TestUpgrade() {
 	// Create a gateway and ensure it works as expected
 	cleanup := s.applyManifests()
-	s.T().Cleanup(cleanup)
+	testutils.Cleanup(s.T(), cleanup)
 	common.SetupBaseGateway(s.Ctx, s.T(), s.TestInstallation, types.NamespacedName{
 		Name:      "gateway",
 		Namespace: "default",
