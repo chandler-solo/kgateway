@@ -52,6 +52,10 @@ func fetchLatestGithubRelease(ctx context.Context, prefix string) (string, error
 			return "", fmt.Errorf("fetch releases: %w", err)
 		}
 		for _, r := range releases {
+			if r.GetDraft() || r.GetPrerelease() {
+				continue
+			}
+
 			if r.TagName != nil && strings.HasPrefix(*r.TagName, prefix) {
 				return *r.TagName, nil
 			}

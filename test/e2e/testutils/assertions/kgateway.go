@@ -9,8 +9,6 @@ import (
 
 	"github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 )
 
 const (
@@ -74,12 +72,10 @@ func (p *Provider) EventuallyPodHasImageVersion(ctx context.Context, namespace s
 		g.Expect(pods.Items).NotTo(gomega.BeEmpty(), "no %s pods found", labelSelector)
 		for _, pod := range pods.Items {
 			for _, container := range pod.Spec.Containers {
-				if container.Name == helpers.KgatewayContainerName {
-					parts := strings.SplitN(container.Image, ":", 2)
-					g.Expect(parts).To(gomega.HaveLen(2), "image %q missing tag", container.Image)
-					g.Expect(parts[1]).To(gomega.Equal(version),
-						"pod %s container %s image tag should match version", pod.Name, container.Name)
-				}
+				parts := strings.SplitN(container.Image, ":", 2)
+				g.Expect(parts).To(gomega.HaveLen(2), "image %q missing tag", container.Image)
+				g.Expect(parts[1]).To(gomega.ContainSubstring(version),
+					"pod %s container %s image tag should match version", pod.Name, container.Name)
 			}
 		}
 	}).

@@ -85,7 +85,7 @@ func (s *testingSuite) TestUpgrade() {
 	s.assertNoKgatewayPodErrors()
 
 	// Ensure the proxy pod is also updated
-	// This should be updated to app.kubernetes.io/component=proxy. v2.2.x did not have this annotation
+	// This should be updated to app.kubernetes.io/component=proxy. v2.2.x did not have this label
 	s.TestInstallation.AssertionsT(s.T()).EventuallyPodHasImageVersion(s.Ctx, "default", "app.kubernetes.io/managed-by=kgateway", version.Version)
 
 	// Ensure the same gateway works after the upgrade
