@@ -87,7 +87,7 @@ func (s *testingSuite) TestUpgrade() {
 
 	// Ensure the proxy pod is also updated
 	// This should be updated to app.kubernetes.io/component=proxy. v2.2.x did not have this label
-	s.TestInstallation.AssertionsT(s.T()).EventuallyPodHasImageVersion(s.Ctx, "default", "app.kubernetes.io/managed-by=kgateway", version.Version)
+	s.TestInstallation.AssertionsT(s.T()).EventuallyPodHasImageVersion(s.Ctx, "default", "gateway.networking.k8s.io/gateway-name=gateway", version.Version)
 
 	// Ensure the same gateway works after the upgrade
 	common.BaseGateway.Send(

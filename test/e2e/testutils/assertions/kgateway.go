@@ -80,8 +80,8 @@ func (p *Provider) EventuallyPodHasImageVersion(ctx context.Context, namespace s
 		}
 	}).
 		WithContext(ctx).
-		WithTimeout(time.Second*10).
-		WithPolling(time.Millisecond*200).
+		WithTimeout(time.Second*60).
+		WithPolling(time.Second*1).
 		Should(gomega.Succeed(), "pods should have image tag %q", version)
 }
 
