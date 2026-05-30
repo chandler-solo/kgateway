@@ -25,7 +25,7 @@ import (
 // where addresses live in EndpointsForBackend rather than the cluster proto.
 func TestBaseClusterVersion_InlineCLAReflectsEndpointChanges(t *testing.T) {
 	cluster := staticInlineCLACluster()
-	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "")
+	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "", "")
 
 	withNoEps := &irtranslator.BaseCluster{
 		Cluster:           cluster,
@@ -68,7 +68,7 @@ func TestBaseClusterVersion_EDSStableAcrossEndpointChanges(t *testing.T) {
 			Type: envoyclusterv3.Cluster_EDS,
 		},
 	}
-	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "")
+	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "", "")
 
 	v0 := baseClusterVersion(&irtranslator.BaseCluster{
 		Cluster:           cluster,
@@ -105,7 +105,7 @@ func TestBaseClusterVersion_ErroredHasZeroVersion(t *testing.T) {
 // TestBaseClusterVersion_ClusterChangesAreReflected sanity-checks that a
 // different cluster proto produces a different version regardless of endpoints.
 func TestBaseClusterVersion_ClusterChangesAreReflected(t *testing.T) {
-	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "")
+	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "", "")
 	epsIn := &endpoints.EndpointsInputs{EndpointsForBackend: *ir.NewEndpointsForBackend(us)}
 
 	clusterA := staticInlineCLACluster()

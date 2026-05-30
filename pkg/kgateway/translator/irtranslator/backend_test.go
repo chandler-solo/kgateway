@@ -511,7 +511,7 @@ func TestApplyPerClient_StrictModeRejectsInvalidOverlay(t *testing.T) {
 		Kind:      "Service",
 		Name:      "svc",
 		Namespace: "ns",
-	}, 80, "")
+	}, 80, "", "")
 	backendIR.AttachedPolicies = ir.AttachedPolicies{
 		Policies: map[schema.GroupKind][]ir.PolicyAtt{},
 	}
@@ -571,7 +571,7 @@ func TestApplyPerClient_StrictModePassesValidOverlay(t *testing.T) {
 		Kind:      "Service",
 		Name:      "svc",
 		Namespace: "ns",
-	}, 80, "")
+	}, 80, "", "")
 	backendIR.AttachedPolicies = ir.AttachedPolicies{
 		Policies: map[schema.GroupKind][]ir.PolicyAtt{},
 	}

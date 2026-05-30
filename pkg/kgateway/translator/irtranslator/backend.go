@@ -181,21 +181,18 @@ func (t *BackendTranslator) ApplyPerClient(
 	// Gather overlays. Each plugin must self-determine applicability and return
 	// nil in the common case; this keeps the per-client cluster collection sparse.
 	var overlays []*sdk.ClusterOverlay
-	var endpointPlugins []sdk.EndpointPlugin
 	for _, policyPlugin := range t.ContributedPolicies {
-		if policyPlugin.PerClientClusterOverlay != nil {
-			if ov := policyPlugin.PerClientClusterOverlay(kctx, ctx, ucc, *backend); ov != nil {
-				overlays = append(overlays, ov)
-			}
+		if policyPlugin.PerClientClusterOverlay == nil {
+			continue
 		}
-		if policyPlugin.PerClientProcessEndpoints != nil {
-			endpointPlugins = append(endpointPlugins, policyPlugin.PerClientProcessEndpoints)
+		if ov := policyPlugin.PerClientClusterOverlay(kctx, ctx, ucc, *backend); ov != nil {
+			overlays = append(overlays, ov)
 		}
 	}
 
 	// Determine whether we need to build an inline CLA. Even with no overlays,
 	// inline-CLA clusters need a per-client CLA because PrioritizeEndpoints is
-	// UCC-dependent (locality, labels).
+	// UCC-dependent (locality, labels). This depends only on the base, not the UCC.
 	needsInlineCLA := base.SupportsInlineCLA && base.EndpointInputs != nil && base.Cluster.GetLoadAssignment() == nil
 
 	if len(overlays) == 0 && !needsInlineCLA {
@@ -216,12 +213,16 @@ func (t *BackendTranslator) ApplyPerClient(
 	}
 
 	if needsInlineCLA {
+		// Gather endpoint plugins lazily — only inline-CLA clusters consume them,
+		// so the common EDS path (which returns early above) never pays for this.
 		// PerClientProcessEndpoints may modify EndpointInputs (e.g. destrule
 		// PriorityInfo). Work on a copy so we don't mutate the shared
 		// EndpointInputs held by base.
 		epIn := *base.EndpointInputs
-		for _, ep := range endpointPlugins {
-			ep(kctx, ctx, ucc, &epIn)
+		for _, policyPlugin := range t.ContributedPolicies {
+			if policyPlugin.PerClientProcessEndpoints != nil {
+				policyPlugin.PerClientProcessEndpoints(kctx, ctx, ucc, &epIn)
+			}
 		}
 		// Re-check LoadAssignment: an overlay may have set it.
 		if out.GetLoadAssignment() == nil {

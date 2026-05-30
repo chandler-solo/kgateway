@@ -153,10 +153,16 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 	}
 
 	out := make([]uccWithCluster, 0, len(bases)+len(deltas))
-	seen := make(map[string]struct{}, len(bases))
+	// Track only the deltas consumed by a base (at most K, the per-UCC delta
+	// count) rather than every base name (M). Lets us skip the standalone scan
+	// entirely in the common case where every delta overlays an existing base.
+	var consumed map[string]struct{}
 	for _, b := range bases {
-		seen[b.Name] = struct{}{}
 		if d, ok := deltaByName[b.Name]; ok {
+			if consumed == nil {
+				consumed = make(map[string]struct{}, len(deltas))
+			}
+			consumed[b.Name] = struct{}{}
 			// Delta wins on cluster + version. Delta error wins over base error
 			// because a per-UCC failure (e.g. strict-mode validation of the
 			// post-overlay cluster) is the more specific signal — base errors
@@ -183,17 +189,21 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 			Error:          b.Error,
 		})
 	}
-	for i := range deltas {
-		if _, ok := seen[deltas[i].Name]; ok {
-			continue
+	// Standalone deltas (no matching base) only arise in tests; production deltas
+	// are always emitted off an existing base, so this scan is skipped there.
+	if len(consumed) < len(deltas) {
+		for i := range deltas {
+			if _, ok := consumed[deltas[i].Name]; ok {
+				continue
+			}
+			out = append(out, uccWithCluster{
+				Client:         ucc,
+				Cluster:        deltas[i].Cluster,
+				ClusterVersion: deltas[i].ClusterVersion,
+				Name:           deltas[i].Name,
+				Error:          deltas[i].Error,
+			})
 		}
-		out = append(out, uccWithCluster{
-			Client:         ucc,
-			Cluster:        deltas[i].Cluster,
-			ClusterVersion: deltas[i].ClusterVersion,
-			Name:           deltas[i].Name,
-			Error:          deltas[i].Error,
-		})
 	}
 	return out
 }
@@ -243,6 +253,12 @@ func NewPerClientEnvoyClusters(
 			return nil
 		}
 		out := make([]uccClusterDelta, 0, len(clients))
+		// Intern identical per-client clusters across UCCs. Inline-CLA backends
+		// materialize a delta for every UCC, but UCCs that share the relevant
+		// inputs (e.g. the same locality) produce byte-identical clusters; sharing
+		// one proto instead of N clones cuts allocations to O(distinct). The protos
+		// are read-only on the consumer side, so aliasing is safe.
+		internByVersion := map[uint64]*envoyclusterv3.Cluster{}
 		for _, ucc := range clients {
 			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, b.Backend, b.Base)
 			if err != nil {
@@ -271,11 +287,17 @@ func NewPerClientEnvoyClusters(
 				// base cluster instead.
 				continue
 			}
+			clusterVersion := utils.HashProto(perClient)
+			if shared, ok := internByVersion[clusterVersion]; ok {
+				perClient = shared
+			} else {
+				internByVersion[clusterVersion] = perClient
+			}
 			out = append(out, uccClusterDelta{
 				Client:         ucc,
 				Name:           perClient.GetName(),
 				Cluster:        perClient,
-				ClusterVersion: utils.HashProto(perClient),
+				ClusterVersion: clusterVersion,
 			})
 		}
 		return out

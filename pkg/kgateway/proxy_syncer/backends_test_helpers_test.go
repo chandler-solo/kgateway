@@ -34,6 +34,23 @@ func (c *testClusterCols) updateBase(in uccWithCluster) {
 	})
 }
 
+// newTestPerClientClustersRaw builds a PerClientEnvoyClusters directly from
+// base and delta entries, giving tests full control over the merge inputs
+// (e.g. a base and a delta sharing a name). Prefer newTestPerClientClusters
+// for the common flat-entry case.
+func newTestPerClientClustersRaw(bases []baseEnvoyCluster, deltas []uccClusterDelta) PerClientEnvoyClusters {
+	baseCol := krt.NewStaticCollection[baseEnvoyCluster](nil, bases)
+	deltaCol := krt.NewStaticCollection[uccClusterDelta](nil, deltas)
+	idx := krtpkg.UnnamedIndex(deltaCol, func(d uccClusterDelta) []string {
+		return []string{d.Client.ResourceName()}
+	})
+	return PerClientEnvoyClusters{
+		base:       baseCol,
+		deltas:     deltaCol,
+		deltaByUcc: idx,
+	}
+}
+
 // newTestPerClientClusters builds a PerClientEnvoyClusters from flat
 // per-(ucc, cluster) entries. Errored entries are routed to the base
 // collection (where errors live in production); non-errored entries become
