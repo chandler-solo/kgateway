@@ -235,6 +235,7 @@ apiVersion: v1
 kind: Service
 metadata:
   annotations:
+    gateway.kgateway.dev/gateway-full-name: gw
     service-overlay-annotation: from-overlay
   labels:
     app.kubernetes.io/component: proxy

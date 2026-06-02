@@ -244,6 +244,7 @@ apiVersion: v1
 kind: Service
 metadata:
   annotations:
+    gateway.kgateway.dev/gateway-full-name: gw
     infra-and-params: infra
     my-annotation: my-value
     prometheus.io/path: /something/else
