@@ -2755,7 +2755,7 @@ var _ = Describe("DeployObjs", func() {
 			Kind:       wellknown.GatewayGVK.Kind,
 			Name:       gw.GetName(),
 			UID:        gw.GetUID(),
-			Controller: ptr.To(true),
+			Controller: new(true),
 		}}
 		existingSvc.Spec.Type = corev1.ServiceTypeClusterIP
 
