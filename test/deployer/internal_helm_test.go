@@ -30,8 +30,10 @@ import (
 	"strings"
 	"testing"
 
+	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -451,6 +453,18 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			},
 		},
 		{
+			Name:      "envoy custom bootstrap overload manager via overlay",
+			InputFile: "envoy-custom-bootstrap-overload-manager",
+			Validate: func(t *testing.T, outputYaml string) {
+				t.Helper()
+				assert.Contains(t, outputYaml, "name: envoy-config",
+					"the existing envoy-config volume should still be present")
+				assert.Contains(t, outputYaml, "name: gw-h2-overload-bootstrap",
+					"deploymentOverlay should repoint envoy-config at the custom bootstrap ConfigMap")
+				validateCustomBootstrapOverloadManager(t, "envoy-custom-bootstrap-overload-manager", "gw-h2-overload-bootstrap")
+			},
+		},
+		{
 			Name:      "envoy both GWC and GW have overlays",
 			InputFile: "envoy-both-gwc-and-gw-have-overlays",
 			Validate: func(t *testing.T, outputYaml string) {
@@ -759,6 +773,58 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			tester.RunHelmChartTest(t, tt, scheme, dir, crdDir, client, envTestCfg)
 		})
 	}
+}
+
+func validateCustomBootstrapOverloadManager(t *testing.T, inputFile, configMapName string) {
+	t.Helper()
+
+	dir := fsutils.MustGetThisDir()
+	data, err := os.ReadFile(filepath.Join(dir, "testdata", inputFile+".yaml"))
+	require.NoError(t, err)
+
+	for _, doc := range strings.Split(string(data), "\n---\n") {
+		if strings.TrimSpace(doc) == "" {
+			continue
+		}
+
+		var cm corev1.ConfigMap
+		require.NoError(t, yaml.Unmarshal([]byte(doc), &cm))
+		if cm.Kind != "ConfigMap" || cm.Name != configMapName {
+			continue
+		}
+
+		envoyYAML, ok := cm.Data["envoy.yaml"]
+		require.True(t, ok, "custom bootstrap ConfigMap should include envoy.yaml")
+
+		envoyJSON, err := yaml.YAMLToJSON([]byte(envoyYAML))
+		require.NoError(t, err)
+
+		var bootstrap envoybootstrapv3.Bootstrap
+		require.NoError(t, protojson.Unmarshal(envoyJSON, &bootstrap))
+
+		overloadManager := bootstrap.GetOverloadManager()
+		require.NotNil(t, overloadManager, "custom bootstrap should configure Envoy overload_manager")
+		require.NotNil(t, overloadManager.GetBufferFactoryConfig(), "reset_high_memory_stream requires buffer_factory_config for per-stream memory accounting")
+		assert.Equal(t, uint32(20), overloadManager.GetBufferFactoryConfig().GetMinimumAccountToTrackPowerOfTwo())
+
+		resourceMonitorNames := make([]string, 0, len(overloadManager.GetResourceMonitors()))
+		for _, resourceMonitor := range overloadManager.GetResourceMonitors() {
+			resourceMonitorNames = append(resourceMonitorNames, resourceMonitor.GetName())
+		}
+		assert.Contains(t, resourceMonitorNames, "envoy.resource_monitors.fixed_heap")
+		assert.Contains(t, resourceMonitorNames, "envoy.resource_monitors.downstream_connections")
+
+		actionNames := make([]string, 0, len(overloadManager.GetActions()))
+		for _, action := range overloadManager.GetActions() {
+			actionNames = append(actionNames, action.GetName())
+		}
+		assert.Contains(t, actionNames, "envoy.overload_actions.reset_high_memory_stream")
+		assert.Contains(t, actionNames, "envoy.overload_actions.shrink_heap")
+		assert.Contains(t, actionNames, "envoy.overload_actions.stop_accepting_requests")
+		return
+	}
+
+	t.Fatalf("input fixture should include ConfigMap %q", configMapName)
 }
 
 // TestEnvtestRejectsLongLabelValue tests the tests -- it proves that
