@@ -16,5 +16,5 @@ runs:
         remove_android: true
 
         # If 95s is worth it to you, you can free up 7.5GB with the following:
-        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
-        remove_packages_one_command: true
+        # remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        # remove_packages_one_command: true
