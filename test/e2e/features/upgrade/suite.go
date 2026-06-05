@@ -3,17 +3,13 @@
 package upgrade
 
 import (
-	"bytes"
 	"context"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/stretchr/testify/suite"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmdutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
@@ -135,34 +131,4 @@ func (s *testingSuite) TestUpgrade() {
 	s.T().Logf("checking connectivity with the gateway after recreating it...")
 	s.verifyRequestWithTransformation()
 	s.T().Logf(" ok")
-}
-
-// FetchLatestRelease returns the most recent release tag that is an ancestor of HEAD.
-// This mirrors `git describe --tags --abbrev=0` but works in shallow checkouts where
-// tags are not fetched, by resolving HEAD via git then checking ancestry via the GitHub API.
-func FetchLatestRelease(ctx context.Context) (string, error) {
-	script := filepath.Join(fsutils.GetModuleRoot(), "hack", "get-release.sh")
-	var stdout bytes.Buffer
-	cmd := cmdutils.Command(ctx, script, "--latest").
-		WithStdout(&stdout).
-		WithStderr(os.Stderr)
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-// FetchLatestRelease returns the most recent n-1 release tag that is an ancestor of HEAD.
-// This mirrors `git describe --tags --abbrev=0` but works in shallow checkouts where
-// tags are not fetched, by resolving HEAD via git then checking ancestry via the GitHub API.
-func FetchPreviousMinorRelease(ctx context.Context) (string, error) {
-	script := filepath.Join(fsutils.GetModuleRoot(), "hack", "get-release.sh")
-	var stdout bytes.Buffer
-	cmd := cmdutils.Command(ctx, script, "--previous").
-		WithStdout(&stdout).
-		WithStderr(os.Stderr)
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(stdout.String()), nil
 }

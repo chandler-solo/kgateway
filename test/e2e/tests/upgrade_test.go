@@ -17,20 +17,12 @@ import (
 )
 
 func TestUpgrade(t *testing.T) {
-	latestTag, err := upgrade.FetchLatestRelease(t.Context())
-	if err != nil {
-		t.Fatalf("failed to get latest patch version: %v", err)
-	}
-	t.Run(fmt.Sprintf("TestUpgradeFromLatestRelease [%s]", latestTag), func(t *testing.T) {
-		testUpgrade(t, latestTag)
+	t.Run(fmt.Sprintf("TestUpgradeFromLatestRelease [%s]", upgrade.LatestRelease), func(t *testing.T) {
+		testUpgrade(t, upgrade.LatestRelease)
 	})
 
-	previousMinor, err1 := upgrade.FetchPreviousMinorRelease(t.Context())
-	if err1 != nil {
-		t.Fatalf("failed to get previous minor release: %v", err1)
-	}
-	t.Run(fmt.Sprintf("TestUpgradeFromPreviousMinor[%s]", previousMinor), func(t *testing.T) {
-		testUpgrade(t, previousMinor)
+	t.Run(fmt.Sprintf("TestUpgradeFromPreviousMinor[%s]", upgrade.PreviousMinorRelease), func(t *testing.T) {
+		testUpgrade(t, upgrade.PreviousMinorRelease)
 	})
 }
 

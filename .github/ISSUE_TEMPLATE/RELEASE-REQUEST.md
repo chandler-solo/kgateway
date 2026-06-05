@@ -41,6 +41,13 @@ The [Release workflow](https://github.com/kgateway-dev/kgateway/actions/workflow
 - [ ] Watch the workflow to completion
 - [ ] Review the generated release notes on the GitHub release; edit the description if anything was miscategorized
 
+## Refresh upgrade-test versions
+
+The upgrade e2e test installs the previous releases listed in [`test/e2e/features/upgrade/releases.go`](/test/e2e/features/upgrade/releases.go) and upgrades them to the locally-built chart. These versions are checked in (not computed at test time), so they must be bumped once a release shifts what "the latest release" is.
+
+- [ ] On the branch you released from, open a PR setting `LatestRelease` in [`test/e2e/features/upgrade/releases.go`](/test/e2e/features/upgrade/releases.go) to the version you just published, and `PreviousMinorRelease` to the latest release of the previous minor line
+- [ ] If you cut a new minor, also update these constants on `main` (which now tracks the next minor): `LatestRelease` becomes the `.0` you just published and `PreviousMinorRelease` the latest release of the minor before it
+
 ## Verify
 
 - [ ] Confirm the tag and assets on the [releases page](https://github.com/kgateway-dev/kgateway/releases)

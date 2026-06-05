@@ -79,6 +79,17 @@ The workflow generates release notes automatically (see [Release Notes](#release
 Once the workflow completes, review the release notes on the GitHub release and edit the description
 if anything was miscategorized.
 
+## Refresh the upgrade-test versions
+
+The upgrade e2e test installs previously-released versions and upgrades them to the locally-built chart.
+Those versions are checked in to [`test/e2e/features/upgrade/releases.go`](../../test/e2e/features/upgrade/releases.go)
+rather than computed at test time, so they must be bumped after a release shifts what "the latest release" is:
+
+- On the branch you released from, set `LatestRelease` to the version you just published and `PreviousMinorRelease`
+  to the latest release of the previous minor line.
+- When cutting a new minor, also update these constants on `main` (which now tracks the next minor): `LatestRelease`
+  becomes the `.0` you just published and `PreviousMinorRelease` the latest release of the minor before it.
+
 ## Release Notes
 
 The Release workflow runs `make release-notes` automatically and feeds the output to GoReleaser, so no
