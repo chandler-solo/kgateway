@@ -314,9 +314,12 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		},
 	)
 
-	g.Consistently(func() int {
+	// A referenced EDS cluster present in CDS but whose CLA has not yet arrived
+	// must NOT freeze the snapshot forever: the snapshot publishes and Envoy
+	// relies on its initial_fetch_timeout for the genuinely-late CLA.
+	g.Eventually(func() int {
 		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
 
 	endpointCol.UpdateObject(UccWithEndpoints{
 		Client: ucc,
@@ -327,12 +330,13 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		endpointsName: "cluster-a",
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
+	g.Eventually(func() map[string]envoycachetypes.ResourceWithTTL {
+		list := snapshots.List()
+		if len(list) != 1 {
+			return nil
+		}
+		return list[0].snap.Resources[envoycachetypes.Endpoint].Items
+	}, time.Second, 20*time.Millisecond).Should(gomega.HaveKey("cluster-a"))
 }
 
 func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.T) {

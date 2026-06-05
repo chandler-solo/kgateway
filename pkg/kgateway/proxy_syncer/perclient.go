@@ -228,12 +228,11 @@ func snapshotPerClient(
 			endpointRes.Items,
 			clustersForUcc.erroredClusters,
 		); len(missingEndpointClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced EDS resources are ready",
+			logger.Warn(
+				"publishing snapshot with referenced EDS clusters still awaiting CLAs; relying on Envoy initial_fetch_timeout",
 				"client", ucc.ResourceName(),
 				"missing_endpoint_clusters", missingEndpointClusters,
 			)
-			return nil
 		}
 
 		snap.erroredClusters = clustersForUcc.erroredClusters
