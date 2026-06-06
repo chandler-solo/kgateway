@@ -100,10 +100,10 @@ Init ==
     /\ clientAcceptedVersion = [t \in Types |-> 0]
     /\ serverAcceptedVersion = [t \in Types |-> 0]
     /\ staleRequests = 0
-    /\ ackMatchesLatestNonce
-    /\ nackDoesNotAdvance
-    /\ staleNonceDoesNotAdvance
-    /\ versionsArePerResourceType
+    /\ ackMatchesLatestNonce = TRUE
+    /\ nackDoesNotAdvance = TRUE
+    /\ staleNonceDoesNotAdvance = TRUE
+    /\ versionsArePerResourceType = TRUE
 
 CanVersion(nextDesired) ==
     \A t \in Types:
