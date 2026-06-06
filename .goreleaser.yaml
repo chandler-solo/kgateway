@@ -171,12 +171,9 @@ docker_manifests:
       - *envoyinit_amd_image
 signs:
   - id: checksum-keyless
-    cmd: go
+    cmd: cosign
     signature: "${artifact}.sigstore.json"
     args:
-      - "tool"
-      - "-modfile=tools/go.mod"
-      - "cosign"
       - "sign-blob"
       - "--bundle=${signature}"
       - "${artifact}"
@@ -184,11 +181,8 @@ signs:
     artifacts: checksum
 docker_signs:
   - id: image-keyless
-    cmd: go
+    cmd: cosign
     args:
-      - "tool"
-      - "-modfile=tools/go.mod"
-      - "cosign"
       - "sign"
       - "${artifact}@${digest}"
       - "--yes"
