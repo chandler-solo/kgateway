@@ -28,6 +28,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - Inline HCM route configurations are checked recursively.
 - Route cluster and weighted cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
+- Basic SDS references from checked TLS transport sockets resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
 
 ### Future proof systems
@@ -83,12 +84,19 @@ Run TLC directly when a TLA+ tools jar is available:
 TLA2TOOLS_JAR=/path/to/tla2tools.jar devel/formal/tla/check.sh
 ```
 
+Run TLC through Docker when host Java or a local jar is not available:
+
+```bash
+devel/formal/tla/check-docker.sh
+```
+
 The TLA+ script also looks for:
 
 - `devel/formal/tla/tla2tools.jar`
 - `tools/tla2tools.jar`
 
 It prints install instructions if the jar is missing and does not download or vendor the jar.
+The Docker script downloads the jar into a temporary host cache and mounts it into a Java container.
 
 ## Expected output
 
@@ -114,6 +122,8 @@ The current checked-in integrations are:
 - `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`.
 - `TestTranslatedBackendSnapshotPassesXDSCheck`, which runs an existing backend-producing HTTP Gateway fixture and checks emitted LDS/RDS/CDS/EDS resources with `xdscheck`.
 
+The SDS checker currently covers standard downstream and upstream TLS transport socket secret references. Existing HTTPS translator fixtures use inline certificate material, so SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
+
 The intended future translator-test seam is:
 
 - Run kgateway IR -> xDS translation as existing tests already do.
@@ -133,11 +143,12 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/tla/XdsAdsSotw.cfg`: TLC configuration for the model.
 - `devel/formal/tla/README.md`: model explanation and TLC usage.
 - `devel/formal/tla/check.sh`: TLC runner.
+- `devel/formal/tla/check-docker.sh`: Docker-based TLC runner that keeps downloaded tools outside the repository.
 - `pkg/kgateway/translator/xdscheck`: concrete Envoy snapshot invariant checker and unit tests.
 
 ## Future work
 
-1. Add SDS validation for secret references.
+1. Add SDS validation for secret references embedded in recognized HTTP filter typed configs.
 2. Add a delta xDS model.
 3. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
 4. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.

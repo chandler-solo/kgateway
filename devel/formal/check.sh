@@ -19,7 +19,9 @@ if command -v java >/dev/null 2>&1; then
     else
         echo "Skipping TLA+ TLC check: tla2tools.jar was not found."
         echo "Download it from https://github.com/tlaplus/tlaplus/releases and set TLA2TOOLS_JAR=/path/to/tla2tools.jar."
+        echo "Or run devel/formal/tla/check-docker.sh to use a containerized TLC runner."
     fi
 else
     echo "Skipping TLA+ TLC check: Java was not found on PATH."
+    echo "Or run devel/formal/tla/check-docker.sh to use a containerized TLC runner."
 fi

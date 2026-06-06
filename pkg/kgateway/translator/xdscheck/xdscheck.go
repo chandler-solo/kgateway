@@ -5,10 +5,12 @@ import (
 	"fmt"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	envoywellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 )
@@ -28,6 +30,8 @@ const (
 	CodeUnsupportedClusterSpecifierPlugin = "unsupported_cluster_specifier_plugin"
 	CodeUnsupportedWeightedClusterHeader  = "unsupported_weighted_cluster_header"
 	CodeUnsupportedInlineClusterSpecifier = "unsupported_inline_cluster_specifier"
+	CodeMissingSecret                     = "missing_secret"
+	CodeUnsupportedTLSTypedConfig         = "unsupported_tls_typed_config"
 	CodeCanceled                          = "check_canceled"
 )
 
@@ -68,7 +72,7 @@ func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 	indexByName(s.Listeners, "Listener", func(l *envoylistenerv3.Listener) string {
 		return l.GetName()
 	}, &c.findings)
-	indexByName(s.Secrets, "Secret", func(s *envoytlsv3.Secret) string {
+	c.secrets = indexByName(s.Secrets, "Secret", func(s *envoytlsv3.Secret) string {
 		return s.GetName()
 	}, &c.findings)
 
@@ -89,6 +93,7 @@ func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 	}
 	for _, cluster := range s.Clusters {
 		c.checkEDSCluster(cluster)
+		c.checkClusterTransportSockets(cluster)
 	}
 
 	return c.findings
@@ -110,6 +115,7 @@ type checker struct {
 	routes    map[string]*envoyroutev3.RouteConfiguration
 	clusters  map[string]*envoyclusterv3.Cluster
 	endpoints map[string]*envoyendpointv3.ClusterLoadAssignment
+	secrets   map[string]*envoytlsv3.Secret
 }
 
 func (c *checker) checkListener(ctx context.Context, listener *envoylistenerv3.Listener) {
@@ -118,6 +124,10 @@ func (c *checker) checkListener(ctx context.Context, listener *envoylistenerv3.L
 		if filterChainName == "" {
 			filterChainName = "<unnamed>"
 		}
+		c.checkDownstreamTransportSocket(
+			filterChain.GetTransportSocket(),
+			fmt.Sprintf("%s FilterChain/%s TransportSocket", listenerResource(listener.GetName()), filterChainName),
+		)
 		for _, filter := range filterChain.GetFilters() {
 			if ctx.Err() != nil {
 				return
@@ -134,6 +144,98 @@ func (c *checker) checkListener(ctx context.Context, listener *envoylistenerv3.L
 			c.checkHCMRouteSpecifier(ctx, listener.GetName(), filterChainName, hcm)
 		}
 	}
+}
+
+func (c *checker) checkClusterTransportSockets(cluster *envoyclusterv3.Cluster) {
+	c.checkUpstreamTransportSocket(cluster.GetTransportSocket(), fmt.Sprintf("%s TransportSocket", clusterResource(cluster.GetName())))
+	for _, match := range cluster.GetTransportSocketMatches() {
+		matchName := match.GetName()
+		if matchName == "" {
+			matchName = "<unnamed>"
+		}
+		c.checkUpstreamTransportSocket(
+			match.GetTransportSocket(),
+			fmt.Sprintf("%s TransportSocketMatch/%s TransportSocket", clusterResource(cluster.GetName()), matchName),
+		)
+	}
+}
+
+func (c *checker) checkDownstreamTransportSocket(socket *envoycorev3.TransportSocket, resource string) {
+	if socket == nil || socket.GetName() != envoywellknown.TransportSocketTls {
+		return
+	}
+	typedConfig := socket.GetTypedConfig()
+	if typedConfig == nil {
+		c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+			"downstream TLS transport socket does not use typed_config; SDS references were not validated")
+		return
+	}
+	tlsContext := &envoytlsv3.DownstreamTlsContext{}
+	if err := typedConfig.UnmarshalTo(tlsContext); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+			fmt.Sprintf("cannot unpack downstream TLS transport socket typed_config %q; SDS references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+	c.checkCommonTLSContext(tlsContext.GetCommonTlsContext(), resource)
+	c.requireSecret(tlsContext.GetSessionTicketKeysSdsSecretConfig(), resource, "session_ticket_keys_sds_secret_config")
+}
+
+func (c *checker) checkUpstreamTransportSocket(socket *envoycorev3.TransportSocket, resource string) {
+	if socket == nil {
+		return
+	}
+	switch socket.GetName() {
+	case envoywellknown.TransportSocketTls:
+		typedConfig := socket.GetTypedConfig()
+		if typedConfig == nil {
+			c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+				"upstream TLS transport socket does not use typed_config; SDS references were not validated")
+			return
+		}
+		tlsContext := &envoytlsv3.UpstreamTlsContext{}
+		if err := typedConfig.UnmarshalTo(tlsContext); err != nil {
+			c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+				fmt.Sprintf("cannot unpack upstream TLS transport socket typed_config %q; SDS references were not validated: %v", typedConfig.GetTypeUrl(), err))
+			return
+		}
+		c.checkCommonTLSContext(tlsContext.GetCommonTlsContext(), resource)
+	case "envoy.transport_sockets.upstream_proxy_protocol":
+		typedConfig := socket.GetTypedConfig()
+		if typedConfig == nil {
+			c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+				"upstream proxy protocol transport socket does not use typed_config; nested SDS references were not validated")
+			return
+		}
+		proxyProtocol := &proxyprotocolv3.ProxyProtocolUpstreamTransport{}
+		if err := typedConfig.UnmarshalTo(proxyProtocol); err != nil {
+			c.add(SeverityWarning, CodeUnsupportedTLSTypedConfig, resource,
+				fmt.Sprintf("cannot unpack upstream proxy protocol transport socket typed_config %q; nested SDS references were not validated: %v", typedConfig.GetTypeUrl(), err))
+			return
+		}
+		c.checkUpstreamTransportSocket(proxyProtocol.GetTransportSocket(), resource+" InnerTransportSocket")
+	}
+}
+
+func (c *checker) checkCommonTLSContext(common *envoytlsv3.CommonTlsContext, resource string) {
+	if common == nil {
+		return
+	}
+	for i, secretConfig := range common.GetTlsCertificateSdsSecretConfigs() {
+		c.requireSecret(secretConfig, resource, fmt.Sprintf("tls_certificate_sds_secret_configs[%d]", i))
+	}
+	c.requireSecret(common.GetValidationContextSdsSecretConfig(), resource, "validation_context_sds_secret_config")
+	c.requireSecret(common.GetCombinedValidationContext().GetValidationContextSdsSecretConfig(), resource, "combined_validation_context.validation_context_sds_secret_config")
+}
+
+func (c *checker) requireSecret(secretConfig *envoytlsv3.SdsSecretConfig, resource, field string) {
+	if secretConfig == nil || secretConfig.GetName() == "" {
+		return
+	}
+	if _, ok := c.secrets[secretConfig.GetName()]; ok {
+		return
+	}
+	c.add(SeverityError, CodeMissingSecret, resource,
+		fmt.Sprintf("%s references missing SDS secret %q", field, secretConfig.GetName()))
 }
 
 func (c *checker) unpackHCM(filter *envoylistenerv3.Filter, resource string) (*envoyhcmv3.HttpConnectionManager, bool) {

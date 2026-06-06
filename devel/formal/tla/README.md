@@ -53,6 +53,14 @@ Or:
 TLA2TOOLS_JAR=/path/to/tla2tools.jar devel/formal/tla/check.sh
 ```
 
+To run TLC without installing Java or `tla2tools.jar` on the host, use Docker:
+
+```bash
+devel/formal/tla/check-docker.sh
+```
+
+The Docker runner downloads `tla2tools.jar` to `/tmp/kgateway-tla2tools` by default and mounts it into an `eclipse-temurin` Java image. It does not vendor the jar into the repository. Set `TLA2TOOLS_CACHE_DIR=/path/to/cache` to choose another cache, `TLA2TOOLS_JAR=/path/to/tla2tools.jar` to reuse a local jar, or `TLC_WORKERS=<n>` to pass an explicit TLC worker count.
+
 ## Interpreting counterexamples
 
 If TLC reports an invariant violation, read the state trace from the initial state to the failing state. Each action corresponds to one abstract event such as `InputChange`, `SendResponse("EDS")`, `ClientAck("CDS")`, `ClientNack("LDS")`, `StaleClientRequest("RDS")`, or `Reconnect`.

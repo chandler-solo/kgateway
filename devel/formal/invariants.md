@@ -6,6 +6,7 @@
 - Every direct cluster name referenced by a route exists in CDS.
 - Every weighted cluster entry referenced by a route exists in CDS.
 - Every EDS cluster has a matching ClusterLoadAssignment by service name, or by cluster name when service name is empty.
+- Every SDS secret name referenced by a checked TLS transport socket exists in the emitted SDS set.
 - Resource names are unique within each resource type.
 
 ## xDS publication safety
@@ -21,4 +22,4 @@
 - `cluster_header` route actions.
 - Dynamic forward proxy.
 - Extension typed configs not recognized by the validator.
-- SDS validation beyond a basic future extension.
+- SDS references from extension typed configs not recognized by the validator.

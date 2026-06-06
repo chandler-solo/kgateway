@@ -11,6 +11,8 @@ import (
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	envoywellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -147,6 +149,79 @@ func TestCheckSnapshotUnknownHCMTypedConfigDoesNotPanic(t *testing.T) {
 	requireFindingContaining(t, findings, SeverityWarning, CodeUnsupportedHCMTypedConfig, "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager", "example.UnknownHCM")
 }
 
+func TestCheckSnapshotValidDownstreamSDSSecretReference(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Listeners[0].FilterChains[0].TransportSocket = downstreamTLSTransportSocket("server-cert")
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "server-cert"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingDownstreamSDSSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Listeners[0].FilterChains[0].TransportSocket = downstreamTLSTransportSocket("server-cert")
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http TransportSocket",
+		Message:  `tls_certificate_sds_secret_configs[0] references missing SDS secret "server-cert"`,
+	})
+}
+
+func TestCheckSnapshotMissingUpstreamValidationContextSDSSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].TransportSocket = upstreamValidationContextTransportSocket("backend-ca")
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Cluster/cluster TransportSocket",
+		Message:  `combined_validation_context.validation_context_sds_secret_config references missing SDS secret "backend-ca"`,
+	})
+}
+
+func TestCheckSnapshotMissingTransportSocketMatchSDSSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].TransportSocketMatches = []*envoyclusterv3.Cluster_TransportSocketMatch{{
+		Name:            "tls-match",
+		TransportSocket: upstreamValidationContextTransportSocket("backend-ca"),
+	}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Cluster/cluster TransportSocketMatch/tls-match TransportSocket",
+		Message:  `combined_validation_context.validation_context_sds_secret_config references missing SDS secret "backend-ca"`,
+	})
+}
+
+func TestCheckSnapshotMissingNestedProxyProtocolSDSSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].TransportSocket = upstreamProxyProtocolTransportSocket(
+		upstreamValidationContextTransportSocket("backend-ca"),
+	)
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Cluster/cluster TransportSocket InnerTransportSocket",
+		Message:  `combined_validation_context.validation_context_sds_secret_config references missing SDS secret "backend-ca"`,
+	})
+}
+
 func validSnapshot() Snapshot {
 	return Snapshot{
 		Listeners: []*envoylistenerv3.Listener{{
@@ -208,6 +283,47 @@ func routeWithAction(name string, action *envoyroutev3.RouteAction) *envoyroutev
 			PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"},
 		},
 		Action: &envoyroutev3.Route_Route{Route: action},
+	}
+}
+
+func downstreamTLSTransportSocket(secretName string) *envoycorev3.TransportSocket {
+	return &envoycorev3.TransportSocket{
+		Name: envoywellknown.TransportSocketTls,
+		ConfigType: &envoycorev3.TransportSocket_TypedConfig{
+			TypedConfig: mustAny(&envoytlsv3.DownstreamTlsContext{
+				CommonTlsContext: &envoytlsv3.CommonTlsContext{
+					TlsCertificateSdsSecretConfigs: []*envoytlsv3.SdsSecretConfig{{Name: secretName}},
+				},
+			}),
+		},
+	}
+}
+
+func upstreamValidationContextTransportSocket(secretName string) *envoycorev3.TransportSocket {
+	return &envoycorev3.TransportSocket{
+		Name: envoywellknown.TransportSocketTls,
+		ConfigType: &envoycorev3.TransportSocket_TypedConfig{
+			TypedConfig: mustAny(&envoytlsv3.UpstreamTlsContext{
+				CommonTlsContext: &envoytlsv3.CommonTlsContext{
+					ValidationContextType: &envoytlsv3.CommonTlsContext_CombinedValidationContext{
+						CombinedValidationContext: &envoytlsv3.CommonTlsContext_CombinedCertificateValidationContext{
+							ValidationContextSdsSecretConfig: &envoytlsv3.SdsSecretConfig{Name: secretName},
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
+func upstreamProxyProtocolTransportSocket(inner *envoycorev3.TransportSocket) *envoycorev3.TransportSocket {
+	return &envoycorev3.TransportSocket{
+		Name: "envoy.transport_sockets.upstream_proxy_protocol",
+		ConfigType: &envoycorev3.TransportSocket_TypedConfig{
+			TypedConfig: mustAny(&proxyprotocolv3.ProxyProtocolUpstreamTransport{
+				TransportSocket: inner,
+			}),
+		},
 	}
 }
 
