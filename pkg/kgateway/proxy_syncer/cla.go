@@ -43,8 +43,17 @@ func NewPerClientEnvoyEndpoints(
 	uccs krt.Collection[ir.UniqlyConnectedClient],
 	kgatewayEndpoints krt.Collection[ir.EndpointsForBackend],
 	translateEndpoints func(kctx krt.HandlerContext, ucc ir.UniqlyConnectedClient, ep ir.EndpointsForBackend) (*envoyendpointv3.ClusterLoadAssignment, uint64),
+	heartbeat *krt.RecomputeTrigger,
 ) PerClientEnvoyEndpoints {
 	eps := krt.NewManyCollection(kgatewayEndpoints, func(kctx krt.HandlerContext, ep ir.EndpointsForBackend) []UccWithEndpoints {
+		// See the note in NewPerClientEnvoyClusters: depending on the heartbeat
+		// bounds how long a lost recompute edge can leave this client's CLAs stale
+		// or empty (#14184). Unchanged re-translations are suppressed by KRT, and a
+		// dropped heartbeat recompute merely keeps the previous rows — the
+		// heartbeat can heal holes but never create them.
+		if heartbeat != nil {
+			heartbeat.MarkDependant(kctx)
+		}
 		uccs := krt.Fetch(kctx, uccs)
 		uccWithEndpointsRet := make([]UccWithEndpoints, 0, len(uccs))
 		for _, ucc := range uccs {

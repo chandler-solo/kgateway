@@ -16,6 +16,8 @@ const (
 	namespaceLabel    = "namespace"
 	resultLabel       = "result"
 	resourceLabel     = "resource"
+	reasonLabel       = "reason"
+	actionLabel       = "action"
 )
 
 var (
@@ -69,6 +71,66 @@ var (
 			Help:      "Current number of resources in XDS snapshot",
 		},
 		[]string{gatewayLabel, namespaceLabel, resourceLabel},
+	)
+	snapshotPerClientDefersTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_defers_total",
+			Help: "Total per-client XDS snapshot build deferrals, by reason. " +
+				"A sustained rate for a gateway means a connected client's per-client " +
+				"inputs are not becoming ready and its snapshot is being withheld (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
+	)
+	snapshotPerClientRecoveriesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_recoveries_total",
+			Help: "Total times a per-client XDS snapshot resumed publishing after a " +
+				"prior deferral. With the per-client heartbeat as backstop, recoveries " +
+				"of long-deferred clients are heartbeat-driven heals (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientReclaimedTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_reclaimed_total",
+			Help: "Total per-client XDS snapshot cache entries reclaimed after the " +
+				"client left the connected set (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientCarriedClustersTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_carried_clusters_total",
+			Help: "Total clusters carried forward from the previously published " +
+				"snapshot because they were referenced but absent from the current " +
+				"per-client inputs. A sustained rate identifies a long-lived hole " +
+				"in the per-client pipeline (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientHeldRoutesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_held_routes_total",
+			Help: "Total route entries or TCP filter chains held at their previous " +
+				"version (action=held) or omitted (action=omitted) because their " +
+				"target cluster was referenced but never published (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, actionLabel},
+	)
+	snapshotPerClientSynthesizedClasTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_synthesized_load_assignments_total",
+			Help: "Total empty ClusterLoadAssignments synthesized for EDS clusters " +
+				"whose CLA row was absent from the per-client inputs and had no " +
+				"previously published value (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
 	)
 )
 
@@ -160,6 +222,68 @@ func collectXDSTransformMetrics(clientKey string) func(error) {
 	}
 }
 
+// recordSnapshotDefer increments the per-client defer counter for the gateway the
+// given client belongs to. reason identifies which readiness guard deferred.
+func recordSnapshotDefer(clientKey, reason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientDefersTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: reasonLabel, Value: reason},
+	)
+}
+
+// recordSnapshotRecovery counts a client resuming publication after a prior defer.
+func recordSnapshotRecovery(clientKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientRecoveriesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
+// recordSnapshotReclaimed counts a departed client's xDS cache entry being cleared.
+func recordSnapshotReclaimed(clientKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientReclaimedTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
+// recordSnapshotResolution counts publish-time hole resolution for a client.
+func recordSnapshotResolution(clientKey string, carried, held, omitted, synthesized int) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	gw := metrics.Label{Name: gatewayLabel, Value: cd.Gateway}
+	ns := metrics.Label{Name: namespaceLabel, Value: cd.Namespace}
+	if carried > 0 {
+		snapshotPerClientCarriedClustersTotal.Add(float64(carried), gw, ns)
+	}
+	if held > 0 {
+		snapshotPerClientHeldRoutesTotal.Add(float64(held), gw, ns,
+			metrics.Label{Name: actionLabel, Value: "held"})
+	}
+	if omitted > 0 {
+		snapshotPerClientHeldRoutesTotal.Add(float64(omitted), gw, ns,
+			metrics.Label{Name: actionLabel, Value: "omitted"})
+	}
+	if synthesized > 0 {
+		snapshotPerClientSynthesizedClasTotal.Add(float64(synthesized), gw, ns)
+	}
+}
+
 type resourceNameDetails struct {
 	Role      string
 	Namespace string
@@ -199,4 +323,10 @@ func ResetMetrics() {
 	snapshotTransformsTotal.Reset()
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
+	snapshotPerClientDefersTotal.Reset()
+	snapshotPerClientRecoveriesTotal.Reset()
+	snapshotPerClientReclaimedTotal.Reset()
+	snapshotPerClientCarriedClustersTotal.Reset()
+	snapshotPerClientHeldRoutesTotal.Reset()
+	snapshotPerClientSynthesizedClasTotal.Reset()
 }

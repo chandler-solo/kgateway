@@ -32,6 +32,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/loadtesting"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/oauth"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/path_matching"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/perclientxds"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/policyselector"
 	global_rate_limit "github.com/kgateway-dev/kgateway/v2/test/e2e/features/rate_limit/global"
 	local_rate_limit "github.com/kgateway-dev/kgateway/v2/test/e2e/features/rate_limit/local"
@@ -47,6 +48,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/trafficpolicystatus"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/transformation"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/websocket"
+	xds_warming "github.com/kgateway-dev/kgateway/v2/test/e2e/features/xds_warming"
 )
 
 func KubeGatewaySuiteRunner() e2e.SuiteRunner {
@@ -92,6 +94,8 @@ func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner.Register("AttachedRoutes", loadtesting.NewAttachedRoutesSuite)
 	kubeGatewaySuiteRunner.Register("DirectResponse", directresponse.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("PathMatching", path_matching.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("PerClientXDS", perclientxds.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("XdsWarming", xds_warming.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("TimeoutRetry", timeoutretry.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("RBAC", rbac.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("HttpACL", http_acl.NewTestingSuite)

@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/rand/v2"
+	"os"
 	"sync/atomic"
+	"time"
 
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -60,6 +63,15 @@ type ProxySyncer struct {
 	backendPolicyReport     krt.Singleton[report]
 	mostXdsSnapshots        krt.Collection[GatewayXdsResources]
 	perclientSnapCollection krt.Collection[XdsSnapWrapper]
+
+	// perClientHeartbeat is fired on a timer to periodically re-run the per-client
+	// cluster/endpoint collections, bounding how long a lost recompute edge can
+	// strand a client on stale/empty config (#14184).
+	perClientHeartbeat *krt.RecomputeTrigger
+
+	// reconciler reclaims xDS cache entries for departed clients and tracks
+	// recovery-from-deferral; both run on the heartbeat loop (#14184).
+	reconciler *perClientReconciler
 
 	waitForSync []cache.InformerSynced
 	ready       atomic.Bool
@@ -272,11 +284,18 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		return toResources(gw, *xdsSnap, rm)
 	}, krtopts.ToOptions("MostXdsSnapshots")...)
 
+	// Heartbeat that periodically forces the per-client collections to recompute,
+	// so a deferred snapshot can never become permanent (#14184). startSynced=true
+	// so dependents are not blocked waiting on it.
+	s.perClientHeartbeat = krt.NewRecomputeTrigger(true, krtopts.ToOptions("PerClientHeartbeat")...)
+	s.reconciler = newPerClientReconciler(s.proxyTranslator.xdsCache, s.uniqueClients, perClientReclaimGrace)
+
 	epPerClient := NewPerClientEnvoyEndpoints(
 		krtopts,
 		s.uniqueClients,
 		newFinalBackendEndpoints(krtopts, finalBackends, allEndpoints),
 		s.translator.TranslateEndpoints,
+		s.perClientHeartbeat,
 	)
 	clustersPerClient := NewPerClientEnvoyClusters(
 		ctx,
@@ -284,6 +303,7 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		s.translator.GetBackendTranslator(),
 		finalBackends,
 		s.uniqueClients,
+		s.perClientHeartbeat,
 	)
 
 	s.perclientSnapCollection = snapshotPerClient(
@@ -463,27 +483,33 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 
 			if e.Event != controllers.EventDelete {
 				snapWrap := e.Latest()
-				s.proxyTranslator.syncXds(ctx, snapWrap)
+				if s.proxyTranslator.syncXds(ctx, snapWrap) {
+					// A publish after a prior defer is a recovery; with the heartbeat
+					// as backstop, recoveries of long-deferred clients are
+					// heartbeat-driven heals (#14184).
+					if s.reconciler != nil && s.reconciler.observePublished(snapWrap.ResourceName()) {
+						recordSnapshotRecovery(snapWrap.ResourceName())
+					}
+				} else if s.reconciler != nil {
+					// The safety net withheld publication; keep the client marked
+					// stuck so the heartbeat keeps retrying.
+					s.reconciler.observeDeferred(snapWrap.ResourceName())
+				}
 			} else {
-				// Intentional no-op. When snapshotPerClient returns nil (its
-				// readiness guards deferred publishing), KRT surfaces a Delete
-				// for this UCC. Clearing the xDS cache here would withdraw
-				// Envoy's last coherent Snapshot for the duration of the defer,
-				// causing 500/NC on valid routes. Leaving the cache alone means
-				// Envoy keeps serving its previously-published config until a
-				// new coherent snapshot overwrites it — the "retain last good"
-				// behavior that prevents unresolvable cluster references from
-				// stranding live traffic.
+				// Retain the last-good snapshot during a defer (do NOT ClearSnapshot
+				// here): snapshotPerClient returns nil while its readiness guards
+				// hold, and clearing would withdraw Envoy's last coherent config and
+				// cause 500/NC on valid routes. The heartbeat re-publishes once the
+				// per-client inputs are coherent again.
 				//
-				// Known leak: this branch also fires when a UCC truly goes
-				// away (Envoy pod replaced on rollout, scaled down, etc.),
-				// and we cannot distinguish that from the "defer" case here.
-				// The SnapshotCache entry for that UCC is therefore never
-				// cleared and accumulates over the controller's lifetime.
-				// Pre-existing behavior (the prior ClearSnapshot call was
-				// already commented out); reclaiming these entries requires
-				// a separate signal — e.g. cross-referencing uccCol
-				// membership — and is left to a follow-up.
+				// This branch also fires when a UCC truly departs (Envoy replaced,
+				// scaled down). We can't distinguish that here, so we record the
+				// defer and let the reconciler clear the cache entry only after the
+				// client has been absent from uccCol past a grace period -- which
+				// fixes the previously-unbounded SnapshotCache leak (#14184).
+				if s.reconciler != nil {
+					s.reconciler.observeDeferred(e.Latest().ResourceName())
+				}
 			}
 
 			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
@@ -494,9 +520,129 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 		}
 	}, true)
 
+	// Two independent maintenance loops (#14184): the heartbeat re-runs the
+	// per-client collections when a client is stuck without a current snapshot,
+	// and the reclaimer clears cache entries for departed clients. They are
+	// deliberately separate so disabling the (expensive) heartbeat does not
+	// silently re-introduce the (cheaply fixed) cache leak.
+	go s.runPerClientHeartbeat(ctx)
+	go s.runPerClientReclaim(ctx)
+
 	s.ready.Store(true)
 	<-ctx.Done()
 	return nil
+}
+
+// perClientHeartbeatDefaultInterval is how often the heartbeat checks for stuck
+// clients, and therefore the worst-case heal latency once a client is stuck. The
+// expensive recompute itself is demand-driven (see runPerClientHeartbeat), so this
+// governs detection cadence, not steady-state cost. Override with
+// KGW_PERCLIENT_HEARTBEAT_INTERVAL (a Go duration); a value <= 0 disables the
+// heartbeat only — cache reclaim runs on its own loop and is unaffected.
+const perClientHeartbeatDefaultInterval = 30 * time.Second
+
+// perClientHeartbeatIntervalEnv is the env var that overrides the heartbeat interval.
+const perClientHeartbeatIntervalEnv = "KGW_PERCLIENT_HEARTBEAT_INTERVAL"
+
+// perClientHeartbeatFallbackEvery is the number of heartbeat ticks between
+// unconditional recomputes. A hole in the per-client collections only causes harm
+// once snapshotPerClient defers on it, which marks the client stuck and makes the
+// very next tick fire, so the unconditional pass is a safety margin, not the
+// primary heal path — it can be rare.
+const perClientHeartbeatFallbackEvery = 10
+
+// perClientReclaimInterval is how often departed clients' retained xDS cache
+// entries are reclaimed. The scan is a list plus a map walk — cheap enough to run
+// unconditionally. Offset from the heartbeat interval to avoid lockstep.
+const perClientReclaimInterval = 31 * time.Second
+
+// perClientReclaimGrace is how long a client must be absent from the connected set
+// before its retained xDS cache entry is reclaimed. Comfortably longer than a
+// reconnect blip so a briefly-disconnected client is never cleared.
+const perClientReclaimGrace = 2 * time.Minute
+
+func perClientHeartbeatInterval() time.Duration {
+	v := os.Getenv(perClientHeartbeatIntervalEnv)
+	if v == "" {
+		return perClientHeartbeatDefaultInterval
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		logger.Warn("invalid "+perClientHeartbeatIntervalEnv+", using default",
+			"value", v, "default", perClientHeartbeatDefaultInterval, "error", err)
+		return perClientHeartbeatDefaultInterval
+	}
+	return d
+}
+
+// runPerClientHeartbeat is the level-triggered reconcile loop for the per-client
+// collections (#14184). Firing the trigger re-runs every backend x client pair
+// against current inputs, which heals any rows a missed or stale recompute left
+// absent — but at production scale that is tens of thousands of re-translations,
+// so it is demand-driven: each tick fires only if some connected client is stuck
+// without a current snapshot (deferred, or connected-but-never-published), plus a
+// rare unconditional pass as a safety margin. A healthy fleet therefore pays only
+// a cheap per-tick check; the worst case (a client stuck across consecutive
+// ticks) costs no more than the old unconditional design. Unchanged recomputes
+// are hash-suppressed by KRT, so even a firing tick causes no snapshot churn.
+// The first tick is jittered so HA replicas do not recompute in lockstep.
+func (s *ProxySyncer) runPerClientHeartbeat(ctx context.Context) {
+	if s.perClientHeartbeat == nil {
+		return
+	}
+	interval := perClientHeartbeatInterval()
+	if interval <= 0 {
+		logger.Info("per-client heartbeat disabled", "interval", interval)
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(rand.N(interval)): //nolint:gosec // G404: jitter only, not security-sensitive
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var ticks int
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ticks++
+			if s.reconciler != nil && !s.reconciler.hasStuckClients() &&
+				ticks%perClientHeartbeatFallbackEvery != 0 {
+				continue
+			}
+			s.perClientHeartbeat.TriggerRecomputation()
+		}
+	}
+}
+
+// runPerClientReclaim clears retained xDS cache entries for clients that left the
+// connected set longer than the grace period ago. Deliberately independent of the
+// heartbeat loop: reclaiming is cheap and fixes an unbounded leak, so it must not
+// be disabled as a side effect of turning off the (expensive) heartbeat.
+func (s *ProxySyncer) runPerClientReclaim(ctx context.Context) {
+	if s.reconciler == nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(rand.N(perClientReclaimInterval)): //nolint:gosec // G404: jitter only, not security-sensitive
+	}
+	ticker := time.NewTicker(perClientReclaimInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, key := range s.reconciler.reconcile() {
+				recordSnapshotReclaimed(key)
+			}
+		}
+	}
 }
 
 func (s *ProxySyncer) HasSynced() bool {

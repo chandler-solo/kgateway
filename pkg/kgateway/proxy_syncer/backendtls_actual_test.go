@@ -160,7 +160,7 @@ func TestPerClientClustersUpdateWhenActualBackendTLSPolicyAddedLater(t *testing.
 		commoncol.BackendIndex.BackendsWithPolicy(),
 		append(krtopts.ToOptions("FinalBackends"), krt.WithJoinUnchecked())...,
 	)
-	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs)
+	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs, nil)
 
 	fakeClient.RunAndWait(ctx.Done())
 
@@ -251,7 +251,7 @@ func TestPerClientClustersUseActualBackendTLSPolicyWhenConflictsExistAtStartup(t
 		commoncol.BackendIndex.BackendsWithPolicy(),
 		append(krtopts.ToOptions("FinalBackends"), krt.WithJoinUnchecked())...,
 	)
-	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs)
+	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs, nil)
 
 	fakeClient.RunAndWait(ctx.Done())
 

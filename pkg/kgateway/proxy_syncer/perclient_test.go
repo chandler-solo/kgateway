@@ -156,7 +156,7 @@ func TestFilterEndpointResourcesForStaticClusters_MixedStaticAndNonStatic(t *tes
 	}
 }
 
-func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T) {
+func TestSnapshotPerClientPublishesWithMissingClusterMetadata(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -226,9 +226,16 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		},
 	)
 
-	g.Consistently(func() int {
+	// A referenced-but-absent cluster no longer withholds the snapshot: the
+	// wrapper publishes immediately, tagged for publish-time resolution (R2/R3).
+	g.Eventually(func() int {
 		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	wrapper := snapshots.List()[0]
+	g.Expect(wrapper.missingClusters).To(gomega.Equal([]string{"cluster-b"}),
+		"absent referenced cluster must be tagged for resolution")
+	g.Expect(wrapper.snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
+	g.Expect(wrapper.snap.Resources[envoycachetypes.Cluster].Items).NotTo(gomega.HaveKey("cluster-b"))
 
 	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
@@ -237,16 +244,20 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		ClusterVersion: 2,
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-b"))
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 || len(list[0].missingClusters) != 0 {
+			return false
+		}
+		items := list[0].snap.Resources[envoycachetypes.Cluster].Items
+		_, hasA := items["cluster-a"]
+		_, hasB := items["cluster-b"]
+		return hasA && hasB
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once the cluster appears, the metadata clears and both clusters publish")
 }
 
-func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testing.T) {
+func TestSnapshotPerClientPublishesWithMissingEndpointMetadata(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -314,9 +325,15 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		},
 	)
 
-	g.Consistently(func() int {
+	// A present EDS cluster lacking its CLA no longer withholds the snapshot:
+	// the wrapper publishes immediately, tagged for the R1 missing-CLA edge.
+	g.Eventually(func() int {
 		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	wrapper := snapshots.List()[0]
+	g.Expect(wrapper.missingEndpointClusters).To(gomega.Equal(map[string]string{"cluster-a": "cluster-a"}),
+		"EDS cluster without a CLA must be tagged for resolution")
+	g.Expect(wrapper.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.BeEmpty())
 
 	endpointCol.UpdateObject(UccWithEndpoints{
 		Client: ucc,
@@ -327,12 +344,15 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		endpointsName: "cluster-a",
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 || len(list[0].missingEndpointClusters) != 0 {
+			return false
+		}
+		_, ok := list[0].snap.Resources[envoycachetypes.Endpoint].Items["cluster-a"]
+		return ok
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once the CLA appears, the metadata clears and the CLA publishes")
 }
 
 func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.T) {

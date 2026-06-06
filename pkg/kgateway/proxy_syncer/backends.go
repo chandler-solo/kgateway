@@ -48,8 +48,24 @@ func NewPerClientEnvoyClusters(
 	translator *irtranslator.BackendTranslator,
 	finalBackends krt.Collection[*ir.BackendObjectIR],
 	uccs krt.Collection[ir.UniqlyConnectedClient],
+	heartbeat *krt.RecomputeTrigger,
 ) PerClientEnvoyClusters {
 	clusters := krt.NewManyCollection(finalBackends, func(kctx krt.HandlerContext, backendObj *ir.BackendObjectIR) []uccWithCluster {
+		// Depend on the periodic heartbeat so a lost recompute edge cannot strand a
+		// client's clusters. Every heartbeat re-runs this transform against the
+		// current uccs/backends, repopulating rows that an event-delivery gap left
+		// empty or stale (see #14184). When nothing changed the re-translation
+		// hash-equals the previous output and KRT suppresses it, so a healthy
+		// system sees no downstream churn -- only control-plane CPU.
+		//
+		// The heartbeat itself fans out through the same delivery channel that can
+		// drop recomputes, but that is safe: a dropped heartbeat recompute leaves
+		// this key's PREVIOUS rows in place (stale-but-present), whereas holes are
+		// only created by a run that misses clients. The heartbeat can therefore
+		// heal holes but never create them, and the next tick retries.
+		if heartbeat != nil {
+			heartbeat.MarkDependant(kctx)
+		}
 		backendLogger := logger.With("backend", backendObj)
 		uccs := krt.Fetch(kctx, uccs)
 		uccWithClusterRet := make([]uccWithCluster, 0, len(uccs))

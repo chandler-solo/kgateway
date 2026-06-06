@@ -27,8 +27,27 @@ type XdsSnapWrapper struct {
 	// TODO: this is not used anywhere, we need surface this somewhere
 	// +noKrtEquals
 	erroredClusters []string
+	// missingClusters lists clusters referenced as dataplane routing targets that
+	// were absent from the per-client CDS set when this snapshot was built.
+	// syncXds resolves them at publish time: carry forward from the previously
+	// published snapshot (R2 in devel/architecture/perclient-xds-publication.md)
+	// or hold/omit the referencing routes (R3). Derived from Routes/Listeners and
+	// Cluster versions already covered by Equals.
+	// +noKrtEquals
+	missingClusters []string
+	// missingEndpointClusters maps EDS clusters present in CDS but lacking a CLA
+	// in the per-client endpoint set to their required CLA resource name. syncXds
+	// carries the previous CLA or synthesizes an empty one (R1 missing-CLA edge).
+	// Derived from Cluster/Endpoint versions already covered by Equals.
+	// +noKrtEquals
+	missingEndpointClusters map[string]string
 	// +noKrtEquals
 	proxyKey string
+}
+
+// needsResolution reports whether syncXds must resolve holes before publishing.
+func (p XdsSnapWrapper) needsResolution() bool {
+	return len(p.missingClusters) > 0 || len(p.missingEndpointClusters) > 0
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {

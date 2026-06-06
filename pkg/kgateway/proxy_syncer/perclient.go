@@ -22,7 +22,18 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	krtutil "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 )
+
+// legacySnapshotGateEnv restores the pre-#14184 behavior of withholding a
+// client's entire snapshot until every referenced cluster and CLA is present
+// (the #13868 readiness gate). Escape hatch for one release; see
+// devel/architecture/perclient-xds-publication.md.
+const legacySnapshotGateEnv = "KGW_LEGACY_SNAPSHOT_GATE"
+
+var legacySnapshotGate = envutils.IsEnvTruthy(legacySnapshotGateEnv)
+
+func useLegacySnapshotGate() bool { return legacySnapshotGate }
 
 type clustersWithErrors struct {
 	// +noKrtEquals
@@ -191,8 +202,19 @@ func snapshotPerClient(
 			}
 		}
 		if clientEndpointResources == nil {
-			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
-			return nil
+			if useLegacySnapshotGate() {
+				logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
+				recordSnapshotDefer(ucc.ResourceName(), "endpoints_not_ready")
+				return nil
+			}
+			// Treat a not-yet-derived endpoint set as empty: every EDS cluster then
+			// takes the missing-CLA edge below (carry previous or synthesize empty
+			// at publish time) instead of withholding the whole snapshot.
+			clientEndpointResources = &endpointsWithUccName{
+				endpoints: envoycache.Resources{
+					Items: map[string]envoycachetypes.ResourceWithTTL{},
+				},
+			}
 		}
 
 		logger.Debug("found perclient clusters", "client", ucc.ResourceName(), "clusters", len(clustersForUcc.clusters.Items))
@@ -213,27 +235,56 @@ func snapshotPerClient(
 			clusterResources.Items,
 			clustersForUcc.erroredClusters,
 		); len(missingClusters) > 0 {
+			if useLegacySnapshotGate() {
+				logger.Info(
+					"defer building snapshot until all referenced clusters are ready",
+					"client", ucc.ResourceName(),
+					"missing_clusters", missingClusters,
+				)
+				recordSnapshotDefer(ucc.ResourceName(), "missing_clusters")
+				return nil
+			}
+			// Publish anyway; syncXds carries these forward from the previously
+			// published snapshot (R2) or holds/omits the referencing routes (R3).
+			snap.missingClusters = missingClusters
 			logger.Info(
-				"defer building snapshot until all referenced clusters are ready",
+				"referenced clusters missing from per-client inputs; resolving at publish time",
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
 			)
-			return nil
 		}
-		// Exclude CLAs for STATIC clusters so ADS snapshot only contains resources Envoy will request.
-		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
-		if missingEndpointClusters := findMissingReferencedEndpointResources(
-			listenerRouteSnapshot.ReferencedClusters,
-			clusterResources.Items,
-			endpointRes.Items,
-			clustersForUcc.erroredClusters,
-		); len(missingEndpointClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced EDS resources are ready",
-				"client", ucc.ResourceName(),
-				"missing_endpoint_clusters", missingEndpointClusters,
-			)
-			return nil
+		var endpointRes envoycache.Resources
+		if useLegacySnapshotGate() {
+			// Legacy behavior: exclude only STATIC clusters' CLAs and defer until
+			// every referenced EDS cluster has a CLA present.
+			endpointRes = filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
+			if missingEndpointClusters := findMissingReferencedEndpointResources(
+				listenerRouteSnapshot.ReferencedClusters,
+				clusterResources.Items,
+				endpointRes.Items,
+				clustersForUcc.erroredClusters,
+			); len(missingEndpointClusters) > 0 {
+				logger.Info(
+					"defer building snapshot until all referenced EDS resources are ready",
+					"client", ucc.ResourceName(),
+					"missing_endpoint_clusters", missingEndpointClusters,
+				)
+				recordSnapshotDefer(ucc.ResourceName(), "missing_endpoints")
+				return nil
+			}
+		} else {
+			// S2 (EDS subset): publish exactly the CLAs required by EDS clusters in
+			// this snapshot's CDS. Anything else (STATIC clusters' CLAs, stale CLAs
+			// for removed clusters) would make go-control-plane suppress named ADS
+			// EDS responses ("ADS mode: not responding to request").
+			endpointRes = filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
+			if missing := findEdsClustersMissingEndpointResources(clusterResources.Items, endpointRes.Items); len(missing) > 0 {
+				// Present clusters lacking CLAs (an endpoints-side hole; the
+				// endpoints pipeline always emits a CLA — even empty — for known
+				// backends). syncXds carries the previous CLA or synthesizes an
+				// empty one so Envoy is not left waiting on initial_fetch_timeout.
+				snap.missingEndpointClusters = missing
+			}
 		}
 
 		snap.erroredClusters = clustersForUcc.erroredClusters
@@ -421,6 +472,74 @@ func findMissingReferencedEndpointResources(
 	sort.Strings(missingEndpointClusters)
 
 	return missingEndpointClusters
+}
+
+// filterEndpointResourcesForClusters returns only the CLAs required by EDS
+// clusters present in clusters — the S2 (EDS subset) invariant. CLAs for STATIC
+// clusters and stale CLAs for clusters no longer in CDS are dropped; either
+// would make go-control-plane suppress named state-of-the-world ADS EDS
+// responses, freezing endpoint delivery for the whole client.
+//
+// The returned version combines two signals, both load-bearing:
+//
+//   - the FILTERED content: the published CLA set changes whenever the cluster
+//     set does — including a cluster being removed and later re-added with
+//     unchanged endpoint inputs — and a version that does not change with it
+//     leaves state-of-the-world EDS watches "up to date", so go-control-plane
+//     never answers and Envoy stalls on initial_fetch_timeout;
+//   - the upstream endpoints version: policy attachment bumps it without
+//     changing CLA contents (see backendEndpointVersionHash) precisely so a
+//     cluster re-warming after a CDS change receives a fresh EDS response;
+//     deriving from content alone would erase that bump and reintroduce the
+//     re-warm stall (envoyproxy/envoy#13009).
+func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
+	required := requiredEndpointResourceNames(clusters.Items)
+	filtered := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.Items))
+	var contentHash uint64
+	for name, item := range endpoints.Items {
+		if _, ok := required[name]; ok {
+			filtered = append(filtered, item)
+			contentHash ^= utils.HashProto(item.Resource)
+		}
+	}
+	version := fmt.Sprintf("%d", contentHash^utils.HashString(endpoints.Version))
+	return envoycache.NewResourcesWithTTL(version, filtered)
+}
+
+// requiredEndpointResourceNames returns the set of CLA resource names Envoy will
+// request given the EDS clusters present in clusters.
+func requiredEndpointResourceNames(clusters map[string]envoycachetypes.ResourceWithTTL) map[string]struct{} {
+	required := make(map[string]struct{}, len(clusters))
+	for _, item := range clusters {
+		if claName, isEDS := endpointResourceNameForCluster(item); isEDS {
+			required[claName] = struct{}{}
+		}
+	}
+	return required
+}
+
+// findEdsClustersMissingEndpointResources returns, for every EDS cluster present
+// in clusters whose required CLA is absent from endpoints, a mapping of cluster
+// name -> required CLA resource name (the R1 missing-CLA edge).
+func findEdsClustersMissingEndpointResources(
+	clusters map[string]envoycachetypes.ResourceWithTTL,
+	endpoints map[string]envoycachetypes.ResourceWithTTL,
+) map[string]string {
+	var missing map[string]string
+	for name, item := range clusters {
+		claName, isEDS := endpointResourceNameForCluster(item)
+		if !isEDS {
+			continue
+		}
+		if _, ok := endpoints[claName]; ok {
+			continue
+		}
+		if missing == nil {
+			missing = map[string]string{}
+		}
+		missing[name] = claName
+	}
+	return missing
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
