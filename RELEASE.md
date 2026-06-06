@@ -16,6 +16,38 @@ helm install kgateway-crds oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-cr
 helm install kgateway oci://cr.kgateway.dev/kgateway-dev/charts/kgateway --version v2.4.0-main --namespace kgateway-system --create-namespace
 ```
 
+## Verifying signatures
+
+Release artifacts are signed keylessly with cosign by the release workflow. Use the workflow identity and issuer below when verifying official kgateway artifacts:
+
+```bash
+COSIGN_CERT_IDENTITY='^https://github.com/kgateway-dev/kgateway/.github/workflows/release.yaml@refs/heads/(main|v[0-9]+\.[0-9]+\.x)$'
+COSIGN_CERT_ISSUER='https://token.actions.githubusercontent.com'
+```
+
+Verify container images:
+
+```bash
+VERSION=v2.4.0
+cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" cr.kgateway.dev/kgateway-dev/kgateway:${VERSION}
+cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" cr.kgateway.dev/kgateway-dev/sds:${VERSION}
+cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" cr.kgateway.dev/kgateway-dev/envoy-wrapper:${VERSION}
+```
+
+Verify Helm charts:
+
+```bash
+VERSION=v2.4.0
+cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" cr.kgateway.dev/kgateway-dev/charts/kgateway:${VERSION}
+cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" cr.kgateway.dev/kgateway-dev/charts/kgateway-crds:${VERSION}
+```
+
+To verify GitHub release assets, download the checksum file and its `.sigstore.json` bundle from the release page, then run:
+
+```bash
+cosign verify-blob --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" --bundle kgateway_*_checksums.txt.sigstore.json kgateway_*_checksums.txt
+```
+
 ## Developer documentation
 
 Please refer to [devel/contributing/releasing.md](devel/contributing/releasing.md).

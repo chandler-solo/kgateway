@@ -36,6 +36,7 @@ env:
 
 permissions:
   contents: write
+  id-token: write
   packages: write
 
 jobs:
@@ -116,7 +117,7 @@ jobs:
             PR_NUM=$(echo "${GITHUB_REF}" | sed -E 's|refs/pull/([^/]+)/?.*|\1|')
             VERSION="${GIT_TAG}-pr.${PR_NUM}-${GIT_SHA}"
             NEEDS_RELEASE=false
-            GORELEASER_ARGS="--snapshot --clean"
+            GORELEASER_ARGS="--snapshot --clean --skip=sign"
           else
             echo "Unknown event type"
             exit 1
@@ -141,6 +142,14 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | go tool helm registry login ${{ env.IMAGE_REGISTRY }} -u ${{ github.repository_owner }} --password-stdin
 
+      - name: Docker login to ${{ env.IMAGE_REGISTRY }}
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package kgateway charts
         run: make package-kgateway-charts
         env:
@@ -149,6 +158,13 @@ jobs:
       - name: Push kgateway charts to registry
         if: ${{ github.event_name != 'pull_request' }}
         run: make release-charts
+        env:
+          VERSION: ${{ needs.setup.outputs.version }}
+          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
+
+      - name: Sign kgateway charts
+        if: ${{ github.event_name != 'pull_request' }}
+        run: make sign-release-charts
         env:
           VERSION: ${{ needs.setup.outputs.version }}
           IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}

@@ -44,6 +44,7 @@ The [Release workflow](https://github.com/kgateway-dev/kgateway/actions/workflow
 ## Verify
 
 - [ ] Confirm the tag and assets on the [releases page](https://github.com/kgateway-dev/kgateway/releases)
+- [ ] Verify cosign signatures for at least one Docker image, both Helm charts, and the release checksum bundle using the commands in [`RELEASE.md`](/RELEASE.md)
 - [ ] Walk through the [quickstart guide](https://kgateway.dev/docs/quickstart/) using the new version, or at least run `hack/setup-via-release.sh -v v<MAJOR>.<MINOR>.<PATCH>` with the most recent and least recent supported Gateway API versions
 - [ ] If the quickstart is broken with the new version, file an issue in [`kgateway-dev/kgateway.dev`](https://github.com/kgateway-dev/kgateway.dev/issues) before announcing
 

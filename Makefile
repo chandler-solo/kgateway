@@ -933,6 +933,7 @@ kind-load-extproc-server:
 #----------------------------------------------------------------------------------
 
 HELM ?= go tool helm
+COSIGN ?= go tool -modfile=tools/go.mod cosign
 # It would be nice to use actual semver '--version', as Helm docs clearly state
 # is intended (and yet is not enforced by 'helm lint'). Here we say '--version
 # v2.0.0', not '--version 2.0.0', e.g. To do it cleanly, you'd probably
@@ -968,6 +969,14 @@ release-charts: ## Release the kgateway charts (publishes both vX.Y.Z and X.Y.Z 
 		$(MAKE) package-kgateway-charts VERSION=$$v; \
 		for chart in $(CHART_NAMES); do \
 			$(HELM) push $(TEST_ASSET_DIR)/$$chart-$$v.tgz oci://$(IMAGE_REGISTRY)/charts; \
+		done; \
+	done
+
+.PHONY: sign-release-charts
+sign-release-charts: ## Sign the published kgateway OCI charts with cosign
+	@for v in $(VERSION) $(VERSION_NO_V); do \
+		for chart in $(CHART_NAMES); do \
+			$(COSIGN) sign --yes "$(IMAGE_REGISTRY)/charts/$$chart:$$v"; \
 		done; \
 	done
 

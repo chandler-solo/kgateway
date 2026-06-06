@@ -169,6 +169,30 @@ docker_manifests:
     image_templates:
       - *envoyinit_arm_image
       - *envoyinit_amd_image
+signs:
+  - id: checksum-keyless
+    cmd: go
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "tool"
+      - "-modfile=tools/go.mod"
+      - "cosign"
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+docker_signs:
+  - id: image-keyless
+    cmd: go
+    args:
+      - "tool"
+      - "-modfile=tools/go.mod"
+      - "cosign"
+      - "sign"
+      - "${artifact}@${digest}"
+      - "--yes"
+    artifacts: all
 changelog:
   # Disable auto-generated changelog from git commits.
   # For real releases, we use --release-notes flag with our custom script output.
@@ -206,6 +230,33 @@ release:
     - {{ .Env.VANITY_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}
     - {{ .Env.VANITY_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}
     - {{ .Env.VANITY_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}
+
+    ## Signature Verification
+
+    Release artifacts are signed keylessly with cosign by this repository's release workflow.
+
+    ```
+    COSIGN_CERT_IDENTITY='^https://github.com/{{ .Env.GITHUB_REPOSITORY }}/.github/workflows/release.yaml@refs/heads/(main|v[0-9]+\.[0-9]+\.x)$'
+    COSIGN_CERT_ISSUER='https://token.actions.githubusercontent.com'
+    ```
+
+    Verify container images:
+    ```
+    cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" {{ .Env.VANITY_REGISTRY }}/{{ .Env.CONTROLLER_IMAGE_REPO }}:{{ .Env.VERSION }}
+    cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" {{ .Env.VANITY_REGISTRY }}/{{ .Env.SDS_IMAGE_REPO }}:{{ .Env.VERSION }}
+    cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" {{ .Env.VANITY_REGISTRY }}/{{ .Env.ENVOYINIT_IMAGE_REPO }}:{{ .Env.VERSION }}
+    ```
+
+    Verify Helm charts:
+    ```
+    cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" {{ .Env.VANITY_REGISTRY }}/charts/kgateway:{{ .Env.VERSION }}
+    cosign verify --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" {{ .Env.VANITY_REGISTRY }}/charts/kgateway-crds:{{ .Env.VERSION }}
+    ```
+
+    To verify GitHub release assets, download the checksum file and its `.sigstore.json` bundle, then run:
+    ```
+    cosign verify-blob --certificate-identity-regexp "$COSIGN_CERT_IDENTITY" --certificate-oidc-issuer "$COSIGN_CERT_ISSUER" --bundle kgateway_*_checksums.txt.sigstore.json kgateway_*_checksums.txt
+    ```
 
     ## Quickstart
 
