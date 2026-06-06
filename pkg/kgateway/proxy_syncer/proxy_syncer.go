@@ -457,8 +457,10 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 		s.backendPolicyReportQueue.Enqueue(o.Latest().reportMap)
 	})
 
+	wd := newDeferWatchdog(&s.proxyTranslator, s.uniqueClients)
 	s.perclientSnapCollection.RegisterBatch(func(o []krt.Event[XdsSnapWrapper]) {
 		for _, e := range o {
+			wd.observe(e)
 			cd := getDetailsFromXDSClientResourceName(e.Latest().ResourceName())
 
 			if e.Event != controllers.EventDelete {
@@ -493,6 +495,8 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 			})
 		}
 	}, true)
+
+	go wd.run(ctx, deferWatchdogInterval, deferWatchdogThreshold)
 
 	s.ready.Store(true)
 	<-ctx.Done()
