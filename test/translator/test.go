@@ -13,6 +13,7 @@ import (
 	"time"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyapikeyauthv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/api_key_auth/v3"
@@ -346,6 +347,7 @@ type ActualTestResult struct {
 	ListenerSets  map[types.NamespacedName]*gwv1.ListenerSet
 	PolicyPlugins map[schema.GroupKind]pluginsdk.PolicyPlugin
 	Clusters      []*envoyclusterv3.Cluster
+	Endpoints     []*envoyendpointv3.ClusterLoadAssignment
 }
 
 func compareProxy(expectedFile string, actualProxy *irtranslator.TranslationResult) (string, error) {
@@ -889,8 +891,18 @@ func (tc TestCase) Run(
 				}
 			}
 		}
+
+		var endpointAssignments []*envoyendpointv3.ClusterLoadAssignment
+		for _, ep := range commoncol.Endpoints.List() {
+			endpointAssignment, _ := translator.TranslateEndpoints(krt.TestingDummyContext{}, ucc, ep)
+			if endpointAssignment != nil {
+				endpointAssignments = append(endpointAssignments, endpointAssignment)
+			}
+		}
+
 		r := results[gwNN]
 		r.Clusters = clusters
+		r.Endpoints = endpointAssignments
 		results[gwNN] = r
 	}
 

@@ -74,7 +74,7 @@ devel/formal/check.sh
 Run the focused translator integration test:
 
 ```bash
-go test ./pkg/kgateway/translator/gateway -run '^TestTranslatedRedirectSnapshotPassesXDSCheck$'
+go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck)$'
 ```
 
 Run TLC directly when a TLA+ tools jar is available:
@@ -109,7 +109,10 @@ When the TLA+ jar is installed, `devel/formal/tla/check.sh` should run TLC again
 
 ## Integration seam
 
-The current checked-in integration is `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`. It intentionally avoids EDS-producing backend fixtures in this first bridge so the test stays narrow and does not refactor the per-client endpoint path.
+The current checked-in integrations are:
+
+- `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`.
+- `TestTranslatedBackendSnapshotPassesXDSCheck`, which runs an existing backend-producing HTTP Gateway fixture and checks emitted LDS/RDS/CDS/EDS resources with `xdscheck`.
 
 The intended future translator-test seam is:
 
@@ -134,9 +137,8 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 
 ## Future work
 
-1. Extend `xdscheck` integration to a backend/EDS-producing translator test.
-2. Add SDS validation for secret references.
-3. Add a delta xDS model.
-4. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
-5. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
-6. Model Envoy warming behavior for LDS/RDS and CDS/EDS dependencies.
+1. Add SDS validation for secret references.
+2. Add a delta xDS model.
+3. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
+4. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
+5. Model Envoy warming behavior for LDS/RDS and CDS/EDS dependencies.
