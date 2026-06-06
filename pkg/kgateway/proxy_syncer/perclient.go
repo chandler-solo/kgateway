@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
@@ -167,10 +168,12 @@ func snapshotPerClient(
 		//     listeners/routes and cause Envoy to return 500/NC on routes
 		//     whose clusters just happen to be in the same CDS response.
 		//
-		//  3. If any referenced EDS cluster has no matching ClusterLoadAssignment
-		//     in the EDS resources that would be sent, return nil. Publishing
-		//     CDS/RDS/LDS before EDS catches up can make Envoy drop all hosts for
-		//     a route that was healthy before a controller restart.
+		//  3. If any referenced EDS cluster has no matching ready
+		//     ClusterLoadAssignment in the EDS resources that would be sent,
+		//     return nil. A CLA with zero usable endpoints is not ready for
+		//     make-before-break publication: publishing CDS/RDS/LDS before EDS
+		//     catches up can make Envoy drop all hosts for a route that was
+		//     healthy before the update.
 		//
 		// Returning nil removes this UCC's entry from the output collection,
 		// which surfaces as a Delete event in proxy_syncer.go's xDS
@@ -224,8 +227,10 @@ func snapshotPerClient(
 			)
 			return nil
 		}
-		// Exclude CLAs for STATIC clusters so ADS snapshot only contains resources Envoy will request.
-		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
+		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
+		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
+		// longer present in CDS can make go-control-plane suppress ADS responses.
+		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
 		if missingEndpointClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
@@ -417,7 +422,8 @@ func findMissingReferencedEndpointResources(
 		if !requiresEndpointResource {
 			continue
 		}
-		if _, ok := endpoints[endpointResourceName]; ok {
+		endpointResource, ok := endpoints[endpointResourceName]
+		if ok && clusterLoadAssignmentHasUsableEndpoint(endpointResource) {
 			continue
 		}
 		missingEndpointClusters = append(missingEndpointClusters, name)
@@ -425,6 +431,24 @@ func findMissingReferencedEndpointResources(
 	sort.Strings(missingEndpointClusters)
 
 	return missingEndpointClusters
+}
+
+func clusterLoadAssignmentHasUsableEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
+	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
+	if !ok {
+		return false
+	}
+	for _, locality := range cla.GetEndpoints() {
+		for _, lbEndpoint := range locality.GetLbEndpoints() {
+			if lbEndpoint.GetHealthStatus() == envoycorev3.HealthStatus_UNHEALTHY {
+				continue
+			}
+			if lbEndpoint.GetEndpoint() != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
@@ -551,32 +575,32 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 	collectProtoClusterReferences(msg.Interface(), referencedClusters)
 }
 
-// filterEndpointResourcesForStaticClusters returns endpoint resources excluding CLAs for clusters
-// that are STATIC (inline endpoints). Envoy does not request EDS for those; including them in the
-// snapshot triggers the ADS cache "not listed" warning when responding to EDS requests.
-func filterEndpointResourcesForStaticClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
-	staticClusterNames := make(map[string]struct{})
+// filterEndpointResourcesForClusters returns endpoint resources required by EDS
+// clusters in the same CDS snapshot. Envoy requests EDS resources from CDS, so
+// publishing CLAs for STATIC clusters or removed EDS clusters can make the ADS
+// cache refuse named EDS responses.
+func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
+	requiredEndpointNames := make(map[string]struct{})
 	for _, item := range clusters.Items {
-		if c, ok := item.Resource.(*envoyclusterv3.Cluster); ok && c.GetType() == envoyclusterv3.Cluster_STATIC {
-			staticClusterNames[c.GetName()] = struct{}{}
+		if endpointName, requiresEndpointResource := endpointResourceNameForCluster(item); requiresEndpointResource {
+			requiredEndpointNames[endpointName] = struct{}{}
 		}
 	}
-	if len(staticClusterNames) == 0 {
-		return endpoints
-	}
 	filteredEndpoints := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.Items))
+	var resourcesHash uint64
 	for _, item := range endpoints.Items {
 		cla, ok := item.Resource.(*envoyendpointv3.ClusterLoadAssignment)
 		if !ok {
 			continue
 		}
-		if _, isStatic := staticClusterNames[cla.GetClusterName()]; isStatic {
+		if _, required := requiredEndpointNames[cla.GetClusterName()]; !required {
 			continue
 		}
 		filteredEndpoints = append(filteredEndpoints, item)
+		resourcesHash ^= utils.HashProto(cla)
 	}
 	if len(filteredEndpoints) == len(endpoints.Items) {
 		return endpoints
 	}
-	return envoycache.NewResourcesWithTTL(endpoints.Version, filteredEndpoints)
+	return envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", resourcesHash), filteredEndpoints)
 }
