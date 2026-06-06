@@ -25,6 +25,7 @@ import (
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	backendplugin "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/backend"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/xdscheck"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/version"
 	translatortest "github.com/kgateway-dev/kgateway/v2/test/translator"
@@ -3076,6 +3077,40 @@ func TestBasic(t *testing.T) {
 			},
 		})
 	})
+}
+
+func TestTranslatedRedirectSnapshotPassesXDSCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dir := fsutils.MustGetThisDir()
+	inputFile := filepath.Join(dir, "testutils/inputs/http-routing/request-redirect.yaml")
+	results, err := translatortest.TestCase{InputFiles: []string{inputFile}}.Run(
+		t,
+		ctx,
+		translatortest.NewScheme(nil),
+		translatortest.ExtraConfig{},
+		func(s *apisettings.Settings) {
+			s.EnableExperimentalGatewayAPIFeatures = true
+			s.EnableAuthMetadata = true
+		},
+	)
+	require.NoError(t, err, "translator test fixture should run")
+
+	gwNN := types.NamespacedName{Namespace: "default", Name: "test"}
+	result, ok := results[gwNN]
+	require.True(t, ok, "expected translated gateway result for %s", gwNN.String())
+	require.NotNil(t, result.Proxy, "expected translated proxy")
+
+	clusters := append([]*envoyclusterv3.Cluster{}, result.Proxy.ExtraClusters...)
+	clusters = append(clusters, result.Clusters...)
+	findings := xdscheck.CheckSnapshot(ctx, xdscheck.Snapshot{
+		Listeners: result.Proxy.Listeners,
+		Routes:    result.Proxy.Routes,
+		Clusters:  clusters,
+		Secrets:   result.Proxy.Secrets,
+	})
+	require.Empty(t, xdscheck.ErrorFindings(findings), "xdscheck findings: %#v", findings)
 }
 
 func TestGatewayBackendClientCertificateVariantsRemainGatewayScoped(t *testing.T) {

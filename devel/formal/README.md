@@ -71,6 +71,12 @@ Run the full formal MVP check script:
 devel/formal/check.sh
 ```
 
+Run the focused translator integration test:
+
+```bash
+go test ./pkg/kgateway/translator/gateway -run '^TestTranslatedRedirectSnapshotPassesXDSCheck$'
+```
+
 Run TLC directly when a TLA+ tools jar is available:
 
 ```bash
@@ -103,6 +109,8 @@ When the TLA+ jar is installed, `devel/formal/tla/check.sh` should run TLC again
 
 ## Integration seam
 
+The current checked-in integration is `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`. It intentionally avoids EDS-producing backend fixtures in this first bridge so the test stays narrow and does not refactor the per-client endpoint path.
+
 The intended future translator-test seam is:
 
 - Run kgateway IR -> xDS translation as existing tests already do.
@@ -126,7 +134,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 
 ## Future work
 
-1. Integrate `xdscheck` into one or two IR -> xDS translator tests.
+1. Extend `xdscheck` integration to a backend/EDS-producing translator test.
 2. Add SDS validation for secret references.
 3. Add a delta xDS model.
 4. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.

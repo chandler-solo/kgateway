@@ -9,6 +9,9 @@ cd "$ROOT_DIR"
 echo "Running xdscheck Go tests..."
 go test ./pkg/kgateway/translator/xdscheck
 
+echo "Running xdscheck translator integration test..."
+go test ./pkg/kgateway/translator/gateway -run '^TestTranslatedRedirectSnapshotPassesXDSCheck$'
+
 if command -v java >/dev/null 2>&1; then
     if [ -n "${TLA2TOOLS_JAR:-}" ] || [ -f "$SCRIPT_DIR/tla/tla2tools.jar" ] || [ -f "$ROOT_DIR/tools/tla2tools.jar" ]; then
         echo "Running TLA+ TLC check..."
