@@ -5,6 +5,7 @@
 - Every RDS name referenced by an LDS HTTP connection manager exists in the emitted RDS set.
 - Every direct cluster name referenced by a route exists in CDS.
 - Every weighted cluster entry referenced by a route exists in CDS.
+- Every cluster name referenced by a checked OAuth2 token endpoint, JWT AuthN remote JWKS, or ExtAuthz HTTP filter exists in CDS.
 - Every EDS cluster has a matching ClusterLoadAssignment by service name, or by cluster name when service name is empty.
 - Every SDS secret name referenced by a checked TLS transport socket or OAuth2 HTTP filter exists in the emitted SDS set.
 - Resource names are unique within each resource type.

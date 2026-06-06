@@ -10,6 +10,8 @@ import (
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyextauthzv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	envoyjwtauthnv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
@@ -326,6 +328,44 @@ func TestCheckSnapshotMissingOAuth2HTTPFilterHMACSecret(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotValidOAuth2HTTPFilterTokenEndpointClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		oauth2HTTPFilter("envoy.filters.http.oauth2/default/provider", "oauth-token", "oauth-hmac", "oauth-cluster"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{
+		{Name: "oauth-token"},
+		{Name: "oauth-hmac"},
+	}
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "oauth-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingOAuth2HTTPFilterTokenEndpointCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		oauth2HTTPFilter("envoy.filters.http.oauth2/default/provider", "oauth-token", "oauth-hmac", "oauth-cluster"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{
+		{Name: "oauth-token"},
+		{Name: "oauth-hmac"},
+	}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.oauth2/default/provider",
+		Message:  `config.token_endpoint.cluster references missing cluster "oauth-cluster"`,
+	})
+}
+
 func TestCheckSnapshotUnknownOAuth2HTTPFilterTypedConfigDoesNotPanic(t *testing.T) {
 	snapshot := validSnapshot()
 	setHCM(&snapshot, hcmWithHTTPFilters(&envoyhcmv3.HttpFilter{
@@ -345,6 +385,96 @@ func TestCheckSnapshotUnknownOAuth2HTTPFilterTypedConfigDoesNotPanic(t *testing.
 		Code:     CodeUnsupportedHTTPFilterTypedConfig,
 		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.oauth2/default/provider",
 		Message:  `OAuth2 HTTP filter has typed_config "type.googleapis.com/example.NotOAuth2"; SDS references were not validated`,
+	})
+}
+
+func TestCheckSnapshotValidJWTAuthnRemoteJWKSClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		jwtAuthnHTTPFilter("envoy.filters.http.jwt_authn", "issuer", "jwks-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "jwks-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingJWTAuthnRemoteJWKSCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		jwtAuthnHTTPFilter("envoy.filters.http.jwt_authn", "issuer", "jwks-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.jwt_authn",
+		Message:  `providers[issuer].remote_jwks.http_uri.cluster references missing cluster "jwks-cluster"`,
+	})
+}
+
+func TestCheckSnapshotValidExtAuthzHTTPServiceClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extAuthzHTTPServiceFilter("envoy.filters.http.ext_authz", "authz-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "authz-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingExtAuthzHTTPServiceCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extAuthzHTTPServiceFilter("envoy.filters.http.ext_authz", "authz-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.ext_authz",
+		Message:  `http_service.server_uri.cluster references missing cluster "authz-cluster"`,
+	})
+}
+
+func TestCheckSnapshotValidExtAuthzEnvoyGRPCServiceClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extAuthzGRPCServiceFilter("envoy.filters.http.ext_authz", "authz-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "authz-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingExtAuthzEnvoyGRPCServiceCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extAuthzGRPCServiceFilter("envoy.filters.http.ext_authz", "authz-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.ext_authz",
+		Message:  `grpc_service.envoy_grpc.cluster_name references missing cluster "authz-cluster"`,
 	})
 }
 
@@ -432,17 +562,90 @@ func routeWithAction(name string, action *envoyroutev3.RouteAction) *envoyroutev
 	}
 }
 
-func oauth2HTTPFilter(name, tokenSecret, hmacSecret string) *envoyhcmv3.HttpFilter {
+func oauth2HTTPFilter(name, tokenSecret, hmacSecret string, tokenEndpointClusters ...string) *envoyhcmv3.HttpFilter {
+	config := &envoyoauth2v3.OAuth2Config{
+		Credentials: &envoyoauth2v3.OAuth2Credentials{
+			ClientId:    "client-id",
+			TokenSecret: &envoytlsv3.SdsSecretConfig{Name: tokenSecret},
+			TokenFormation: &envoyoauth2v3.OAuth2Credentials_HmacSecret{
+				HmacSecret: &envoytlsv3.SdsSecretConfig{Name: hmacSecret},
+			},
+		},
+	}
+	if len(tokenEndpointClusters) > 0 {
+		config.TokenEndpoint = &envoycorev3.HttpUri{
+			Uri: "https://oauth.example.com/token",
+			HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+				Cluster: tokenEndpointClusters[0],
+			},
+		}
+	}
+
 	return &envoyhcmv3.HttpFilter{
 		Name: name,
 		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
 			TypedConfig: mustAny(&envoyoauth2v3.OAuth2{
-				Config: &envoyoauth2v3.OAuth2Config{
-					Credentials: &envoyoauth2v3.OAuth2Credentials{
-						ClientId:    "client-id",
-						TokenSecret: &envoytlsv3.SdsSecretConfig{Name: tokenSecret},
-						TokenFormation: &envoyoauth2v3.OAuth2Credentials_HmacSecret{
-							HmacSecret: &envoytlsv3.SdsSecretConfig{Name: hmacSecret},
+				Config: config,
+			}),
+		},
+	}
+}
+
+func jwtAuthnHTTPFilter(name, providerName, jwksCluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyjwtauthnv3.JwtAuthentication{
+				Providers: map[string]*envoyjwtauthnv3.JwtProvider{
+					providerName: {
+						JwksSourceSpecifier: &envoyjwtauthnv3.JwtProvider_RemoteJwks{
+							RemoteJwks: &envoyjwtauthnv3.RemoteJwks{
+								HttpUri: &envoycorev3.HttpUri{
+									Uri: "https://issuer.example.com/.well-known/jwks.json",
+									HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+										Cluster: jwksCluster,
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
+func extAuthzHTTPServiceFilter(name, cluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyextauthzv3.ExtAuthz{
+				Services: &envoyextauthzv3.ExtAuthz_HttpService{
+					HttpService: &envoyextauthzv3.HttpService{
+						ServerUri: &envoycorev3.HttpUri{
+							Uri: "https://authz.example.com/check",
+							HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+								Cluster: cluster,
+							},
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
+func extAuthzGRPCServiceFilter(name, cluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyextauthzv3.ExtAuthz{
+				Services: &envoyextauthzv3.ExtAuthz_GrpcService{
+					GrpcService: &envoycorev3.GrpcService{
+						TargetSpecifier: &envoycorev3.GrpcService_EnvoyGrpc_{
+							EnvoyGrpc: &envoycorev3.GrpcService_EnvoyGrpc{
+								ClusterName: cluster,
+							},
 						},
 					},
 				},

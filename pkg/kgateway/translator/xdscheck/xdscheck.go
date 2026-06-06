@@ -10,6 +10,8 @@ import (
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyextauthzv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	envoyjwtauthnv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
@@ -39,8 +41,10 @@ const (
 )
 
 const (
-	oauth2HTTPFilterTypeURL = "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2"
-	oauth2HTTPFilterPrefix  = "envoy.filters.http.oauth2"
+	oauth2HTTPFilterTypeURL   = "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2"
+	oauth2HTTPFilterPrefix    = "envoy.filters.http.oauth2"
+	extAuthzHTTPFilterTypeURL = "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz"
+	jwtAuthnHTTPFilterTypeURL = "type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication"
 )
 
 // Snapshot is the Envoy xDS resource set checked by this package.
@@ -159,6 +163,8 @@ func (c *checker) checkHCMHTTPFilters(hcm *envoyhcmv3.HttpConnectionManager, hcm
 	for _, filter := range hcm.GetHttpFilters() {
 		resource := fmt.Sprintf("%s HttpFilter/%s", hcmResource, filter.GetName())
 		c.checkOAuth2HTTPFilter(filter, resource)
+		c.checkJWTAuthnHTTPFilter(filter, resource)
+		c.checkExtAuthzHTTPFilter(filter, resource)
 	}
 }
 
@@ -190,6 +196,54 @@ func (c *checker) checkOAuth2HTTPFilter(filter *envoyhcmv3.HttpFilter, resource 
 	credentials := oauth2.GetConfig().GetCredentials()
 	c.requireSecret(credentials.GetTokenSecret(), resource, "config.credentials.token_secret")
 	c.requireSecret(credentials.GetHmacSecret(), resource, "config.credentials.hmac_secret")
+	c.requireClusterReference(oauth2.GetConfig().GetTokenEndpoint().GetCluster(), resource, "config.token_endpoint.cluster")
+}
+
+func (c *checker) checkJWTAuthnHTTPFilter(filter *envoyhcmv3.HttpFilter, resource string) {
+	typedConfig := filter.GetTypedConfig()
+	if typedConfig == nil || typedConfig.GetTypeUrl() != jwtAuthnHTTPFilterTypeURL {
+		return
+	}
+
+	jwtAuthn := &envoyjwtauthnv3.JwtAuthentication{}
+	if err := typedConfig.UnmarshalTo(jwtAuthn); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
+			fmt.Sprintf("cannot unpack JWT AuthN HTTP filter typed_config %q; remote JWKS cluster references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+
+	for providerName, provider := range jwtAuthn.GetProviders() {
+		c.requireClusterReference(
+			provider.GetRemoteJwks().GetHttpUri().GetCluster(),
+			resource,
+			fmt.Sprintf("providers[%s].remote_jwks.http_uri.cluster", providerName),
+		)
+	}
+}
+
+func (c *checker) checkExtAuthzHTTPFilter(filter *envoyhcmv3.HttpFilter, resource string) {
+	typedConfig := filter.GetTypedConfig()
+	if typedConfig == nil || typedConfig.GetTypeUrl() != extAuthzHTTPFilterTypeURL {
+		return
+	}
+
+	extAuthz := &envoyextauthzv3.ExtAuthz{}
+	if err := typedConfig.UnmarshalTo(extAuthz); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
+			fmt.Sprintf("cannot unpack ExtAuthz HTTP filter typed_config %q; authorization service cluster references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+
+	c.requireClusterReference(
+		extAuthz.GetHttpService().GetServerUri().GetCluster(),
+		resource,
+		"http_service.server_uri.cluster",
+	)
+	c.requireClusterReference(
+		extAuthz.GetGrpcService().GetEnvoyGrpc().GetClusterName(),
+		resource,
+		"grpc_service.envoy_grpc.cluster_name",
+	)
 }
 
 func (c *checker) checkClusterTransportSockets(cluster *envoyclusterv3.Cluster) {
@@ -387,6 +441,17 @@ func (c *checker) requireCluster(name, resource, routeConfigName, virtualHostNam
 	}
 	c.add(SeverityError, CodeMissingCluster, resource,
 		fmt.Sprintf("route configuration %q virtual host %q route %q references missing cluster %q", routeConfigName, virtualHostName, routeName, name))
+}
+
+func (c *checker) requireClusterReference(name, resource, field string) {
+	if name == "" {
+		return
+	}
+	if _, ok := c.clusters[name]; ok {
+		return
+	}
+	c.add(SeverityError, CodeMissingCluster, resource,
+		fmt.Sprintf("%s references missing cluster %q", field, name))
 }
 
 func (c *checker) checkEDSCluster(cluster *envoyclusterv3.Cluster) {

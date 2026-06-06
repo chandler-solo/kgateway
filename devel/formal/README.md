@@ -27,6 +27,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - LDS HTTP connection manager RDS references resolve to emitted route configurations.
 - Inline HCM route configurations are checked recursively.
 - Route cluster and weighted cluster references resolve to emitted clusters.
+- OAuth2 token endpoint, JWT AuthN remote JWKS, and ExtAuthz service cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
 - Basic SDS references from checked TLS transport sockets and OAuth2 HTTP filters resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
@@ -75,7 +76,7 @@ devel/formal/check.sh
 Run the focused translator integration test:
 
 ```bash
-go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck|TestTranslatedOAuth2SnapshotPassesXDSCheck)$'
+go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck|TestTranslatedOAuth2SnapshotPassesXDSCheck|TestTranslatedExtAuthSnapshotPassesXDSCheck)$'
 ```
 
 Run TLC directly when a TLA+ tools jar is available:
@@ -121,9 +122,10 @@ The current checked-in integrations are:
 
 - `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`.
 - `TestTranslatedBackendSnapshotPassesXDSCheck`, which runs an existing backend-producing HTTP Gateway fixture and checks emitted LDS/RDS/CDS/EDS resources with `xdscheck`.
-- `TestTranslatedOAuth2SnapshotPassesXDSCheck`, which runs an existing OAuth2 policy fixture and checks emitted LDS/RDS/CDS/EDS/SDS resources, including OAuth2 HTTP filter secret references.
+- `TestTranslatedOAuth2SnapshotPassesXDSCheck`, which runs an existing OAuth2 policy fixture and checks emitted LDS/RDS/CDS/EDS/SDS resources, including OAuth2 HTTP filter secret references, OAuth2 token endpoint clusters, and JWT AuthN remote JWKS clusters.
+- `TestTranslatedExtAuthSnapshotPassesXDSCheck`, which runs an existing ExtAuthz HTTP policy fixture and checks emitted LDS/RDS/CDS/EDS resources, including ExtAuthz service clusters.
 
-The SDS checker currently covers standard downstream and upstream TLS transport socket secret references, plus Envoy OAuth2 HTTP filter token and HMAC secret references. Existing HTTPS translator fixtures use inline certificate material, so TLS transport socket SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
+The checker currently covers standard downstream and upstream TLS transport socket secret references, Envoy OAuth2 HTTP filter token and HMAC secret references, OAuth2 token endpoint clusters, JWT AuthN remote JWKS clusters, and ExtAuthz HTTP or Envoy gRPC service clusters. Existing HTTPS translator fixtures use inline certificate material, so TLS transport socket SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
 
 The intended future translator-test seam is:
 
@@ -149,7 +151,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 
 ## Future work
 
-1. Add SDS validation for additional recognized HTTP filter typed configs if kgateway emits them.
+1. Add reference validation for additional recognized HTTP filter typed configs if kgateway emits them.
 2. Add a delta xDS model.
 3. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
 4. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
