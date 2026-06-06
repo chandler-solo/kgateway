@@ -6,7 +6,7 @@
 - Every direct cluster name referenced by a route exists in CDS.
 - Every weighted cluster entry referenced by a route exists in CDS.
 - Every EDS cluster has a matching ClusterLoadAssignment by service name, or by cluster name when service name is empty.
-- Every SDS secret name referenced by a checked TLS transport socket exists in the emitted SDS set.
+- Every SDS secret name referenced by a checked TLS transport socket or OAuth2 HTTP filter exists in the emitted SDS set.
 - Resource names are unique within each resource type.
 
 ## xDS publication safety

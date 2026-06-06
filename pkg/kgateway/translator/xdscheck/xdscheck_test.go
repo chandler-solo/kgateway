@@ -10,6 +10,7 @@ import (
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
@@ -65,6 +66,32 @@ func TestCheckSnapshotMissingEDSAssignmentReferencedByEDSCluster(t *testing.T) {
 		Code:     CodeMissingClusterLoadAssignment,
 		Resource: "Cluster/cluster",
 		Message:  `cluster "cluster" uses EDS resource "cluster" but no matching ClusterLoadAssignment was emitted`,
+	})
+}
+
+func TestCheckSnapshotEDSAssignmentUsesServiceNameWhenSet(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].EdsClusterConfig.ServiceName = "backend-service"
+	snapshot.Endpoints[0].ClusterName = "backend-service"
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingEDSAssignmentUsesServiceNameInFinding(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].EdsClusterConfig.ServiceName = "backend-service"
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingClusterLoadAssignment,
+		Resource: "Cluster/cluster",
+		Message:  `cluster "cluster" uses EDS resource "backend-service" but no matching ClusterLoadAssignment was emitted`,
 	})
 }
 
@@ -149,6 +176,32 @@ func TestCheckSnapshotUnknownHCMTypedConfigDoesNotPanic(t *testing.T) {
 	requireFindingContaining(t, findings, SeverityWarning, CodeUnsupportedHCMTypedConfig, "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager", "example.UnknownHCM")
 }
 
+func TestCheckSnapshotInlineRouteConfigurationIsChecked(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithInlineRouteConfig(&envoyroutev3.RouteConfiguration{
+		Name: "inline-routes",
+		VirtualHosts: []*envoyroutev3.VirtualHost{{
+			Name:    "inline-vhost",
+			Domains: []string{"*"},
+			Routes: []*envoyroutev3.Route{
+				routeWithAction("inline-to-missing", &envoyroutev3.RouteAction{
+					ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: "missing"},
+				}),
+			},
+		}},
+	}))
+	snapshot.Routes = nil
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http InlineRouteConfiguration VirtualHost/inline-vhost Route/inline-to-missing",
+		Message:  `route configuration "inline-routes" virtual host "inline-vhost" route "inline-to-missing" references missing cluster "missing"`,
+	})
+}
+
 func TestCheckSnapshotValidDownstreamSDSSecretReference(t *testing.T) {
 	snapshot := validSnapshot()
 	snapshot.Listeners[0].FilterChains[0].TransportSocket = downstreamTLSTransportSocket("server-cert")
@@ -222,6 +275,79 @@ func TestCheckSnapshotMissingNestedProxyProtocolSDSSecret(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotValidOAuth2HTTPFilterSDSSecretReferences(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		oauth2HTTPFilter("envoy.filters.http.oauth2/default/provider", "oauth-token", "oauth-hmac"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{
+		{Name: "oauth-token"},
+		{Name: "oauth-hmac"},
+	}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingOAuth2HTTPFilterTokenSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		oauth2HTTPFilter("envoy.filters.http.oauth2/default/provider", "oauth-token", "oauth-hmac"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "oauth-hmac"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.oauth2/default/provider",
+		Message:  `config.credentials.token_secret references missing SDS secret "oauth-token"`,
+	})
+}
+
+func TestCheckSnapshotMissingOAuth2HTTPFilterHMACSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		oauth2HTTPFilter("envoy.filters.http.oauth2/default/provider", "oauth-token", "oauth-hmac"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "oauth-token"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.oauth2/default/provider",
+		Message:  `config.credentials.hmac_secret references missing SDS secret "oauth-hmac"`,
+	})
+}
+
+func TestCheckSnapshotUnknownOAuth2HTTPFilterTypedConfigDoesNotPanic(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(&envoyhcmv3.HttpFilter{
+		Name: "envoy.filters.http.oauth2/default/provider",
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: &anypb.Any{
+				TypeUrl: "type.googleapis.com/example.NotOAuth2",
+				Value:   []byte{1, 2, 3},
+			},
+		},
+	}))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityWarning,
+		Code:     CodeUnsupportedHTTPFilterTypedConfig,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.oauth2/default/provider",
+		Message:  `OAuth2 HTTP filter has typed_config "type.googleapis.com/example.NotOAuth2"; SDS references were not validated`,
+	})
+}
+
 func validSnapshot() Snapshot {
 	return Snapshot{
 		Listeners: []*envoylistenerv3.Listener{{
@@ -231,20 +357,7 @@ func validSnapshot() Snapshot {
 				Filters: []*envoylistenerv3.Filter{{
 					Name: envoywellknown.HTTPConnectionManager,
 					ConfigType: &envoylistenerv3.Filter_TypedConfig{
-						TypedConfig: mustAny(&envoyhcmv3.HttpConnectionManager{
-							StatPrefix: "http",
-							RouteSpecifier: &envoyhcmv3.HttpConnectionManager_Rds{
-								Rds: &envoyhcmv3.Rds{
-									ConfigSource: &envoycorev3.ConfigSource{
-										ResourceApiVersion: envoycorev3.ApiVersion_V3,
-										ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{
-											Ads: &envoycorev3.AggregatedConfigSource{},
-										},
-									},
-									RouteConfigName: "routes",
-								},
-							},
-						}),
+						TypedConfig: mustAny(hcmWithHTTPFilters()),
 					},
 				}},
 			}},
@@ -276,6 +389,39 @@ func validSnapshot() Snapshot {
 	}
 }
 
+func setHCM(snapshot *Snapshot, hcm *envoyhcmv3.HttpConnectionManager) {
+	snapshot.Listeners[0].FilterChains[0].Filters[0].ConfigType = &envoylistenerv3.Filter_TypedConfig{
+		TypedConfig: mustAny(hcm),
+	}
+}
+
+func hcmWithHTTPFilters(httpFilters ...*envoyhcmv3.HttpFilter) *envoyhcmv3.HttpConnectionManager {
+	return &envoyhcmv3.HttpConnectionManager{
+		StatPrefix:  "http",
+		HttpFilters: httpFilters,
+		RouteSpecifier: &envoyhcmv3.HttpConnectionManager_Rds{
+			Rds: &envoyhcmv3.Rds{
+				ConfigSource: &envoycorev3.ConfigSource{
+					ResourceApiVersion: envoycorev3.ApiVersion_V3,
+					ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{
+						Ads: &envoycorev3.AggregatedConfigSource{},
+					},
+				},
+				RouteConfigName: "routes",
+			},
+		},
+	}
+}
+
+func hcmWithInlineRouteConfig(routeConfig *envoyroutev3.RouteConfiguration) *envoyhcmv3.HttpConnectionManager {
+	return &envoyhcmv3.HttpConnectionManager{
+		StatPrefix: "http",
+		RouteSpecifier: &envoyhcmv3.HttpConnectionManager_RouteConfig{
+			RouteConfig: routeConfig,
+		},
+	}
+}
+
 func routeWithAction(name string, action *envoyroutev3.RouteAction) *envoyroutev3.Route {
 	return &envoyroutev3.Route{
 		Name: name,
@@ -283,6 +429,25 @@ func routeWithAction(name string, action *envoyroutev3.RouteAction) *envoyroutev
 			PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"},
 		},
 		Action: &envoyroutev3.Route_Route{Route: action},
+	}
+}
+
+func oauth2HTTPFilter(name, tokenSecret, hmacSecret string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyoauth2v3.OAuth2{
+				Config: &envoyoauth2v3.OAuth2Config{
+					Credentials: &envoyoauth2v3.OAuth2Credentials{
+						ClientId:    "client-id",
+						TokenSecret: &envoytlsv3.SdsSecretConfig{Name: tokenSecret},
+						TokenFormation: &envoyoauth2v3.OAuth2Credentials_HmacSecret{
+							HmacSecret: &envoytlsv3.SdsSecretConfig{Name: hmacSecret},
+						},
+					},
+				},
+			}),
+		},
 	}
 }
 

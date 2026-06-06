@@ -71,6 +71,16 @@ Useful examples:
 - An `AckAdvancesOnlyMatchingNonce` failure means acceptance advanced without the current stream's latest nonce for that type.
 - A `NoncesArePerStream` failure means nonce state survived a reconnect incorrectly.
 
+## Counterexample drills
+
+The repository should keep `XdsAdsSotw.tla` in the safe form checked by `XdsAdsSotw.cfg`. To demonstrate that TLC can find useful failures, make one temporary local edit and rerun TLC:
+
+- Remove `SnapshotClosed(ProposedSentSnapshot(t))` from `SendResponse(t)`. TLC should be able to violate `SentSnapshotsAreDependencyClosed`.
+- Change `ClientNack(t)` so that `serverAcceptedVersion'` is updated to `sentVersion[t]`. TLC should be able to violate `NackDoesNotAdvanceAcceptedVersion`.
+- Change `Reconnect` so that `sentNonce' = sentNonce`. TLC should be able to violate `NoncesArePerStream`.
+
+Revert the temporary edit after reading the trace. These drills are intentionally not checked in as separate broken models because the MVP keeps the reviewable source tree focused on the correct abstract protocol.
+
 ## Liveness
 
 The MVP keeps the TLC configuration safety-focused. The model notes the intended liveness direction: under stable valid desired state and a fair client that ACKs valid responses, every resource type should be able to reach the desired version. A future PR can add fairness constraints and liveness checking if the state space stays practical.

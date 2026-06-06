@@ -3148,6 +3148,42 @@ func TestTranslatedBackendSnapshotPassesXDSCheck(t *testing.T) {
 	require.Empty(t, xdscheck.ErrorFindings(findings), "xdscheck findings: %#v", findings)
 }
 
+func TestTranslatedOAuth2SnapshotPassesXDSCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dir := fsutils.MustGetThisDir()
+	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/oauth2.yaml")
+	results, err := translatortest.TestCase{InputFiles: []string{inputFile}}.Run(
+		t,
+		ctx,
+		translatortest.NewScheme(nil),
+		translatortest.ExtraConfig{},
+		func(s *apisettings.Settings) {
+			s.EnableExperimentalGatewayAPIFeatures = true
+			s.EnableAuthMetadata = true
+		},
+	)
+	require.NoError(t, err, "translator test fixture should run")
+
+	gwNN := types.NamespacedName{Namespace: "default", Name: "test"}
+	result, ok := results[gwNN]
+	require.True(t, ok, "expected translated gateway result for %s", gwNN.String())
+	require.NotNil(t, result.Proxy, "expected translated proxy")
+	require.NotEmpty(t, result.Proxy.Secrets, "expected OAuth2 fixture to emit SDS secrets")
+
+	clusters := append([]*envoyclusterv3.Cluster{}, result.Proxy.ExtraClusters...)
+	clusters = append(clusters, result.Clusters...)
+	findings := xdscheck.CheckSnapshot(ctx, xdscheck.Snapshot{
+		Listeners: result.Proxy.Listeners,
+		Routes:    result.Proxy.Routes,
+		Clusters:  clusters,
+		Endpoints: result.Endpoints,
+		Secrets:   result.Proxy.Secrets,
+	})
+	require.Empty(t, xdscheck.ErrorFindings(findings), "xdscheck findings: %#v", findings)
+}
+
 func TestGatewayBackendClientCertificateVariantsRemainGatewayScoped(t *testing.T) {
 	ctx := t.Context()
 

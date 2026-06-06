@@ -3,12 +3,14 @@ package xdscheck
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
@@ -32,7 +34,13 @@ const (
 	CodeUnsupportedInlineClusterSpecifier = "unsupported_inline_cluster_specifier"
 	CodeMissingSecret                     = "missing_secret"
 	CodeUnsupportedTLSTypedConfig         = "unsupported_tls_typed_config"
+	CodeUnsupportedHTTPFilterTypedConfig  = "unsupported_http_filter_typed_config"
 	CodeCanceled                          = "check_canceled"
+)
+
+const (
+	oauth2HTTPFilterTypeURL = "type.googleapis.com/envoy.extensions.filters.http.oauth2.v3.OAuth2"
+	oauth2HTTPFilterPrefix  = "envoy.filters.http.oauth2"
 )
 
 // Snapshot is the Envoy xDS resource set checked by this package.
@@ -141,9 +149,47 @@ func (c *checker) checkListener(ctx context.Context, listener *envoylistenerv3.L
 			if !ok {
 				continue
 			}
+			c.checkHCMHTTPFilters(hcm, resource)
 			c.checkHCMRouteSpecifier(ctx, listener.GetName(), filterChainName, hcm)
 		}
 	}
+}
+
+func (c *checker) checkHCMHTTPFilters(hcm *envoyhcmv3.HttpConnectionManager, hcmResource string) {
+	for _, filter := range hcm.GetHttpFilters() {
+		resource := fmt.Sprintf("%s HttpFilter/%s", hcmResource, filter.GetName())
+		c.checkOAuth2HTTPFilter(filter, resource)
+	}
+}
+
+func (c *checker) checkOAuth2HTTPFilter(filter *envoyhcmv3.HttpFilter, resource string) {
+	typedConfig := filter.GetTypedConfig()
+	if typedConfig == nil {
+		if strings.HasPrefix(filter.GetName(), oauth2HTTPFilterPrefix) {
+			c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
+				"OAuth2 HTTP filter does not use typed_config; SDS references were not validated")
+		}
+		return
+	}
+
+	if typedConfig.GetTypeUrl() != oauth2HTTPFilterTypeURL {
+		if strings.HasPrefix(filter.GetName(), oauth2HTTPFilterPrefix) {
+			c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
+				fmt.Sprintf("OAuth2 HTTP filter has typed_config %q; SDS references were not validated", typedConfig.GetTypeUrl()))
+		}
+		return
+	}
+
+	oauth2 := &envoyoauth2v3.OAuth2{}
+	if err := typedConfig.UnmarshalTo(oauth2); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
+			fmt.Sprintf("cannot unpack OAuth2 HTTP filter typed_config %q; SDS references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+
+	credentials := oauth2.GetConfig().GetCredentials()
+	c.requireSecret(credentials.GetTokenSecret(), resource, "config.credentials.token_secret")
+	c.requireSecret(credentials.GetHmacSecret(), resource, "config.credentials.hmac_secret")
 }
 
 func (c *checker) checkClusterTransportSockets(cluster *envoyclusterv3.Cluster) {

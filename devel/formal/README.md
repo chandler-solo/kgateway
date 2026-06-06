@@ -28,7 +28,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - Inline HCM route configurations are checked recursively.
 - Route cluster and weighted cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
-- Basic SDS references from checked TLS transport sockets resolve to emitted secrets.
+- Basic SDS references from checked TLS transport sockets and OAuth2 HTTP filters resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
 
 ### Future proof systems
@@ -75,7 +75,7 @@ devel/formal/check.sh
 Run the focused translator integration test:
 
 ```bash
-go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck)$'
+go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck|TestTranslatedOAuth2SnapshotPassesXDSCheck)$'
 ```
 
 Run TLC directly when a TLA+ tools jar is available:
@@ -121,8 +121,9 @@ The current checked-in integrations are:
 
 - `TestTranslatedRedirectSnapshotPassesXDSCheck`, which runs an existing redirect-only HTTP Gateway fixture through the kgateway translator and checks the emitted LDS/RDS snapshot with `xdscheck`.
 - `TestTranslatedBackendSnapshotPassesXDSCheck`, which runs an existing backend-producing HTTP Gateway fixture and checks emitted LDS/RDS/CDS/EDS resources with `xdscheck`.
+- `TestTranslatedOAuth2SnapshotPassesXDSCheck`, which runs an existing OAuth2 policy fixture and checks emitted LDS/RDS/CDS/EDS/SDS resources, including OAuth2 HTTP filter secret references.
 
-The SDS checker currently covers standard downstream and upstream TLS transport socket secret references. Existing HTTPS translator fixtures use inline certificate material, so SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
+The SDS checker currently covers standard downstream and upstream TLS transport socket secret references, plus Envoy OAuth2 HTTP filter token and HMAC secret references. Existing HTTPS translator fixtures use inline certificate material, so TLS transport socket SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
 
 The intended future translator-test seam is:
 
@@ -148,7 +149,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 
 ## Future work
 
-1. Add SDS validation for secret references embedded in recognized HTTP filter typed configs.
+1. Add SDS validation for additional recognized HTTP filter typed configs if kgateway emits them.
 2. Add a delta xDS model.
 3. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
 4. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
