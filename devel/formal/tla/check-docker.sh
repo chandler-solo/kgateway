@@ -16,6 +16,9 @@ TLC_METADIR=${TLC_METADIR:-/tmp/tlc-states}
 
 run_tlc() {
     jar_path=$1
+    config=$2
+    model=$3
+    model_metadir=$TLC_METADIR/${model%.tla}
 
     if [ -n "${TLC_WORKERS:-}" ]; then
         docker run --rm \
@@ -23,15 +26,21 @@ run_tlc() {
             -v "$jar_path:/tla2tools.jar:ro" \
             -w /model \
             "$JAVA_IMAGE" \
-            java -XX:+UseParallelGC -jar /tla2tools.jar -metadir "$TLC_METADIR" -workers "$TLC_WORKERS" -config XdsAdsSotw.cfg XdsAdsSotw.tla
+            java -XX:+UseParallelGC -jar /tla2tools.jar -metadir "$model_metadir" -workers "$TLC_WORKERS" -config "$config" "$model"
     else
         docker run --rm \
             -v "$SCRIPT_DIR:/model:ro" \
             -v "$jar_path:/tla2tools.jar:ro" \
             -w /model \
             "$JAVA_IMAGE" \
-            java -XX:+UseParallelGC -jar /tla2tools.jar -metadir "$TLC_METADIR" -config XdsAdsSotw.cfg XdsAdsSotw.tla
+            java -XX:+UseParallelGC -jar /tla2tools.jar -metadir "$model_metadir" -config "$config" "$model"
     fi
+}
+
+run_all_models() {
+    jar_path=$1
+    run_tlc "$jar_path" XdsAdsSotw.cfg XdsAdsSotw.tla
+    run_tlc "$jar_path" XdsEdsSubset.cfg XdsEdsSubset.tla
 }
 
 if [ -n "${TLA2TOOLS_JAR:-}" ]; then
@@ -41,7 +50,7 @@ if [ -n "${TLA2TOOLS_JAR:-}" ]; then
         echo "TLA2TOOLS_JAR points to a missing file: $TLA2TOOLS_JAR" >&2
         exit 1
     fi
-    run_tlc "$JAR_PATH"
+    run_all_models "$JAR_PATH"
     exit 0
 fi
 
@@ -56,4 +65,4 @@ if [ ! -f "$JAR_PATH" ]; then
         -fsSL "$TLA2TOOLS_URL" -o /work/tla2tools.jar
 fi
 
-run_tlc "$JAR_PATH"
+run_all_models "$JAR_PATH"

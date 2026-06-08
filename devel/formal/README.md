@@ -4,7 +4,7 @@
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
 
-- A TLA+ / TLC model checks an abstract ADS/SotW publication state machine.
+- TLA+ / TLC models check abstract ADS/SotW publication and an issue-focused EDS subset invariant.
 - A Go validator checks concrete Envoy LDS/RDS/CDS/EDS snapshot dependency invariants.
 - Tests and scripts make the seam repeatable for future translator validation.
 
@@ -18,6 +18,8 @@ The TLA+ model covers protocol and state-machine behavior at a small finite-mode
 - Per-stream response nonces and reconnect behavior.
 - ACK, NACK, and stale nonce handling.
 - Dependency-closed publication sequencing across listener, route, cluster, and endpoint resources.
+
+The `XdsEdsSubset` model isolates an ADS named-EDS behavior relevant to issue 14184: if CDS stops advertising an EDS cluster while the EDS snapshot still contains that cluster's `ClusterLoadAssignment`, go-control-plane ADS mode can refuse to answer the EDS request because the snapshot contains resources outside Envoy's requested names.
 
 ### Go validator
 
@@ -33,6 +35,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - HTTP gRPC, TCP gRPC, and OpenTelemetry access log service cluster references resolve to emitted clusters.
 - Recognized tracing provider service cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
+- Emitted ClusterLoadAssignments correspond to emitted EDS clusters; orphan endpoint resources are reported because they can poison ADS named EDS responses.
 - Basic SDS references from checked TLS transport sockets, OAuth2 HTTP filters, credential-injector injected credentials, and recognized generic-secret formatter configs resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
 
@@ -150,8 +153,12 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/README.md`: overview, scope, commands, integration seam, and future work.
 - `devel/formal/invariants.md`: invariant families for snapshot closure, publication safety, and dynamic out-of-scope cases.
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
+- `devel/formal/issue-14184.md`: issue-focused formal-methods root-cause notes.
 - `devel/formal/tla/XdsAdsSotw.tla`: abstract ADS/SotW publication model.
-- `devel/formal/tla/XdsAdsSotw.cfg`: TLC configuration for the model.
+- `devel/formal/tla/XdsAdsSotw.cfg`: TLC configuration for the ADS/SotW model.
+- `devel/formal/tla/XdsEdsSubset.tla`: tiny issue-focused model of CDS/EDS subset behavior.
+- `devel/formal/tla/XdsEdsSubset.cfg`: passing TLC configuration for the safe CDS/EDS subset behavior.
+- `devel/formal/tla/XdsEdsSubsetBug.cfg`: intentionally failing TLC configuration that demonstrates the issue-14184 stale EDS counterexample.
 - `devel/formal/tla/README.md`: model explanation and TLC usage.
 - `devel/formal/tla/check.sh`: TLC runner.
 - `devel/formal/tla/check-docker.sh`: Docker-based TLC runner that keeps downloaded tools outside the repository.

@@ -4,6 +4,8 @@
 
 `XdsAdsSotw.tla` is an abstract finite model of ADS/SotW-style xDS publication. It is intentionally small: one listener, one route configuration, one cluster, and one endpoint resource. The goal is to make the protocol and dependency invariants executable under TLC, not to model all Envoy fields.
 
+`XdsEdsSubset.tla` is an issue-focused finite model for ADS named EDS responses. It captures a smaller property: the EDS snapshot must not contain endpoint resources that are no longer named by emitted EDS clusters. `XdsEdsSubset.cfg` checks the safe behavior. `XdsEdsSubsetBug.cfg` intentionally checks a buggy transition that keeps stale EDS resources after CDS shrinks, so TLC can show the counterexample without editing the model.
+
 ## Correspondence to xDS behavior
 
 The model represents:
@@ -41,7 +43,7 @@ Install Java 11 or newer and obtain `tla2tools.jar` from the TLA+ tools releases
 - `tools/tla2tools.jar`
 - `$TLA2TOOLS_JAR`
 
-Run:
+Run both passing models:
 
 ```bash
 devel/formal/tla/check.sh
@@ -61,6 +63,13 @@ devel/formal/tla/check-docker.sh
 
 The Docker runner downloads `tla2tools.jar` to `/tmp/kgateway-tla2tools` by default and mounts it into an `eclipse-temurin` Java image. It does not vendor the jar into the repository. Set `TLA2TOOLS_CACHE_DIR=/path/to/cache` to choose another cache, `TLA2TOOLS_JAR=/path/to/tla2tools.jar` to reuse a local jar, or `TLC_WORKERS=<n>` to pass an explicit TLC worker count.
 
+To reproduce the issue-focused counterexample directly:
+
+```bash
+cd devel/formal/tla
+java -jar /path/to/tla2tools.jar -config XdsEdsSubsetBug.cfg XdsEdsSubset.tla
+```
+
 ## Interpreting counterexamples
 
 If TLC reports an invariant violation, read the state trace from the initial state to the failing state. Each action corresponds to one abstract event such as `InputChange`, `SendResponse("EDS")`, `ClientAck("CDS")`, `ClientNack("LDS")`, `StaleClientRequest("RDS")`, or `Reconnect`.
@@ -70,6 +79,7 @@ Useful examples:
 - A `SentSnapshotsAreDependencyClosed` failure means a type was published before its dependencies were present in the sent snapshot.
 - An `AckAdvancesOnlyMatchingNonce` failure means acceptance advanced without the current stream's latest nonce for that type.
 - A `NoncesArePerStream` failure means nonce state survived a reconnect incorrectly.
+- An `XdsEdsSubset` `NoOrphanEndpointResources` failure means the EDS snapshot contains a `ClusterLoadAssignment` that no current EDS cluster can cause Envoy to request.
 
 ## Counterexample drills
 

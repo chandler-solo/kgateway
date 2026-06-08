@@ -113,6 +113,44 @@ func TestCheckSnapshotMissingEDSAssignmentUsesServiceNameInFinding(t *testing.T)
 	})
 }
 
+func TestCheckSnapshotOrphanClusterLoadAssignment(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Endpoints = append(snapshot.Endpoints, &envoyendpointv3.ClusterLoadAssignment{
+		ClusterName: "stale-cluster",
+	})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeOrphanClusterLoadAssignment,
+		Resource: "ClusterLoadAssignment/stale-cluster",
+		Message:  `ClusterLoadAssignment "stale-cluster" has no matching EDS cluster; ADS named EDS snapshots should not include endpoint resources Envoy will not request`,
+	})
+}
+
+func TestCheckSnapshotStaticClusterLoadAssignmentIsOrphan(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{
+		Name: "static-cluster",
+		ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
+			Type: envoyclusterv3.Cluster_STATIC,
+		},
+	})
+	snapshot.Endpoints = append(snapshot.Endpoints, &envoyendpointv3.ClusterLoadAssignment{
+		ClusterName: "static-cluster",
+	})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeOrphanClusterLoadAssignment,
+		Resource: "ClusterLoadAssignment/static-cluster",
+		Message:  `ClusterLoadAssignment "static-cluster" has no matching EDS cluster; ADS named EDS snapshots should not include endpoint resources Envoy will not request`,
+	})
+}
+
 func TestCheckSnapshotDuplicateResourceNames(t *testing.T) {
 	snapshot := validSnapshot()
 	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "cluster"})

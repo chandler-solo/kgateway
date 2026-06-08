@@ -45,6 +45,7 @@ const (
 	CodeMissingRouteConfiguration         = "missing_route_configuration"
 	CodeMissingCluster                    = "missing_cluster"
 	CodeMissingClusterLoadAssignment      = "missing_cluster_load_assignment"
+	CodeOrphanClusterLoadAssignment       = "orphan_cluster_load_assignment"
 	CodeUnsupportedHCMTypedConfig         = "unsupported_hcm_typed_config"
 	CodeUnsupportedHCMConfigType          = "unsupported_hcm_config_type"
 	CodeUnsupportedHCMRouteSpecifier      = "unsupported_hcm_route_specifier"
@@ -120,6 +121,7 @@ func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 	c.clusters = indexByName(s.Clusters, "Cluster", func(c *envoyclusterv3.Cluster) string {
 		return c.GetName()
 	}, &c.findings)
+	c.requiredEndpointNames = requiredEndpointNames(s.Clusters)
 	c.endpoints = indexByName(s.Endpoints, "ClusterLoadAssignment", func(e *envoyendpointv3.ClusterLoadAssignment) string {
 		return e.GetClusterName()
 	}, &c.findings)
@@ -149,6 +151,9 @@ func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 		c.checkEDSCluster(cluster)
 		c.checkClusterTransportSockets(cluster)
 	}
+	for _, endpoint := range s.Endpoints {
+		c.checkClusterLoadAssignment(endpoint)
+	}
 
 	return c.findings
 }
@@ -170,6 +175,8 @@ type checker struct {
 	clusters  map[string]*envoyclusterv3.Cluster
 	endpoints map[string]*envoyendpointv3.ClusterLoadAssignment
 	secrets   map[string]*envoytlsv3.Secret
+
+	requiredEndpointNames map[string]string
 }
 
 type anyTypedConfig interface {
@@ -1110,6 +1117,32 @@ func (c *checker) checkEDSCluster(cluster *envoyclusterv3.Cluster) {
 		fmt.Sprintf("cluster %q uses EDS resource %q but no matching ClusterLoadAssignment was emitted", cluster.GetName(), expectedName))
 }
 
+func (c *checker) checkClusterLoadAssignment(endpoint *envoyendpointv3.ClusterLoadAssignment) {
+	if endpoint == nil || endpoint.GetClusterName() == "" {
+		return
+	}
+	if _, ok := c.requiredEndpointNames[endpoint.GetClusterName()]; ok {
+		return
+	}
+	c.add(SeverityError, CodeOrphanClusterLoadAssignment, clusterLoadAssignmentResource(endpoint.GetClusterName()),
+		fmt.Sprintf("ClusterLoadAssignment %q has no matching EDS cluster; ADS named EDS snapshots should not include endpoint resources Envoy will not request", endpoint.GetClusterName()))
+}
+
+func requiredEndpointNames(clusters []*envoyclusterv3.Cluster) map[string]string {
+	out := make(map[string]string)
+	for _, cluster := range clusters {
+		if cluster == nil || cluster.GetType() != envoyclusterv3.Cluster_EDS {
+			continue
+		}
+		endpointName := cluster.GetEdsClusterConfig().GetServiceName()
+		if endpointName == "" {
+			endpointName = cluster.GetName()
+		}
+		out[endpointName] = cluster.GetName()
+	}
+	return out
+}
+
 func (c *checker) isCanceled(ctx context.Context) bool {
 	err := ctx.Err()
 	if err == nil {
@@ -1158,4 +1191,8 @@ func routeResource(name string) string {
 
 func clusterResource(name string) string {
 	return fmt.Sprintf("Cluster/%s", name)
+}
+
+func clusterLoadAssignmentResource(name string) string {
+	return fmt.Sprintf("ClusterLoadAssignment/%s", name)
 }

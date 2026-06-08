@@ -31,4 +31,5 @@ if [ ! -f "$JAR" ]; then
 fi
 
 cd "$SCRIPT_DIR"
-exec java -jar "$JAR" -config XdsAdsSotw.cfg XdsAdsSotw.tla
+java -jar "$JAR" -config XdsAdsSotw.cfg XdsAdsSotw.tla
+java -jar "$JAR" -config XdsEdsSubset.cfg XdsEdsSubset.tla
