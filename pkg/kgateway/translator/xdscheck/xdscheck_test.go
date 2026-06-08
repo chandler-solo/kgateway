@@ -5,15 +5,29 @@ import (
 	"strings"
 	"testing"
 
+	xdscorev3 "github.com/cncf/xds/go/xds/core/v3"
+	xdsmatcherv3 "github.com/cncf/xds/go/xds/type/matcher/v3"
+	envoyaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyratelimitconfigv3 "github.com/envoyproxy/go-control-plane/envoy/config/ratelimit/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoytracev3 "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
+	envoygrpcaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
+	envoyotelaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/open_telemetry/v3"
+	envoymatchingv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/matching/v3"
+	envoycompositev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/composite/v3"
+	envoycredentialinjectorv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/credential_injector/v3"
 	envoyextauthzv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_authz/v3"
+	envoyextprocv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	envoyjwtauthnv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
+	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	envoygenericcredentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/generic/v3"
+	envoyoauth2credentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/oauth2/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	envoywellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
@@ -388,6 +402,70 @@ func TestCheckSnapshotUnknownOAuth2HTTPFilterTypedConfigDoesNotPanic(t *testing.
 	})
 }
 
+func TestCheckSnapshotValidGenericInjectedCredentialSecretReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		credentialInjectorHTTPFilter("envoy.filters.http.credential_injector", "generic-credential", genericInjectedCredential("credential-secret")),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "credential-secret"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingGenericInjectedCredentialSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		credentialInjectorHTTPFilter("envoy.filters.http.credential_injector", "generic-credential", genericInjectedCredential("credential-secret")),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.credential_injector Credential/generic-credential",
+		Message:  `credential references missing SDS secret "credential-secret"`,
+	})
+}
+
+func TestCheckSnapshotMissingOAuth2InjectedCredentialClientSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		credentialInjectorHTTPFilter("envoy.filters.http.credential_injector", "oauth2-credential", oauth2InjectedCredential("oauth-client-secret", "oauth-token-cluster")),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "oauth-token-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.credential_injector Credential/oauth2-credential",
+		Message:  `client_credentials.client_secret references missing SDS secret "oauth-client-secret"`,
+	})
+}
+
+func TestCheckSnapshotMissingOAuth2InjectedCredentialTokenEndpointCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		credentialInjectorHTTPFilter("envoy.filters.http.credential_injector", "oauth2-credential", oauth2InjectedCredential("oauth-client-secret", "oauth-token-cluster")),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "oauth-client-secret"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.credential_injector Credential/oauth2-credential",
+		Message:  `token_endpoint.cluster references missing cluster "oauth-token-cluster"`,
+	})
+}
+
 func TestCheckSnapshotValidJWTAuthnRemoteJWKSClusterReference(t *testing.T) {
 	snapshot := validSnapshot()
 	setHCM(&snapshot, hcmWithHTTPFilters(
@@ -478,6 +556,319 @@ func TestCheckSnapshotMissingExtAuthzEnvoyGRPCServiceCluster(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotValidExtProcEnvoyGRPCServiceClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extProcHTTPFilter("envoy.filters.http.ext_proc", "extproc-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "extproc-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingExtProcEnvoyGRPCServiceCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		extProcHTTPFilter("envoy.filters.http.ext_proc", "extproc-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.ext_proc",
+		Message:  `grpc_service.envoy_grpc.cluster_name references missing cluster "extproc-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingCompositeExtProcEnvoyGRPCServiceCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		compositeExtProcHTTPFilter("ext_proc/default/extproc", "extproc-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/ext_proc/default/extproc XdsMatcher MatcherList/0 Action/composite-action TypedConfig/envoy.filters.http.ext_proc",
+		Message:  `grpc_service.envoy_grpc.cluster_name references missing cluster "extproc-cluster"`,
+	})
+}
+
+func TestCheckSnapshotValidRateLimitEnvoyGRPCServiceClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		rateLimitHTTPFilter("envoy.filters.http.ratelimit", "ratelimit-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "ratelimit-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingRateLimitEnvoyGRPCServiceCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithHTTPFilters(
+		rateLimitHTTPFilter("envoy.filters.http.ratelimit", "ratelimit-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager HttpFilter/envoy.filters.http.ratelimit",
+		Message:  `rate_limit_service.grpc_service.envoy_grpc.cluster_name references missing cluster "ratelimit-cluster"`,
+	})
+}
+
+func TestCheckSnapshotValidHTTPGRPCAccessLogClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		httpGRPCAccessLog("envoy.access_loggers.http_grpc", "access-log-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "access-log-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingHTTPGRPCAccessLogCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		httpGRPCAccessLog("envoy.access_loggers.http_grpc", "access-log-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager AccessLog/0/envoy.access_loggers.http_grpc",
+		Message:  `common_config.grpc_service.envoy_grpc.cluster_name references missing cluster "access-log-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingOpenTelemetryAccessLogGRPCCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		openTelemetryGRPCAccessLog("envoy.access_loggers.open_telemetry", "otel-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager AccessLog/0/envoy.access_loggers.open_telemetry",
+		Message:  `grpc_service.envoy_grpc.cluster_name references missing cluster "otel-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingOpenTelemetryAccessLogHTTPCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		openTelemetryHTTPAccessLog("envoy.access_loggers.open_telemetry", "otel-http-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager AccessLog/0/envoy.access_loggers.open_telemetry",
+		Message:  `http_service.http_uri.cluster references missing cluster "otel-http-cluster"`,
+	})
+}
+
+func TestCheckSnapshotValidOpenTelemetryTracingGRPCClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithTracing(
+		openTelemetryGRPCTracingProvider("envoy.tracers.opentelemetry", "otel-cluster"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "otel-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingOpenTelemetryTracingGRPCCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithTracing(
+		openTelemetryGRPCTracingProvider("envoy.tracers.opentelemetry", "otel-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager Tracing/envoy.tracers.opentelemetry",
+		Message:  `grpc_service.envoy_grpc.cluster_name references missing cluster "otel-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingOpenTelemetryTracingHTTPCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithTracing(
+		openTelemetryHTTPTracingProvider("envoy.tracers.opentelemetry", "otel-http-cluster"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager Tracing/envoy.tracers.opentelemetry",
+		Message:  `http_service.http_uri.cluster references missing cluster "otel-http-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingRecognizedTracingProviderClusters(t *testing.T) {
+	tests := []struct {
+		name        string
+		provider    *envoytracev3.Tracing_Http
+		message     string
+		clusterName string
+	}{
+		{
+			name: "Datadog",
+			provider: tracingProvider("envoy.tracers.datadog", &envoytracev3.DatadogConfig{
+				CollectorCluster: "datadog-cluster",
+				ServiceName:      "kgateway",
+			}),
+			message:     `collector_cluster references missing cluster "datadog-cluster"`,
+			clusterName: "datadog-cluster",
+		},
+		{
+			name: "Lightstep",
+			provider: tracingProvider("envoy.tracers.lightstep", &envoytracev3.LightstepConfig{
+				CollectorCluster: "lightstep-cluster",
+			}),
+			message:     `collector_cluster references missing cluster "lightstep-cluster"`,
+			clusterName: "lightstep-cluster",
+		},
+		{
+			name: "SkyWalking",
+			provider: tracingProvider("envoy.tracers.skywalking", &envoytracev3.SkyWalkingConfig{
+				GrpcService: envoyGRPCService("skywalking-cluster"),
+			}),
+			message:     `grpc_service.envoy_grpc.cluster_name references missing cluster "skywalking-cluster"`,
+			clusterName: "skywalking-cluster",
+		},
+		{
+			name: "ZipkinLegacyCollectorCluster",
+			provider: tracingProvider("envoy.tracers.zipkin", &envoytracev3.ZipkinConfig{
+				CollectorCluster:  "zipkin-cluster",
+				CollectorEndpoint: "/api/v2/spans",
+			}),
+			message:     `collector_cluster references missing cluster "zipkin-cluster"`,
+			clusterName: "zipkin-cluster",
+		},
+		{
+			name: "ZipkinCollectorService",
+			provider: tracingProvider("envoy.tracers.zipkin", &envoytracev3.ZipkinConfig{
+				CollectorService: httpService("zipkin-service-cluster", "https://zipkin.example.com/api/v2/spans"),
+			}),
+			message:     `collector_service.http_uri.cluster references missing cluster "zipkin-service-cluster"`,
+			clusterName: "zipkin-service-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snapshot := validSnapshot()
+			setHCM(&snapshot, hcmWithTracing(tt.provider))
+
+			findings := CheckSnapshot(context.Background(), snapshot)
+
+			requireFinding(t, findings, Finding{
+				Severity: SeverityError,
+				Code:     CodeMissingCluster,
+				Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager Tracing/" + tt.provider.GetName(),
+				Message:  tt.message,
+			})
+
+			snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: tt.clusterName})
+			findings = CheckSnapshot(context.Background(), snapshot)
+			if len(findings) != 0 {
+				t.Fatalf("expected no findings after adding %q, got %#v", tt.clusterName, findings)
+			}
+		})
+	}
+}
+
+func TestCheckSnapshotValidVirtualHostExtProcPerRouteClusterReference(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Routes[0].VirtualHosts[0].TypedPerFilterConfig = map[string]*anypb.Any{
+		"envoy.filters.http.ext_proc": extProcPerRouteTypedConfig("extproc-cluster"),
+	}
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "extproc-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingRouteExtProcPerRouteCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Routes[0].VirtualHosts[0].Routes[0].TypedPerFilterConfig = map[string]*anypb.Any{
+		"envoy.filters.http.ext_proc": extProcPerRouteTypedConfig("extproc-cluster"),
+	}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "RouteConfiguration/routes VirtualHost/vhost Route/to-cluster TypedPerFilterConfig/envoy.filters.http.ext_proc",
+		Message:  `overrides.grpc_service.envoy_grpc.cluster_name references missing cluster "extproc-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingWrappedWeightedClusterExtProcPerRouteCluster(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Routes[0].VirtualHosts[0].Routes[0] = routeWithAction("weighted", &envoyroutev3.RouteAction{
+		ClusterSpecifier: &envoyroutev3.RouteAction_WeightedClusters{
+			WeightedClusters: &envoyroutev3.WeightedCluster{
+				Clusters: []*envoyroutev3.WeightedCluster_ClusterWeight{{
+					Name: "cluster",
+					TypedPerFilterConfig: map[string]*anypb.Any{
+						"envoy.filters.http.ext_proc": routeFilterConfig(extProcPerRouteTypedConfig("extproc-cluster")),
+					},
+				}},
+			},
+		},
+	})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingCluster,
+		Resource: "RouteConfiguration/routes VirtualHost/vhost Route/weighted WeightedCluster/0 TypedPerFilterConfig/envoy.filters.http.ext_proc Config",
+		Message:  `overrides.grpc_service.envoy_grpc.cluster_name references missing cluster "extproc-cluster"`,
+	})
+}
+
 func validSnapshot() Snapshot {
 	return Snapshot{
 		Listeners: []*envoylistenerv3.Listener{{
@@ -543,6 +934,20 @@ func hcmWithHTTPFilters(httpFilters ...*envoyhcmv3.HttpFilter) *envoyhcmv3.HttpC
 	}
 }
 
+func hcmWithAccessLogs(accessLogs ...*envoyaccesslogv3.AccessLog) *envoyhcmv3.HttpConnectionManager {
+	hcm := hcmWithHTTPFilters()
+	hcm.AccessLog = accessLogs
+	return hcm
+}
+
+func hcmWithTracing(provider *envoytracev3.Tracing_Http) *envoyhcmv3.HttpConnectionManager {
+	hcm := hcmWithHTTPFilters()
+	hcm.Tracing = &envoyhcmv3.HttpConnectionManager_Tracing{
+		Provider: provider,
+	}
+	return hcm
+}
+
 func hcmWithInlineRouteConfig(routeConfig *envoyroutev3.RouteConfiguration) *envoyhcmv3.HttpConnectionManager {
 	return &envoyhcmv3.HttpConnectionManager{
 		StatPrefix: "http",
@@ -559,6 +964,74 @@ func routeWithAction(name string, action *envoyroutev3.RouteAction) *envoyroutev
 			PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"},
 		},
 		Action: &envoyroutev3.Route_Route{Route: action},
+	}
+}
+
+func httpGRPCAccessLog(name, cluster string) *envoyaccesslogv3.AccessLog {
+	return &envoyaccesslogv3.AccessLog{
+		Name: name,
+		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
+			TypedConfig: mustAny(&envoygrpcaccesslogv3.HttpGrpcAccessLogConfig{
+				CommonConfig: &envoygrpcaccesslogv3.CommonGrpcAccessLogConfig{
+					GrpcService: envoyGRPCService(cluster),
+				},
+			}),
+		},
+	}
+}
+
+func openTelemetryGRPCAccessLog(name, cluster string) *envoyaccesslogv3.AccessLog {
+	return &envoyaccesslogv3.AccessLog{
+		Name: name,
+		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
+			TypedConfig: mustAny(&envoyotelaccesslogv3.OpenTelemetryAccessLogConfig{
+				GrpcService: envoyGRPCService(cluster),
+			}),
+		},
+	}
+}
+
+func openTelemetryHTTPAccessLog(name, cluster string) *envoyaccesslogv3.AccessLog {
+	return &envoyaccesslogv3.AccessLog{
+		Name: name,
+		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
+			TypedConfig: mustAny(&envoyotelaccesslogv3.OpenTelemetryAccessLogConfig{
+				HttpService: &envoycorev3.HttpService{
+					HttpUri: &envoycorev3.HttpUri{
+						Uri: "https://otel.example.com/v1/logs",
+						HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+							Cluster: cluster,
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
+func openTelemetryGRPCTracingProvider(name, cluster string) *envoytracev3.Tracing_Http {
+	return &envoytracev3.Tracing_Http{
+		Name: name,
+		ConfigType: &envoytracev3.Tracing_Http_TypedConfig{
+			TypedConfig: mustAny(&envoytracev3.OpenTelemetryConfig{
+				GrpcService: envoyGRPCService(cluster),
+			}),
+		},
+	}
+}
+
+func openTelemetryHTTPTracingProvider(name, cluster string) *envoytracev3.Tracing_Http {
+	return tracingProvider(name, &envoytracev3.OpenTelemetryConfig{
+		HttpService: httpService(cluster, "https://otel.example.com/v1/traces"),
+	})
+}
+
+func tracingProvider(name string, config proto.Message) *envoytracev3.Tracing_Http {
+	return &envoytracev3.Tracing_Http{
+		Name: name,
+		ConfigType: &envoytracev3.Tracing_Http_TypedConfig{
+			TypedConfig: mustAny(config),
+		},
 	}
 }
 
@@ -587,6 +1060,44 @@ func oauth2HTTPFilter(name, tokenSecret, hmacSecret string, tokenEndpointCluster
 			TypedConfig: mustAny(&envoyoauth2v3.OAuth2{
 				Config: config,
 			}),
+		},
+	}
+}
+
+func credentialInjectorHTTPFilter(name, credentialName string, credential proto.Message) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoycredentialinjectorv3.CredentialInjector{
+				Credential: &envoycorev3.TypedExtensionConfig{
+					Name:        credentialName,
+					TypedConfig: mustAny(credential),
+				},
+			}),
+		},
+	}
+}
+
+func genericInjectedCredential(secretName string) *envoygenericcredentialv3.Generic {
+	return &envoygenericcredentialv3.Generic{
+		Credential: &envoytlsv3.SdsSecretConfig{Name: secretName},
+		Header:     "Authorization",
+	}
+}
+
+func oauth2InjectedCredential(clientSecretName, tokenEndpointCluster string) *envoyoauth2credentialv3.OAuth2 {
+	return &envoyoauth2credentialv3.OAuth2{
+		TokenEndpoint: &envoycorev3.HttpUri{
+			Uri: "https://oauth.example.com/token",
+			HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+				Cluster: tokenEndpointCluster,
+			},
+		},
+		FlowType: &envoyoauth2credentialv3.OAuth2_ClientCredentials_{
+			ClientCredentials: &envoyoauth2credentialv3.OAuth2_ClientCredentials{
+				ClientId:     "client-id",
+				ClientSecret: &envoytlsv3.SdsSecretConfig{Name: clientSecretName},
+			},
 		},
 	}
 }
@@ -641,15 +1152,107 @@ func extAuthzGRPCServiceFilter(name, cluster string) *envoyhcmv3.HttpFilter {
 		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
 			TypedConfig: mustAny(&envoyextauthzv3.ExtAuthz{
 				Services: &envoyextauthzv3.ExtAuthz_GrpcService{
-					GrpcService: &envoycorev3.GrpcService{
-						TargetSpecifier: &envoycorev3.GrpcService_EnvoyGrpc_{
-							EnvoyGrpc: &envoycorev3.GrpcService_EnvoyGrpc{
-								ClusterName: cluster,
-							},
+					GrpcService: envoyGRPCService(cluster),
+				},
+			}),
+		},
+	}
+}
+
+func extProcHTTPFilter(name, cluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyextprocv3.ExternalProcessor{
+				GrpcService: envoyGRPCService(cluster),
+			}),
+		},
+	}
+}
+
+func compositeExtProcHTTPFilter(name, cluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoymatchingv3.ExtensionWithMatcher{
+				ExtensionConfig: &envoycorev3.TypedExtensionConfig{
+					Name:        "composite_ext_proc",
+					TypedConfig: mustAny(&envoycompositev3.Composite{}),
+				},
+				XdsMatcher: &xdsmatcherv3.Matcher{
+					MatcherType: &xdsmatcherv3.Matcher_MatcherList_{
+						MatcherList: &xdsmatcherv3.Matcher_MatcherList{
+							Matchers: []*xdsmatcherv3.Matcher_MatcherList_FieldMatcher{{
+								OnMatch: &xdsmatcherv3.Matcher_OnMatch{
+									OnMatch: &xdsmatcherv3.Matcher_OnMatch_Action{
+										Action: &xdscorev3.TypedExtensionConfig{
+											Name: "composite-action",
+											TypedConfig: mustAny(&envoycompositev3.ExecuteFilterAction{
+												TypedConfig: &envoycorev3.TypedExtensionConfig{
+													Name: "envoy.filters.http.ext_proc",
+													TypedConfig: mustAny(&envoyextprocv3.ExternalProcessor{
+														GrpcService: envoyGRPCService(cluster),
+													}),
+												},
+											}),
+										},
+									},
+								},
+							}},
 						},
 					},
 				},
 			}),
+		},
+	}
+}
+
+func rateLimitHTTPFilter(name, cluster string) *envoyhcmv3.HttpFilter {
+	return &envoyhcmv3.HttpFilter{
+		Name: name,
+		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
+			TypedConfig: mustAny(&envoyratelimitv3.RateLimit{
+				RateLimitService: &envoyratelimitconfigv3.RateLimitServiceConfig{
+					GrpcService: envoyGRPCService(cluster),
+				},
+			}),
+		},
+	}
+}
+
+func extProcPerRouteTypedConfig(cluster string) *anypb.Any {
+	return mustAny(&envoyextprocv3.ExtProcPerRoute{
+		Override: &envoyextprocv3.ExtProcPerRoute_Overrides{
+			Overrides: &envoyextprocv3.ExtProcOverrides{
+				GrpcService: envoyGRPCService(cluster),
+			},
+		},
+	})
+}
+
+func routeFilterConfig(config *anypb.Any) *anypb.Any {
+	return mustAny(&envoyroutev3.FilterConfig{
+		Config: config,
+	})
+}
+
+func envoyGRPCService(cluster string) *envoycorev3.GrpcService {
+	return &envoycorev3.GrpcService{
+		TargetSpecifier: &envoycorev3.GrpcService_EnvoyGrpc_{
+			EnvoyGrpc: &envoycorev3.GrpcService_EnvoyGrpc{
+				ClusterName: cluster,
+			},
+		},
+	}
+}
+
+func httpService(cluster, uri string) *envoycorev3.HttpService {
+	return &envoycorev3.HttpService{
+		HttpUri: &envoycorev3.HttpUri{
+			Uri: uri,
+			HttpUpstreamType: &envoycorev3.HttpUri_Cluster{
+				Cluster: cluster,
+			},
 		},
 	}
 }
