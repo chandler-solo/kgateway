@@ -15,6 +15,7 @@ import (
 	envoyratelimitconfigv3 "github.com/envoyproxy/go-control-plane/envoy/config/ratelimit/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytracev3 "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
+	envoyfileaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
 	envoygrpcaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
 	envoyotelaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/open_telemetry/v3"
 	envoymatchingv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/matching/v3"
@@ -26,6 +27,7 @@ import (
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	envoygenericsecretformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/generic_secret/v3"
 	envoygenericcredentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/generic/v3"
 	envoyoauth2credentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/oauth2/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
@@ -694,6 +696,53 @@ func TestCheckSnapshotMissingOpenTelemetryAccessLogHTTPCluster(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotValidFileAccessLogGenericSecretFormatter(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		fileAccessLogWithGenericSecretFormatter("envoy.access_loggers.file", "api-token", "api-token-secret"),
+	))
+	snapshot.Secrets = []*envoytlsv3.Secret{{Name: "api-token-secret"}}
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotMissingFileAccessLogGenericSecretFormatterSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		fileAccessLogWithGenericSecretFormatter("envoy.access_loggers.file", "api-token", "api-token-secret"),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager AccessLog/0/envoy.access_loggers.file LogFormat Formatter/0/envoy.formatter.generic_secret",
+		Message:  `secret_configs[api-token] references missing SDS secret "api-token-secret"`,
+	})
+}
+
+func TestCheckSnapshotMissingOpenTelemetryAccessLogHTTPServiceGenericSecretFormatterSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		openTelemetryHTTPAccessLogWithFormatter("envoy.access_loggers.open_telemetry", "otel-http-cluster", "api-token", "api-token-secret"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "otel-http-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager AccessLog/0/envoy.access_loggers.open_telemetry http_service Formatter/0/envoy.formatter.generic_secret",
+		Message:  `secret_configs[api-token] references missing SDS secret "api-token-secret"`,
+	})
+}
+
 func TestCheckSnapshotValidOpenTelemetryTracingGRPCClusterReference(t *testing.T) {
 	snapshot := validSnapshot()
 	setHCM(&snapshot, hcmWithTracing(
@@ -737,6 +786,23 @@ func TestCheckSnapshotMissingOpenTelemetryTracingHTTPCluster(t *testing.T) {
 		Code:     CodeMissingCluster,
 		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager Tracing/envoy.tracers.opentelemetry",
 		Message:  `http_service.http_uri.cluster references missing cluster "otel-http-cluster"`,
+	})
+}
+
+func TestCheckSnapshotMissingOpenTelemetryTracingHTTPServiceGenericSecretFormatterSecret(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithTracing(
+		openTelemetryHTTPTracingProviderWithFormatter("envoy.tracers.opentelemetry", "otel-http-cluster", "api-token", "api-token-secret"),
+	))
+	snapshot.Clusters = append(snapshot.Clusters, &envoyclusterv3.Cluster{Name: "otel-http-cluster"})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	requireFinding(t, findings, Finding{
+		Severity: SeverityError,
+		Code:     CodeMissingSecret,
+		Resource: "Listener/listener FilterChain/http Filter/envoy.filters.network.http_connection_manager Tracing/envoy.tracers.opentelemetry http_service Formatter/0/envoy.formatter.generic_secret",
+		Message:  `secret_configs[api-token] references missing SDS secret "api-token-secret"`,
 	})
 }
 
@@ -1009,6 +1075,53 @@ func openTelemetryHTTPAccessLog(name, cluster string) *envoyaccesslogv3.AccessLo
 	}
 }
 
+func fileAccessLogWithGenericSecretFormatter(name, lookupName, secretName string) *envoyaccesslogv3.AccessLog {
+	return &envoyaccesslogv3.AccessLog{
+		Name: name,
+		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
+			TypedConfig: mustAny(&envoyfileaccesslogv3.FileAccessLog{
+				Path: "/tmp/access.log",
+				AccessLogFormat: &envoyfileaccesslogv3.FileAccessLog_LogFormat{
+					LogFormat: &envoycorev3.SubstitutionFormatString{
+						Format: &envoycorev3.SubstitutionFormatString_TextFormat{
+							TextFormat: "%SECRET(" + lookupName + ")%\n",
+						},
+						Formatters: []*envoycorev3.TypedExtensionConfig{
+							genericSecretFormatter(lookupName, secretName),
+						},
+					},
+				},
+			}),
+		},
+	}
+}
+
+func openTelemetryHTTPAccessLogWithFormatter(name, cluster, lookupName, secretName string) *envoyaccesslogv3.AccessLog {
+	service := httpService(cluster, "https://otel.example.com/v1/logs")
+	service.Formatters = []*envoycorev3.TypedExtensionConfig{
+		genericSecretFormatter(lookupName, secretName),
+	}
+	return &envoyaccesslogv3.AccessLog{
+		Name: name,
+		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
+			TypedConfig: mustAny(&envoyotelaccesslogv3.OpenTelemetryAccessLogConfig{
+				HttpService: service,
+			}),
+		},
+	}
+}
+
+func genericSecretFormatter(lookupName, secretName string) *envoycorev3.TypedExtensionConfig {
+	return &envoycorev3.TypedExtensionConfig{
+		Name: "envoy.formatter.generic_secret",
+		TypedConfig: mustAny(&envoygenericsecretformatterv3.GenericSecret{
+			SecretConfigs: map[string]*envoytlsv3.SdsSecretConfig{
+				lookupName: {Name: secretName},
+			},
+		}),
+	}
+}
+
 func openTelemetryGRPCTracingProvider(name, cluster string) *envoytracev3.Tracing_Http {
 	return &envoytracev3.Tracing_Http{
 		Name: name,
@@ -1023,6 +1136,16 @@ func openTelemetryGRPCTracingProvider(name, cluster string) *envoytracev3.Tracin
 func openTelemetryHTTPTracingProvider(name, cluster string) *envoytracev3.Tracing_Http {
 	return tracingProvider(name, &envoytracev3.OpenTelemetryConfig{
 		HttpService: httpService(cluster, "https://otel.example.com/v1/traces"),
+	})
+}
+
+func openTelemetryHTTPTracingProviderWithFormatter(name, cluster, lookupName, secretName string) *envoytracev3.Tracing_Http {
+	service := httpService(cluster, "https://otel.example.com/v1/traces")
+	service.Formatters = []*envoycorev3.TypedExtensionConfig{
+		genericSecretFormatter(lookupName, secretName),
+	}
+	return tracingProvider(name, &envoytracev3.OpenTelemetryConfig{
+		HttpService: service,
 	})
 }
 

@@ -11,7 +11,7 @@
 - Every service cluster referenced by a checked HTTP gRPC, TCP gRPC, or OpenTelemetry access logger exists in CDS.
 - Every service cluster referenced by a checked OpenTelemetry, Datadog, Lightstep, SkyWalking, or Zipkin tracing provider exists in CDS.
 - Every EDS cluster has a matching ClusterLoadAssignment by service name, or by cluster name when service name is empty.
-- Every SDS secret name referenced by a checked TLS transport socket, OAuth2 HTTP filter, generic injected credential, or OAuth2 injected credential exists in the emitted SDS set.
+- Every SDS secret name referenced by a checked TLS transport socket, OAuth2 HTTP filter, generic injected credential, OAuth2 injected credential, or generic-secret formatter exists in the emitted SDS set.
 - Resource names are unique within each resource type.
 
 ## xDS publication safety

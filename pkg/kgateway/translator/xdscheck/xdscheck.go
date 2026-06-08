@@ -3,6 +3,7 @@ package xdscheck
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	xdscorev3 "github.com/cncf/xds/go/xds/core/v3"
@@ -14,6 +15,7 @@ import (
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytracev3 "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
+	envoyfileaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
 	envoygrpcaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/grpc/v3"
 	envoyotelaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/open_telemetry/v3"
 	envoymatchingv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/common/matching/v3"
@@ -25,6 +27,7 @@ import (
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
 	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	envoygenericsecretformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/generic_secret/v3"
 	envoygenericcredentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/generic/v3"
 	envoyoauth2credentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/oauth2/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
@@ -53,11 +56,13 @@ const (
 	CodeUnsupportedTLSTypedConfig         = "unsupported_tls_typed_config"
 	CodeUnsupportedHTTPFilterTypedConfig  = "unsupported_http_filter_typed_config"
 	CodeUnsupportedAccessLogTypedConfig   = "unsupported_access_log_typed_config"
+	CodeUnsupportedFormatterTypedConfig   = "unsupported_formatter_typed_config"
 	CodeUnsupportedTracingTypedConfig     = "unsupported_tracing_typed_config"
 	CodeCanceled                          = "check_canceled"
 )
 
 const (
+	accessLogFileTypeURL             = "type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog"
 	accessLogHTTPGRPCTypeURL         = "type.googleapis.com/envoy.extensions.access_loggers.grpc.v3.HttpGrpcAccessLogConfig"
 	accessLogOpenTelemetryTypeURL    = "type.googleapis.com/envoy.extensions.access_loggers.open_telemetry.v3.OpenTelemetryAccessLogConfig"
 	accessLogTCPGRPCTypeURL          = "type.googleapis.com/envoy.extensions.access_loggers.grpc.v3.TcpGrpcAccessLogConfig"
@@ -68,6 +73,7 @@ const (
 	extAuthzHTTPFilterTypeURL        = "type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz"
 	extProcPerRouteTypeURL           = "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute"
 	extProcHTTPFilterTypeURL         = "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor"
+	formatterGenericSecretTypeURL    = "type.googleapis.com/envoy.extensions.formatter.generic_secret.v3.GenericSecret"
 	genericInjectedCredentialTypeURL = "type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic"
 	oauth2InjectedCredentialTypeURL  = "type.googleapis.com/envoy.extensions.http.injected_credentials.oauth2.v3.OAuth2"
 	jwtAuthnHTTPFilterTypeURL        = "type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication"
@@ -282,6 +288,7 @@ func (c *checker) checkOpenTelemetryTracingTypedConfig(typedConfig anyTypedConfi
 		resource,
 		"http_service.http_uri.cluster",
 	)
+	c.checkHTTPServiceFormatters(tracing.GetHttpService(), resource+" http_service")
 }
 
 func (c *checker) checkSkyWalkingTracingTypedConfig(typedConfig anyTypedConfig, resource string) {
@@ -313,6 +320,7 @@ func (c *checker) checkZipkinTracingTypedConfig(typedConfig anyTypedConfig, reso
 			resource,
 			"collector_service.http_uri.cluster",
 		)
+		c.checkHTTPServiceFormatters(tracing.GetCollectorService(), resource+" collector_service")
 		return
 	}
 
@@ -346,6 +354,8 @@ func (c *checker) checkAccessLog(accessLog *envoyaccesslogv3.AccessLog, resource
 	}
 
 	switch typedConfig.GetTypeUrl() {
+	case accessLogFileTypeURL:
+		c.checkFileAccessLogTypedConfig(typedConfig, resource)
 	case accessLogHTTPGRPCTypeURL:
 		c.checkHTTPGRPCAccessLogTypedConfig(typedConfig, resource)
 	case accessLogTCPGRPCTypeURL:
@@ -408,6 +418,82 @@ func (c *checker) checkOpenTelemetryAccessLogTypedConfig(typedConfig anyTypedCon
 		resource,
 		"http_service.http_uri.cluster",
 	)
+	c.checkFormatterTypedConfigs(accessLog.GetFormatters(), resource)
+	c.checkHTTPServiceFormatters(accessLog.GetHttpService(), resource+" http_service")
+}
+
+func (c *checker) checkFileAccessLogTypedConfig(typedConfig anyTypedConfig, resource string) {
+	accessLog := &envoyfileaccesslogv3.FileAccessLog{}
+	if err := typedConfig.UnmarshalTo(accessLog); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedAccessLogTypedConfig, resource,
+			fmt.Sprintf("cannot unpack File access log typed_config %q; log format formatter references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+
+	c.checkSubstitutionFormatString(accessLog.GetLogFormat(), resource+" LogFormat")
+}
+
+func (c *checker) checkHTTPServiceFormatters(httpService *envoycorev3.HttpService, resource string) {
+	if httpService == nil {
+		return
+	}
+	c.checkFormatterTypedConfigs(httpService.GetFormatters(), resource)
+}
+
+func (c *checker) checkSubstitutionFormatString(format *envoycorev3.SubstitutionFormatString, resource string) {
+	if format == nil {
+		return
+	}
+	c.checkFormatterTypedConfigs(format.GetFormatters(), resource)
+}
+
+func (c *checker) checkFormatterTypedConfigs(formatters []*envoycorev3.TypedExtensionConfig, resource string) {
+	for i, formatter := range formatters {
+		formatterName := "<nil>"
+		var typedConfig anyTypedConfig
+		if formatter != nil {
+			formatterName = formatter.GetName()
+			typedConfig = formatter.GetTypedConfig()
+		}
+		if formatterName == "" {
+			formatterName = "<unnamed>"
+		}
+		c.checkFormatterTypedConfig(typedConfig, fmt.Sprintf("%s Formatter/%d/%s", resource, i, formatterName))
+	}
+}
+
+func (c *checker) checkFormatterTypedConfig(typedConfig anyTypedConfig, resource string) {
+	if typedConfig == nil {
+		c.add(SeverityWarning, CodeUnsupportedFormatterTypedConfig, resource,
+			"formatter does not use typed_config; formatter references were not validated")
+		return
+	}
+
+	switch typedConfig.GetTypeUrl() {
+	case formatterGenericSecretTypeURL:
+		c.checkGenericSecretFormatterTypedConfig(typedConfig, resource)
+	default:
+		c.add(SeverityWarning, CodeUnsupportedFormatterTypedConfig, resource,
+			fmt.Sprintf("formatter has typed_config %q; formatter references were not validated", typedConfig.GetTypeUrl()))
+	}
+}
+
+func (c *checker) checkGenericSecretFormatterTypedConfig(typedConfig anyTypedConfig, resource string) {
+	formatter := &envoygenericsecretformatterv3.GenericSecret{}
+	if err := typedConfig.UnmarshalTo(formatter); err != nil {
+		c.add(SeverityWarning, CodeUnsupportedFormatterTypedConfig, resource,
+			fmt.Sprintf("cannot unpack GenericSecret formatter typed_config %q; formatter SDS references were not validated: %v", typedConfig.GetTypeUrl(), err))
+		return
+	}
+
+	names := make([]string, 0, len(formatter.GetSecretConfigs()))
+	for name := range formatter.GetSecretConfigs() {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		c.requireSecret(formatter.GetSecretConfigs()[name], resource, fmt.Sprintf("secret_configs[%s]", name))
+	}
 }
 
 func (c *checker) checkHCMHTTPFilters(hcm *envoyhcmv3.HttpConnectionManager, hcmResource string) {

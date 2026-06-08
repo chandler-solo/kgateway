@@ -33,7 +33,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - HTTP gRPC, TCP gRPC, and OpenTelemetry access log service cluster references resolve to emitted clusters.
 - Recognized tracing provider service cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
-- Basic SDS references from checked TLS transport sockets, OAuth2 HTTP filters, and credential-injector injected credentials resolve to emitted secrets.
+- Basic SDS references from checked TLS transport sockets, OAuth2 HTTP filters, credential-injector injected credentials, and recognized generic-secret formatter configs resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
 
 ### Future proof systems
@@ -133,7 +133,7 @@ The current checked-in integrations are:
 - `TestTranslatedGRPCAccessLogSnapshotPassesXDSCheck`, which runs an existing HTTP gRPC access log fixture and checks the emitted access log service cluster.
 - `TestTranslatedOpenTelemetryAccessLogAndTracingSnapshotPassesXDSCheck`, which runs an existing OpenTelemetry fixture and checks the emitted OTel access log and tracing service clusters.
 
-The checker currently covers standard downstream and upstream TLS transport socket secret references, Envoy OAuth2 HTTP filter token and HMAC secret references, generic and OAuth2 injected credential SDS references, OAuth2 token endpoint clusters, injected OAuth2 credential token endpoint clusters, JWT AuthN remote JWKS clusters, ExtAuthz HTTP or Envoy gRPC service clusters, ExtProc Envoy gRPC service clusters, ExtProc per-route override service clusters, global RateLimit Envoy gRPC service clusters, access log service clusters for recognized gRPC and OpenTelemetry access loggers, and tracing service clusters for recognized OpenTelemetry, Datadog, Lightstep, SkyWalking, and Zipkin tracing providers. Existing HTTPS translator fixtures use inline certificate material, so TLS transport socket SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
+The checker currently covers standard downstream and upstream TLS transport socket secret references, Envoy OAuth2 HTTP filter token and HMAC secret references, generic and OAuth2 injected credential SDS references, generic-secret formatter SDS references in recognized FileAccessLog, OpenTelemetry access log, OpenTelemetry tracing, and Zipkin tracing configs, OAuth2 token endpoint clusters, injected OAuth2 credential token endpoint clusters, JWT AuthN remote JWKS clusters, ExtAuthz HTTP or Envoy gRPC service clusters, ExtProc Envoy gRPC service clusters, ExtProc per-route override service clusters, global RateLimit Envoy gRPC service clusters, access log service clusters for recognized gRPC and OpenTelemetry access loggers, and tracing service clusters for recognized OpenTelemetry, Datadog, Lightstep, SkyWalking, and Zipkin tracing providers. Existing HTTPS translator fixtures use inline certificate material, so TLS transport socket SDS coverage is exercised by focused `xdscheck` unit tests rather than a translator fixture.
 
 The intended future translator-test seam is:
 
@@ -159,8 +159,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 
 ## Future work
 
-1. Add SDS validation for recognized generic-secret formatter typed configs.
-2. Add a delta xDS model.
-3. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
-4. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
-5. Model Envoy warming behavior for LDS/RDS and CDS/EDS dependencies.
+1. Add a delta xDS model.
+2. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
+3. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
+4. Model Envoy warming behavior for LDS/RDS and CDS/EDS dependencies.
