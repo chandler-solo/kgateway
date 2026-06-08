@@ -220,8 +220,10 @@ func snapshotPerClient(
 			)
 			return nil
 		}
-		// Exclude CLAs for STATIC clusters so ADS snapshot only contains resources Envoy will request.
-		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
+		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
+		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
+		// longer present in CDS can make go-control-plane suppress ADS responses.
+		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
 		if missingEndpointClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
@@ -547,32 +549,32 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 	collectProtoClusterReferences(msg.Interface(), referencedClusters)
 }
 
-// filterEndpointResourcesForStaticClusters returns endpoint resources excluding CLAs for clusters
-// that are STATIC (inline endpoints). Envoy does not request EDS for those; including them in the
-// snapshot triggers the ADS cache "not listed" warning when responding to EDS requests.
-func filterEndpointResourcesForStaticClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
-	staticClusterNames := make(map[string]struct{})
+// filterEndpointResourcesForClusters returns endpoint resources required by EDS
+// clusters in the same CDS snapshot. Envoy requests EDS resources from CDS, so
+// publishing CLAs for STATIC clusters or removed EDS clusters can make the ADS
+// cache refuse named EDS responses.
+func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
+	requiredEndpointNames := make(map[string]struct{})
 	for _, item := range clusters.Items {
-		if c, ok := item.Resource.(*envoyclusterv3.Cluster); ok && c.GetType() == envoyclusterv3.Cluster_STATIC {
-			staticClusterNames[c.GetName()] = struct{}{}
+		if endpointName, requiresEndpointResource := endpointResourceNameForCluster(item); requiresEndpointResource {
+			requiredEndpointNames[endpointName] = struct{}{}
 		}
 	}
-	if len(staticClusterNames) == 0 {
-		return endpoints
-	}
 	filteredEndpoints := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.Items))
+	var resourcesHash uint64
 	for _, item := range endpoints.Items {
 		cla, ok := item.Resource.(*envoyendpointv3.ClusterLoadAssignment)
 		if !ok {
 			continue
 		}
-		if _, isStatic := staticClusterNames[cla.GetClusterName()]; isStatic {
+		if _, required := requiredEndpointNames[cla.GetClusterName()]; !required {
 			continue
 		}
 		filteredEndpoints = append(filteredEndpoints, item)
+		resourcesHash ^= utils.HashProto(cla)
 	}
 	if len(filteredEndpoints) == len(endpoints.Items) {
 		return endpoints
 	}
-	return envoycache.NewResourcesWithTTL(endpoints.Version, filteredEndpoints)
+	return envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", resourcesHash), filteredEndpoints)
 }

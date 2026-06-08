@@ -35,6 +35,8 @@ import (
 	envoywellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	kgatewaywellknown "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
 const (
@@ -75,6 +77,8 @@ const (
 	extProcPerRouteTypeURL           = "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute"
 	extProcHTTPFilterTypeURL         = "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor"
 	formatterGenericSecretTypeURL    = "type.googleapis.com/envoy.extensions.formatter.generic_secret.v3.GenericSecret"
+	formatterMetadataTypeURL         = "type.googleapis.com/envoy.extensions.formatter.metadata.v3.Metadata"
+	formatterReqWithoutQueryTypeURL  = "type.googleapis.com/envoy.extensions.formatter.req_without_query.v3.ReqWithoutQuery"
 	genericInjectedCredentialTypeURL = "type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic"
 	oauth2InjectedCredentialTypeURL  = "type.googleapis.com/envoy.extensions.http.injected_credentials.oauth2.v3.OAuth2"
 	jwtAuthnHTTPFilterTypeURL        = "type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication"
@@ -88,6 +92,7 @@ const (
 	tracingSkyWalkingTypeURL         = "type.googleapis.com/envoy.config.trace.v3.SkyWalkingConfig"
 	tracingZipkinTypeURL             = "type.googleapis.com/envoy.config.trace.v3.ZipkinConfig"
 	unsupportedFilterChainNameField  = "filter_chain_name"
+	systemCASecretName               = "SYSTEM_CA_CERT"
 )
 
 // Snapshot is the Envoy xDS resource set checked by this package.
@@ -479,6 +484,8 @@ func (c *checker) checkFormatterTypedConfig(typedConfig anyTypedConfig, resource
 	switch typedConfig.GetTypeUrl() {
 	case formatterGenericSecretTypeURL:
 		c.checkGenericSecretFormatterTypedConfig(typedConfig, resource)
+	case formatterMetadataTypeURL, formatterReqWithoutQueryTypeURL:
+		return
 	default:
 		c.add(SeverityWarning, CodeUnsupportedFormatterTypedConfig, resource,
 			fmt.Sprintf("formatter has typed_config %q; formatter references were not validated", typedConfig.GetTypeUrl()))
@@ -934,11 +941,15 @@ func (c *checker) requireSecret(secretConfig *envoytlsv3.SdsSecretConfig, resour
 	if secretConfig == nil || secretConfig.GetName() == "" {
 		return
 	}
-	if _, ok := c.secrets[secretConfig.GetName()]; ok {
+	name := secretConfig.GetName()
+	if name == systemCASecretName {
+		return
+	}
+	if _, ok := c.secrets[name]; ok {
 		return
 	}
 	c.add(SeverityError, CodeMissingSecret, resource,
-		fmt.Sprintf("%s references missing SDS secret %q", field, secretConfig.GetName()))
+		fmt.Sprintf("%s references missing SDS secret %q", field, name))
 }
 
 func (c *checker) unpackHCM(filter *envoylistenerv3.Filter, resource string) (*envoyhcmv3.HttpConnectionManager, bool) {
@@ -1083,6 +1094,9 @@ func (c *checker) requireCluster(name, resource, routeConfigName, virtualHostNam
 	if name == "" {
 		return
 	}
+	if name == kgatewaywellknown.BlackholeClusterName {
+		return
+	}
 	if _, ok := c.clusters[name]; ok {
 		return
 	}
@@ -1092,6 +1106,9 @@ func (c *checker) requireCluster(name, resource, routeConfigName, virtualHostNam
 
 func (c *checker) requireClusterReference(name, resource, field string) {
 	if name == "" {
+		return
+	}
+	if name == kgatewaywellknown.BlackholeClusterName {
 		return
 	}
 	if _, ok := c.clusters[name]; ok {

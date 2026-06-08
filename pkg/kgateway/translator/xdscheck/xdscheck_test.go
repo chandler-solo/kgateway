@@ -28,6 +28,8 @@ import (
 	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoygenericsecretformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/generic_secret/v3"
+	envoymetadataformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/metadata/v3"
+	envoyreqwithoutqueryformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/req_without_query/v3"
 	envoygenericcredentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/generic/v3"
 	envoyoauth2credentialv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/http/injected_credentials/oauth2/v3"
 	proxyprotocolv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/proxy_protocol/v3"
@@ -36,6 +38,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	kgatewaywellknown "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
 func TestCheckSnapshotValidLDSRDSCDSEDS(t *testing.T) {
@@ -209,6 +213,41 @@ func TestCheckSnapshotClusterHeaderRouteIsWarningOnly(t *testing.T) {
 	})
 }
 
+func TestCheckSnapshotBlackholeClusterRouteIsIntentionalSentinel(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Routes[0].VirtualHosts[0].Routes[0] = routeWithAction("unresolved-backend", &envoyroutev3.RouteAction{
+		ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{
+			Cluster: kgatewaywellknown.BlackholeClusterName,
+		},
+	})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected blackhole cluster sentinel to produce no findings, got %#v", findings)
+	}
+}
+
+func TestCheckSnapshotWeightedBlackholeClusterEntryIsIntentionalSentinel(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Routes[0].VirtualHosts[0].Routes[0] = routeWithAction("weighted-with-unresolved-backend", &envoyroutev3.RouteAction{
+		ClusterSpecifier: &envoyroutev3.RouteAction_WeightedClusters{
+			WeightedClusters: &envoyroutev3.WeightedCluster{
+				Clusters: []*envoyroutev3.WeightedCluster_ClusterWeight{
+					{Name: "cluster", Weight: wrapperspb.UInt32(90)},
+					{Name: kgatewaywellknown.BlackholeClusterName, Weight: wrapperspb.UInt32(10)},
+				},
+			},
+		},
+	})
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected weighted blackhole cluster sentinel to produce no findings, got %#v", findings)
+	}
+}
+
 func TestCheckSnapshotUnknownHCMTypedConfigDoesNotPanic(t *testing.T) {
 	snapshot := validSnapshot()
 	snapshot.Listeners[0].FilterChains[0].Filters[0].ConfigType = &envoylistenerv3.Filter_TypedConfig{
@@ -296,6 +335,17 @@ func TestCheckSnapshotMissingUpstreamValidationContextSDSSecret(t *testing.T) {
 		Resource: "Cluster/cluster TransportSocket",
 		Message:  `combined_validation_context.validation_context_sds_secret_config references missing SDS secret "backend-ca"`,
 	})
+}
+
+func TestCheckSnapshotSystemCASecretReferenceIsSatisfiedByBootstrap(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Clusters[0].TransportSocket = upstreamValidationContextTransportSocket(systemCASecretName)
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected system CA SDS reference to produce no findings, got %#v", findings)
+	}
 }
 
 func TestCheckSnapshotMissingTransportSocketMatchSDSSecret(t *testing.T) {
@@ -764,6 +814,23 @@ func TestCheckSnapshotMissingFileAccessLogGenericSecretFormatterSecret(t *testin
 	})
 }
 
+func TestCheckSnapshotRecognizedNoReferenceFormatters(t *testing.T) {
+	snapshot := validSnapshot()
+	setHCM(&snapshot, hcmWithAccessLogs(
+		fileAccessLogWithFormatters(
+			"envoy.access_loggers.file",
+			formatter("envoy.formatter.req_without_query", &envoyreqwithoutqueryformatterv3.ReqWithoutQuery{}),
+			formatter("envoy.formatter.metadata", &envoymetadataformatterv3.Metadata{}),
+		),
+	))
+
+	findings := CheckSnapshot(context.Background(), snapshot)
+
+	if len(findings) != 0 {
+		t.Fatalf("expected recognized formatters to produce no findings, got %#v", findings)
+	}
+}
+
 func TestCheckSnapshotMissingOpenTelemetryAccessLogHTTPServiceGenericSecretFormatterSecret(t *testing.T) {
 	snapshot := validSnapshot()
 	setHCM(&snapshot, hcmWithAccessLogs(
@@ -1114,6 +1181,10 @@ func openTelemetryHTTPAccessLog(name, cluster string) *envoyaccesslogv3.AccessLo
 }
 
 func fileAccessLogWithGenericSecretFormatter(name, lookupName, secretName string) *envoyaccesslogv3.AccessLog {
+	return fileAccessLogWithFormatters(name, genericSecretFormatter(lookupName, secretName))
+}
+
+func fileAccessLogWithFormatters(name string, formatters ...*envoycorev3.TypedExtensionConfig) *envoyaccesslogv3.AccessLog {
 	return &envoyaccesslogv3.AccessLog{
 		Name: name,
 		ConfigType: &envoyaccesslogv3.AccessLog_TypedConfig{
@@ -1122,15 +1193,20 @@ func fileAccessLogWithGenericSecretFormatter(name, lookupName, secretName string
 				AccessLogFormat: &envoyfileaccesslogv3.FileAccessLog_LogFormat{
 					LogFormat: &envoycorev3.SubstitutionFormatString{
 						Format: &envoycorev3.SubstitutionFormatString_TextFormat{
-							TextFormat: "%SECRET(" + lookupName + ")%\n",
+							TextFormat: "%REQ(:PATH)%\n",
 						},
-						Formatters: []*envoycorev3.TypedExtensionConfig{
-							genericSecretFormatter(lookupName, secretName),
-						},
+						Formatters: formatters,
 					},
 				},
 			}),
 		},
+	}
+}
+
+func formatter(name string, config proto.Message) *envoycorev3.TypedExtensionConfig {
+	return &envoycorev3.TypedExtensionConfig{
+		Name:        name,
+		TypedConfig: mustAny(config),
 	}
 }
 

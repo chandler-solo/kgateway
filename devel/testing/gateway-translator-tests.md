@@ -6,6 +6,10 @@ This guide explains how to work with gateway translator tests in kgateway, inclu
 
 Gateway translator tests validate that Gateway API resources (Gateways, HTTPRoutes, etc.) are correctly translated into Envoy xDS configuration. These tests use a "golden file" approach where expected outputs are stored as files and compared against actual test results.
 
+## Related Design
+
+See [xds-test-coverage-design.md](xds-test-coverage-design.md) for the proposed plan to expand golden tests into comprehensive xDS semantic, lifecycle, coverage-matrix, and e2e coverage.
+
 ## Test Structure
 
 Gateway translator tests are located in:

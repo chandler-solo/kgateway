@@ -48,6 +48,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/listener"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/xdscheck"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
@@ -251,6 +252,9 @@ type ExtraConfig struct {
 	PluginsFn             ExtraPluginsFn
 	Schemes               runtime.SchemeBuilder
 	GVKToStructuralSchema map[schema.GroupVersionKind]*apiserverschema.Structural
+	SkipXDSCheck          bool
+	SkipXDSCheckReason    string
+	AllowedXDSWarnings    []string
 }
 
 func NewScheme(extraSchemes runtime.SchemeBuilder) *runtime.Scheme {
@@ -302,6 +306,11 @@ func TestTranslationWithExtraPlugins(
 	// sort the output and print it
 	result.Proxy = sortProxy(result.Proxy)
 	result.Clusters = sortClusters(result.Clusters)
+	if !extraConfig.SkipXDSCheck {
+		assertXDSCheckFindings(t, ctx, gwNN, result, extraConfig.AllowedXDSWarnings)
+	} else {
+		r.NotEmpty(extraConfig.SkipXDSCheckReason, "SkipXDSCheck requires a reason for %s", gwNN.String())
+	}
 	output := &translationResult{
 		Routes:        result.Proxy.Routes,
 		Listeners:     result.Proxy.Listeners,
@@ -334,6 +343,86 @@ func TestTranslationWithExtraPlugins(
 	gotStatuses, err := compareStatuses(outputFile, output.Statuses)
 	r.Emptyf(gotStatuses, "unexpected diff in statuses output; actual result: %s", outputYaml)
 	r.NoError(err, "error comparing statuses output")
+}
+
+func assertXDSCheckFindings(
+	t *testing.T,
+	ctx context.Context,
+	gwNN types.NamespacedName,
+	result ActualTestResult,
+	allowedWarnings []string,
+) {
+	t.Helper()
+
+	r := require.New(t)
+	r.NotNil(result.Proxy, "expected translated proxy for %s", gwNN.String())
+
+	clusters := append([]*envoyclusterv3.Cluster{}, result.Proxy.ExtraClusters...)
+	clusters = append(clusters, result.Clusters...)
+	endpoints := filterEndpointResourcesForXDSCheck(clusters, result.Endpoints)
+	findings := xdscheck.CheckSnapshot(ctx, xdscheck.Snapshot{
+		Listeners: result.Proxy.Listeners,
+		Routes:    result.Proxy.Routes,
+		Clusters:  clusters,
+		Endpoints: endpoints,
+		Secrets:   result.Proxy.Secrets,
+	})
+	r.Empty(xdscheck.ErrorFindings(findings), "xdscheck error findings for %s: %#v", gwNN.String(), findings)
+
+	if len(allowedWarnings) == 0 {
+		var warnings []xdscheck.Finding
+		for _, finding := range findings {
+			if finding.Severity == xdscheck.SeverityWarning {
+				warnings = append(warnings, finding)
+			}
+		}
+		r.Empty(warnings, "unexpected xdscheck warning findings for %s: %#v", gwNN.String(), warnings)
+		return
+	}
+
+	allowed := make(map[string]struct{}, len(allowedWarnings))
+	for _, code := range allowedWarnings {
+		allowed[code] = struct{}{}
+	}
+	var unexpected []xdscheck.Finding
+	for _, finding := range findings {
+		if finding.Severity != xdscheck.SeverityWarning {
+			continue
+		}
+		if _, ok := allowed[finding.Code]; !ok {
+			unexpected = append(unexpected, finding)
+		}
+	}
+	r.Empty(unexpected, "unexpected xdscheck warning findings for %s: %#v", gwNN.String(), unexpected)
+}
+
+func filterEndpointResourcesForXDSCheck(
+	clusters []*envoyclusterv3.Cluster,
+	endpoints []*envoyendpointv3.ClusterLoadAssignment,
+) []*envoyendpointv3.ClusterLoadAssignment {
+	requiredEndpoints := make(map[string]struct{})
+	for _, cluster := range clusters {
+		if cluster == nil || cluster.GetType() != envoyclusterv3.Cluster_EDS {
+			continue
+		}
+		name := cluster.GetEdsClusterConfig().GetServiceName()
+		if name == "" {
+			name = cluster.GetName()
+		}
+		requiredEndpoints[name] = struct{}{}
+	}
+
+	filtered := make([]*envoyendpointv3.ClusterLoadAssignment, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint == nil {
+			continue
+		}
+		if _, ok := requiredEndpoints[endpoint.GetClusterName()]; !ok {
+			continue
+		}
+		filtered = append(filtered, endpoint)
+	}
+	return filtered
 }
 
 type TestCase struct {
@@ -859,6 +948,11 @@ func (tc TestCase) Run(
 		t := translator.GetBackendTranslator()
 		ucc := ir.NewUniquelyConnectedClient("test", "test", nil, ir.PodLocality{})
 		var clusters []*envoyclusterv3.Cluster
+		endpointIRs := commoncol.Endpoints.List()
+		endpointsByResourceName := make(map[string]ir.EndpointsForBackend, len(endpointIRs))
+		for _, ep := range endpointIRs {
+			endpointsByResourceName[ep.ResourceName()] = ep
+		}
 		referencedClusters := extractRouteConfigurationClusterNames(xdsSnap.Routes)
 		for _, col := range commoncol.BackendIndex.BackendsWithPolicy() {
 			for _, backend := range col.List() {
@@ -873,6 +967,7 @@ func (tc TestCase) Run(
 				}
 			}
 		}
+		var gatewayBackendVariantEndpointIRs []ir.EndpointsForBackend
 		if clientCertificate, err := gatewaytls.ResolveForGateway(krt.TestingDummyContext{}, ctx, queries, &gw); err == nil && clientCertificate != nil {
 			for _, col := range commoncol.BackendIndex.BackendsWithPolicy() {
 				for _, backend := range col.List() {
@@ -888,12 +983,16 @@ func (tc TestCase) Run(
 					if cluster != nil {
 						clusters = append(clusters, cluster)
 					}
+					if baseEndpoints, ok := endpointsByResourceName[backend.ResourceName()]; ok {
+						gatewayBackendVariantEndpointIRs = append(gatewayBackendVariantEndpointIRs, cloneEndpointsForBackend(baseEndpoints, clone))
+					}
 				}
 			}
 		}
 
 		var endpointAssignments []*envoyendpointv3.ClusterLoadAssignment
-		for _, ep := range commoncol.Endpoints.List() {
+		endpointIRs = append(endpointIRs, gatewayBackendVariantEndpointIRs...)
+		for _, ep := range endpointIRs {
 			endpointAssignment, _ := translator.TranslateEndpoints(krt.TestingDummyContext{}, ucc, ep)
 			if endpointAssignment != nil {
 				endpointAssignments = append(endpointAssignments, endpointAssignment)
@@ -907,6 +1006,16 @@ func (tc TestCase) Run(
 	}
 
 	return results, nil
+}
+
+func cloneEndpointsForBackend(base ir.EndpointsForBackend, backend ir.BackendObjectIR) ir.EndpointsForBackend {
+	clone := ir.NewEndpointsForBackend(backend)
+	for locality, endpoints := range base.LbEps {
+		for _, endpoint := range endpoints {
+			clone.Add(locality, endpoint)
+		}
+	}
+	return *clone
 }
 
 func ReadProxyFromFile(filename string) (*irtranslator.TranslationResult, error) {

@@ -154,6 +154,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/invariants.md`: invariant families for snapshot closure, publication safety, and dynamic out-of-scope cases.
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
 - `devel/formal/issue-14184.md`: issue-focused formal-methods root-cause notes.
+- `devel/formal/issue-14184-design.md`: proposed fix design for stale EDS resources blocking ADS responses.
 - `devel/formal/tla/XdsAdsSotw.tla`: abstract ADS/SotW publication model.
 - `devel/formal/tla/XdsAdsSotw.cfg`: TLC configuration for the ADS/SotW model.
 - `devel/formal/tla/XdsEdsSubset.tla`: tiny issue-focused model of CDS/EDS subset behavior.
