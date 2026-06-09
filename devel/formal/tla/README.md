@@ -6,6 +6,8 @@
 
 `XdsReconnectRace13868.tla` is a focused model for PR 13868's reconnect-time cluster readiness gate. It captures a retained last-good snapshot, partial per-client cluster translation after reconnect, and the decision to publish or defer. `XdsReconnectRace13868.cfg` checks the safe behavior. `XdsReconnectRace13868Bug.cfg` intentionally checks the old partial-publish behavior and should fail.
 
+`XdsPerClientPublication.tla` combines the 13868 and 14184 failure shapes in one phase-based model. It captures retained last-good snapshots, reconnect partial cluster readiness, explicitly errored clusters, stale EDS resources after CDS shrinks, named EDS response compatibility, and a minimal Envoy warming/active distinction. `XdsPerClientPublication.cfg` checks the safe behavior. The two buggy configs intentionally fail with the missing-cluster and stale-EDS counterexamples.
+
 `XdsEdsSubset.tla` is an issue-focused finite model for ADS named EDS responses. It captures a smaller property: the EDS snapshot must not contain endpoint resources that are no longer named by emitted EDS clusters. `XdsEdsSubset.cfg` checks the safe behavior. `XdsEdsSubsetBug.cfg` intentionally checks a buggy transition that keeps stale EDS resources after CDS shrinks, so TLC can show the counterexample without editing the model.
 
 ## Correspondence to xDS behavior
@@ -21,6 +23,7 @@ The model represents:
 - Reconnect resetting nonce context while preserving resource-level versions.
 - SotW publication sequencing that keeps sent LDS/RDS/CDS/EDS state dependency-closed.
 - Reconnect-time per-client snapshot publication deferral until referenced clusters are present or explicitly errored.
+- Per-client cache retention, EDS filtering, named EDS response compatibility, and a minimal Envoy active/warming split for the combined 13868/14184 startup and reconnect traces.
 
 The dependency chain is:
 
@@ -73,6 +76,14 @@ cd devel/formal/tla
 java -jar /path/to/tla2tools.jar -config XdsReconnectRace13868Bug.cfg XdsReconnectRace13868.tla
 ```
 
+To reproduce the combined per-client publication counterexamples directly:
+
+```bash
+cd devel/formal/tla
+java -jar /path/to/tla2tools.jar -config XdsPerClientPublicationMissingClusterBug.cfg XdsPerClientPublication.tla
+java -jar /path/to/tla2tools.jar -config XdsPerClientPublicationStaleEdsBug.cfg XdsPerClientPublication.tla
+```
+
 To reproduce the issue-14184 EDS subset counterexample directly:
 
 ```bash
@@ -90,6 +101,8 @@ Useful examples:
 - An `AckAdvancesOnlyMatchingNonce` failure means acceptance advanced without the current stream's latest nonce for that type.
 - A `NoncesArePerStream` failure means nonce state survived a reconnect incorrectly.
 - An `XdsReconnectRace13868` `ServedSnapshotReferencesResolved` failure means the xDS cache was overwritten by a new per-client snapshot whose route/listener references include a cluster that is neither in CDS nor explicitly errored.
+- An `XdsPerClientPublication` `CacheSnapshotCoherent` failure means the per-client xDS cache was overwritten with a snapshot that has a missing referenced cluster, a missing referenced EDS resource, or an orphan EDS resource.
+- An `XdsPerClientPublication` `AlignedEDSRequestRespondable` failure means Envoy has learned the same CDS names as the cache, but the cache EDS set cannot satisfy the named EDS request.
 - An `XdsEdsSubset` `NoOrphanEndpointResources` failure means the EDS snapshot contains a `ClusterLoadAssignment` that no current EDS cluster can cause Envoy to request.
 
 ## Counterexample drills

@@ -4,7 +4,7 @@
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
 
-- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, and an issue-focused EDS subset invariant.
+- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, and an issue-focused EDS subset invariant.
 - A Go validator checks concrete Envoy LDS/RDS/CDS/EDS snapshot dependency invariants.
 - Tests and scripts make the seam repeatable for future translator validation.
 
@@ -22,6 +22,8 @@ The TLA+ model covers protocol and state-machine behavior at a small finite-mode
 The `XdsEdsSubset` model isolates an ADS named-EDS behavior relevant to issue 14184: if CDS stops advertising an EDS cluster while the EDS snapshot still contains that cluster's `ClusterLoadAssignment`, go-control-plane ADS mode can refuse to answer the EDS request because the snapshot contains resources outside Envoy's requested names.
 
 The `XdsReconnectRace13868` model isolates the reconnect-time partial snapshot race fixed by PR 13868. It proves, in a finite model, that the readiness gate prevents the xDS cache from being overwritten by a snapshot whose route/listener cluster references are missing from CDS unless the missing cluster is explicitly errored. The companion buggy config demonstrates the old partial-publish counterexample.
+
+The `XdsPerClientPublication` model combines the 13868 and 14184 failure shapes. It checks that retained last-good snapshots, referenced-cluster readiness, referenced-endpoint readiness, EDS filtering, named EDS response behavior, and a minimal Envoy warming/active distinction work together for the two critical traces.
 
 ### Go validator
 
@@ -156,6 +158,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/invariants.md`: invariant families for snapshot closure, publication safety, and dynamic out-of-scope cases.
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
 - `devel/formal/issue-13868.md`: issue-focused notes for the reconnect-time cluster readiness model.
+- `devel/formal/issue-13868-14184.md`: combined per-client publication model notes for startup, reconnect, stale EDS, and Envoy activation behavior.
 - `devel/formal/issue-14184.md`: issue-focused formal-methods root-cause notes.
 - `devel/formal/issue-14184-design.md`: proposed fix design for stale EDS resources blocking ADS responses.
 - `devel/formal/tla/XdsAdsSotw.tla`: abstract ADS/SotW publication model.
@@ -163,6 +166,10 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/tla/XdsReconnectRace13868.tla`: focused model of the reconnect-time cluster readiness gate from PR 13868.
 - `devel/formal/tla/XdsReconnectRace13868.cfg`: passing TLC configuration for the PR 13868 readiness gate.
 - `devel/formal/tla/XdsReconnectRace13868Bug.cfg`: intentionally failing TLC configuration that demonstrates the old partial publish race.
+- `devel/formal/tla/XdsPerClientPublication.tla`: combined 13868/14184 per-client publication model with retained cache, stale EDS, named EDS response, and minimal Envoy warming/active state.
+- `devel/formal/tla/XdsPerClientPublication.cfg`: passing TLC configuration for the combined safe behavior.
+- `devel/formal/tla/XdsPerClientPublicationMissingClusterBug.cfg`: intentionally failing TLC configuration for the 13868-style missing referenced cluster publish.
+- `devel/formal/tla/XdsPerClientPublicationStaleEdsBug.cfg`: intentionally failing TLC configuration for the 14184-style stale EDS publish.
 - `devel/formal/tla/XdsEdsSubset.tla`: tiny issue-focused model of CDS/EDS subset behavior.
 - `devel/formal/tla/XdsEdsSubset.cfg`: passing TLC configuration for the safe CDS/EDS subset behavior.
 - `devel/formal/tla/XdsEdsSubsetBug.cfg`: intentionally failing TLC configuration that demonstrates the issue-14184 stale EDS counterexample.

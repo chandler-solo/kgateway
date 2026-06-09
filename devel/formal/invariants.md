@@ -22,6 +22,8 @@
 - DiscoveryRequests with stale nonce do not cause the server to publish or mark acceptance for an old response.
 - Reconnect creates a new stream nonce context, while resource versions remain resource-level state.
 - After reconnect, a retained coherent per-client snapshot must not be overwritten by a partial snapshot whose dataplane route/listener cluster references are missing from CDS unless those clusters are explicitly errored.
+- During startup or reconnect defer windows, Envoy's active snapshot remains coherent while the control plane retains the last coherent per-client cache snapshot.
+- Once Envoy's known CDS names match the per-client cache CDS names, the cache EDS resource set must be compatible with Envoy's named EDS request.
 - A stable valid desired snapshot is eventually publishable under a fair client that ACKs valid responses.
 
 ## Explicitly unverifiable and dynamic MVP cases
