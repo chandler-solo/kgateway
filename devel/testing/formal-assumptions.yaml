@@ -1,0 +1,55 @@
+# Machine-readable mapping from the Lean spec's named assumptions to the
+# Go/e2e tests that discharge them. See devel/formal/lean/ASSUMPTIONS.md
+# for the prose ledger. Gated by formal_assumptions_test.go: every spec
+# anchor must appear in the referenced Lean file and every discharging
+# test function must exist in the referenced Go file.
+assumptions:
+  - id: GCP-A1
+    summary: go-control-plane answers a named SotW ADS EDS watch iff the version differs and every snapshot EDS resource is named in the request
+    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    specAnchors:
+      - canRespond
+      - edsWatchResponds
+    dischargedBy:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved
+  - id: GCP-A2
+    summary: the snapshot cache retains the last published snapshot when a per-client entry is deleted
+    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    specAnchors:
+      - deleteRetainsLastGood
+    dischargedBy:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache
+  - id: ENV-A1
+    summary: Envoy activates routes/listeners only after CDS ACK and a usable ClusterLoadAssignment (make-before-break)
+    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    specAnchors:
+      - activateNew
+      - activeSnapshotClosed
+    dischargedBy:
+      - file: test/e2e/features/xds_warming/suite.go
+        test: TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic
+      - file: test/e2e/features/xds_warming/suite.go
+        test: TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic
+      - file: test/e2e/features/xds_warming/suite.go
+        test: TestInitialRouteWaitsForEDSBeforeBecomingActive
+  - id: IMPL-A1
+    summary: the EDS version string is a deterministic, order-invariant, content-injective digest of the filtered endpoint set
+    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    specAnchors:
+      - versionEq
+    dischargedBy:
+      - file: pkg/kgateway/proxy_syncer/perclient_version_property_test.go
+        test: TestFilterEndpointResourcesForClusters_VersionDigestProperties
+  - id: IMPL-A2
+    summary: snapshotPerClient for one UniquelyConnectedClient writes only that client's snapshot-cache entry
+    specFile: devel/formal/lean/XdsSpec/MultiClient.lean
+    specAnchors:
+      - isolation
+      - multi_safety
+    dischargedBy:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient

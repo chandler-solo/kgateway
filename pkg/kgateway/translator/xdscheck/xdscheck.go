@@ -92,7 +92,8 @@ const (
 	tracingSkyWalkingTypeURL         = "type.googleapis.com/envoy.config.trace.v3.SkyWalkingConfig"
 	tracingZipkinTypeURL             = "type.googleapis.com/envoy.config.trace.v3.ZipkinConfig"
 	unsupportedFilterChainNameField  = "filter_chain_name"
-	systemCASecretName               = "SYSTEM_CA_CERT"
+	//nolint:gosec // G101: this is the well-known SDS resource *name* for the system CA bundle, not a credential.
+	systemCASecretName = "SYSTEM_CA_CERT"
 )
 
 // Snapshot is the Envoy xDS resource set checked by this package.
@@ -416,6 +417,7 @@ func (c *checker) checkOpenTelemetryAccessLogTypedConfig(typedConfig anyTypedCon
 	}
 
 	c.requireClusterReference(
+		//nolint:staticcheck // SA1019: the deprecated common_config field can still carry the cluster reference; check both forms.
 		accessLog.GetCommonConfig().GetGrpcService().GetEnvoyGrpc().GetClusterName(),
 		resource,
 		"common_config.grpc_service.envoy_grpc.cluster_name",
@@ -713,6 +715,7 @@ func (c *checker) checkExtensionWithMatcherHTTPFilterTypedConfig(typedConfig any
 		resource+" ExtensionConfig",
 		nil,
 	)
+	//nolint:staticcheck // SA1019: emitted configs may still use the deprecated matcher field; detect it to warn instead of silently skipping.
 	if extensionWithMatcher.GetMatcher() != nil && extensionWithMatcher.GetXdsMatcher() == nil {
 		c.add(SeverityWarning, CodeUnsupportedHTTPFilterTypedConfig, resource,
 			"ExtensionWithMatcher uses deprecated matcher; matched HTTP filter references were not validated")

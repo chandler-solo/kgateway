@@ -3080,8 +3080,7 @@ func TestBasic(t *testing.T) {
 }
 
 func TestTranslatedRedirectSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/http-routing/request-redirect.yaml")
@@ -3114,8 +3113,7 @@ func TestTranslatedRedirectSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedBackendSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/http-routing/basic.yaml")
@@ -3149,8 +3147,7 @@ func TestTranslatedBackendSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedOAuth2SnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/oauth2.yaml")
@@ -3185,8 +3182,7 @@ func TestTranslatedOAuth2SnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedExtAuthSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/extauth-http.yaml")
@@ -3220,8 +3216,7 @@ func TestTranslatedExtAuthSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedRateLimitSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/rate-limit-full-config.yaml")
@@ -3255,8 +3250,7 @@ func TestTranslatedRateLimitSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedExtProcSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/extproc.yaml")
@@ -3290,8 +3284,7 @@ func TestTranslatedExtProcSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedGRPCAccessLogSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/traffic-policy/label_based.yaml")
@@ -3325,8 +3318,7 @@ func TestTranslatedGRPCAccessLogSnapshotPassesXDSCheck(t *testing.T) {
 }
 
 func TestTranslatedOpenTelemetryAccessLogAndTracingSnapshotPassesXDSCheck(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := fsutils.MustGetThisDir()
 	inputFile := filepath.Join(dir, "testutils/inputs/listener-policy-http/opentelemetry.yaml")

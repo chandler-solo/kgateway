@@ -129,6 +129,8 @@ func snapshotPerClient(
 		listenerRouteSnapshot := krt.FetchOne(kctx, mostXdsSnapshots, krt.FilterKey(ucc.Role))
 		if listenerRouteSnapshot == nil {
 			logger.Debug("snapshot missing", "proxy_key", ucc.Role)
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferRoleSnapshot,
+				nil, nil, envoycache.Resources{}, envoycache.Resources{})
 			return nil
 		}
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
@@ -195,6 +197,9 @@ func snapshotPerClient(
 		}
 		if clientEndpointResources == nil {
 			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferEndpointsNotReady,
+				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+				clustersForUcc.clusters, envoycache.Resources{})
 			return nil
 		}
 
@@ -221,6 +226,9 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
 			)
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferMissingClusters,
+				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+				clusterResources, clientEndpointResources.endpoints)
 			return nil
 		}
 		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
@@ -238,6 +246,9 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_endpoint_clusters", missingEndpointClusters,
 			)
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferMissingEndpoints,
+				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+				clusterResources, endpointRes)
 			return nil
 		}
 
@@ -251,6 +262,9 @@ func snapshotPerClient(
 		snapshot.Resources[envoycachetypes.Secret] = listenerRouteSnapshot.Secrets
 		// envoycache.NewResources(version, resource)
 		snap.snap = snapshot
+		emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionPublish,
+			listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+			clusterResources, endpointRes)
 		logger.Debug("snapshots", "proxy_key", snap.proxyKey,
 			"listeners", resourcesStringer(listenerRouteSnapshot.Listeners).String(),
 			"clusters", resourcesStringer(clusterResources).String(),

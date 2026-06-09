@@ -1,0 +1,10 @@
+name = "XdsSpec"
+version = "0.1.0"
+defaultTargets = ["xdsspec"]
+
+[[lean_lib]]
+name = "XdsSpec"
+
+[[lean_exe]]
+name = "xdsspec"
+root = "Main"

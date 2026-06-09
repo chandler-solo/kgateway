@@ -121,13 +121,13 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 		metav1.ConditionTrue,
 	)
 	s.assertGatewayEventuallyServes(hostName, oldBody)
-	s.assertActiveClusterPresence(oldClusterName, true)
+	s.assertActiveClusterIsPresent(oldClusterName)
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeNewManifest)
 	s.Require().NoError(err, "can retarget route to new service before endpoints exist")
 	s.eventuallyRouteObserved(routeName, gatewayNamespace)
 
-	s.assertActiveClusterPresence(oldClusterName, true)
+	s.assertActiveClusterIsPresent(oldClusterName)
 	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
 
 	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
@@ -144,7 +144,7 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 		500*time.Millisecond,
 	)
 
-	s.assertActiveClusterPresence(newClusterName, true)
+	s.assertActiveClusterIsPresent(newClusterName)
 	s.assertGatewayEventuallyServes(hostName, newBody)
 	s.assertGatewayServesConsistently(hostName, newBody, 5*time.Second, time.Second)
 }
@@ -158,13 +158,13 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 		metav1.ConditionTrue,
 	)
 	s.assertGatewayEventuallyServes(hostName, oldBody)
-	s.assertActiveClusterPresence(oldClusterName, true)
+	s.assertActiveClusterIsPresent(oldClusterName)
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeWeightedManifest)
 	s.Require().NoError(err, "can update route to weighted old/new backends before new endpoints exist")
 	s.eventuallyRouteObserved(routeName, gatewayNamespace)
 
-	s.assertActiveClusterPresence(oldClusterName, true)
+	s.assertActiveClusterIsPresent(oldClusterName)
 	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
 
 	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
@@ -181,7 +181,7 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 		500*time.Millisecond,
 	)
 
-	s.assertActiveClusterPresence(newClusterName, true)
+	s.assertActiveClusterIsPresent(newClusterName)
 	s.assertGatewayEventuallyServesAll(hostName, []string{oldBody, newBody}, 30*time.Second, time.Second)
 }
 
@@ -206,7 +206,7 @@ func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 		500*time.Millisecond,
 	)
 
-	s.assertActiveClusterPresence(startupClusterName, true)
+	s.assertActiveClusterIsPresent(startupClusterName)
 	s.assertGatewayEventuallyServes(startupHostName, startupBody)
 	s.assertGatewayServesConsistently(startupHostName, startupBody, 5*time.Second, time.Second)
 }
@@ -234,13 +234,13 @@ func (s *testingSuite) eventuallyRouteObserved(routeName, routeNamespace string)
 	}).WithContext(s.Ctx).WithTimeout(time.Minute).WithPolling(500 * time.Millisecond).Should(gomega.Succeed())
 }
 
-func (s *testingSuite) assertActiveClusterPresence(clusterName string, shouldExist bool) {
+func (s *testingSuite) assertActiveClusterIsPresent(clusterName string) {
 	s.TestInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.Ctx, proxyObjectMeta, func(ctx context.Context, adminClient *admincli.Client) {
 		s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 			clusters, err := adminClient.GetDynamicClusters(ctx)
 			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic active clusters")
 			_, ok := clusters[clusterName]
-			g.Expect(ok).To(gomega.Equal(shouldExist), "cluster %s active presence should be %t", clusterName, shouldExist)
+			g.Expect(ok).To(gomega.BeTrue(), "cluster %s should be active", clusterName)
 		}).WithContext(ctx).WithTimeout(time.Minute).WithPolling(time.Second).Should(gomega.Succeed())
 	})
 }
@@ -280,7 +280,7 @@ func (s *testingSuite) assertGatewayEventuallyServesAll(host string, bodySubstri
 		seen := make(map[string]bool, len(bodySubstrings))
 		observedBodies := make([]string, 0, 12)
 
-		for i := 0; i < 12; i++ {
+		for range 12 {
 			statusCode, body, err := s.gatewayResponse(host)
 			g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
 			g.Expect(statusCode).To(gomega.Equal(http.StatusOK), "gateway returned body: %s", body)

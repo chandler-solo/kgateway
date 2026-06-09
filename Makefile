@@ -544,6 +544,10 @@ validate-test-coverage: ## Validate the test coverage
 view-test-coverage:
 	go tool cover -html $(OUTPUT_DIR)/cover.out
 
+.PHONY: formal-lean
+formal-lean: ## Re-check the Lean xDS spec proofs, model-check it, and conformance-check an implementation trace against it
+	devel/formal/lean/check.sh
+
 #----------------------------------------------------------------------------------
 # Container Structure Tests
 #----------------------------------------------------------------------------------

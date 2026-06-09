@@ -2,6 +2,7 @@ package xdscheck
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	envoyratelimitconfigv3 "github.com/envoyproxy/go-control-plane/envoy/config/ratelimit/v3"
+	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/config/ratelimit/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytracev3 "github.com/envoyproxy/go-control-plane/envoy/config/trace/v3"
 	envoyfileaccesslogv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
@@ -25,7 +26,7 @@ import (
 	envoyextprocv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	envoyjwtauthnv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/jwt_authn/v3"
 	envoyoauth2v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/oauth2/v3"
-	envoyratelimitv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
+	ratev3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ratelimit/v3"
 	envoyhcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoygenericsecretformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/generic_secret/v3"
 	envoymetadataformatterv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/metadata/v3"
@@ -39,6 +40,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	kgatewaywellknown "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
@@ -1448,8 +1450,8 @@ func rateLimitHTTPFilter(name, cluster string) *envoyhcmv3.HttpFilter {
 	return &envoyhcmv3.HttpFilter{
 		Name: name,
 		ConfigType: &envoyhcmv3.HttpFilter_TypedConfig{
-			TypedConfig: mustAny(&envoyratelimitv3.RateLimit{
-				RateLimitService: &envoyratelimitconfigv3.RateLimitServiceConfig{
+			TypedConfig: mustAny(&ratev3.RateLimit{
+				RateLimitService: &envoyratelimitv3.RateLimitServiceConfig{
 					GrpcService: envoyGRPCService(cluster),
 				},
 			}),
@@ -1536,7 +1538,7 @@ func upstreamProxyProtocolTransportSocket(inner *envoycorev3.TransportSocket) *e
 }
 
 func mustAny(msg proto.Message) *anypb.Any {
-	out, err := anypb.New(msg)
+	out, err := utils.MessageToAny(msg)
 	if err != nil {
 		panic(err)
 	}
@@ -1545,10 +1547,8 @@ func mustAny(msg proto.Message) *anypb.Any {
 
 func requireFinding(t *testing.T, findings []Finding, want Finding) {
 	t.Helper()
-	for _, got := range findings {
-		if got == want {
-			return
-		}
+	if slices.Contains(findings, want) {
+		return
 	}
 	t.Fatalf("missing finding\nwant: %#v\ngot:  %#v", want, findings)
 }
