@@ -4,7 +4,7 @@
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
 
-- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, and an issue-focused EDS subset invariant.
+- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, Envoy startup/warming ordering, issue-focused EDS subset invariants, and go-control-plane named EDS watch respondability.
 - A Go validator checks concrete Envoy LDS/RDS/CDS/EDS snapshot dependency invariants.
 - Tests and scripts make the seam repeatable for future translator validation.
 
@@ -21,9 +21,13 @@ The TLA+ model covers protocol and state-machine behavior at a small finite-mode
 
 The `XdsEdsSubset` model isolates an ADS named-EDS behavior relevant to issue 14184: if CDS stops advertising an EDS cluster while the EDS snapshot still contains that cluster's `ClusterLoadAssignment`, go-control-plane ADS mode can refuse to answer the EDS request because the snapshot contains resources outside Envoy's requested names.
 
+The `XdsNamedEdsWatch` model focuses on the go-control-plane cache decision point behind that refusal. It checks that version-new EDS snapshots are compatible with Envoy's named EDS request and that EDS resource set changes are accompanied by an EDS version change.
+
 The `XdsReconnectRace13868` model isolates the reconnect-time partial snapshot race fixed by PR 13868. It proves, in a finite model, that the readiness gate prevents the xDS cache from being overwritten by a snapshot whose route/listener cluster references are missing from CDS unless the missing cluster is explicitly errored. The companion buggy config demonstrates the old partial-publish counterexample.
 
 The `XdsPerClientPublication` model combines the 13868 and 14184 failure shapes. It checks that retained last-good snapshots, referenced-cluster readiness, referenced-endpoint readiness, EDS filtering, named EDS response behavior, and a minimal Envoy warming/active distinction work together for the two critical traces.
+
+The `XdsEnvoyWarming` model isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
 
 ### Go validator
 
@@ -118,7 +122,7 @@ The Go test command should end with output like:
 ok  	github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/xdscheck
 ```
 
-When the TLA+ jar is installed, `devel/formal/tla/check.sh` should run TLC against `XdsAdsSotw.cfg` and report that the configured invariants hold. When the jar is not installed, `devel/formal/check.sh` runs the Go tests and skips TLC with explicit instructions.
+When the TLA+ jar is installed, `devel/formal/tla/check.sh` should run TLC against the passing TLA+ configs and report that the configured invariants hold. When the jar is not installed, `devel/formal/check.sh` runs the Go tests and skips TLC with explicit instructions.
 
 ## Definition of MVP correctness
 
@@ -159,8 +163,10 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
 - `devel/formal/issue-13868.md`: issue-focused notes for the reconnect-time cluster readiness model.
 - `devel/formal/issue-13868-14184.md`: combined per-client publication model notes for startup, reconnect, stale EDS, and Envoy activation behavior.
+- `devel/formal/issue-envoy-warming.md`: startup and warming notes for ACK versus active state, cluster warming, route sequencing, and listener warming.
 - `devel/formal/issue-14184.md`: issue-focused formal-methods root-cause notes.
 - `devel/formal/issue-14184-design.md`: proposed fix design for stale EDS resources blocking ADS responses.
+- `devel/formal/issue-named-eds-watch.md`: go-control-plane named EDS watch notes for ADS response suppression and version reuse.
 - `devel/formal/tla/XdsAdsSotw.tla`: abstract ADS/SotW publication model.
 - `devel/formal/tla/XdsAdsSotw.cfg`: TLC configuration for the ADS/SotW model.
 - `devel/formal/tla/XdsReconnectRace13868.tla`: focused model of the reconnect-time cluster readiness gate from PR 13868.
@@ -170,6 +176,15 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/tla/XdsPerClientPublication.cfg`: passing TLC configuration for the combined safe behavior.
 - `devel/formal/tla/XdsPerClientPublicationMissingClusterBug.cfg`: intentionally failing TLC configuration for the 13868-style missing referenced cluster publish.
 - `devel/formal/tla/XdsPerClientPublicationStaleEdsBug.cfg`: intentionally failing TLC configuration for the 14184-style stale EDS publish.
+- `devel/formal/tla/XdsEnvoyWarming.tla`: focused startup and make-before-break warming model for LDS/RDS/CDS/EDS active state.
+- `devel/formal/tla/XdsEnvoyWarming.cfg`: passing TLC configuration for safe startup and warming ordering.
+- `devel/formal/tla/XdsEnvoyWarmingAckImpliesActiveBug.cfg`: intentionally failing TLC configuration for treating CDS ACK as cluster-active before EDS.
+- `devel/formal/tla/XdsEnvoyWarmingRouteBeforeClusterBug.cfg`: intentionally failing TLC configuration for activating RDS before the referenced cluster is active.
+- `devel/formal/tla/XdsEnvoyWarmingListenerBeforeRouteBug.cfg`: intentionally failing TLC configuration for activating LDS before the referenced RDS config exists.
+- `devel/formal/tla/XdsNamedEdsWatch.tla`: focused go-control-plane ADS named EDS watch response model.
+- `devel/formal/tla/XdsNamedEdsWatch.cfg`: passing TLC configuration for named EDS watch respondability.
+- `devel/formal/tla/XdsNamedEdsWatchStaleExtraBug.cfg`: intentionally failing TLC configuration for stale extra EDS resources suppressing a named ADS response.
+- `devel/formal/tla/XdsNamedEdsWatchVersionReuseBug.cfg`: intentionally failing TLC configuration for changing the EDS resource set without changing the EDS version.
 - `devel/formal/tla/XdsEdsSubset.tla`: tiny issue-focused model of CDS/EDS subset behavior.
 - `devel/formal/tla/XdsEdsSubset.cfg`: passing TLC configuration for the safe CDS/EDS subset behavior.
 - `devel/formal/tla/XdsEdsSubsetBug.cfg`: intentionally failing TLC configuration that demonstrates the issue-14184 stale EDS counterexample.
@@ -183,4 +198,4 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 1. Add a delta xDS model.
 2. Add a Lean, Dafny, F*, or Coq model for Gateway semantic IR -> abstract xDS snapshot compilation.
 3. Generate random Gateway, HTTPRoute, and Policy inputs and check xDS invariants property-style.
-4. Model Envoy warming behavior for LDS/RDS and CDS/EDS dependencies.
+4. Expand the Envoy warming model to include SDS/ECDS and multiple listeners.

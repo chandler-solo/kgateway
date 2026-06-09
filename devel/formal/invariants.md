@@ -24,6 +24,12 @@
 - After reconnect, a retained coherent per-client snapshot must not be overwritten by a partial snapshot whose dataplane route/listener cluster references are missing from CDS unless those clusters are explicitly errored.
 - During startup or reconnect defer windows, Envoy's active snapshot remains coherent while the control plane retains the last coherent per-client cache snapshot.
 - Once Envoy's known CDS names match the per-client cache CDS names, the cache EDS resource set must be compatible with Envoy's named EDS request.
+- A version-new named EDS response must not contain snapshot resources outside Envoy's requested EDS names.
+- If the per-client EDS resource set changes, the EDS version must change.
+- CDS ACK alone does not make a cluster active; an active EDS cluster must have both CDS and EDS state.
+- An active route must not reference a cluster that is not active.
+- An active listener using RDS must not reference a route configuration that is not present.
+- Make-before-break updates must not remove the old active cluster before active traffic has moved away from it.
 - A stable valid desired snapshot is eventually publishable under a fair client that ACKs valid responses.
 
 ## Explicitly unverifiable and dynamic MVP cases
