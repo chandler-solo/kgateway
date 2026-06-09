@@ -68,11 +68,25 @@ spec:
                       replicas:
                         description: |-
                           The number of desired pods.
-                          If omitted, behavior will be managed by the K8s control plane, and will default to 1.
-                          If you are using an HPA, make sure to not explicitly define this.
+
+                          When omitted (and no horizontalPodAutoscaler is configured), kgateway
+                          defaults this to 1 and owns the field via server-side apply. This means
+                          the proxy Deployment is reconciled back to the desired count if it drifts,
+                          for example if it is scaled externally to 0.
+
+                          To let an external actor manage the replica count instead, either configure
+                          a horizontalPodAutoscaler, or set this field explicitly to null. An explicit
+                          null opts out of kgateway managing replicas entirely, leaving the field to
+                          the K8s control plane (which defaults a new Deployment to 1) or to an
+                          autoscaler. Note: an explicit null is only preserved when the
+                          GatewayParameters is applied with server-side apply (`kubectl apply
+                          --server-side`); client-side apply drops null fields, which kgateway then
+                          treats the same as omitting the field (defaulting to 1).
+
                           K8s reference: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#replicas
                         format: int32
                         minimum: 0
+                        nullable: true
                         type: integer
                       strategy:
                         description: |-

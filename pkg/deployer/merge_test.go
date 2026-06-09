@@ -121,6 +121,66 @@ func TestDeepMergeGatewayParameters(t *testing.T) {
 			},
 		},
 		{
+			name: "should clear replicas when src is explicitly null",
+			dst: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							Replicas: new(int32(2)),
+						},
+					},
+				},
+			},
+			src: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							ReplicasExplicitlyNull: true,
+						},
+					},
+				},
+			},
+			want: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							ReplicasExplicitlyNull: true,
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "explicit src replicas value overrides dst explicit null",
+			dst: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							ReplicasExplicitlyNull: true,
+						},
+					},
+				},
+			},
+			src: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							Replicas: new(int32(5)),
+						},
+					},
+				},
+			},
+			want: &kgateway.GatewayParameters{
+				Spec: kgateway.GatewayParametersSpec{
+					Kube: &kgateway.KubernetesProxyConfig{
+						Deployment: &kgateway.ProxyDeployment{
+							Replicas: new(int32(5)),
+						},
+					},
+				},
+			},
+		},
+		{
 			name: "merges maps",
 			dst: &kgateway.GatewayParameters{
 				Spec: kgateway.GatewayParametersSpec{

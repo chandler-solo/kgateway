@@ -285,6 +285,7 @@ metadata:
     kgateway: kube-gateway
   name: waypoint
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: waypoint

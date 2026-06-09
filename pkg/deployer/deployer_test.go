@@ -1244,7 +1244,8 @@ var _ = Describe("Deployer", func() {
 				By("verifying deployment inherited default replicas")
 				dep := objs.findDeployment(defaultDeploymentName)
 				Expect(dep).ToNot(BeNil())
-				Expect(dep.Spec.Replicas).To(BeNil())
+				Expect(dep.Spec.Replicas).ToNot(BeNil(), "kgateway should default and own replicas")
+				Expect(*dep.Spec.Replicas).To(Equal(int32(1)))
 
 				By("verifying envoy container log level was overridden")
 				envoyContainer := dep.Spec.Template.Spec.Containers[0]
@@ -2235,7 +2236,32 @@ var _ = Describe("Deployer", func() {
 				validationFunc: func(objs clientObjects, inp *input) {
 					deployment := objs.findDeployment(defaultServiceName)
 					Expect(deployment).NotTo(BeNil())
-					Expect(deployment.Spec.Replicas).To(BeNil())
+					Expect(deployment.Spec.Replicas).ToNot(BeNil(), "kgateway should default and own replicas")
+					Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
+				},
+			}),
+			Entry("Replicas explicitly null (unmanaged)", &input{
+				dInputs: defaultDeployerInputs(),
+				gw:      defaultGateway(),
+				defaultGwp: &kgateway.GatewayParameters{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      wellknown.DefaultGatewayParametersName,
+						Namespace: defaultNamespace,
+						UID:       "1237",
+					},
+					Spec: kgateway.GatewayParametersSpec{
+						Kube: &kgateway.KubernetesProxyConfig{
+							Deployment: &kgateway.ProxyDeployment{ReplicasExplicitlyNull: true},
+						},
+					},
+				},
+				overrideGwp: &kgateway.GatewayParameters{},
+			}, &expectedOutput{
+				validationFunc: func(objs clientObjects, inp *input) {
+					deployment := objs.findDeployment(defaultServiceName)
+					Expect(deployment).NotTo(BeNil())
+					Expect(deployment.Spec.Replicas).To(BeNil(),
+						"explicit replicas: null should leave replicas unmanaged")
 				},
 			}),
 			Entry("have replicas set", &input{

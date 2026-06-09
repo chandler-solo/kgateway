@@ -281,6 +281,7 @@ metadata:
     kgateway: kube-gateway
   name: gw
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: gw

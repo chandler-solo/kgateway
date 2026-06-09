@@ -179,8 +179,13 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 			},
 		},
 		{
-			// This test case cares about SSA vs. client-side apply because it
-			// uses a null value. It'd be nice to test it both ways.
+			// An explicit `replicas: null` is the escape hatch for opting out of
+			// kgateway managing the replica count. It is preserved through
+			// server-side apply (which this harness models, including the
+			// ProxyDeployment.MarshalJSON round-trip), so the rendered Deployment
+			// omits replicas entirely, leaving it to the K8s control plane or an
+			// autoscaler. (Client-side apply would strip the null before it
+			// reached the API server, in which case kgateway defaults to 1.)
 			Name:      "gateway with null replicas GWP via GWC",
 			InputFile: "gwc-with-replicas-null",
 			Validate: func(t *testing.T, outputYaml string) {
@@ -188,7 +193,7 @@ wIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQBtestcertdata
 				assert.NotContains(t, outputYaml, "replicas: null",
 					"replicas: null should never appear in the output")
 				assert.NotRegexp(t, `(?m)^\s*replicas:`, outputYaml,
-					"replicas field should be omitted entirely when set to null")
+					"explicit replicas: null should opt out of management, omitting the field entirely")
 			},
 		},
 		{

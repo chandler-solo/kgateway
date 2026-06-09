@@ -269,6 +269,7 @@ metadata:
     kgateway: kube-gateway
   name: extremely-long-gateway-name-that-exceeds-the-sixty-ff41b39ff097
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: extremely-long-gateway-name-that-exceeds-the-sixty-ff41b39ff097

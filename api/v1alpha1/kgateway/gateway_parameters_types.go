@@ -1,6 +1,9 @@
 package kgateway
 
 import (
+	"bytes"
+	"encoding/json"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -216,13 +219,34 @@ func (in *KubernetesProxyConfig) GetOmitDefaultSecurityContext() *bool {
 // ProxyDeployment configures the Proxy deployment in Kubernetes.
 type ProxyDeployment struct {
 	// The number of desired pods.
-	// If omitted, behavior will be managed by the K8s control plane, and will default to 1.
-	// If you are using an HPA, make sure to not explicitly define this.
+	//
+	// When omitted (and no horizontalPodAutoscaler is configured), kgateway
+	// defaults this to 1 and owns the field via server-side apply. This means
+	// the proxy Deployment is reconciled back to the desired count if it drifts,
+	// for example if it is scaled externally to 0.
+	//
+	// To let an external actor manage the replica count instead, either configure
+	// a horizontalPodAutoscaler, or set this field explicitly to null. An explicit
+	// null opts out of kgateway managing replicas entirely, leaving the field to
+	// the K8s control plane (which defaults a new Deployment to 1) or to an
+	// autoscaler. Note: an explicit null is only preserved when the
+	// GatewayParameters is applied with server-side apply (`kubectl apply
+	// --server-side`); client-side apply drops null fields, which kgateway then
+	// treats the same as omitting the field (defaulting to 1).
+	//
 	// K8s reference: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#replicas
 	//
 	// +optional
+	// +nullable
 	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
+
+	// replicasExplicitlyNull records whether the `replicas` key was present in
+	// the source with an explicit null value (as opposed to being omitted). It is
+	// used to distinguish an explicit `replicas: null` (opt out of kgateway
+	// managing replicas) from an omitted field (default to 1). It is populated by
+	// UnmarshalJSON and is never serialized or exposed in the CRD schema.
+	ReplicasExplicitlyNull bool `json:"-"`
 
 	// The deployment strategy to use to replace existing pods with new
 	// ones. The Kubernetes default is a RollingUpdate with 25% maxUnavailable,
@@ -241,11 +265,86 @@ type ProxyDeployment struct {
 	Strategy *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
 }
 
+// MarshalJSON implements json.Marshaler so that an explicit `replicas: null`
+// round-trips. Without this, the nil Replicas pointer is dropped by omitempty
+// when the object is re-serialized, which would lose the distinction (carried
+// by ReplicasExplicitlyNull, see UnmarshalJSON) between an explicit null and an
+// omitted field.
+//
+// How it is used:
+//   - The live consumer is conversion to unstructured
+//     (runtime.DefaultUnstructuredConverter.ToUnstructured, which honors
+//     json.Marshaler). This matters in tests that seed a GatewayParameters into
+//     an API server via the unstructured/dynamic client: without re-emitting the
+//     null, the explicit `replicas: null` would be stripped before reaching the
+//     server, making the test behave like client-side apply instead of the
+//     server-side apply it intends to model.
+//   - It is effectively inert in the controller at runtime: kgateway only ever
+//     reads GatewayParameters (decode -> UnmarshalJSON), never writes them, and
+//     the deployer applies the rendered Deployment, not this type. Real users
+//     supply `replicas: null` through their own server-side apply tooling, which
+//     sends the literal null directly.
+//
+// It is also safe by construction: the null is re-added only when
+// ReplicasExplicitlyNull was set by UnmarshalJSON (i.e. the source really had an
+// explicit null), so it can never fabricate a null; in every other case the
+// output is identical to default marshaling.
+func (in ProxyDeployment) MarshalJSON() ([]byte, error) {
+	type proxyDeploymentAlias ProxyDeployment
+	data, err := json.Marshal(proxyDeploymentAlias(in))
+	if err != nil {
+		return nil, err
+	}
+	// Only re-add the null when it was explicitly set and no value is present.
+	if !in.ReplicasExplicitlyNull || in.Replicas != nil {
+		return data, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	raw["replicas"] = json.RawMessage("null")
+	return json.Marshal(raw)
+}
+
+// UnmarshalJSON implements json.Unmarshaler so we can distinguish an explicit
+// `replicas: null` from an omitted `replicas` field. Both decode to a nil
+// Replicas pointer, but only the former sets ReplicasExplicitlyNull, which the
+// deployer uses to decide whether to default the replica count.
+func (in *ProxyDeployment) UnmarshalJSON(data []byte) error {
+	// Avoid infinite recursion by unmarshaling into an alias type that does not
+	// carry this UnmarshalJSON method.
+	type proxyDeploymentAlias ProxyDeployment
+	var alias proxyDeploymentAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*in = ProxyDeployment(alias)
+
+	// Inspect the raw object to detect an explicit `replicas: null`.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	v, present := raw["replicas"]
+	in.ReplicasExplicitlyNull = present && bytes.Equal(bytes.TrimSpace(v), []byte("null"))
+	return nil
+}
+
 func (in *ProxyDeployment) GetReplicas() *int32 {
 	if in == nil {
 		return nil
 	}
 	return in.Replicas
+}
+
+// IsReplicasExplicitlyNull reports whether the user set `replicas: null`
+// explicitly, which signals that kgateway should not manage the replica count.
+func (in *ProxyDeployment) IsReplicasExplicitlyNull() bool {
+	if in == nil {
+		return false
+	}
+	return in.ReplicasExplicitlyNull
 }
 
 func (in *ProxyDeployment) GetStrategy() *appsv1.DeploymentStrategy {

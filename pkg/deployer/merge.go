@@ -778,7 +778,20 @@ func deepMergeDeployment(dst, src *kgateway.ProxyDeployment) *kgateway.ProxyDepl
 		return src
 	}
 
-	dst.Replicas = MergePointers(dst.GetReplicas(), src.GetReplicas())
+	// Replicas precedence (most-specific layer wins). We must preserve the
+	// distinction between an explicit `replicas: null` and an omitted field so
+	// the deployer can decide whether to default the replica count:
+	//   - src sets an explicit value -> use it, clear the explicit-null marker
+	//   - src is explicitly null -> opt out of managing replicas
+	//   - src omits replicas -> inherit dst's value and marker
+	switch {
+	case src.GetReplicas() != nil:
+		dst.Replicas = src.GetReplicas()
+		dst.ReplicasExplicitlyNull = false
+	case src.IsReplicasExplicitlyNull():
+		dst.Replicas = nil
+		dst.ReplicasExplicitlyNull = true
+	}
 	dst.Strategy = MergePointers(dst.Strategy, src.Strategy)
 
 	return dst

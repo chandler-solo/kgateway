@@ -408,8 +408,21 @@ func (k *kgatewayParameters) getValues(gw *gwv1.Gateway, gwParam *kgateway.Gatew
 	gateway := vals.Gateway
 
 	// deployment values
-	if deployConfig.GetReplicas() != nil {
+	//
+	// Default the replica count to 1 unless it is externally managed, so that
+	// kgateway owns the field via server-side apply and reconciles the proxy
+	// Deployment back to the desired count if it drifts (e.g. is scaled
+	// externally to 0). Replicas are considered externally managed when the user
+	// either sets `replicas: null` explicitly or configures a
+	// HorizontalPodAutoscaler, in which case the field is left unset.
+	// See https://github.com/kgateway-dev/kgateway/issues/14195
+	switch {
+	case deployConfig.GetReplicas() != nil:
 		gateway.ReplicaCount = new(uint32(*deployConfig.GetReplicas())) // nolint:gosec // G115: kubebuilder validation ensures safe for uint32
+	case deployConfig.IsReplicasExplicitlyNull() || k.hasHorizontalPodAutoscaler(gw):
+		// leave gateway.ReplicaCount nil so kgateway does not manage replicas
+	default:
+		gateway.ReplicaCount = new(uint32(1))
 	}
 	gateway.Strategy = deployConfig.GetStrategy()
 
@@ -527,6 +540,23 @@ func (k *kgatewayParameters) resolveParametersForOverlays(gw *gwv1.Gateway) *res
 	}
 
 	return result
+}
+
+// hasHorizontalPodAutoscaler reports whether a HorizontalPodAutoscaler overlay
+// is configured for the Gateway, either via GatewayClass-level or Gateway-level
+// GatewayParameters. The HPA overlay is applied separately from the merged
+// GatewayParameters (see PostProcessObjects), so it is not present on the merged
+// object passed to getValues and must be resolved here. When an HPA is present
+// kgateway leaves the Deployment's replica count unmanaged so the autoscaler can
+// control it.
+func (k *kgatewayParameters) hasHorizontalPodAutoscaler(gw *gwv1.Gateway) bool {
+	resolved := k.resolveParametersForOverlays(gw)
+	for _, gwp := range []*kgateway.GatewayParameters{resolved.gatewayClassGWP, resolved.gatewayGWP} {
+		if gwp != nil && gwp.Spec.Kube != nil && gwp.Spec.Kube.HorizontalPodAutoscaler != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func getGatewayClassFromGateway(cli kclient.Client[*gwv1.GatewayClass], gw *gwv1.Gateway) (*gwv1.GatewayClass, error) {

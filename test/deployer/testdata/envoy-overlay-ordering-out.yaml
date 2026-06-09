@@ -278,6 +278,7 @@ metadata:
     overlay-source: from-gateway
   name: gw
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/instance: gw
