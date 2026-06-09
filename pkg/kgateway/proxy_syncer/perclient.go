@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
@@ -163,10 +164,12 @@ func snapshotPerClient(
 		//     listeners/routes and cause Envoy to return 500/NC on routes
 		//     whose clusters just happen to be in the same CDS response.
 		//
-		//  3. If any referenced EDS cluster has no matching ClusterLoadAssignment
-		//     in the EDS resources that would be sent, return nil. Publishing
-		//     CDS/RDS/LDS before EDS catches up can make Envoy drop all hosts for
-		//     a route that was healthy before a controller restart.
+		//  3. If any referenced EDS cluster has no matching ready
+		//     ClusterLoadAssignment in the EDS resources that would be sent,
+		//     return nil. A CLA with zero usable endpoints is not ready for
+		//     make-before-break publication: publishing CDS/RDS/LDS before EDS
+		//     catches up can make Envoy drop all hosts for a route that was
+		//     healthy before the update.
 		//
 		// Returning nil removes this UCC's entry from the output collection,
 		// which surfaces as a Delete event in proxy_syncer.go's xDS
@@ -415,7 +418,8 @@ func findMissingReferencedEndpointResources(
 		if !requiresEndpointResource {
 			continue
 		}
-		if _, ok := endpoints[endpointResourceName]; ok {
+		endpointResource, ok := endpoints[endpointResourceName]
+		if ok && clusterLoadAssignmentHasUsableEndpoint(endpointResource) {
 			continue
 		}
 		missingEndpointClusters = append(missingEndpointClusters, name)
@@ -423,6 +427,24 @@ func findMissingReferencedEndpointResources(
 	sort.Strings(missingEndpointClusters)
 
 	return missingEndpointClusters
+}
+
+func clusterLoadAssignmentHasUsableEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
+	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
+	if !ok {
+		return false
+	}
+	for _, locality := range cla.GetEndpoints() {
+		for _, lbEndpoint := range locality.GetLbEndpoints() {
+			if lbEndpoint.GetHealthStatus() == envoycorev3.HealthStatus_UNHEALTHY {
+				continue
+			}
+			if lbEndpoint.GetEndpoint() != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
