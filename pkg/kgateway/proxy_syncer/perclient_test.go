@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -254,7 +255,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 			},
 		},
 	})
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
 		Routes:             routes,
@@ -305,8 +306,8 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
 
 	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-b"))
+	g.Expect(mapKeys(snap.Resources[envoycachetypes.Cluster].Items)).To(gomega.ConsistOf("cluster-a", "cluster-b"),
+		"published CDS names must exactly match the current coherent per-client cluster inputs")
 }
 
 func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testing.T) {
@@ -337,7 +338,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 			},
 		},
 	})
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
 		Routes:             routes,
@@ -646,7 +647,7 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
 
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	initialRoutes := routeResourcesForClusters("cluster-old")
 	initial := GatewayXdsResources{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
@@ -732,6 +733,411 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
 		"old cluster resources should be removable after the active route has moved to the warmed cluster")
 	assertNoXDSCheckErrors(t, finalSnap)
+}
+
+func TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterOld := edsClusterForClient(ucc, "cluster-old", 1)
+	clusterNew := edsClusterForClient(ucc, "cluster-new", 2)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOld})
+	endpointOld := endpointsForClient(ucc, "cluster-old", 3)
+	endpointNew := endpointsForClient(ucc, "cluster-new", 4)
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointOld})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	translator := NewProxyTranslator(cache)
+	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			if event.Event == controllers.EventDelete {
+				continue
+			}
+			translator.syncXds(context.Background(), event.Latest())
+		}
+	}, true)
+
+	nodeID := ucc.ResourceName()
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
+	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	initialClusterVersion := initialServed.Resources[envoycachetypes.Cluster].Version
+	initialEndpointVersion := initialServed.Resources[envoycachetypes.Endpoint].Version
+	assertNoXDSCheckErrors(t, initialServed)
+
+	updatedRoutes := routeResourcesForClusters("cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(clusterNew)
+
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
+		"partial update should surface as a per-client delete/defer event")
+
+	retainedServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(snapshotReferencesCluster(retainedServed, "cluster-old")).To(gomega.BeTrue(),
+		"served cache must retain the old coherent route during the defer window")
+	g.Expect(snapshotReferencesCluster(retainedServed, "cluster-new")).To(gomega.BeFalse(),
+		"partial route must not overwrite the served cache before EDS is ready")
+	g.Expect(retainedServed.Resources[envoycachetypes.Cluster].Version).To(gomega.Equal(initialClusterVersion))
+	g.Expect(retainedServed.Resources[envoycachetypes.Endpoint].Version).To(gomega.Equal(initialEndpointVersion))
+	assertNoXDSCheckErrors(t, retainedServed)
+
+	endpointCol.UpdateObject(endpointNew)
+
+	var coherentServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		coherentServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(coherentServed, "cluster-new") &&
+			hasResource(coherentServed.Resources[envoycachetypes.Cluster].Items, "cluster-new") &&
+			hasResource(coherentServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"coherent input should overwrite the retained cache once EDS catches up")
+	g.Expect(coherentServed.Resources[envoycachetypes.Cluster].Version).ToNot(gomega.Equal(initialClusterVersion))
+	g.Expect(coherentServed.Resources[envoycachetypes.Endpoint].Version).ToNot(gomega.Equal(initialEndpointVersion))
+	assertNoXDSCheckErrors(t, coherentServed)
+}
+
+func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+	routes := routeResourcesForClusters("cluster-a")
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             routes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(routes, listeners),
+	}})
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+		edsClusterForClientWithServiceName(ucc, "cluster-a", "backend-service", 1),
+	})
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, nil)
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	g.Consistently(func() int {
+		return len(snapshots.List())
+	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0),
+		"cluster EDS service_name should defer until that CLA exists")
+
+	endpointCol.UpdateObject(endpointsForClient(ucc, "backend-service", 3))
+
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+
+	snap := snapshots.List()[0].snap
+	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"))
+	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).ToNot(gomega.HaveKey("cluster-a"))
+	assertNoXDSCheckErrors(t, snap)
+}
+
+func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	initialRoutes := routeResourcesForClusters("cluster-a", "cluster-b")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterA := edsClusterForClientWithServiceName(ucc, "cluster-a", "service-a", 1)
+	clusterB := edsClusterForClientWithServiceName(ucc, "cluster-b", "service-b", 2)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterA, clusterB})
+	endpointA := endpointsForClient(ucc, "service-a", 3)
+	endpointB := endpointsForClient(ucc, "service-b", 4)
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointA, endpointB})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	initialSnap := eventuallySingleSnapshot(t, snapshots)
+	initialEndpointVersion := initialSnap.Resources[envoycachetypes.Endpoint].Version
+	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("service-b"))
+
+	updatedRoutes := routeResourcesForClusters("cluster-a")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.DeleteObject(clusterB.ResourceName())
+
+	var updatedSnap *envoycache.Snapshot
+	g.Eventually(func() bool {
+		updatedSnap = eventuallyCurrentSnapshot(snapshots)
+		if updatedSnap == nil {
+			return false
+		}
+		endpoints := updatedSnap.Resources[envoycachetypes.Endpoint].Items
+		_, hasEndpointA := endpoints["service-a"]
+		_, hasEndpointB := endpoints["service-b"]
+		return hasEndpointA && !hasEndpointB
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue())
+
+	assertNoXDSCheckErrors(t, updatedSnap)
+	updatedEndpointVersion := updatedSnap.Resources[envoycachetypes.Endpoint].Version
+	g.Expect(updatedEndpointVersion).ToNot(gomega.Equal(initialEndpointVersion))
+
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	nodeID := ucc.ResourceName()
+	g.Expect(cache.SetSnapshot(context.Background(), nodeID, updatedSnap)).ToNot(gomega.HaveOccurred())
+
+	req := &envoydiscoveryv3.DiscoveryRequest{
+		Node:          &envoycorev3.Node{Id: nodeID},
+		TypeUrl:       envoyresourcev3.EndpointType,
+		ResourceNames: []string{"service-a"},
+		VersionInfo:   initialEndpointVersion,
+	}
+	sub := envoystreamv3.NewSotwSubscription(req.GetResourceNames(), true)
+	sub.SetReturnedResources(map[string]string{
+		"service-a": initialEndpointVersion,
+		"service-b": initialEndpointVersion,
+	})
+	responses := make(chan envoycache.Response, 1)
+	_, err := cache.CreateWatch(req, sub, responses)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	select {
+	case response := <-responses:
+		g.Expect(response.GetResponseVersion()).To(gomega.Equal(updatedEndpointVersion))
+		g.Expect(response.GetReturnedResources()).To(gomega.HaveKeyWithValue("service-a", updatedEndpointVersion))
+		g.Expect(response.GetReturnedResources()).ToNot(gomega.HaveKey("service-b"))
+		discoveryResponse, err := response.GetDiscoveryResponse()
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+		g.Expect(discoveryResponse.GetResources()).To(gomega.HaveLen(1))
+	case <-time.After(time.Second):
+		t.Fatal("expected service_name-filtered EDS snapshot to answer the named ADS EDS request")
+	}
+}
+
+func TestSnapshotPerClientEndpointOnlyUpdateOnlyChangesEDSVersion(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	routes := routeResourcesForClusters("cluster-a")
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             routes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(routes, listeners),
+	}})
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+		edsClusterForClient(ucc, "cluster-a", 1),
+	})
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{
+		endpointsForClient(ucc, "cluster-a", 3),
+	})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	initialSnap := eventuallySingleSnapshot(t, snapshots)
+	initialClusterVersion := initialSnap.Resources[envoycachetypes.Cluster].Version
+	initialEndpointVersion := initialSnap.Resources[envoycachetypes.Endpoint].Version
+	initialRouteVersion := initialSnap.Resources[envoycachetypes.Route].Version
+	initialListenerVersion := initialSnap.Resources[envoycachetypes.Listener].Version
+	assertNoXDSCheckErrors(t, initialSnap)
+
+	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-a", 99))
+
+	var updatedSnap *envoycache.Snapshot
+	g.Eventually(func() bool {
+		updatedSnap = eventuallyCurrentSnapshot(snapshots)
+		return updatedSnap != nil && updatedSnap.Resources[envoycachetypes.Endpoint].Version != initialEndpointVersion
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue())
+
+	g.Expect(updatedSnap.Resources[envoycachetypes.Cluster].Version).To(gomega.Equal(initialClusterVersion),
+		"CDS version should not change for an endpoint-only update")
+	g.Expect(updatedSnap.Resources[envoycachetypes.Route].Version).To(gomega.Equal(initialRouteVersion),
+		"RDS version should not change for an endpoint-only update")
+	g.Expect(updatedSnap.Resources[envoycachetypes.Listener].Version).To(gomega.Equal(initialListenerVersion),
+		"LDS version should not change for an endpoint-only update")
+	assertNoXDSCheckErrors(t, updatedSnap)
+}
+
+func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	clientA := ir.NewUniquelyConnectedClient(role, "pod-ns", map[string]string{"client": "a"}, ir.PodLocality{})
+	clientB := ir.NewUniquelyConnectedClient(role, "pod-ns", map[string]string{"client": "b"}, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{clientA, clientB})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterOldA := edsClusterForClient(clientA, "cluster-old", 1)
+	clusterOldB := edsClusterForClient(clientB, "cluster-old", 2)
+	clusterNewA := edsClusterForClient(clientA, "cluster-new", 3)
+	clusterNewB := edsClusterForClient(clientB, "cluster-new", 4)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOldA, clusterOldB})
+	endpointOldA := endpointsForClient(clientA, "cluster-old", 5)
+	endpointOldB := endpointsForClient(clientB, "cluster-old", 6)
+	endpointNewB := endpointsForClient(clientB, "cluster-new", 7)
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointOldA, endpointOldB})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	translator := NewProxyTranslator(cache)
+	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			if event.Event == controllers.EventDelete {
+				continue
+			}
+			translator.syncXds(context.Background(), event.Latest())
+		}
+	}, true)
+
+	initialServedA := eventuallyCacheSnapshot(t, cache, clientA.ResourceName())
+	initialServedB := eventuallyCacheSnapshot(t, cache, clientB.ResourceName())
+	g.Expect(snapshotReferencesCluster(initialServedA, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(snapshotReferencesCluster(initialServedB, "cluster-old")).To(gomega.BeTrue())
+
+	updatedRoutes := routeResourcesForClusters("cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(clusterNewA)
+	clusterCol.UpdateObject(clusterNewB)
+	endpointCol.UpdateObject(endpointNewB)
+
+	var servedA *envoycache.Snapshot
+	var servedB *envoycache.Snapshot
+	g.Eventually(func() bool {
+		servedA = eventuallyCacheSnapshot(t, cache, clientA.ResourceName())
+		servedB = eventuallyCacheSnapshot(t, cache, clientB.ResourceName())
+		return snapshotReferencesCluster(servedA, "cluster-old") &&
+			!snapshotReferencesCluster(servedA, "cluster-new") &&
+			snapshotReferencesCluster(servedB, "cluster-new") &&
+			hasResource(servedB.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"client A should retain old cache while client B publishes coherent new state")
+
+	assertNoXDSCheckErrors(t, servedA)
+	assertNoXDSCheckErrors(t, servedB)
 }
 
 func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.T) {
@@ -1250,6 +1656,30 @@ func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
 	return keys
 }
 
+func httpListenerWithRDS(t *testing.T, name, routeConfigName string) *envoylistenerv3.Listener {
+	t.Helper()
+
+	hcm := &envoyhttpv3.HttpConnectionManager{
+		RouteSpecifier: &envoyhttpv3.HttpConnectionManager_Rds{
+			Rds: &envoyhttpv3.Rds{
+				RouteConfigName: routeConfigName,
+			},
+		},
+	}
+	return &envoylistenerv3.Listener{
+		Name: name,
+		FilterChains: []*envoylistenerv3.FilterChain{{
+			Name: "http",
+			Filters: []*envoylistenerv3.Filter{{
+				Name: envoywellknown.HTTPConnectionManager,
+				ConfigType: &envoylistenerv3.Filter_TypedConfig{
+					TypedConfig: mustMessageToAny(t, hcm),
+				},
+			}},
+		}},
+	}
+}
+
 func routeResourcesForClusters(clusterNames ...string) envoycache.Resources {
 	routes := make([]*envoyroutev3.Route, 0, len(clusterNames))
 	for _, clusterName := range clusterNames {
@@ -1291,6 +1721,14 @@ func edsClusterForClient(ucc ir.UniquelyConnectedClient, name string, version ui
 	}
 }
 
+func edsClusterForClientWithServiceName(ucc ir.UniquelyConnectedClient, name, serviceName string, version uint64) uccWithCluster {
+	cluster := edsClusterForClient(ucc, name, version)
+	cluster.Cluster.EdsClusterConfig = &envoyclusterv3.Cluster_EdsClusterConfig{
+		ServiceName: serviceName,
+	}
+	return cluster
+}
+
 func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
 	return UccWithEndpoints{
 		Client: ucc,
@@ -1310,6 +1748,24 @@ func eventuallySingleSnapshot(t *testing.T, snapshots krt.Collection[XdsSnapWrap
 	g.Eventually(func() bool {
 		snap = eventuallyCurrentSnapshot(snapshots)
 		return snap != nil
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue())
+
+	return snap
+}
+
+func eventuallyCacheSnapshot(t *testing.T, cache envoycache.SnapshotCache, nodeID string) *envoycache.Snapshot {
+	t.Helper()
+
+	g := gomega.NewWithT(t)
+	var snap *envoycache.Snapshot
+	g.Eventually(func() bool {
+		resourceSnapshot, err := cache.GetSnapshot(nodeID)
+		if err != nil {
+			return false
+		}
+		var ok bool
+		snap, ok = resourceSnapshot.(*envoycache.Snapshot)
+		return ok
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue())
 
 	return snap
