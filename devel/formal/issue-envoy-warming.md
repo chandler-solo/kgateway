@@ -4,7 +4,7 @@
 
 Envoy xDS ACKs are easy to overread. The xDS protocol says ACK means the client considered the individual resources valid and intends to apply them, but it does not mean the configuration has been applied successfully.
 
-Envoy also warms clusters and listeners before they can serve traffic. Clusters warm until the matching EDS `ClusterLoadAssignment` response is supplied. Listeners that refer to RDS warm until the corresponding `RouteConfiguration` is supplied. Routes are not warmed, so the management server must sequence RDS after the referenced clusters are already usable.
+Envoy also warms clusters and listeners before they can serve traffic. The management-server safety question is stricter than xDS resource validity: kgateway should not publish an initial route to an EDS cluster until that dependency is route-usable. In this model, a missing CLA means no EDS response has arrived, an empty CLA means EDS was ACKed but no endpoint is usable, and a ready CLA is the first state that can activate the cluster in the model. Listeners that refer to RDS warm until the corresponding `RouteConfiguration` is supplied. Routes are not warmed, so the management server must sequence RDS after the referenced clusters are already usable.
 
 The focused model asks whether a small startup/update sequence preserves active dataplane coherence when those distinctions are respected.
 
@@ -20,15 +20,19 @@ It abstracts:
 - A make-before-break update from `old` to `new`.
 - CDS ACK, EDS ACK, RDS ACK, and LDS ACK as separate events.
 - Active clusters separately from CDS-ACKed clusters.
+- Missing, empty, and ready `ClusterLoadAssignment` states separately from EDS ACK.
 - Active listener and route state separately from ACKed listener and route resources.
 
 The model intentionally has only two names, `old` and `new`. The point is not resource cardinality; it is the ordering relationship between active dataplane state and acknowledged xDS resources.
+
+The model's active-cluster predicate should be read as "route-usable dependency" rather than "present in Envoy admin `dynamic_active_clusters`." Real Envoy can expose an active dynamic cluster before it has usable endpoints; the kgateway obligation is that initial route publication and route updates do not send traffic to that not-yet-usable dependency.
 
 ## Safe Invariants
 
 `XdsEnvoyWarming.cfg` checks:
 
 - `ActiveClustersHaveCDSAndEDS`: a cluster cannot be active merely because CDS was ACKed; EDS must also be present.
+- `ActiveClustersHaveReadyCLA`: a cluster cannot be active merely because EDS was ACKed; the CLA must be ready, not missing or empty.
 - `ActiveRouteReferencesActiveCluster`: an active route cannot point at an inactive cluster.
 - `ActiveListenerHasRouteConfig`: an active listener cannot point at an RDS route config that is not present.
 - `ActiveListenerAndRouteAgree`: the active listener's route identity matches the active route.
@@ -43,6 +47,14 @@ The model intentionally has only two names, `old` and `new`. The point is not re
 - CDS for `new` is ACKed.
 - A buggy transition marks `new` active before EDS arrives.
 - `ActiveClustersHaveCDSAndEDS` fails.
+
+`XdsEnvoyWarmingEmptyCLAImpliesActiveBug.cfg` demonstrates why empty EDS is not active:
+
+- Envoy starts cold.
+- CDS for `new` is ACKed.
+- EDS for `new` is ACKed with an empty CLA.
+- A buggy transition marks `new` active anyway.
+- `ActiveClustersHaveReadyCLA` fails.
 
 `XdsEnvoyWarmingRouteBeforeClusterBug.cfg` demonstrates the route-before-cluster drop shape:
 
@@ -64,6 +76,8 @@ The safe model supports this statement:
 
 > Startup and make-before-break updates preserve active dataplane closure when clusters become active only after EDS, listeners become active only after RDS, and route updates are sequenced after referenced clusters are active.
 
+The model now makes the endpoint condition stricter than "EDS arrived": a route should not become active for an EDS cluster until the referenced CLA is ready. This is the startup-specific delayed-endpoints case exercised by `test/e2e/features/xds_warming`.
+
 It does not prove Envoy internals. It is an executable abstraction of the ordering obligations kgateway must respect when publishing xDS.
 
 ## How to Run
@@ -83,6 +97,10 @@ Run the intentional counterexamples:
 cd devel/formal/tla
 java -jar /path/to/tla2tools.jar \
   -config XdsEnvoyWarmingAckImpliesActiveBug.cfg \
+  XdsEnvoyWarming.tla
+
+java -jar /path/to/tla2tools.jar \
+  -config XdsEnvoyWarmingEmptyCLAImpliesActiveBug.cfg \
   XdsEnvoyWarming.tla
 
 java -jar /path/to/tla2tools.jar \

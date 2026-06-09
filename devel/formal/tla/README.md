@@ -10,7 +10,7 @@
 
 `XdsPerClientConvergence.tla` connects issue 13868, issue 14184, and startup/warming into one convergence path. It starts from a last-good active old snapshot, models a partial/deferred input, requires cache retention during the defer window, publishes a later coherent input with a changed EDS version, answers Envoy's named EDS request, and activates the new state only after CDS/EDS closure exists. `XdsPerClientConvergence.cfg` checks the safe behavior plus a small liveness property. The buggy configs intentionally fail for cache clearing, partial overwrite, stale EDS, EDS version reuse, activate-before-EDS, and no-publish regressions.
 
-`XdsEnvoyWarming.tla` is a focused startup and make-before-break model for Envoy active state. It separates ACKed CDS/EDS/RDS/LDS resources from active clusters, active routes, and active listeners. `XdsEnvoyWarming.cfg` checks the safe behavior. The buggy configs intentionally fail when CDS ACK is treated as cluster-active before EDS, RDS is activated before its referenced cluster is active, or LDS is activated before RDS exists.
+`XdsEnvoyWarming.tla` is a focused startup and make-before-break model for Envoy active state. It separates ACKed CDS/EDS/RDS/LDS resources from route-usable clusters, active routes, active listeners, and missing, empty, or ready `ClusterLoadAssignment` states. `XdsEnvoyWarming.cfg` checks the safe behavior. The buggy configs intentionally fail when CDS ACK is treated as route-usable before EDS, an empty CLA is treated as usable, RDS is activated before its referenced cluster is usable, or LDS is activated before RDS exists.
 
 `XdsNamedEdsWatch.tla` focuses on go-control-plane ADS/SotW named EDS watch respondability. It separates the cache EDS resource set, Envoy's named request, the cache EDS version, Envoy's last accepted EDS version, and the cache response state. `XdsNamedEdsWatch.cfg` checks the safe behavior. The buggy configs intentionally fail when stale extra EDS resources suppress a named ADS response or when the EDS resource set changes without an EDS version change.
 
@@ -31,7 +31,7 @@ The model represents:
 - Reconnect-time per-client snapshot publication deferral until referenced clusters are present or explicitly errored.
 - Per-client cache retention, EDS filtering, named EDS response compatibility, and a minimal Envoy active/warming split for the combined 13868/14184 startup and reconnect traces.
 - Per-client convergence from last-good cache retention through partial input deferral, coherent publication, named EDS response, EDS version change, and active-state closure.
-- Envoy startup and make-before-break ordering: CDS ACK is distinct from cluster active, EDS enables cluster activation, RDS must follow active clusters for routes, and LDS must follow RDS for listener activation.
+- Envoy startup and make-before-break ordering: CDS ACK is distinct from route usability, EDS can be missing, empty, or ready, only a ready CLA enables route-usable cluster state in the model, RDS must follow usable clusters for routes, and LDS must follow RDS for listener activation.
 - go-control-plane named EDS watch behavior: version-new snapshots answer only when all EDS snapshot resources are named by Envoy's request, and EDS resource set changes require EDS version changes.
 
 The dependency chain is:
@@ -110,6 +110,7 @@ To reproduce the Envoy warming counterexamples directly:
 ```bash
 cd devel/formal/tla
 java -jar /path/to/tla2tools.jar -config XdsEnvoyWarmingAckImpliesActiveBug.cfg XdsEnvoyWarming.tla
+java -jar /path/to/tla2tools.jar -config XdsEnvoyWarmingEmptyCLAImpliesActiveBug.cfg XdsEnvoyWarming.tla
 java -jar /path/to/tla2tools.jar -config XdsEnvoyWarmingRouteBeforeClusterBug.cfg XdsEnvoyWarming.tla
 java -jar /path/to/tla2tools.jar -config XdsEnvoyWarmingListenerBeforeRouteBug.cfg XdsEnvoyWarming.tla
 ```
@@ -148,6 +149,7 @@ Useful examples:
 - An `XdsPerClientConvergence` `ActiveSnapshotClosed` failure means Envoy active state moved to a route/cluster snapshot before EDS closure existed.
 - An `XdsPerClientConvergence` temporal-property failure means coherent input can remain stuck without publication, named EDS response, or activation.
 - An `XdsEnvoyWarming` `ActiveClustersHaveCDSAndEDS` failure means a cluster was considered active before both CDS and EDS were present.
+- An `XdsEnvoyWarming` `ActiveClustersHaveReadyCLA` failure means a cluster was considered active while its CLA was missing or empty.
 - An `XdsEnvoyWarming` `ActiveRouteReferencesActiveCluster` failure means an active route points at a cluster that is not active.
 - An `XdsEnvoyWarming` `ActiveListenerHasRouteConfig` failure means an active listener points at an RDS route config that is not present.
 - An `XdsNamedEdsWatch` `ChangedSnapshotRequestRespondable` failure means a version-new EDS snapshot contains a resource outside Envoy's named EDS request, so go-control-plane ADS can suppress the response.

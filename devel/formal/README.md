@@ -29,7 +29,7 @@ The `XdsPerClientPublication` model combines the 13868 and 14184 failure shapes.
 
 The `XdsPerClientConvergence` model is the highest-leverage bridge across issue 13868, issue 14184, and startup/warming. It checks the full abstract path from last-good cache retention through partial input deferral, coherent input publication, named EDS response, EDS version change, and Envoy active-state closure.
 
-The `XdsEnvoyWarming` model isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
+The `XdsEnvoyWarming` model isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, an empty `ClusterLoadAssignment` is not treated as ready, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
 
 ### Go validator
 
@@ -190,9 +190,10 @@ See `devel/formal/model-to-go-test-matrix.md` for the explicit mapping from each
 - `devel/formal/tla/XdsPerClientConvergenceVersionReuseBug.cfg`: intentionally failing TLC configuration for changing EDS resources without changing the EDS version.
 - `devel/formal/tla/XdsPerClientConvergenceActivateBeforeEdsBug.cfg`: intentionally failing TLC configuration for activating a new route/cluster snapshot before the named EDS response arrives.
 - `devel/formal/tla/XdsPerClientConvergenceNoPublishBug.cfg`: intentionally failing TLC configuration for a coherent input that never converges to active state.
-- `devel/formal/tla/XdsEnvoyWarming.tla`: focused startup and make-before-break warming model for LDS/RDS/CDS/EDS active state.
+- `devel/formal/tla/XdsEnvoyWarming.tla`: focused startup and make-before-break warming model for LDS/RDS/CDS/EDS active state with missing, empty, and ready `ClusterLoadAssignment` states.
 - `devel/formal/tla/XdsEnvoyWarming.cfg`: passing TLC configuration for safe startup and warming ordering.
 - `devel/formal/tla/XdsEnvoyWarmingAckImpliesActiveBug.cfg`: intentionally failing TLC configuration for treating CDS ACK as cluster-active before EDS.
+- `devel/formal/tla/XdsEnvoyWarmingEmptyCLAImpliesActiveBug.cfg`: intentionally failing TLC configuration for treating an empty `ClusterLoadAssignment` as cluster-active.
 - `devel/formal/tla/XdsEnvoyWarmingRouteBeforeClusterBug.cfg`: intentionally failing TLC configuration for activating RDS before the referenced cluster is active.
 - `devel/formal/tla/XdsEnvoyWarmingListenerBeforeRouteBug.cfg`: intentionally failing TLC configuration for activating LDS before the referenced RDS config exists.
 - `devel/formal/tla/XdsNamedEdsWatch.tla`: focused go-control-plane ADS named EDS watch response model.

@@ -30,7 +30,8 @@
 - A version-new named EDS response must not contain snapshot resources outside Envoy's requested EDS names.
 - If the per-client EDS resource set changes, the EDS version must change.
 - Envoy active state must not move to a new route/cluster snapshot before CDS and EDS closure exists.
-- CDS ACK alone does not make a cluster active; an active EDS cluster must have both CDS and EDS state.
+- CDS ACK alone does not make a cluster active; an active EDS cluster must have CDS state and a ready `ClusterLoadAssignment`.
+- An empty `ClusterLoadAssignment` is ACKed EDS state, but it is not ready endpoint state for activating routes that need usable endpoints.
 - An active route must not reference a cluster that is not active.
 - An active listener using RDS must not reference a route configuration that is not present.
 - Make-before-break updates must not remove the old active cluster before active traffic has moved away from it.
