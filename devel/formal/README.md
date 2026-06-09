@@ -133,6 +133,18 @@ When the TLA+ jar is installed, `devel/formal/tla/check.sh` should run TLC again
 - Go tests cover valid and invalid xDS snapshots directly constructed from Envoy v3 protos.
 - Warning findings are used for dynamic or unsupported constructs that cannot be verified statically by this MVP.
 
+## Bug-hunt plan
+
+The next formal-methods-driven bug hunts should focus on places where a static xDS snapshot can be valid but runtime publication ordering can still break traffic:
+
+1. Weighted cluster delayed endpoints: change an active route from `100% old` to weighted `old + new` while `new` has no usable endpoints. The expected behavior is that old traffic stays stable until every weighted backend dependency is ready, then traffic can split across old and new.
+2. Multi-host route isolation: add a new host whose backend is delayed while an existing host remains valid. The expected behavior is that the new host remains unrouted or deferred without poisoning the existing host.
+3. EDS service-name changes: keep the logical backend similar while changing `EdsClusterConfig.ServiceName`. The expected behavior is no stale CLA retention, no missing-CLA publication, and no named EDS response suppression.
+4. Endpoint set transitions from ready to empty: remove all endpoints after a route is active and document the intended steady-state outage semantics separately from startup warming semantics.
+5. Two clients, one partial: keep one connected Envoy client fully coherent while another has delayed clusters or endpoints. The expected behavior is that per-client deferral does not poison the ready client's cache.
+6. EDS version churn or reuse: change the filtered EDS resource set and verify versions change when names change, without unnecessary churn for equivalent resource sets.
+7. Delayed RDS/listener startup: withhold route configuration closure and verify listener activation behavior when LDS/RDS ordering, not CDS/EDS ordering, is the suspected risk.
+
 ## Integration seam
 
 The current checked-in integrations are:

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/onsi/gomega"
@@ -35,6 +36,7 @@ var _ e2e.NewSuiteFunc = NewTestingSuite
 var (
 	setupManifest               = filepath.Join(fsutils.MustGetThisDir(), "testdata", "setup.yaml")
 	routeNewManifest            = filepath.Join(fsutils.MustGetThisDir(), "testdata", "route-new.yaml")
+	routeWeightedManifest       = filepath.Join(fsutils.MustGetThisDir(), "testdata", "route-weighted.yaml")
 	backendNewManifest          = filepath.Join(fsutils.MustGetThisDir(), "testdata", "backend-new.yaml")
 	startupServiceRouteManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "startup-service-route.yaml")
 	startupBackendManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "startup-backend.yaml")
@@ -48,6 +50,7 @@ var (
 
 	testCases = map[string]*base.TestCase{
 		"TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic": {},
+		"TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic": {},
 		"TestInitialRouteWaitsForEDSBeforeBecomingActive":       {},
 	}
 )
@@ -146,6 +149,42 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 	s.assertGatewayServesConsistently(hostName, newBody, 5*time.Second, time.Second)
 }
 
+func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
+	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteCondition(
+		s.Ctx,
+		routeName,
+		gatewayNamespace,
+		gwv1.RouteConditionAccepted,
+		metav1.ConditionTrue,
+	)
+	s.assertGatewayEventuallyServes(hostName, oldBody)
+	s.assertActiveClusterPresence(oldClusterName, true)
+
+	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeWeightedManifest)
+	s.Require().NoError(err, "can update route to weighted old/new backends before new endpoints exist")
+	s.eventuallyRouteObserved(routeName, gatewayNamespace)
+
+	s.assertActiveClusterPresence(oldClusterName, true)
+	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
+
+	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
+	s.Require().NoError(err, "can create delayed new backend deployment")
+	s.TestInstallation.AssertionsT(s.T()).EventuallyObjectsExist(
+		s.Ctx,
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "warming-new", Namespace: gatewayNamespace}},
+	)
+	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsRunning(
+		s.Ctx,
+		gatewayNamespace,
+		metav1.ListOptions{LabelSelector: testdefaults.WellKnownAppLabel + "=warming-new"},
+		time.Minute,
+		500*time.Millisecond,
+	)
+
+	s.assertActiveClusterPresence(newClusterName, true)
+	s.assertGatewayEventuallyServesAll(hostName, []string{oldBody, newBody}, 30*time.Second, time.Second)
+}
+
 func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, startupServiceRouteManifest)
 	s.Require().NoError(err, "can publish startup route and service before endpoints exist")
@@ -234,6 +273,37 @@ func (s *testingSuite) assertGatewayServesOnce(host, bodySubstring string) {
 	s.Require().NoError(err)
 	s.Require().Equal(http.StatusOK, statusCode, "gateway returned body: %s", body)
 	s.Require().Contains(body, bodySubstring)
+}
+
+func (s *testingSuite) assertGatewayEventuallyServesAll(host string, bodySubstrings []string, timeout, poll time.Duration) {
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		seen := make(map[string]bool, len(bodySubstrings))
+		observedBodies := make([]string, 0, 12)
+
+		for i := 0; i < 12; i++ {
+			statusCode, body, err := s.gatewayResponse(host)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
+			g.Expect(statusCode).To(gomega.Equal(http.StatusOK), "gateway returned body: %s", body)
+
+			observedBodies = append(observedBodies, body)
+			for _, bodySubstring := range bodySubstrings {
+				if strings.Contains(body, bodySubstring) {
+					seen[bodySubstring] = true
+				}
+			}
+			if len(seen) == len(bodySubstrings) {
+				return
+			}
+		}
+
+		missing := make([]string, 0, len(bodySubstrings))
+		for _, bodySubstring := range bodySubstrings {
+			if !seen[bodySubstring] {
+				missing = append(missing, bodySubstring)
+			}
+		}
+		g.Expect(missing).To(gomega.BeEmpty(), "observed bodies: %v", observedBodies)
+	}).WithContext(s.Ctx).WithTimeout(timeout).WithPolling(poll).Should(gomega.Succeed())
 }
 
 func (s *testingSuite) assertGatewayStatusConsistently(host string, status int, window, poll time.Duration) {

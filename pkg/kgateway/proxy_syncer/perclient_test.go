@@ -790,6 +790,82 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 	assertNoXDSCheckErrors(t, readySnap)
 }
 
+func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterOld := edsClusterForClient(ucc, "cluster-old", 1)
+	clusterNew := edsClusterForClient(ucc, "cluster-new", 2)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOld})
+	endpointOld := endpointsForClient(ucc, "cluster-old", 3)
+	endpointNew := endpointsForClient(ucc, "cluster-new", 4)
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointOld})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	initialSnap := eventuallySingleSnapshot(t, snapshots)
+	g.Expect(snapshotReferencesCluster(initialSnap, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	assertNoXDSCheckErrors(t, initialSnap)
+
+	updatedRoutes := weightedRouteResourcesForClusters("cluster-old", "cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(clusterNew)
+
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
+		"the weighted route update must be deferred until every referenced EDS cluster has a usable endpoint")
+
+	endpointCol.UpdateObject(endpointNew)
+
+	var readySnap *envoycache.Snapshot
+	g.Eventually(func() bool {
+		readySnap = eventuallyCurrentSnapshot(snapshots)
+		if readySnap == nil {
+			return false
+		}
+		return snapshotReferencesCluster(readySnap, "cluster-old") &&
+			snapshotReferencesCluster(readySnap, "cluster-new") &&
+			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-old") &&
+			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once both weighted route CLAs contain usable endpoints, the weighted route update can publish")
+	assertNoXDSCheckErrors(t, readySnap)
+}
+
 func TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache(t *testing.T) {
 	g := gomega.NewWithT(t)
 
@@ -1762,6 +1838,42 @@ func routeResourcesForClusters(clusterNames ...string) envoycache.Resources {
 	})
 }
 
+func weightedRouteResourcesForClusters(clusterNames ...string) envoycache.Resources {
+	clusters := make([]*envoyroutev3.WeightedCluster_ClusterWeight, 0, len(clusterNames))
+	for _, clusterName := range clusterNames {
+		clusters = append(clusters, &envoyroutev3.WeightedCluster_ClusterWeight{
+			Name:   clusterName,
+			Weight: wrapperspb.UInt32(1),
+		})
+	}
+
+	return sliceToResources([]*envoyroutev3.RouteConfiguration{
+		{
+			Name: "route-config",
+			VirtualHosts: []*envoyroutev3.VirtualHost{
+				{
+					Name:    "vhost",
+					Domains: []string{"*"},
+					Routes: []*envoyroutev3.Route{
+						{
+							Name: "weighted-route",
+							Action: &envoyroutev3.Route_Route{
+								Route: &envoyroutev3.RouteAction{
+									ClusterSpecifier: &envoyroutev3.RouteAction_WeightedClusters{
+										WeightedClusters: &envoyroutev3.WeightedCluster{
+											Clusters: clusters,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+}
+
 func edsClusterForClient(ucc ir.UniquelyConnectedClient, name string, version uint64) uccWithCluster {
 	return uccWithCluster{
 		Client: ucc,
@@ -1879,6 +1991,11 @@ func snapshotReferencesCluster(snap *envoycache.Snapshot, name string) bool {
 			for _, route := range virtualHost.GetRoutes() {
 				if route.GetRoute().GetCluster() == name {
 					return true
+				}
+				for _, cluster := range route.GetRoute().GetWeightedClusters().GetClusters() {
+					if cluster.GetName() == name {
+						return true
+					}
 				}
 			}
 		}
