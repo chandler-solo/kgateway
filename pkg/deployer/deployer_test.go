@@ -2608,9 +2608,6 @@ var _ = Describe("DeployObjs", func() {
 					wellknown.GatewayClassNameLabel: wellknown.DefaultGatewayClassName,
 					wellknown.GatewayNameLabel:      name,
 				},
-				Annotations: map[string]string{
-					wellknown.GatewayNameAnnotation: name,
-				},
 			},
 			Spec: corev1.ServiceSpec{
 				Type: corev1.ServiceTypeLoadBalancer,
@@ -2706,29 +2703,6 @@ var _ = Describe("DeployObjs", func() {
 		gw := newGatewaySource()
 		existingSvc := newGatewayService()
 		existingSvc.Annotations = nil
-		existingSvc.OwnerReferences = nil
-		existingSvc.Spec.Type = corev1.ServiceTypeClusterIP
-
-		fc := fake.NewClient(GinkgoT(), existingSvc)
-		patched := false
-		d := getDeployer(fc, func(_ context.Context, client apiclient.Client, fieldManager string, gvr schema.GroupVersionResource, name string, namespace string, data []byte, subresources ...string) error {
-			patched = true
-			return nil
-		})
-		fc.RunAndWait(context.Background().Done())
-
-		err := d.DeployObjsWithSource(ctx, []client.Object{newGatewayService()}, gw)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(patched).To(BeTrue())
-	})
-
-	It("patches an existing Service with matching Gateway full-name annotation", func() {
-		gw := newGatewaySource()
-		existingSvc := newGatewayService()
-		existingSvc.Labels = map[string]string{
-			"app.kubernetes.io/managed-by":  "kgateway",
-			wellknown.GatewayClassNameLabel: wellknown.DefaultGatewayClassName,
-		}
 		existingSvc.OwnerReferences = nil
 		existingSvc.Spec.Type = corev1.ServiceTypeClusterIP
 

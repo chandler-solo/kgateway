@@ -231,8 +231,6 @@ metadata:
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    gateway.kgateway.dev/gateway-full-name: very-long-gateway-name-that-is-exactly-sixty-three-characterslo
   labels:
     app.kubernetes.io/component: proxy
     app.kubernetes.io/instance: very-long-gateway-name-that-is-exactly-sixty-three-characterslo

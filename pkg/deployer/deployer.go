@@ -384,29 +384,8 @@ func hasMatchingGatewayServiceMetadata(existingObj, desiredObj client.Object) bo
 		}
 	}
 
-	return gatewayNameMetadataMatches(existingObj, desiredObj)
-}
-
-func gatewayNameMetadataMatches(existingObj, desiredObj client.Object) bool {
-	existingLabels := existingObj.GetLabels()
-	desiredLabels := desiredObj.GetLabels()
-	existingAnnotations := existingObj.GetAnnotations()
-	desiredAnnotations := desiredObj.GetAnnotations()
-
-	if existingGatewayName, ok := existingAnnotations[wellknown.GatewayNameAnnotation]; ok {
-		desiredGatewayName, desiredHasGatewayName := desiredAnnotations[wellknown.GatewayNameAnnotation]
-		if desiredHasGatewayName && existingGatewayName != desiredGatewayName {
-			return false
-		}
-	}
-
 	desiredGatewayLabel, desiredHasGatewayLabel := desiredLabels[wellknown.GatewayNameLabel]
-	labelMatches := desiredHasGatewayLabel && existingLabels[wellknown.GatewayNameLabel] == desiredGatewayLabel
-
-	desiredGatewayName, desiredHasGatewayName := desiredAnnotations[wellknown.GatewayNameAnnotation]
-	annotationMatches := desiredHasGatewayName && existingAnnotations[wellknown.GatewayNameAnnotation] == desiredGatewayName
-
-	return labelMatches || annotationMatches
+	return desiredHasGatewayLabel && existingLabels[wellknown.GatewayNameLabel] == desiredGatewayLabel
 }
 
 func (d *Deployer) gvkToGVR(gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {

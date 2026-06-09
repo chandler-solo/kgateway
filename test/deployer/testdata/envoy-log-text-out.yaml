@@ -234,8 +234,6 @@ metadata:
 apiVersion: v1
 kind: Service
 metadata:
-  annotations:
-    gateway.kgateway.dev/gateway-full-name: gw
   labels:
     app.kubernetes.io/component: proxy
     app.kubernetes.io/instance: gw
