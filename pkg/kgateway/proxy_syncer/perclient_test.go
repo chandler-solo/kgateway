@@ -382,14 +382,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		return len(snapshots.List())
 	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
 
-	endpointCol.UpdateObject(UccWithEndpoints{
-		Client: ucc,
-		Endpoints: &envoyendpointv3.ClusterLoadAssignment{
-			ClusterName: "cluster-a",
-		},
-		EndpointsHash: 3,
-		endpointsName: "cluster-a",
-	})
+	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-a", 3))
 
 	g.Eventually(func() int {
 		return len(snapshots.List())
@@ -467,22 +460,8 @@ func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *tes
 	}
 	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterA, clusterB})
 	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{
-		{
-			Client: ucc,
-			Endpoints: &envoyendpointv3.ClusterLoadAssignment{
-				ClusterName: "cluster-a",
-			},
-			EndpointsHash: 3,
-			endpointsName: "cluster-a",
-		},
-		{
-			Client: ucc,
-			Endpoints: &envoyendpointv3.ClusterLoadAssignment{
-				ClusterName: "cluster-b",
-			},
-			EndpointsHash: 4,
-			endpointsName: "cluster-b",
-		},
+		endpointsForClient(ucc, "cluster-a", 3),
+		endpointsForClient(ucc, "cluster-b", 4),
 	})
 
 	snapshots := snapshotPerClient(
@@ -733,6 +712,82 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
 		"old cluster resources should be removable after the active route has moved to the warmed cluster")
 	assertNoXDSCheckErrors(t, finalSnap)
+}
+
+func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterOld := edsClusterForClient(ucc, "cluster-old", 1)
+	clusterNew := edsClusterForClient(ucc, "cluster-new", 2)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOld})
+	endpointOld := endpointsForClient(ucc, "cluster-old", 3)
+	endpointNewEmpty := emptyEndpointsForClient(ucc, "cluster-new", 4)
+	endpointNewReady := endpointsForClient(ucc, "cluster-new", 5)
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointOld})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	initialSnap := eventuallySingleSnapshot(t, snapshots)
+	g.Expect(snapshotReferencesCluster(initialSnap, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	assertNoXDSCheckErrors(t, initialSnap)
+
+	updatedRoutes := routeResourcesForClusters("cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(clusterNew)
+	endpointCol.UpdateObject(endpointNewEmpty)
+
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
+		"an empty CLA must not publish a route update to the new cluster")
+
+	endpointCol.UpdateObject(endpointNewReady)
+
+	var readySnap *envoycache.Snapshot
+	g.Eventually(func() bool {
+		readySnap = eventuallyCurrentSnapshot(snapshots)
+		if readySnap == nil {
+			return false
+		}
+		return snapshotReferencesCluster(readySnap, "cluster-new") &&
+			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once the CLA contains a usable endpoint, the route update can publish")
+	assertNoXDSCheckErrors(t, readySnap)
 }
 
 func TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache(t *testing.T) {
@@ -1730,6 +1785,33 @@ func edsClusterForClientWithServiceName(ucc ir.UniquelyConnectedClient, name, se
 }
 
 func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
+	endpoints := emptyEndpointsForClient(ucc, name, hash)
+	endpoints.Endpoints.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{
+		{
+			LbEndpoints: []*envoyendpointv3.LbEndpoint{
+				{
+					HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{
+						Endpoint: &envoyendpointv3.Endpoint{
+							Address: &envoycorev3.Address{
+								Address: &envoycorev3.Address_SocketAddress{
+									SocketAddress: &envoycorev3.SocketAddress{
+										Address: "127.0.0.1",
+										PortSpecifier: &envoycorev3.SocketAddress_PortValue{
+											PortValue: 8080,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	return endpoints
+}
+
+func emptyEndpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
 	return UccWithEndpoints{
 		Client: ucc,
 		Endpoints: &envoyendpointv3.ClusterLoadAssignment{

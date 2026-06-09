@@ -23,7 +23,7 @@ The expected workflow is:
 - `pkg/kgateway/translator/xdscheck`: pure Envoy proto snapshot invariants and precise finding messages.
 - `pkg/kgateway/translator/gateway/gateway_translator_test.go`: representative IR -> xDS translator fixtures run through `xdscheck`.
 - `pkg/kgateway/proxy_syncer/perclient_test.go`: per-client KRT and `SnapshotCache` publication traces, including issue 13868 and issue 14184 shapes.
-- `test/e2e`: real Envoy startup, warming, reconnect, and active dataplane behavior that cannot be proven from emitted snapshots alone.
+- `test/e2e/features/xds_warming`: real Envoy startup, warming, reconnect, and active dataplane behavior that cannot be proven from emitted snapshots alone.
 
 ## Snapshot closure matrix
 
@@ -52,7 +52,7 @@ The expected workflow is:
 | `XdsPerClientConvergence.DeleteRetainsLastGood` | A KRT delete/defer event clears the served last-good xDS cache. | `TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache` starts with a coherent served `SnapshotCache`, introduces a partial update, and asserts the served cache retains old resources and versions. | Covered | Keep delete/defer events as no-op for the served cache unless a distinct UCC-gone signal is added. |
 | `XdsPerClientConvergence.PartialDoesNotOverwriteCache` | Partial computed state overwrites a coherent per-client cache. | `TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache` asserts the partial route does not reach the served cache; deferral tests assert no partial KRT output. | Covered | Add analogous tests if new dependency gates are introduced. |
 | `XdsPerClientConvergence.CoherentInputCanPublish` | Publication remains disabled even after CDS and EDS become closed. | Same bounded `Eventually` tests as above. | Covered | Include the old and new resource versions in the assertions when practical. |
-| `XdsPerClientConvergence.CoherentNewEventuallyActive` | A coherent desired snapshot never reaches active use. | Unit tests can only observe publication; real active dataplane requires Envoy. | Partial | Add an e2e make-before-break test that proves traffic stays on old until new EDS is ready, then succeeds on new without transient `NC`/`500`. |
+| `XdsPerClientConvergence.CoherentNewEventuallyActive` | A coherent desired snapshot never reaches active use. | `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` observes real Envoy traffic moving from old to new only after the new backend endpoints exist. `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers the unit-level empty-CLA case found by the e2e. | Covered | Add more hosts/backends only if another production shape escapes this route-update scenario. |
 
 ## Issue 14184 and named EDS matrix
 
@@ -67,12 +67,12 @@ The expected workflow is:
 
 | Model obligation | Go bug shape | Existing Go coverage | Status | Next action |
 | --- | --- | --- | --- | --- |
-| `XdsEnvoyWarming.ActiveClustersHaveCDSAndEDS` | Code or tests treat CDS ACK as enough for a cluster to be usable before EDS arrives. | `TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints` and `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` prevent publication of routes to EDS clusters without endpoints. | Partial | Add Envoy e2e coverage that observes traffic behavior while EDS is withheld. |
-| `XdsEnvoyWarming.ActiveRouteReferencesActiveCluster` | RDS route moves to a cluster before the cluster is active. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` models the control-plane side of this ordering. | Partial | Add e2e make-before-break traffic assertions; unit tests cannot observe Envoy active state. |
+| `XdsEnvoyWarming.ActiveClustersHaveCDSAndEDS` | Code or tests treat CDS ACK as enough for a cluster to be usable before EDS arrives. | `TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints`, `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady`, `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint`, and `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic`. | Covered | Add startup-specific variants if kgateway changes initial route publication semantics. |
+| `XdsEnvoyWarming.ActiveRouteReferencesActiveCluster` | RDS route moves to a cluster before the cluster is active. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` covers the control-plane side; `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers empty EDS; `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` covers real Envoy traffic while the new EDS has no usable endpoints. | Covered | Add continuous-load variants if transient sub-second failures become a concern. |
 | `XdsEnvoyWarming.ActiveListenerHasRouteConfig` | LDS listener becomes active before referenced RDS exists. | `TestCheckSnapshotMissingRDSReferencedByListener` catches emitted snapshot closure, not Envoy warming. | Partial | Add startup e2e that withholds RDS or uses a delayed route input and checks no active listener points at missing RDS. |
 | `XdsEnvoyWarming.ActiveListenerAndRouteAgree` | Active listener and active route identity diverge. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` now uses an HCM/RDS listener and `xdscheck` to assert the emitted listener and route config stay closed; actual active Envoy state is not observable in unit tests. | Partial | Add Envoy e2e if this becomes a suspected startup/warming regression. |
 | `XdsEnvoyWarming.StartupActiveOnlyAfterClosure` | Startup declares success before LDS/RDS/CDS/EDS closure exists. | Static closure is covered by xdscheck; active startup is not. | Partial | Add e2e startup readiness coverage tied to actual traffic success, not only ACK logs. |
-| `XdsEnvoyWarming.NoBreakBeforeMake` | Old active cluster is removed before traffic has moved to the new warmed cluster. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` covers the control-plane ordering and removal after new closure. | Partial | Add e2e traffic test that continuously sends requests during old -> new transition. |
+| `XdsEnvoyWarming.NoBreakBeforeMake` | Old active cluster is removed before traffic has moved to the new warmed cluster. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` covers the control-plane ordering; `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers empty EDS; `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` asserts old traffic remains stable while the new backend has no endpoints, then moves to new. | Covered | Add higher-rate continuous-load coverage if this needs to catch very short transient failures. |
 
 ## ADS protocol matrix
 
@@ -94,7 +94,7 @@ The expected workflow is:
 
 ## Remaining highest-value gaps
 
-1. Add a real Envoy e2e make-before-break test for warming: traffic should not see transient `NC` or `500` while the new EDS resource is absent, and should move after EDS appears.
+1. Add startup-specific Envoy warming coverage if a future bug involves initial LDS/RDS activation before route closure.
 2. Add mixed cluster-name and service-name EDS named-watch coverage if production can emit both forms in the same per-client snapshot.
 3. Add SDS/ECDS per-type version checks when those resource types are added to the TLA+ publication models.
 
@@ -106,6 +106,9 @@ Run the current covered Go checks:
 go test ./pkg/kgateway/translator/xdscheck
 go test ./pkg/kgateway/translator/gateway -run '^(TestTranslatedRedirectSnapshotPassesXDSCheck|TestTranslatedBackendSnapshotPassesXDSCheck|TestTranslatedOAuth2SnapshotPassesXDSCheck|TestTranslatedExtAuthSnapshotPassesXDSCheck|TestTranslatedRateLimitSnapshotPassesXDSCheck|TestTranslatedExtProcSnapshotPassesXDSCheck|TestTranslatedGRPCAccessLogSnapshotPassesXDSCheck|TestTranslatedOpenTelemetryAccessLogAndTracingSnapshotPassesXDSCheck)$'
 go test ./pkg/kgateway/proxy_syncer
+go test -tags e2e ./test/e2e/features/xds_warming
+go test -tags e2e ./test/e2e/tests -run '^$'
+go test ./test/e2e/tests -run TestAllE2ETestsInShards
 ```
 
 Run the model side:
