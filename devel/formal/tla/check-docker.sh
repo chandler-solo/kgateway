@@ -42,6 +42,7 @@ run_all_models() {
     run_tlc "$jar_path" XdsAdsSotw.cfg XdsAdsSotw.tla
     run_tlc "$jar_path" XdsReconnectRace13868.cfg XdsReconnectRace13868.tla
     run_tlc "$jar_path" XdsPerClientPublication.cfg XdsPerClientPublication.tla
+    run_tlc "$jar_path" XdsPerClientConvergence.cfg XdsPerClientConvergence.tla
     run_tlc "$jar_path" XdsEnvoyWarming.cfg XdsEnvoyWarming.tla
     run_tlc "$jar_path" XdsNamedEdsWatch.cfg XdsNamedEdsWatch.tla
     run_tlc "$jar_path" XdsEdsSubset.cfg XdsEdsSubset.tla

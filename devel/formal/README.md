@@ -4,7 +4,7 @@
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
 
-- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, Envoy startup/warming ordering, issue-focused EDS subset invariants, and go-control-plane named EDS watch respondability.
+- TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, the end-to-end per-client convergence path, Envoy startup/warming ordering, issue-focused EDS subset invariants, and go-control-plane named EDS watch respondability.
 - A Go validator checks concrete Envoy LDS/RDS/CDS/EDS snapshot dependency invariants.
 - Tests and scripts make the seam repeatable for future translator validation.
 
@@ -26,6 +26,8 @@ The `XdsNamedEdsWatch` model focuses on the go-control-plane cache decision poin
 The `XdsReconnectRace13868` model isolates the reconnect-time partial snapshot race fixed by PR 13868. It proves, in a finite model, that the readiness gate prevents the xDS cache from being overwritten by a snapshot whose route/listener cluster references are missing from CDS unless the missing cluster is explicitly errored. The companion buggy config demonstrates the old partial-publish counterexample.
 
 The `XdsPerClientPublication` model combines the 13868 and 14184 failure shapes. It checks that retained last-good snapshots, referenced-cluster readiness, referenced-endpoint readiness, EDS filtering, named EDS response behavior, and a minimal Envoy warming/active distinction work together for the two critical traces.
+
+The `XdsPerClientConvergence` model is the highest-leverage bridge across issue 13868, issue 14184, and startup/warming. It checks the full abstract path from last-good cache retention through partial input deferral, coherent input publication, named EDS response, EDS version change, and Envoy active-state closure.
 
 The `XdsEnvoyWarming` model isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
 
@@ -163,6 +165,7 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
 - `devel/formal/issue-13868.md`: issue-focused notes for the reconnect-time cluster readiness model.
 - `devel/formal/issue-13868-14184.md`: combined per-client publication model notes for startup, reconnect, stale EDS, and Envoy activation behavior.
+- `devel/formal/issue-per-client-convergence.md`: convergence model notes for retaining last-good cache state, publishing coherent inputs, named EDS response compatibility, EDS version changes, and activation closure.
 - `devel/formal/issue-envoy-warming.md`: startup and warming notes for ACK versus active state, cluster warming, route sequencing, and listener warming.
 - `devel/formal/issue-14184.md`: issue-focused formal-methods root-cause notes.
 - `devel/formal/issue-14184-design.md`: proposed fix design for stale EDS resources blocking ADS responses.
@@ -176,6 +179,14 @@ This keeps the MVP non-invasive while making it straightforward to attach concre
 - `devel/formal/tla/XdsPerClientPublication.cfg`: passing TLC configuration for the combined safe behavior.
 - `devel/formal/tla/XdsPerClientPublicationMissingClusterBug.cfg`: intentionally failing TLC configuration for the 13868-style missing referenced cluster publish.
 - `devel/formal/tla/XdsPerClientPublicationStaleEdsBug.cfg`: intentionally failing TLC configuration for the 14184-style stale EDS publish.
+- `devel/formal/tla/XdsPerClientConvergence.tla`: focused convergence model for the last-good -> defer partial -> publish coherent -> named EDS response -> active state path.
+- `devel/formal/tla/XdsPerClientConvergence.cfg`: passing TLC configuration for the convergence model.
+- `devel/formal/tla/XdsPerClientConvergenceClearOnDeleteBug.cfg`: intentionally failing TLC configuration for clearing the per-client cache on a KRT delete/defer event.
+- `devel/formal/tla/XdsPerClientConvergencePartialOverwriteBug.cfg`: intentionally failing TLC configuration for letting a partial computed snapshot overwrite the coherent cache.
+- `devel/formal/tla/XdsPerClientConvergenceStaleEdsBug.cfg`: intentionally failing TLC configuration for publishing stale extra EDS resources after CDS changes.
+- `devel/formal/tla/XdsPerClientConvergenceVersionReuseBug.cfg`: intentionally failing TLC configuration for changing EDS resources without changing the EDS version.
+- `devel/formal/tla/XdsPerClientConvergenceActivateBeforeEdsBug.cfg`: intentionally failing TLC configuration for activating a new route/cluster snapshot before the named EDS response arrives.
+- `devel/formal/tla/XdsPerClientConvergenceNoPublishBug.cfg`: intentionally failing TLC configuration for a coherent input that never converges to active state.
 - `devel/formal/tla/XdsEnvoyWarming.tla`: focused startup and make-before-break warming model for LDS/RDS/CDS/EDS active state.
 - `devel/formal/tla/XdsEnvoyWarming.cfg`: passing TLC configuration for safe startup and warming ordering.
 - `devel/formal/tla/XdsEnvoyWarmingAckImpliesActiveBug.cfg`: intentionally failing TLC configuration for treating CDS ACK as cluster-active before EDS.
