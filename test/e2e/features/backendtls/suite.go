@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"time"
 
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	envoywellknown "github.com/envoyproxy/go-control-plane/pkg/wellknown"
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -16,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	eiutils "github.com/kgateway-dev/kgateway/v2/internal/envoyinit/pkg/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/backendtlspolicy"
 	reports "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/reporter"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
@@ -24,6 +29,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
+	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
 )
@@ -75,7 +81,8 @@ var (
 
 	// test cases
 	testCases = map[string]*base.TestCase{
-		"TestBackendTLSPolicyAndStatus": {},
+		"TestBackendTLSPolicyAndStatus":               {},
+		"TestBackendTLSPolicyEnvoyAcceptsSystemCASDS": {},
 		"TestBackendTLSPolicyErrorStatusForTerminatedTLSRoute": {
 			Manifests:       []string{terminatedTLSRouteInvalidManifest},
 			MinGwApiVersion: base.GwApiRequireTlsRoutes,
@@ -174,6 +181,28 @@ func (s *tsuite) TestBackendTLSPolicyAndStatus() {
 	})
 }
 
+func (s *tsuite) TestBackendTLSPolicyEnvoyAcceptsSystemCASDS() {
+	s.TestInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.Ctx, gatewayMeta, func(ctx context.Context, adminClient *admincli.Client) {
+		s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+			clusters, err := adminClient.GetDynamicClusters(ctx)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic clusters")
+			g.Expect(clusters).NotTo(gomega.BeEmpty(), "dynamic clusters should be available")
+
+			var systemCAClusterNames []string
+			for _, cluster := range clusters {
+				if clusterReferencesSystemCASDS(cluster) {
+					systemCAClusterNames = append(systemCAClusterNames, cluster.GetName())
+				}
+			}
+			g.Expect(systemCAClusterNames).NotTo(gomega.BeEmpty(), "expected a BackendTLSPolicy cluster to reference the system CA SDS secret")
+		}).
+			WithContext(ctx).
+			WithTimeout(120 * time.Second).
+			WithPolling(2 * time.Second).
+			Should(gomega.Succeed())
+	})
+}
+
 func (s *tsuite) TestBackendTLSPolicyStatusForTerminatedTLSRoute() {
 	s.assertPolicyStatusForPolicy(terminatedTLSRoutePolicy, terminatedTLSRouteGatewayMeta, metav1.Condition{
 		Type:    string(gwv1.PolicyConditionAccepted),
@@ -254,6 +283,29 @@ func gatewayParentReference(objMeta metav1.ObjectMeta) gwv1.ParentReference {
 
 func invalidCAConfigMapMessage(name string) string {
 	return fmt.Sprintf("invalid CA certificate ref ConfigMap/%s: %s: kgateway-base/%s", name, backendtlspolicy.ErrConfigMapNotFound, name)
+}
+
+func clusterReferencesSystemCASDS(cluster *envoyclusterv3.Cluster) bool {
+	transportSocket := cluster.GetTransportSocket()
+	if transportSocket == nil || transportSocket.GetName() != envoywellknown.TransportSocketTls {
+		return false
+	}
+
+	typedConfig := transportSocket.GetTypedConfig()
+	if typedConfig == nil {
+		return false
+	}
+
+	tlsContext := &envoytlsv3.UpstreamTlsContext{}
+	if err := typedConfig.UnmarshalTo(tlsContext); err != nil {
+		return false
+	}
+
+	return tlsContext.GetSni() == "google.com" &&
+		tlsContext.GetCommonTlsContext().
+			GetCombinedValidationContext().
+			GetValidationContextSdsSecretConfig().
+			GetName() == eiutils.SystemCaSecretName
 }
 
 const (

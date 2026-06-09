@@ -1,0 +1,153 @@
+translatorFixtureRoots:
+- backend-protocol
+- backendconfigpolicy
+- backends
+- backendtlspolicy
+- basic-auth
+- custom-gateway-class
+- delegation
+- dfp
+- directresponse
+- discovery-namespace-selector
+- edge-cases
+- frontendtlsconfig
+- gateway-only
+- grpc-routing
+- http-acl
+- http-routing
+- http-routing-invalid-backend
+- http-routing-missing-backend
+- http-with-header-modifier
+- httplistenerpolicy
+- httproute-timeout-retry
+- https-listener-pol
+- https-routing
+- invalid-filter-chains
+- jwt
+- listener-policy
+- listener-policy-http
+- listener-sets
+- loadbalancer
+- multiple-listeners-http-routing
+- multiple-listeners-https-routing
+- rbac
+- route-replacement
+- session-persistence
+- status
+- tcp-routing
+- tls-routing
+- traffic-policy
+- validation
+
+features:
+- name: basic-http-routing
+  owner: kgateway
+  status: covered
+  resources: [LDS, RDS, CDS, EDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/http-routing/basic.yaml
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  - test/translator/xdscheck_test.go
+  - pkg/kgateway/translator/gateway/gateway_translator_test.go
+  e2eSuites:
+  - test/e2e/features/basicrouting
+  notes: Baseline K8s Gateway and HTTPRoute to Envoy LDS/RDS/CDS/EDS coverage.
+
+- name: backend-tls-sds
+  owner: kgateway
+  status: covered
+  resources: [CDS, EDS, SDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/backendtlspolicy/tls.yaml
+  - pkg/kgateway/translator/gateway/testutils/inputs/backendconfigpolicy/tls-system-ca.yaml
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  - pkg/kgateway/proxy_syncer/perclient_test.go
+  e2eSuites:
+  - test/e2e/features/backendtls
+  notes: Covers upstream TLS validation context references and the system CA SDS sentinel.
+
+- name: gateway-backend-client-certificate
+  owner: kgateway
+  status: covered
+  resources: [CDS, EDS, SDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/backendtlspolicy/gateway-client-certificate.yaml
+  - pkg/kgateway/translator/gateway/testutils/inputs/backendtlspolicy/multi-gateway-client-certificates.yaml
+  testFiles:
+  - test/translator/xdscheck_test.go
+  - pkg/kgateway/proxy_syncer/gateway_backend_variants_test.go
+  e2eSuites:
+  - test/e2e/features/backendtls
+  notes: Gateway-scoped backend clones must retain matching cluster and endpoint identities.
+
+- name: external-authorization
+  owner: kgateway
+  status: covered
+  resources: [LDS, RDS, CDS, EDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/extauth-grpc.yaml
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/extauth-http.yaml
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  e2eSuites:
+  - test/e2e/features/extauth
+  notes: Checks ancillary auth service cluster references from HTTP filter config.
+
+- name: external-processing
+  owner: kgateway
+  status: covered
+  resources: [LDS, RDS, CDS, EDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/extproc.yaml
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/extproc-full-config.yaml
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  e2eSuites:
+  - test/e2e/features/extproc
+  notes: Checks ext_proc service cluster references, including nested matcher/filter actions.
+
+- name: rate-limit
+  owner: kgateway
+  status: covered
+  resources: [LDS, RDS, CDS, EDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/rate-limit-full-config.yaml
+  - pkg/kgateway/translator/gateway/testutils/inputs/traffic-policy/local-rate-limit-configurable-percentage.yaml
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  e2eSuites:
+  - test/e2e/features/rate_limit/global
+  - test/e2e/features/rate_limit/local
+  notes: Global rate-limit service clusters and local rate-limit HTTP filter config.
+
+- name: route-replacement-invalid-policy
+  owner: kgateway
+  status: covered
+  resources: [LDS, RDS, CDS, EDS]
+  translatorFixtures:
+  - pkg/kgateway/translator/gateway/testutils/inputs/route-replacement/matcher/matcher-regex-re2-unsupported.yaml
+  testFiles:
+  - pkg/kgateway/translator/gateway/gateway_translator_test.go
+  e2eSuites:
+  - test/e2e/features/routereplacement
+  notes: Invalid generated xDS must not withdraw unrelated valid routes.
+
+- name: per-client-publish-lifecycle
+  owner: kgateway
+  status: covered
+  resources: [ADS, LDS, RDS, CDS, EDS]
+  testFiles:
+  - pkg/kgateway/proxy_syncer/perclient_test.go
+  notes: Covers retained last-good snapshots, dependency deferral, stale EDS filtering, and delete/update behavior.
+
+- name: dynamic-cluster-header
+  owner: kgateway
+  status: warning-only
+  resources: [RDS]
+  testFiles:
+  - pkg/kgateway/translator/xdscheck/xdscheck_test.go
+  dynamicCases:
+  - cluster_header route actions cannot be resolved against CDS statically.
+  notes: The invariant checker emits warning findings rather than pretending static closure is knowable.

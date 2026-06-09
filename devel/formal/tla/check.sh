@@ -32,4 +32,5 @@ fi
 
 cd "$SCRIPT_DIR"
 java -jar "$JAR" -config XdsAdsSotw.cfg XdsAdsSotw.tla
+java -jar "$JAR" -config XdsReconnectRace13868.cfg XdsReconnectRace13868.tla
 java -jar "$JAR" -config XdsEdsSubset.cfg XdsEdsSubset.tla

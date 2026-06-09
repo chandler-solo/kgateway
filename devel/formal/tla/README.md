@@ -4,6 +4,8 @@
 
 `XdsAdsSotw.tla` is an abstract finite model of ADS/SotW-style xDS publication. It is intentionally small: one listener, one route configuration, one cluster, and one endpoint resource. The goal is to make the protocol and dependency invariants executable under TLC, not to model all Envoy fields.
 
+`XdsReconnectRace13868.tla` is a focused model for PR 13868's reconnect-time cluster readiness gate. It captures a retained last-good snapshot, partial per-client cluster translation after reconnect, and the decision to publish or defer. `XdsReconnectRace13868.cfg` checks the safe behavior. `XdsReconnectRace13868Bug.cfg` intentionally checks the old partial-publish behavior and should fail.
+
 `XdsEdsSubset.tla` is an issue-focused finite model for ADS named EDS responses. It captures a smaller property: the EDS snapshot must not contain endpoint resources that are no longer named by emitted EDS clusters. `XdsEdsSubset.cfg` checks the safe behavior. `XdsEdsSubsetBug.cfg` intentionally checks a buggy transition that keeps stale EDS resources after CDS shrinks, so TLC can show the counterexample without editing the model.
 
 ## Correspondence to xDS behavior
@@ -18,6 +20,7 @@ The model represents:
 - Stale nonce requests leaving accepted versions and sent snapshots unchanged.
 - Reconnect resetting nonce context while preserving resource-level versions.
 - SotW publication sequencing that keeps sent LDS/RDS/CDS/EDS state dependency-closed.
+- Reconnect-time per-client snapshot publication deferral until referenced clusters are present or explicitly errored.
 
 The dependency chain is:
 
@@ -67,6 +70,13 @@ To reproduce the issue-focused counterexample directly:
 
 ```bash
 cd devel/formal/tla
+java -jar /path/to/tla2tools.jar -config XdsReconnectRace13868Bug.cfg XdsReconnectRace13868.tla
+```
+
+To reproduce the issue-14184 EDS subset counterexample directly:
+
+```bash
+cd devel/formal/tla
 java -jar /path/to/tla2tools.jar -config XdsEdsSubsetBug.cfg XdsEdsSubset.tla
 ```
 
@@ -79,6 +89,7 @@ Useful examples:
 - A `SentSnapshotsAreDependencyClosed` failure means a type was published before its dependencies were present in the sent snapshot.
 - An `AckAdvancesOnlyMatchingNonce` failure means acceptance advanced without the current stream's latest nonce for that type.
 - A `NoncesArePerStream` failure means nonce state survived a reconnect incorrectly.
+- An `XdsReconnectRace13868` `ServedSnapshotReferencesResolved` failure means the xDS cache was overwritten by a new per-client snapshot whose route/listener references include a cluster that is neither in CDS nor explicitly errored.
 - An `XdsEdsSubset` `NoOrphanEndpointResources` failure means the EDS snapshot contains a `ClusterLoadAssignment` that no current EDS cluster can cause Envoy to request.
 
 ## Counterexample drills

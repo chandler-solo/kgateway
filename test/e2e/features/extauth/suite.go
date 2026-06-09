@@ -17,6 +17,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
+	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -175,6 +176,31 @@ func (s *testingSuite) TestExtAuthPolicy() {
 	}
 }
 
+func (s *testingSuite) TestExtAuthEnvoyAcceptsAuthCluster() {
+	manifests := []string{
+		securedGatewayPolicyManifest,
+	}
+
+	resources := []client.Object{
+		gatewayAttachedTrafficPolicy,
+	}
+	testutils.Cleanup(s.T(), func() {
+		for _, manifest := range manifests {
+			err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
+			s.Require().NoError(err)
+		}
+		s.testInstallation.AssertionsT(s.T()).EventuallyObjectsNotExist(s.ctx, resources...)
+	})
+	for _, manifest := range manifests {
+		err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, manifest)
+		s.Require().NoError(err, "can apply "+manifest)
+	}
+	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, resources...)
+
+	s.ensureBasicRunning()
+	s.assertEnvoyClusterExists("kube_kgateway-base_ext-authz_4444")
+}
+
 // TestRouteTargetedExtAuthPolicy tests route level only extauth
 func (s *testingSuite) TestRouteTargetedExtAuthPolicy() {
 	manifests := []string{
@@ -269,5 +295,20 @@ func (s *testingSuite) ensureBasicRunning() {
 	}, time.Minute)
 	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, extAuthSvc.GetNamespace(), metav1.ListOptions{
 		LabelSelector: "app=ext-authz",
+	})
+}
+
+func (s *testingSuite) assertEnvoyClusterExists(clusterName string) {
+	s.testInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.ctx, proxyObjMeta, func(ctx context.Context, adminClient *admincli.Client) {
+		s.testInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+			clusters, err := adminClient.GetDynamicClusters(ctx)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic clusters")
+			_, ok := clusters[clusterName]
+			g.Expect(ok).To(gomega.BeTrue(), "cluster %s should be in Envoy xDS", clusterName)
+		}).
+			WithContext(ctx).
+			WithTimeout(120 * time.Second).
+			WithPolling(2 * time.Second).
+			Should(gomega.Succeed())
 	})
 }

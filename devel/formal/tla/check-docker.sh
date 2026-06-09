@@ -40,6 +40,7 @@ run_tlc() {
 run_all_models() {
     jar_path=$1
     run_tlc "$jar_path" XdsAdsSotw.cfg XdsAdsSotw.tla
+    run_tlc "$jar_path" XdsReconnectRace13868.cfg XdsReconnectRace13868.tla
     run_tlc "$jar_path" XdsEdsSubset.cfg XdsEdsSubset.tla
 }
 

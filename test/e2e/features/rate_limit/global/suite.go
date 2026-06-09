@@ -5,7 +5,9 @@ package global_rate_limit
 import (
 	"context"
 	"net/http"
+	"time"
 
+	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,6 +15,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
+	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -111,6 +114,12 @@ func (s *testingSuite) TestGlobalRateLimitByRemoteAddress() {
 
 	// Second route should also be rate limited since the rate limit is based on client IP
 	s.assertConsistentResponse("/path2", http.StatusTooManyRequests)
+}
+
+func (s *testingSuite) TestGlobalRateLimitEnvoyAcceptsRateLimitCluster() {
+	s.setupTest([]string{httpRoutesManifest, ipRateLimitManifest}, []client.Object{route, route2, ipRateLimitTrafficPolicy})
+
+	s.assertEnvoyClusterExists("kube_kgateway-test-extensions_ratelimit_8081")
 }
 
 // Test cases for global rate limit based on request path
@@ -218,4 +227,23 @@ func (s *testingSuite) assertConsistentResponseWithHeader(path, headerName, head
 			curl.WithPort(80),
 		)
 	}
+}
+
+func (s *testingSuite) assertEnvoyClusterExists(clusterName string) {
+	proxyObjectMeta := metav1.ObjectMeta{
+		Name:      "gateway",
+		Namespace: namespace,
+	}
+	s.testInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.ctx, proxyObjectMeta, func(ctx context.Context, adminClient *admincli.Client) {
+		s.testInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+			clusters, err := adminClient.GetDynamicClusters(ctx)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic clusters")
+			_, ok := clusters[clusterName]
+			g.Expect(ok).To(gomega.BeTrue(), "cluster %s should be in Envoy xDS", clusterName)
+		}).
+			WithContext(ctx).
+			WithTimeout(120 * time.Second).
+			WithPolling(2 * time.Second).
+			Should(gomega.Succeed())
+	})
 }

@@ -21,6 +21,7 @@
 - NACK does not advance the accepted version.
 - DiscoveryRequests with stale nonce do not cause the server to publish or mark acceptance for an old response.
 - Reconnect creates a new stream nonce context, while resource versions remain resource-level state.
+- After reconnect, a retained coherent per-client snapshot must not be overwritten by a partial snapshot whose dataplane route/listener cluster references are missing from CDS unless those clusters are explicitly errored.
 - A stable valid desired snapshot is eventually publishable under a fair client that ACKs valid responses.
 
 ## Explicitly unverifiable and dynamic MVP cases

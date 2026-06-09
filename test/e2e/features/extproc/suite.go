@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
@@ -16,6 +18,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
+	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/transforms"
 )
@@ -37,6 +40,10 @@ var (
 
 	testCases = map[string]*base.TestCase{
 		"TestExtProcWithGatewayTargetRef": {
+			Manifests:       []string{gatewayTargetRefManifest},
+			MinGwApiVersion: base.GwApiRequireRouteNames,
+		},
+		"TestExtProcEnvoyAcceptsExtProcCluster": {
 			Manifests:       []string{gatewayTargetRefManifest},
 			MinGwApiVersion: base.GwApiRequireRouteNames,
 		},
@@ -67,6 +74,10 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 	return &testingSuite{
 		BaseTestingSuite: base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
+}
+
+func (s *testingSuite) TestExtProcEnvoyAcceptsExtProcCluster() {
+	s.assertEnvoyClusterExists("kube_default_ext-proc-grpc_4444")
 }
 
 // TestExtProcWithGatewayTargetRef tests ExtProc with targetRef to Gateway
@@ -462,4 +473,23 @@ type instructions struct {
 func getInstructionsJson(instr instructions) string {
 	bytes, _ := json.Marshal(instr)
 	return string(bytes)
+}
+
+func (s *testingSuite) assertEnvoyClusterExists(clusterName string) {
+	proxyObjectMeta := metav1.ObjectMeta{
+		Name:      "gateway",
+		Namespace: "kgateway-base",
+	}
+	s.TestInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.Ctx, proxyObjectMeta, func(ctx context.Context, adminClient *admincli.Client) {
+		s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+			clusters, err := adminClient.GetDynamicClusters(ctx)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic clusters")
+			_, ok := clusters[clusterName]
+			g.Expect(ok).To(gomega.BeTrue(), "cluster %s should be in Envoy xDS", clusterName)
+		}).
+			WithContext(ctx).
+			WithTimeout(120 * time.Second).
+			WithPolling(2 * time.Second).
+			Should(gomega.Succeed())
+	})
 }
