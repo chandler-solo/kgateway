@@ -158,10 +158,13 @@ The intended future translator-test seam is:
 
 This keeps the MVP non-invasive while making it straightforward to attach concrete xDS invariant checks after translation.
 
+See `devel/formal/model-to-go-test-matrix.md` for the explicit mapping from each TLA+ model obligation to existing Go coverage, partial coverage, and remaining gaps.
+
 ## Files
 
 - `devel/formal/README.md`: overview, scope, commands, integration seam, and future work.
 - `devel/formal/invariants.md`: invariant families for snapshot closure, publication safety, and dynamic out-of-scope cases.
+- `devel/formal/model-to-go-test-matrix.md`: mapping from TLA+ model obligations to concrete Go test coverage and gaps.
 - `devel/formal/check.sh`: developer runner for Go tests and optional TLC.
 - `devel/formal/issue-13868.md`: issue-focused notes for the reconnect-time cluster readiness model.
 - `devel/formal/issue-13868-14184.md`: combined per-client publication model notes for startup, reconnect, stale EDS, and Envoy activation behavior.
