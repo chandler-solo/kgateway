@@ -1,6 +1,7 @@
 package proxy_syncer
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -10,132 +11,318 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
-// perClientReconciler bounds two pieces of state the per-client snapshot defer logic
-// would otherwise leave unbounded (#14184):
+// clientState is everything the reconciler tracks about one connected (or
+// recently departed) client, keyed by the UCC resource name. Keeping it in one
+// struct (rather than parallel maps) makes the lifecycle single-point: a
+// departed client is removed by deleting one entry, so no signal can leak.
+type clientState struct {
+	// published: we have SetSnapshot for this client and have not cleared it.
+	published bool
+	// deferred: the most recent attempt for this client withheld publication
+	// (publish-time policy) or the snapshot transform deferred (its output was
+	// deleted while the client is still connected).
+	deferred bool
+	// degraded: the last publish succeeded but shipped known-incomplete data
+	// (missing referenced clusters, or synthesized empty CLAs). A degraded
+	// client counts as stuck so the heartbeat keeps re-running the per-client
+	// collections until a clean publish clears it.
+	degraded bool
+	// incompleteSince: when the current incomplete-inputs deferral episode
+	// started; zero when there is none. An episode begins the first time a
+	// publish attempt finds the snapshot incomplete, bounds how long updates
+	// may be withheld (Envoy keeps its last coherent config meanwhile), and
+	// ends only on a CLEAN publish — so once the budget forces a degraded
+	// publish, later incomplete updates flow immediately instead of
+	// re-deferring.
+	incompleteSince time.Time
+	// orphanedSince: when the client was first observed absent from the
+	// connected set; zero while it is live. Publishing zeroes it (under the
+	// same lock as SetSnapshot), so a reconnect-while-reclaiming race cannot
+	// clear a snapshot that was just written.
+	orphanedSince time.Time
+	// pending: the most recent withheld snapshot, retained so the heartbeat
+	// loop can re-attempt publication directly — a withheld snapshot produces
+	// no KRT event, and an unchanged recompute is hash-suppressed, so without
+	// this retained wrapper nothing would ever re-evaluate the warm-up
+	// deadline on a quiet cluster.
+	pending *XdsSnapWrapper
+	// pendingSeq guards retries: a retry may only commit if its sequence still
+	// matches, so a newer event-driven publish can never be overwritten by a
+	// stale retry.
+	pendingSeq uint64
+}
+
+// pendingRetry is a snapshot of a withheld publication handed to the retry loop.
+type pendingRetry struct {
+	wrap XdsSnapWrapper
+	seq  uint64
+}
+
+// perClientReconciler owns per-client publication state for the per-client xDS
+// snapshot path (#14184):
 //
-//   - The xDS cache leak: snapshotPerClient's Delete branch intentionally never
-//     clears the cache (it retains the last-good snapshot during a defer), so a
-//     departed client's snapshot is never reclaimed. reconcile() clears entries for
-//     clients that have been gone from uccCol longer than grace.
-//   - Recovery accounting: it remembers which clients are currently deferred so a
-//     later publish can be counted as a recovery -- the signal that the heartbeat
-//     (or a late event) healed an otherwise-stranded client.
+//   - Cache reclaim: the snapshot Delete branch intentionally never clears the
+//     xDS cache (Envoy keeps the last-good snapshot during a defer), so a
+//     departed client's entry is reclaimed here after a grace period instead.
+//   - Stuck detection: deferred, degraded, and pending-withheld clients (plus
+//     connected-but-never-published clients whose role has a snapshot to
+//     publish) drive the demand-driven heartbeat.
+//   - Incomplete-inputs gating: a publish attempt whose snapshot is missing
+//     referenced clusters or had CLAs synthesized may be deferred, bounded by
+//     incompleteBudget per episode. This covers both the reconnect race
+//     #13868 addressed (a cold client's first snapshot) and transiently
+//     incomplete rebuilds for already-published clients, where publishing
+//     would regress Envoy's state-of-the-world config.
+//   - Publication commit: SetSnapshot and the bookkeeping that depends on it
+//     happen atomically under one lock, so reclaim and publish are totally
+//     ordered.
 //
-// It reconciles against the set of keys we have actually published (tracked here),
-// not the cache's internal status map, so its behavior does not depend on
+// It reconciles against the set of keys it has published (tracked here), not
+// the cache's internal status map, so its behavior does not depend on
 // go-control-plane watch/status semantics and is straightforward to test.
 type perClientReconciler struct {
-	xdsCache     envoycache.SnapshotCache
-	uccs         krt.Collection[ir.UniqlyConnectedClient]
-	grace        time.Duration
-	warmupBudget time.Duration
-	now          func() time.Time
+	xdsCache         envoycache.SnapshotCache
+	uccs             krt.Collection[ir.UniqlyConnectedClient]
+	grace            time.Duration
+	incompleteBudget time.Duration
+	now              func() time.Time
+	// roleHasSnapshot reports whether a per-gateway snapshot exists for the
+	// role, i.e. whether a connected-but-never-published client could publish
+	// at all. Nil means "assume yes". Without this, an orphaned Envoy whose
+	// Gateway was deleted (or one connected with an unknown role) would count
+	// as stuck forever and keep the heartbeat recomputing pointlessly.
+	roleHasSnapshot func(role string) bool
 
-	mu            sync.Mutex
-	published     map[string]struct{}  // clients we have SetSnapshot for and not cleared
-	deferred      map[string]struct{}  // clients whose most recent snapshot event was a defer
-	orphanedSince map[string]time.Time // published clients absent from uccCol, first-seen-absent time
-	warmupStart   map[string]time.Time // never-published clients' first deferred-publish time
+	mu      sync.Mutex
+	clients map[string]*clientState
+	seq     uint64
 }
 
 func newPerClientReconciler(
 	xdsCache envoycache.SnapshotCache,
 	uccs krt.Collection[ir.UniqlyConnectedClient],
 	grace time.Duration,
-	warmupBudget time.Duration,
+	incompleteBudget time.Duration,
 ) *perClientReconciler {
 	return &perClientReconciler{
-		xdsCache:      xdsCache,
-		uccs:          uccs,
-		grace:         grace,
-		warmupBudget:  warmupBudget,
-		now:           time.Now,
-		published:     map[string]struct{}{},
-		deferred:      map[string]struct{}{},
-		orphanedSince: map[string]time.Time{},
-		warmupStart:   map[string]time.Time{},
+		xdsCache:         xdsCache,
+		uccs:             uccs,
+		grace:            grace,
+		incompleteBudget: incompleteBudget,
+		now:              time.Now,
+		clients:          map[string]*clientState{},
 	}
 }
 
-// shouldDeferWarmup reports whether the client's first publication should still
-// be deferred: it has never been published and its warm-up deadline has not
-// expired. The first call for a cold client starts the clock. The deadline
-// makes deferral bounded BY CONSTRUCTION: even if the per-client inputs never
-// complete (a translation bug, a permanently dangling reference), the client
-// publishes its best available snapshot once the budget elapses — the
-// predicate is advisory, the clock is the guarantee. The heartbeat (which
-// counts never-published clients as stuck) re-triggers computation so deadline
-// expiry is acted on within one tick.
-func (r *perClientReconciler) shouldDeferWarmup(key string) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.published[key]; ok {
-		return false
-	}
-	start, ok := r.warmupStart[key]
+// state returns the tracked state for key, creating it if absent. Callers must
+// hold r.mu.
+func (r *perClientReconciler) state(key string) *clientState {
+	st, ok := r.clients[key]
 	if !ok {
-		r.warmupStart[key] = r.now()
-		return true
+		st = &clientState{}
+		r.clients[key] = st
 	}
-	return r.now().Sub(start) < r.warmupBudget
+	return st
 }
 
-// observeDeferred records that client key's most recent snapshot event was a defer.
-func (r *perClientReconciler) observeDeferred(key string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.deferred[key] = struct{}{}
-}
-
-// observePublished records a publish for client key (we have a live cache entry for
-// it) and reports whether it recovered from a prior deferred state.
-func (r *perClientReconciler) observePublished(key string) (recovered bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.published[key] = struct{}{}
-	delete(r.warmupStart, key)
-	if _, wasDeferred := r.deferred[key]; wasDeferred {
-		delete(r.deferred, key)
-		return true
-	}
-	return false
-}
-
-// hasStuckClients reports whether any connected client is missing a current
-// snapshot. Two signals are needed: the deferred map covers clients that
-// published once and then deferred (their nil result surfaces as a KRT Delete,
-// observed by the syncer), but a brand-new client whose very first build defers
-// produces NO event at all — the key never existed, so there is nothing to
-// delete. Those clients are visible only as connected-but-never-published, which
-// was exactly the stranded-cohort shape seen in production (#14184).
+// shouldDeferIncomplete reports whether a publish attempt with incomplete
+// inputs (missing referenced clusters, synthesized CLAs) should be withheld.
+// The first call of an episode starts the clock; within the budget Envoy
+// keeps its last coherent config (or, for a cold client, none yet — the
+// reconnect race #13868 addressed) while events or heartbeat recomputes heal
+// the inputs. Past the budget the caller publishes the best available
+// snapshot, marked degraded; the episode ends only on a clean publish, so
+// post-budget incomplete updates flow without re-deferring.
 //
-// A deferred entry for a client that has since departed can briefly hold this
-// true; reconcile() removes such entries once the departure grace elapses, so the
-// signal is self-cleaning.
+// The deadline bounds deferral only together with the pending-retry loop:
+// expiry is observed by re-attempting publication, and with no input changes
+// there is no KRT event to do that, so the heartbeat loop retries the retained
+// pending snapshot each tick (see pendingRetries). The effective bound is
+// therefore incompleteBudget rounded up to the next heartbeat tick.
+func (r *perClientReconciler) shouldDeferIncomplete(key string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st := r.state(key)
+	if st.incompleteSince.IsZero() {
+		st.incompleteSince = r.now()
+		return true
+	}
+	return r.now().Sub(st.incompleteSince) < r.incompleteBudget
+}
+
+// observeWithheld records that publication for key was withheld. pending, when
+// non-nil, is retained for direct retry by the heartbeat loop; pass nil for
+// withholds that retrying the same data cannot heal (an invalid snapshot needs
+// a new build, which arrives as a regular event).
+func (r *perClientReconciler) observeWithheld(key string, pending *XdsSnapWrapper) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st := r.state(key)
+	st.deferred = true
+	if pending != nil {
+		r.seq++
+		st.pending = pending
+		st.pendingSeq = r.seq
+	}
+}
+
+// observeSnapshotDelete handles a Delete event from the per-client snapshot
+// collection, which means either the transform deferred (client still
+// connected) or the client departed. Only the former marks the client stuck;
+// a departure just starts the orphan clock so routine pod churn does not make
+// the heartbeat fire unconditionally for the whole reclaim grace window.
+func (r *perClientReconciler) observeSnapshotDelete(key string) {
+	live := r.uccs != nil && r.uccs.GetKey(key) != nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st := r.state(key)
+	if live {
+		st.deferred = true
+		return
+	}
+	if st.orphanedSince.IsZero() {
+		st.orphanedSince = r.now()
+	}
+}
+
+// commitPublish atomically publishes snapWrap's snapshot to the xDS cache and
+// records the outcome. It returns whether the snapshot was published and
+// whether this publish recovered the client from a prior deferred or degraded
+// state (a degraded publish never counts as a recovery).
+//
+// expectSeq non-nil marks a retry of a previously withheld snapshot: the
+// commit is aborted unless the retained pending entry still matches, so a
+// retry can never overwrite a newer event-driven publish.
+//
+// Holding r.mu across SetSnapshot totally orders publication against
+// reconcile()'s ClearSnapshot, and zeroing orphanedSince here means a reclaim
+// pass can only clear entries whose last publish predates the grace period —
+// closing the reconnect-during-reclaim race. ClearSnapshot/SetSnapshot are map
+// operations on the snapshot cache, so the added lock hold is small.
+func (r *perClientReconciler) commitPublish(
+	ctx context.Context,
+	snapWrap XdsSnapWrapper,
+	degraded bool,
+	expectSeq *uint64,
+) (published bool, recovered bool) {
+	key := snapWrap.proxyKey
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st := r.state(key)
+	if expectSeq != nil && (st.pending == nil || st.pendingSeq != *expectSeq) {
+		// A newer event superseded this retry; its own publish (or withhold)
+		// already recorded the current state.
+		return false, false
+	}
+	if err := r.xdsCache.SetSnapshot(ctx, key, snapWrap.snap); err != nil {
+		logger.Error("failed to set xds snapshot", "proxy_key", key, "error", err)
+		st.deferred = true
+		if expectSeq == nil {
+			r.seq++
+			st.pending = &snapWrap
+			st.pendingSeq = r.seq
+		}
+		return false, false
+	}
+	recovered = (st.deferred || st.degraded) && !degraded
+	st.published = true
+	st.deferred = false
+	st.degraded = degraded
+	st.pending = nil
+	if !degraded {
+		// Only a clean publish ends the incomplete-inputs episode; a degraded
+		// (post-budget) publish keeps it open so further incomplete updates
+		// flow immediately instead of starting a fresh deferral.
+		st.incompleteSince = time.Time{}
+	}
+	st.orphanedSince = time.Time{}
+	return true, recovered
+}
+
+// pendingRetries returns the withheld snapshots eligible for a direct publish
+// re-attempt: those whose client is still connected. The caller re-attempts
+// each via the publish path; the seq guard in commitPublish makes a stale
+// retry a no-op.
+func (r *perClientReconciler) pendingRetries() []pendingRetry {
+	// A nil connected-client collection (unit tests) means "treat everything
+	// as live"; production always wires one.
+	var live map[string]struct{}
+	if r.uccs != nil {
+		live = map[string]struct{}{}
+		for _, ucc := range r.uccs.List() {
+			live[ucc.ResourceName()] = struct{}{}
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []pendingRetry
+	for key, st := range r.clients {
+		if st.pending == nil {
+			continue
+		}
+		if live != nil {
+			if _, ok := live[key]; !ok {
+				continue
+			}
+		}
+		out = append(out, pendingRetry{wrap: *st.pending, seq: st.pendingSeq})
+	}
+	return out
+}
+
+// hasStuckClients reports whether any CONNECTED client is missing a current,
+// clean snapshot. Deferred/degraded/pending states cover clients we have seen
+// events or publish attempts for; the never-published check covers a brand-new
+// client whose very first build defers — that produces NO event at all (the
+// key never existed, so there is nothing to delete), which was exactly the
+// stranded-cohort shape seen in production (#14184). Clients whose role has no
+// per-gateway snapshot (an orphaned Envoy after Gateway deletion, an unknown
+// role) are excluded: no amount of per-client recomputation can publish for
+// them, so counting them would keep the heartbeat firing forever.
 func (r *perClientReconciler) hasStuckClients() bool {
 	var live []ir.UniqlyConnectedClient
 	if r.uccs != nil {
 		live = r.uccs.List()
 	}
+	liveKeys := make(map[string]struct{}, len(live))
+	for _, ucc := range live {
+		liveKeys[ucc.ResourceName()] = struct{}{}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.deferred) > 0 {
-		return true
-	}
-	for _, ucc := range live {
-		if _, ok := r.published[ucc.ResourceName()]; !ok {
+	for key, st := range r.clients {
+		if _, ok := liveKeys[key]; !ok {
+			continue
+		}
+		if st.deferred || st.degraded || st.pending != nil {
 			return true
 		}
+	}
+	for _, ucc := range live {
+		st, ok := r.clients[ucc.ResourceName()]
+		if ok && st.published {
+			continue
+		}
+		if r.roleHasSnapshot != nil && !r.roleHasSnapshot(ucc.Role) {
+			continue
+		}
+		return true
 	}
 	return false
 }
 
-// reconcile clears cache entries for published clients that have been absent from
-// uccCol for longer than grace, and returns the keys it reclaimed.
+// reconcile sweeps the tracked state against the connected set: live clients
+// get their orphan clock reset; departed clients past the grace period have
+// their cache entry cleared (if published) and their state dropped — ALL state,
+// so no signal (deferred marks, warm-up clocks, pending retries) can outlive
+// the client that produced it. It returns the keys whose cache entries were
+// reclaimed.
 func (r *perClientReconciler) reconcile() []string {
 	live := make(map[string]struct{})
-	for _, ucc := range r.uccs.List() {
-		live[ucc.ResourceName()] = struct{}{}
+	if r.uccs != nil {
+		for _, ucc := range r.uccs.List() {
+			live[ucc.ResourceName()] = struct{}{}
+		}
 	}
 	now := r.now()
 
@@ -143,35 +330,23 @@ func (r *perClientReconciler) reconcile() []string {
 	defer r.mu.Unlock()
 
 	var reclaimed []string
-	for key := range r.published {
+	for key, st := range r.clients {
 		if _, ok := live[key]; ok {
 			// Still connected: not a candidate, and reset any prior orphan timer
 			// (covers a disconnect/reconnect that stayed within grace).
-			delete(r.orphanedSince, key)
+			st.orphanedSince = time.Time{}
 			continue
 		}
-		since, seen := r.orphanedSince[key]
-		if !seen {
-			r.orphanedSince[key] = now
+		if st.orphanedSince.IsZero() {
+			st.orphanedSince = now
 			continue
 		}
-		if now.Sub(since) >= r.grace {
-			r.xdsCache.ClearSnapshot(key)
-			delete(r.published, key)
-			delete(r.orphanedSince, key)
-			delete(r.deferred, key)
-			reclaimed = append(reclaimed, key)
-		}
-	}
-	// Sweep warm-up clocks (and defer marks) for clients that departed without
-	// ever publishing; nothing else cleans those entries up.
-	for key, start := range r.warmupStart {
-		if _, ok := live[key]; ok {
-			continue
-		}
-		if now.Sub(start) >= r.grace {
-			delete(r.warmupStart, key)
-			delete(r.deferred, key)
+		if now.Sub(st.orphanedSince) >= r.grace {
+			if st.published {
+				r.xdsCache.ClearSnapshot(key)
+				reclaimed = append(reclaimed, key)
+			}
+			delete(r.clients, key)
 		}
 	}
 	return reclaimed

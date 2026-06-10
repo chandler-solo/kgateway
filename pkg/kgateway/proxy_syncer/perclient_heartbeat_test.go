@@ -112,7 +112,8 @@ func TestPerClientHeartbeat_RerunsPerClientTranslation(t *testing.T) {
 // translation is nondeterministic and the heartbeat would rewrite snapshots every
 // interval -- the determinism risk called out in the design.
 func TestPerClientHeartbeat_NoChurnWhenStable(t *testing.T) {
-	heartbeat, ucc, clusters := newHeartbeatFixture(t, nil)
+	var calls atomic.Int64
+	heartbeat, ucc, clusters := newHeartbeatFixture(t, &calls)
 
 	require.Eventually(t, func() bool {
 		return len(clusters.FetchClustersForClient(krt.TestingDummyContext{}, ucc)) == 2
@@ -122,8 +123,14 @@ func TestPerClientHeartbeat_NoChurnWhenStable(t *testing.T) {
 	require.Len(t, want, 2)
 
 	for range 5 {
+		// Wait until the triggered recompute has actually re-run translation
+		// before asserting; a sleep alone could pass vacuously against the
+		// pre-recompute cached rows on a slow machine.
+		before := calls.Load()
 		heartbeat.TriggerRecomputation()
-		time.Sleep(50 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			return calls.Load() > before
+		}, 5*time.Second, 10*time.Millisecond, "heartbeat recompute never ran")
 		require.Equal(t, want, clusterVersionsForClient(clusters, ucc),
 			"heartbeat changed per-client cluster versions with unchanged inputs; "+
 				"nondeterministic translation would churn xDS every heartbeat")

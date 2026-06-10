@@ -100,9 +100,9 @@ type GatewayXdsResources struct {
 
 	// ReferencedClusters is the set of cluster names referenced by Routes and
 	// Listeners. It is derived from the proto contents, so it is a pure function
-	// of Routes.Version and Listeners.Version (already covered by Equals). Used
-	// by per-client snapshotting to avoid redundantly walking protos for every
-	// connected client on each update.
+	// of Routes.Version and Listeners.Version (already covered by Equals).
+	// Carried through XdsSnapWrapper to publication so the missing-cluster
+	// check never re-walks LDS/RDS protos per client per event.
 	// +noKrtEquals
 	ReferencedClusters map[string]struct{}
 }
@@ -186,10 +186,10 @@ func NewProxySyncer(
 
 type ProxyTranslator struct {
 	xdsCache envoycache.SnapshotCache
-	// warmup defers a client's FIRST publication while referenced clusters are
-	// still missing, bounded by a deadline (see syncXds). Nil disables warm-up
-	// deferral (used by tests).
-	warmup warmupGate
+	// gate is the publication policy and bookkeeping seam (warm-up deferral,
+	// atomic publish commit, stuck tracking; see syncXds). Nil disables it
+	// (used by tests); publication then goes straight to the cache.
+	gate publicationGate
 }
 
 func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
@@ -292,8 +292,11 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 	// so a deferred snapshot can never become permanent (#14184). startSynced=true
 	// so dependents are not blocked waiting on it.
 	s.perClientHeartbeat = krt.NewRecomputeTrigger(true, krtopts.ToOptions("PerClientHeartbeat")...)
-	s.reconciler = newPerClientReconciler(s.proxyTranslator.xdsCache, s.uniqueClients, perClientReclaimGrace, perClientWarmupBudget)
-	s.proxyTranslator.warmup = s.reconciler
+	s.reconciler = newPerClientReconciler(s.proxyTranslator.xdsCache, s.uniqueClients, perClientReclaimGrace, perClientIncompleteBudget)
+	s.reconciler.roleHasSnapshot = func(role string) bool {
+		return s.mostXdsSnapshots.GetKey(role) != nil
+	}
+	s.proxyTranslator.gate = s.reconciler
 
 	epPerClient := NewPerClientEnvoyEndpoints(
 		krtopts,
@@ -317,6 +320,7 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		s.mostXdsSnapshots,
 		epPerClient,
 		clustersPerClient,
+		s.perClientHeartbeat,
 	)
 
 	excludedPolicyKinds := make(map[schema.GroupKind]struct{})
@@ -484,44 +488,39 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 
 	s.perclientSnapCollection.RegisterBatch(func(o []krt.Event[XdsSnapWrapper]) {
 		for _, e := range o {
-			cd := getDetailsFromXDSClientResourceName(e.Latest().ResourceName())
-
 			if e.Event != controllers.EventDelete {
-				snapWrap := e.Latest()
-				if s.proxyTranslator.syncXds(ctx, snapWrap) {
-					// A publish after a prior defer is a recovery; with the heartbeat
-					// as backstop, recoveries of long-deferred clients are
-					// heartbeat-driven heals (#14184).
-					if s.reconciler != nil && s.reconciler.observePublished(snapWrap.ResourceName()) {
-						recordSnapshotRecovery(snapWrap.ResourceName())
-					}
-				} else if s.reconciler != nil {
-					// The safety net withheld publication; keep the client marked
-					// stuck so the heartbeat keeps retrying.
-					s.reconciler.observeDeferred(snapWrap.ResourceName())
+				// syncXds owns publication policy and all bookkeeping: it
+				// records withholds (with the wrapper retained for direct
+				// retry) and commits publishes atomically with their state
+				// updates via the gate (the reconciler).
+				if s.proxyTranslator.syncXds(ctx, e.Latest()) {
+					// Record sync completion only for snapshots that actually
+					// reached the cache; a withheld update has not synced.
+					cd := getDetailsFromXDSClientResourceName(e.Latest().ResourceName())
+					kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
+						Namespace:    cd.Namespace,
+						Gateway:      cd.Gateway,
+						ResourceName: cd.Gateway,
+					})
 				}
 			} else {
 				// Retain the last-good snapshot during a defer (do NOT ClearSnapshot
-				// here): snapshotPerClient returns nil while its readiness guards
-				// hold, and clearing would withdraw Envoy's last coherent config and
-				// cause 500/NC on valid routes. The heartbeat re-publishes once the
-				// per-client inputs are coherent again.
+				// here): snapshotPerClient returns nil while a per-client input is
+				// underived, and clearing would withdraw Envoy's last coherent config
+				// and cause 500/NC on valid routes. The heartbeat re-publishes once
+				// the per-client inputs are coherent again.
 				//
 				// This branch also fires when a UCC truly departs (Envoy replaced,
-				// scaled down). We can't distinguish that here, so we record the
-				// defer and let the reconciler clear the cache entry only after the
-				// client has been absent from uccCol past a grace period -- which
-				// fixes the previously-unbounded SnapshotCache leak (#14184).
+				// scaled down). The reconciler classifies the two by liveness: a
+				// still-connected client is marked stuck (so the heartbeat heals
+				// it); a departed one just starts the reclaim clock, so routine pod
+				// churn does not keep the heartbeat firing — and the retained cache
+				// entry is cleared only after a grace period, which fixes the
+				// previously-unbounded SnapshotCache leak (#14184).
 				if s.reconciler != nil {
-					s.reconciler.observeDeferred(e.Latest().ResourceName())
+					s.reconciler.observeSnapshotDelete(e.Latest().ResourceName())
 				}
 			}
-
-			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
-				Namespace:    cd.Namespace,
-				Gateway:      cd.Gateway,
-				ResourceName: cd.Gateway,
-			})
 		}
 	}, true)
 
@@ -550,10 +549,11 @@ const perClientHeartbeatDefaultInterval = 30 * time.Second
 const perClientHeartbeatIntervalEnv = "KGW_PERCLIENT_HEARTBEAT_INTERVAL"
 
 // perClientHeartbeatFallbackEvery is the number of heartbeat ticks between
-// unconditional recomputes. A hole in the per-client collections only causes harm
-// once snapshotPerClient defers on it, which marks the client stuck and makes the
-// very next tick fire, so the unconditional pass is a safety margin, not the
-// primary heal path — it can be rare.
+// unconditional recomputes. Withheld publishes and degraded publishes (missing
+// clusters, synthesized CLAs) all mark the client stuck, which makes the very
+// next tick fire, so the unconditional pass only covers signals the stuck
+// tracking cannot see — it is a safety margin, not the primary heal path, and
+// can be rare.
 const perClientHeartbeatFallbackEvery = 10
 
 // perClientReclaimInterval is how often departed clients' retained xDS cache
@@ -566,13 +566,23 @@ const perClientReclaimInterval = 31 * time.Second
 // reconnect blip so a briefly-disconnected client is never cleared.
 const perClientReclaimGrace = 2 * time.Minute
 
-// perClientWarmupBudget bounds how long a client's FIRST publication may be
-// deferred while referenced clusters are missing (the reconnect race #13868
-// addressed). Normal convergence completes well inside it, so first snapshots
-// are coherent; if the per-client inputs never complete, publication proceeds
-// with the best available snapshot once the budget elapses. Comfortably above
-// large-cluster warm-up, comfortably below "operator notices an outage."
-const perClientWarmupBudget = 15 * time.Second
+// perClientIncompleteBudget bounds how long publication may be withheld while
+// the built snapshot is incomplete (missing referenced clusters, synthesized
+// CLAs), per episode. For a cold client this is the warm-up window the
+// reconnect race #13868 needed; for a published client it keeps a transiently
+// incomplete rebuild from regressing Envoy's state-of-the-world config (a
+// removed-cluster connection drain, a wiped backend's endpoints) — Envoy keeps
+// its last coherent config while events or heartbeat recomputes heal the
+// inputs. Normal convergence completes well inside it; if the inputs never
+// complete, publication proceeds with the best available snapshot, marked
+// degraded, once the budget elapses. Comfortably above large-cluster warm-up,
+// comfortably below "operator notices an outage."
+//
+// Budget expiry cannot rely on a KRT event (quiet inputs produce none, and
+// unchanged recomputes are hash-suppressed), so the heartbeat loop re-attempts
+// withheld snapshots directly each tick — the effective bound is this budget
+// rounded up to the next heartbeat tick.
+const perClientIncompleteBudget = 15 * time.Second
 
 func perClientHeartbeatInterval() time.Duration {
 	v := os.Getenv(perClientHeartbeatIntervalEnv)
@@ -588,17 +598,47 @@ func perClientHeartbeatInterval() time.Duration {
 	return d
 }
 
+// runJitteredLoop runs body on every tick of a jittered ticker until ctx is
+// done. The first run happens after a random fraction of interval plus one full
+// interval, so HA replicas do not run in lockstep; the jitter select honors
+// ctx.Done so shutdown is never delayed.
+func runJitteredLoop(ctx context.Context, interval time.Duration, body func()) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(rand.N(interval)): //nolint:gosec // G404: jitter only, not security-sensitive
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			body()
+		}
+	}
+}
+
 // runPerClientHeartbeat is the level-triggered reconcile loop for the per-client
-// collections (#14184). Firing the trigger re-runs every backend x client pair
-// against current inputs, which heals any rows a missed or stale recompute left
-// absent — but at production scale that is tens of thousands of re-translations,
-// so it is demand-driven: each tick fires only if some connected client is stuck
-// without a current snapshot (deferred, or connected-but-never-published), plus a
-// rare unconditional pass as a safety margin. A healthy fleet therefore pays only
-// a cheap per-tick check; the worst case (a client stuck across consecutive
-// ticks) costs no more than the old unconditional design. Unchanged recomputes
-// are hash-suppressed by KRT, so even a firing tick causes no snapshot churn.
-// The first tick is jittered so HA replicas do not recompute in lockstep.
+// collections (#14184). Each tick does two things:
+//
+//   - Re-attempts withheld publications directly (retryPendingPublishes). A
+//     withheld snapshot produced no KRT event and an unchanged recompute is
+//     hash-suppressed, so this is the ONLY path that observes a warm-up
+//     deadline expiring on quiet inputs.
+//   - Fires the recompute trigger, which re-runs every transform on the
+//     per-client path against current inputs, healing any rows a missed or
+//     stale recompute left absent — but at production scale that is tens of
+//     thousands of re-translations, so it is demand-driven: it fires only if
+//     some connected client is stuck (deferred, degraded, pending-withheld, or
+//     never-published with a publishable role), plus a rare unconditional pass
+//     as a safety margin.
+//
+// A healthy fleet therefore pays only a cheap per-tick check; the worst case (a
+// client stuck across consecutive ticks) costs no more than the old
+// unconditional design. Unchanged recomputes are hash-suppressed by KRT, so
+// even a firing tick causes no snapshot churn.
 func (s *ProxySyncer) runPerClientHeartbeat(ctx context.Context) {
 	if s.perClientHeartbeat == nil {
 		return
@@ -608,26 +648,30 @@ func (s *ProxySyncer) runPerClientHeartbeat(ctx context.Context) {
 		logger.Info("per-client heartbeat disabled", "interval", interval)
 		return
 	}
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(rand.N(interval)): //nolint:gosec // G404: jitter only, not security-sensitive
-	}
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	var ticks int
-	for {
-		select {
-		case <-ctx.Done():
+	runJitteredLoop(ctx, interval, func() {
+		ticks++
+		s.retryPendingPublishes(ctx)
+		if s.reconciler != nil && !s.reconciler.hasStuckClients() &&
+			ticks%perClientHeartbeatFallbackEvery != 0 {
 			return
-		case <-ticker.C:
-			ticks++
-			if s.reconciler != nil && !s.reconciler.hasStuckClients() &&
-				ticks%perClientHeartbeatFallbackEvery != 0 {
-				continue
-			}
-			s.perClientHeartbeat.TriggerRecomputation()
 		}
+		s.perClientHeartbeat.TriggerRecomputation()
+	})
+}
+
+// retryPendingPublishes re-attempts publication of withheld snapshots for
+// still-connected clients. The sequence guard in commitPublish makes a retry
+// that raced a newer event-driven publish a no-op, so retrying here is always
+// safe; the interesting effect is re-evaluating the warm-up deadline, which
+// publishes (degraded) once the budget has elapsed.
+func (s *ProxySyncer) retryPendingPublishes(ctx context.Context) {
+	if s.reconciler == nil {
+		return
+	}
+	for _, p := range s.reconciler.pendingRetries() {
+		seq := p.seq
+		s.proxyTranslator.syncXdsAttempt(ctx, p.wrap, &seq)
 	}
 }
 
@@ -639,23 +683,11 @@ func (s *ProxySyncer) runPerClientReclaim(ctx context.Context) {
 	if s.reconciler == nil {
 		return
 	}
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(rand.N(perClientReclaimInterval)): //nolint:gosec // G404: jitter only, not security-sensitive
-	}
-	ticker := time.NewTicker(perClientReclaimInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			for _, key := range s.reconciler.reconcile() {
-				recordSnapshotReclaimed(key)
-			}
+	runJitteredLoop(ctx, perClientReclaimInterval, func() {
+		for _, key := range s.reconciler.reconcile() {
+			recordSnapshotReclaimed(key)
 		}
-	}
+	})
 }
 
 func (s *ProxySyncer) HasSynced() bool {

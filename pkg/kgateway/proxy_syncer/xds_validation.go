@@ -13,13 +13,7 @@ import (
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/types/known/anypb"
 )
-
-type validateAller interface {
-	ValidateAll() error
-}
 
 type resourceValidator interface {
 	Validate() error
@@ -61,30 +55,16 @@ func validateXDSSnapshotReferences(snap *envoycache.Snapshot) error {
 	// Cluster references are deliberately NOT validated here: a route briefly
 	// referencing a cluster the per-client pipeline has not produced yet is an
 	// expected transient of the eventually-consistent dataflow, and its publish
-	// policy (defer during client warm-up, publish-with-warning afterwards) is
-	// decided in syncXds via missingSnapshotClusterReferences. Missing secrets,
-	// by contrast, indicate a plugin emitting an SDS reference without its
-	// secret — a bug, never a transient — so they reject hard.
+	// policy (defer during client warm-up, degraded publish afterwards) is
+	// decided in syncXds via findMissingReferencedClusters over the
+	// precomputed per-gateway reference set. Missing secrets, by contrast,
+	// indicate a plugin emitting an SDS reference without its secret — a bug,
+	// never a transient — so they reject hard.
 	if missingSecrets := findMissingReferencedSecrets(snap); len(missingSecrets) > 0 {
 		return fmt.Errorf("xds snapshot references missing secrets: %v", missingSecrets)
 	}
 
 	return nil
-}
-
-// missingSnapshotClusterReferences returns the dataplane cluster references
-// (RouteAction / TcpProxy targets) absent from the snapshot's CDS, exempting
-// the blackhole sentinel and clusters whose translation errored.
-func missingSnapshotClusterReferences(snap *envoycache.Snapshot, erroredClusters []string) []string {
-	referencedClusters := collectReferencedClusters(
-		snap.Resources[envoycachetypes.Route],
-		snap.Resources[envoycachetypes.Listener],
-	)
-	return findMissingReferencedClusters(
-		referencedClusters,
-		snap.Resources[envoycachetypes.Cluster].Items,
-		erroredClusters,
-	)
 }
 
 func findMissingReferencedSecrets(snap *envoycache.Snapshot) []string {
@@ -102,10 +82,20 @@ func findMissingReferencedSecrets(snap *envoycache.Snapshot) []string {
 	return missingSecrets
 }
 
+// secretBearingResponseTypes are the resource types that can carry SDS
+// references: transport sockets on clusters, TLS contexts in listener filter
+// chains, and per-filter configs on routes. ClusterLoadAssignments and Secrets
+// themselves cannot, so the per-publish reference scan skips them.
+var secretBearingResponseTypes = []envoycachetypes.ResponseType{
+	envoycachetypes.Cluster,
+	envoycachetypes.Listener,
+	envoycachetypes.Route,
+}
+
 func collectReferencedSecrets(snap *envoycache.Snapshot) map[string]struct{} {
 	referencedSecrets := map[string]struct{}{}
-	for _, resources := range snap.Resources {
-		for _, item := range resources.Items {
+	for _, responseType := range secretBearingResponseTypes {
+		for _, item := range snap.Resources[responseType].Items {
 			if item.Resource == nil {
 				continue
 			}
@@ -116,62 +106,11 @@ func collectReferencedSecrets(snap *envoycache.Snapshot) map[string]struct{} {
 }
 
 func collectProtoSecretReferences(msg proto.Message, referencedSecrets map[string]struct{}) {
-	if msg == nil {
-		return
-	}
-
-	if sdsSecretConfig, ok := msg.(*envoytlsv3.SdsSecretConfig); ok && requiresSnapshotSecret(sdsSecretConfig) {
-		referencedSecrets[sdsSecretConfig.GetName()] = struct{}{}
-	}
-
-	collectNestedProtoSecretReferences(msg.ProtoReflect(), referencedSecrets)
-}
-
-func collectNestedProtoSecretReferences(
-	msg protoreflect.Message,
-	referencedSecrets map[string]struct{},
-) {
-	if !msg.IsValid() {
-		return
-	}
-
-	msg.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		switch {
-		case fd.IsList() && fd.Message() != nil:
-			list := v.List()
-			for i := 0; i < list.Len(); i++ {
-				collectProtoSecretReferencesFromValue(list.Get(i), referencedSecrets)
-			}
-		case fd.IsMap() && fd.MapValue().Message() != nil:
-			m := v.Map()
-			m.Range(func(_ protoreflect.MapKey, value protoreflect.Value) bool {
-				collectProtoSecretReferencesFromValue(value, referencedSecrets)
-				return true
-			})
-		case !fd.IsList() && !fd.IsMap() && fd.Message() != nil:
-			collectProtoSecretReferencesFromValue(v, referencedSecrets)
+	walkProtoMessages(msg, "secret reference", func(m proto.Message) {
+		if sdsSecretConfig, ok := m.(*envoytlsv3.SdsSecretConfig); ok && requiresSnapshotSecret(sdsSecretConfig) {
+			referencedSecrets[sdsSecretConfig.GetName()] = struct{}{}
 		}
-		return true
 	})
-}
-
-func collectProtoSecretReferencesFromValue(v protoreflect.Value, referencedSecrets map[string]struct{}) {
-	msg := v.Message()
-	if !msg.IsValid() {
-		return
-	}
-
-	if anyMsg, ok := msg.Interface().(*anypb.Any); ok {
-		nestedMsg, err := anyMsg.UnmarshalNew()
-		if err != nil {
-			logger.Debug("skipping typed_config during secret reference scan", "type_url", anyMsg.GetTypeUrl(), "error", err)
-			return
-		}
-		collectProtoSecretReferences(nestedMsg, referencedSecrets)
-		return
-	}
-
-	collectProtoSecretReferences(msg.Interface(), referencedSecrets)
 }
 
 func requiresSnapshotSecret(sdsSecretConfig *envoytlsv3.SdsSecretConfig) bool {
@@ -204,11 +143,10 @@ func validateXDSResource(responseType envoycachetypes.ResponseType, name string,
 	if err := proto.CheckInitialized(resource); err != nil {
 		return fmt.Errorf("%s resource %q is not initialized: %w", responseTypeName(responseType), name, err)
 	}
-	if v, ok := resource.(validateAller); ok {
-		if err := v.ValidateAll(); err != nil {
-			return fmt.Errorf("%s resource %q failed validation: %w", responseTypeName(responseType), name, err)
-		}
-	} else if v, ok := resource.(resourceValidator); ok {
+	// Validate (fail-fast) rather than ValidateAll: the result is logged and
+	// the snapshot withheld either way, and this runs per resource per
+	// publish — collecting every violation would only add cost.
+	if v, ok := resource.(resourceValidator); ok {
 		if err := v.Validate(); err != nil {
 			return fmt.Errorf("%s resource %q failed validation: %w", responseTypeName(responseType), name, err)
 		}

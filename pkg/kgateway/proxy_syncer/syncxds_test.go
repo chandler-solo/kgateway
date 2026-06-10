@@ -20,9 +20,10 @@ import (
 
 // Tests for the publish-time policy in syncXds
 // (devel/architecture/perclient-xds-publication.md): hard validation always
-// withholds; required-but-missing CLAs are synthesized empty; missing cluster
-// references defer only during a never-published client's warm-up window, then
-// publish with a warning.
+// withholds; incomplete inputs (missing referenced clusters, synthesized
+// CLAs) defer within a bounded episode — budget expiry observed via the
+// heartbeat's pending-retry path on quiet inputs — then publish marked
+// degraded.
 
 func syncTestEdsCluster() *envoyclusterv3.Cluster {
 	const name = "cluster-a"
@@ -114,25 +115,40 @@ func syncTestSnapshot(clusters, endpoints, routes, listeners envoycache.Resource
 	return snap
 }
 
-func newSyncTestTranslator(gate warmupGate) (*ProxyTranslator, envoycache.SnapshotCache) {
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	return &ProxyTranslator{xdsCache: cache, warmup: gate}, cache
-}
-
-// A coherent snapshot publishes and is retrievable from the cache.
-func TestSyncXdsPublishesCoherentSnapshot(t *testing.T) {
-	pt, cache := newSyncTestTranslator(nil)
-	wrap := XdsSnapWrapper{
+// syncTestWrapper builds a wrapper around a coherent snapshot routing to
+// routeTarget, with the wrapper-level reference metadata snapshotPerClient
+// would have attached.
+func syncTestWrapper(routeTarget string) XdsSnapWrapper {
+	return XdsSnapWrapper{
 		proxyKey: "ns~gw",
 		snap: syncTestSnapshot(
 			syncTestResources("c1", syncTestEdsCluster()),
 			syncTestResources("e1", syncTestCla("cluster-a")),
-			syncTestResources("r1", syncTestRouteTo("cluster-a")),
+			syncTestResources("r1", syncTestRouteTo(routeTarget)),
 			syncTestResources("l1", syncTestListener()),
 		),
+		referencedClusters: map[string]struct{}{routeTarget: {}},
 	}
+}
 
-	require.True(t, pt.syncXds(context.Background(), wrap))
+func newSyncTestTranslator() (*ProxyTranslator, envoycache.SnapshotCache) {
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	return &ProxyTranslator{xdsCache: cache}, cache
+}
+
+// newSyncTestTranslatorWithGate wires a real reconciler (sharing the cache) as
+// the publication gate, with a fake clock and the given warm-up budget.
+func newSyncTestTranslatorWithGate(clk *fakeClock, budget time.Duration) (*ProxyTranslator, envoycache.SnapshotCache, *perClientReconciler) {
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	reconciler := newPerClientReconciler(cache, nil, time.Minute, budget)
+	reconciler.now = clk.now
+	return &ProxyTranslator{xdsCache: cache, gate: reconciler}, cache, reconciler
+}
+
+// A coherent snapshot publishes and is retrievable from the cache.
+func TestSyncXdsPublishesCoherentSnapshot(t *testing.T) {
+	pt, cache := newSyncTestTranslator()
+	require.True(t, pt.syncXds(context.Background(), syncTestWrapper("cluster-a")))
 	_, err := cache.GetSnapshot("ns~gw")
 	require.NoError(t, err)
 }
@@ -140,7 +156,7 @@ func TestSyncXdsPublishesCoherentSnapshot(t *testing.T) {
 // Hard validation failures (here: a nil resource) withhold publication and
 // preserve whatever was published before.
 func TestSyncXdsWithholdsInvalidSnapshot(t *testing.T) {
-	pt, cache := newSyncTestTranslator(nil)
+	pt, cache := newSyncTestTranslator()
 	wrap := XdsSnapWrapper{
 		proxyKey: "ns~gw",
 		snap: syncTestSnapshot(
@@ -158,86 +174,128 @@ func TestSyncXdsWithholdsInvalidSnapshot(t *testing.T) {
 	require.Error(t, err, "nothing must be published for an invalid snapshot")
 }
 
-// A required-but-missing CLA is synthesized empty so the snapshot stays
-// consistent and publishes.
-func TestSyncXdsSynthesizesMissingCla(t *testing.T) {
-	pt, cache := newSyncTestTranslator(nil)
-	wrap := XdsSnapWrapper{
-		proxyKey: "ns~gw",
-		snap: syncTestSnapshot(
-			syncTestResources("c1", syncTestEdsCluster()),
-			syncTestResources("e1"), // CLA row absent: an endpoints-side hole
-			syncTestResources("r1", syncTestRouteTo("cluster-a")),
-			syncTestResources("l1", syncTestListener()),
-		),
-	}
+// A snapshot built with synthesized empty CLAs is incomplete: it defers within
+// the episode budget (Envoy keeps its last-good endpoints), then publishes
+// marked degraded (stuck), so the heartbeat keeps recomputing; the next clean
+// publish counts as the recovery.
+func TestSyncXdsSynthesizedClasDeferThenPublishDegraded(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	pt, cache, reconciler := newSyncTestTranslatorWithGate(clk, 15*time.Second)
 
+	wrap := syncTestWrapper("cluster-a")
+	wrap.synthesizedClas = []string{"cluster-a"}
+
+	// Within budget: withheld, so a transient endpoints-row hole never wipes a
+	// backend's live endpoints.
+	require.False(t, pt.syncXds(context.Background(), wrap))
+	_, err := cache.GetSnapshot("ns~gw")
+	require.Error(t, err)
+
+	// Budget expired: publishes, marked degraded.
+	clk.advance(20 * time.Second)
 	require.True(t, pt.syncXds(context.Background(), wrap))
-	published, err := cache.GetSnapshot("ns~gw")
+	_, err = cache.GetSnapshot("ns~gw")
 	require.NoError(t, err)
-	cla, ok := published.GetResourcesAndTTL("type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment")["cluster-a"]
-	require.True(t, ok, "an empty CLA must be synthesized for the EDS cluster")
-	require.Empty(t, cla.Resource.(*envoyendpointv3.ClusterLoadAssignment).GetEndpoints())
+
+	// Degraded => still stuck (whitebox: nil uccs makes hasStuckClients
+	// inapplicable here, so assert on the recorded state directly).
+	reconciler.mu.Lock()
+	st := reconciler.clients["ns~gw"]
+	degraded := st != nil && st.degraded
+	reconciler.mu.Unlock()
+	require.True(t, degraded, "a publish with synthesized CLAs must be recorded as degraded")
+
+	// The next clean publish is the recovery.
+	_, recovered := reconciler.commitPublish(context.Background(), syncTestWrapper("cluster-a"), false, nil)
+	require.True(t, recovered, "clean publish after a degraded one must count as a recovery")
 }
 
-// Missing cluster references defer a never-published client during its warm-up
-// window, publish once the deadline expires, and never defer a client that has
-// already published.
-func TestSyncXdsWarmupGateBoundsDeferral(t *testing.T) {
+// Missing cluster references defer publication within the episode budget, then
+// publish (degraded) once it expires; the still-open episode lets further
+// incomplete updates flow immediately, and a clean publish ends it so a later
+// NEW incompleteness episode defers afresh.
+func TestSyncXdsIncompleteGateBoundsDeferral(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	reconciler := newPerClientReconciler(nil, nil, time.Minute, 15*time.Second)
-	reconciler.now = clk.now
-	pt, cache := newSyncTestTranslator(reconciler)
+	pt, cache, reconciler := newSyncTestTranslatorWithGate(clk, 15*time.Second)
 
-	partial := XdsSnapWrapper{
-		proxyKey: "ns~gw",
-		snap: syncTestSnapshot(
-			syncTestResources("c1", syncTestEdsCluster()),
-			syncTestResources("e1", syncTestCla("cluster-a")),
-			syncTestResources("r1", syncTestRouteTo("cluster-missing")),
-			syncTestResources("l1", syncTestListener()),
-		),
-	}
+	partial := syncTestWrapper("cluster-missing")
 
 	// Cold client, within budget: deferred.
 	require.False(t, pt.syncXds(context.Background(), partial))
 	_, err := cache.GetSnapshot("ns~gw")
-	require.Error(t, err, "first publish must be deferred during warm-up")
+	require.Error(t, err, "first publish must be deferred while inputs are incomplete")
 
 	// Still within budget: still deferred.
 	clk.advance(10 * time.Second)
 	require.False(t, pt.syncXds(context.Background(), partial))
 
-	// Deadline expired: publishes the best available snapshot. The deferral is
+	// Budget expired: publishes the best available snapshot. The deferral is
 	// bounded by the clock, not by the inputs ever becoming complete.
 	clk.advance(10 * time.Second)
 	require.True(t, pt.syncXds(context.Background(), partial))
 	_, err = cache.GetSnapshot("ns~gw")
 	require.NoError(t, err)
 
-	// Once published, a later partial snapshot is never deferred.
-	reconciler.observePublished("ns~gw")
+	// The episode stays open after a degraded publish, so further incomplete
+	// updates flow immediately instead of re-deferring (endpoint updates for
+	// healthy clusters must not freeze).
 	require.True(t, pt.syncXds(context.Background(), partial))
+
+	// Degraded publishes keep the client stuck for the heartbeat.
+	reconciler.mu.Lock()
+	degraded := reconciler.clients["ns~gw"].degraded
+	reconciler.mu.Unlock()
+	require.True(t, degraded, "a missing-cluster publish must be recorded as degraded")
+
+	// A clean publish ends the episode...
+	require.True(t, pt.syncXds(context.Background(), syncTestWrapper("cluster-a")))
+	// ...so a NEW incompleteness (e.g. a transiently gutted rebuild for this
+	// already-published client) defers again rather than regressing Envoy's
+	// state-of-the-world config.
+	require.False(t, pt.syncXds(context.Background(), partial),
+		"a fresh incomplete episode for a published client must defer, not regress the published config")
 }
 
-// An errored cluster reference is exempt from warm-up deferral, matching the
-// previous gate's behavior for translation failures.
-func TestSyncXdsWarmupGateExemptsErroredClusters(t *testing.T) {
+// Regression (review finding / #14184 class): with quiet inputs there is no
+// KRT event to re-run syncXds after the deferral budget expires — KRT
+// suppresses unchanged recomputes — so budget expiry MUST be observable via
+// the retained pending snapshot, exactly as the heartbeat loop drives it.
+func TestSyncXdsBudgetExpiryViaPendingRetry(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	reconciler := newPerClientReconciler(nil, nil, time.Minute, 15*time.Second)
-	reconciler.now = clk.now
-	pt, _ := newSyncTestTranslator(reconciler)
+	pt, cache, reconciler := newSyncTestTranslatorWithGate(clk, 15*time.Second)
 
-	wrap := XdsSnapWrapper{
-		proxyKey:        "ns~gw",
-		erroredClusters: []string{"cluster-errored"},
-		snap: syncTestSnapshot(
-			syncTestResources("c1", syncTestEdsCluster()),
-			syncTestResources("e1", syncTestCla("cluster-a")),
-			syncTestResources("r1", syncTestRouteTo("cluster-errored")),
-			syncTestResources("l1", syncTestListener()),
-		),
-	}
+	partial := syncTestWrapper("cluster-missing")
+
+	// Cold client: the one and only event-driven attempt defers and retains
+	// the wrapper for retry.
+	require.False(t, pt.syncXds(context.Background(), partial))
+	pending := reconciler.pendingRetries()
+	require.Len(t, pending, 1, "an incomplete-inputs withhold must retain the snapshot for retry")
+
+	// A retry tick before the budget expires keeps deferring (and keeps the wrapper).
+	clk.advance(10 * time.Second)
+	require.False(t, pt.syncXdsAttempt(context.Background(), pending[0].wrap, &pending[0].seq))
+	require.Len(t, reconciler.pendingRetries(), 1)
+
+	// A retry tick after the budget expires publishes — with NO new KRT event.
+	clk.advance(10 * time.Second)
+	retry := reconciler.pendingRetries()
+	require.Len(t, retry, 1)
+	require.True(t, pt.syncXdsAttempt(context.Background(), retry[0].wrap, &retry[0].seq),
+		"budget expiry must be acted on by the retry path on quiet inputs")
+	_, err := cache.GetSnapshot("ns~gw")
+	require.NoError(t, err)
+	require.Empty(t, reconciler.pendingRetries(), "a published retry must clear the pending entry")
+}
+
+// An errored cluster reference is exempt from incomplete-inputs deferral,
+// matching the previous gate's behavior for translation failures.
+func TestSyncXdsIncompleteGateExemptsErroredClusters(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	pt, _, _ := newSyncTestTranslatorWithGate(clk, 10*time.Second)
+
+	wrap := syncTestWrapper("cluster-errored")
+	wrap.erroredClusters = []string{"cluster-errored"}
 
 	require.True(t, pt.syncXds(context.Background(), wrap),
 		"references to errored clusters must not defer publication")
