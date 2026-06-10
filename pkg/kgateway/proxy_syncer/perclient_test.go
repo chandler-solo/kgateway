@@ -34,7 +34,7 @@ import (
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
 )
 
-func TestFilterEndpointResourcesForStaticClusters_FiltersStaticClusterCLAs(t *testing.T) {
+func TestFilterEndpointResourcesForClusters_FiltersStaticClusterCLAs(t *testing.T) {
 	// Clusters: one STATIC ("static-cluster"), one EDS ("eds-cluster").
 	// Endpoints: CLAs for both. Expect only CLA for "eds-cluster" in result.
 	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
@@ -46,7 +46,7 @@ func TestFilterEndpointResourcesForStaticClusters_FiltersStaticClusterCLAs(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-cluster"}},
 	})
 
-	out := filterEndpointResourcesForStaticClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -59,8 +59,9 @@ func TestFilterEndpointResourcesForStaticClusters_FiltersStaticClusterCLAs(t *te
 	}
 }
 
-func TestFilterEndpointResourcesForStaticClusters_ReturnsOriginalWhenNoFiltering(t *testing.T) {
-	// Only EDS clusters; no STATIC. Endpoints should be returned unchanged (same reference when possible).
+func TestFilterEndpointResourcesForClusters_KeepsRequiredCLAs(t *testing.T) {
+	// Only EDS clusters; their CLAs are all required and must survive. The
+	// version is deterministic for identical inputs.
 	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: &envoyclusterv3.Cluster{Name: "eds-only", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}}},
 	})
@@ -68,61 +69,61 @@ func TestFilterEndpointResourcesForStaticClusters_ReturnsOriginalWhenNoFiltering
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-only"}},
 	})
 
-	out := filterEndpointResourcesForStaticClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
 	}
-	if out.Version != endpoints.Version {
-		t.Errorf("version: got %q, want %q", out.Version, endpoints.Version)
-	}
-	// Implementation returns original endpoints when nothing filtered
-	if len(out.Items) != len(endpoints.Items) {
-		t.Errorf("expected same count as input: got %d, want %d", len(out.Items), len(endpoints.Items))
-	}
 	if _, ok := out.Items["eds-only"]; !ok {
 		t.Errorf("expected CLA for eds-only, got keys: %v", mapKeys(out.Items))
 	}
+	again := filterEndpointResourcesForClusters(clusters, endpoints)
+	if out.Version != again.Version {
+		t.Errorf("version must be deterministic: got %q then %q", out.Version, again.Version)
+	}
 }
 
-func TestFilterEndpointResourcesForStaticClusters_EmptyClustersAndEndpoints(t *testing.T) {
+func TestFilterEndpointResourcesForClusters_EmptyClustersAndEndpoints(t *testing.T) {
 	emptyClusters := envoycache.NewResourcesWithTTL("v1", nil)
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForStaticClusters(emptyClusters, emptyEndpoints)
+	out := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
 	}
 }
 
-func TestFilterEndpointResourcesForStaticClusters_EmptyClustersNonEmptyEndpoints(t *testing.T) {
+func TestFilterEndpointResourcesForClusters_DropsStaleCLAs(t *testing.T) {
+	// A CLA whose cluster is no longer in CDS is stale: publishing it makes
+	// go-control-plane suppress named state-of-the-world ADS EDS responses,
+	// so it must be dropped.
 	emptyClusters := envoycache.NewResourcesWithTTL("v1", nil)
 	endpoints := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
-		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "any"}},
+		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "removed-cluster"}},
 	})
 
-	out := filterEndpointResourcesForStaticClusters(emptyClusters, endpoints)
+	out := filterEndpointResourcesForClusters(emptyClusters, endpoints)
 
-	if len(out.Items) != 1 {
-		t.Fatalf("expected 1 endpoint when no static clusters, got %d", len(out.Items))
+	if len(out.Items) != 0 {
+		t.Fatalf("expected stale CLA to be dropped, got %d items: %v", len(out.Items), mapKeys(out.Items))
 	}
 }
 
-func TestFilterEndpointResourcesForStaticClusters_EmptyEndpoints(t *testing.T) {
+func TestFilterEndpointResourcesForClusters_EmptyEndpoints(t *testing.T) {
 	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: &envoyclusterv3.Cluster{Name: "static-cluster", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_STATIC}}},
 	})
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForStaticClusters(clusters, emptyEndpoints)
+	out := filterEndpointResourcesForClusters(clusters, emptyEndpoints)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
 	}
 }
 
-func TestFilterEndpointResourcesForStaticClusters_MixedStaticAndNonStatic(t *testing.T) {
+func TestFilterEndpointResourcesForClusters_MixedStaticAndNonStatic(t *testing.T) {
 	// Two STATIC, two EDS. CLAs for all four. Result should have only the two EDS CLAs.
 	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: &envoyclusterv3.Cluster{Name: "static-a", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_STATIC}}},
@@ -137,7 +138,7 @@ func TestFilterEndpointResourcesForStaticClusters_MixedStaticAndNonStatic(t *tes
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-b"}},
 	})
 
-	out := filterEndpointResourcesForStaticClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 2 {
 		t.Fatalf("expected 2 endpoint resources (eds-a, eds-b), got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -156,7 +157,7 @@ func TestFilterEndpointResourcesForStaticClusters_MixedStaticAndNonStatic(t *tes
 	}
 }
 
-func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T) {
+func TestSnapshotPerClientPublishesPartialWhenReferencedClusterMissing(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -226,9 +227,15 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		},
 	)
 
-	g.Consistently(func() int {
+	// The transform no longer withholds output for an absent referenced
+	// cluster: it builds the best snapshot from current inputs, and the
+	// warm-up/publish policy is applied in syncXds.
+	g.Eventually(func() int {
 		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	snap := snapshots.List()[0].snap
+	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
+	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).NotTo(gomega.HaveKey("cluster-b"))
 
 	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
@@ -237,16 +244,20 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		ClusterVersion: 2,
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
-	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-b"))
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 {
+			return false
+		}
+		items := list[0].snap.Resources[envoycachetypes.Cluster].Items
+		_, hasA := items["cluster-a"]
+		_, hasB := items["cluster-b"]
+		return hasA && hasB
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once the cluster appears, the snapshot completes")
 }
 
-func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testing.T) {
+func TestSnapshotPerClientPublishesWithoutCLAForEDSCluster(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -314,9 +325,13 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		},
 	)
 
-	g.Consistently(func() int {
+	// A present EDS cluster lacking its CLA no longer withholds the snapshot:
+	// the missing CLA is synthesized empty at publish time (syncXds), and the
+	// real one replaces it when the endpoints pipeline produces it.
+	g.Eventually(func() int {
 		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	g.Expect(snapshots.List()[0].snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.BeEmpty())
 
 	endpointCol.UpdateObject(UccWithEndpoints{
 		Client: ucc,
@@ -327,12 +342,15 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		endpointsName: "cluster-a",
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 {
+			return false
+		}
+		_, ok := list[0].snap.Resources[envoycachetypes.Endpoint].Items["cluster-a"]
+		return ok
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"once the CLA appears, it is published")
 }
 
 func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.T) {

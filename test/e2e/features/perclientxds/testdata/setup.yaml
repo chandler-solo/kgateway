@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-perclient
+  namespace: kgateway-base
+  labels:
+    app: echo-perclient
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 3000
+  selector:
+    app.kubernetes.io/name: echo-perclient
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-perclient
+  namespace: kgateway-base
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: echo-perclient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: echo-perclient
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - image: registry.k8s.io/gateway-api/echo-basic:v1.5.0@sha256:fcbdfab85b3c4441e2fe8fdedd382904332ccb8253a5d51f6006c16903e7ae40
+          imagePullPolicy: IfNotPresent
+          name: echo-perclient
+          ports:
+            - containerPort: 3000
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SERVICE_NAME
+              value: echo-perclient
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-perclient-route
+  namespace: kgateway-base
+spec:
+  parentRefs:
+    - name: gateway
+      namespace: kgateway-base
+  hostnames:
+    - "perclient.example.com"
+  rules:
+    - backendRefs:
+        - name: echo-perclient
+          port: 8080
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

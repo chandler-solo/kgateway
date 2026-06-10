@@ -143,7 +143,7 @@ func TestPerClientClustersUpdateWhenBackendTLSPolicyAddedLater(t *testing.T) {
 		},
 		ContributedPolicies: policiesIndexPlugins(policyCol),
 	}
-	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs)
+	clusters := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs, nil)
 
 	fakeClient.RunAndWait(ctx.Done())
 

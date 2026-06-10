@@ -16,6 +16,7 @@ const (
 	namespaceLabel    = "namespace"
 	resultLabel       = "result"
 	resourceLabel     = "resource"
+	reasonLabel       = "reason"
 )
 
 var (
@@ -69,6 +70,35 @@ var (
 			Help:      "Current number of resources in XDS snapshot",
 		},
 		[]string{gatewayLabel, namespaceLabel, resourceLabel},
+	)
+	snapshotPerClientDefersTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_defers_total",
+			Help: "Total per-client XDS snapshot build deferrals, by reason. " +
+				"A sustained rate for a gateway means a connected client's per-client " +
+				"inputs are not becoming ready and its snapshot is being withheld (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
+	)
+	snapshotPerClientRecoveriesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_recoveries_total",
+			Help: "Total times a per-client XDS snapshot resumed publishing after a " +
+				"prior deferral. With the per-client heartbeat as backstop, recoveries " +
+				"of long-deferred clients are heartbeat-driven heals (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientReclaimedTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_reclaimed_total",
+			Help: "Total per-client XDS snapshot cache entries reclaimed after the " +
+				"client left the connected set (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
 	)
 )
 
@@ -160,6 +190,44 @@ func collectXDSTransformMetrics(clientKey string) func(error) {
 	}
 }
 
+// recordSnapshotDefer increments the per-client defer counter for the gateway the
+// given client belongs to. reason identifies which readiness guard deferred.
+func recordSnapshotDefer(clientKey, reason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientDefersTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: reasonLabel, Value: reason},
+	)
+}
+
+// recordSnapshotRecovery counts a client resuming publication after a prior defer.
+func recordSnapshotRecovery(clientKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientRecoveriesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
+// recordSnapshotReclaimed counts a departed client's xDS cache entry being cleared.
+func recordSnapshotReclaimed(clientKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientReclaimedTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
 type resourceNameDetails struct {
 	Role      string
 	Namespace string
@@ -199,4 +267,7 @@ func ResetMetrics() {
 	snapshotTransformsTotal.Reset()
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
+	snapshotPerClientDefersTotal.Reset()
+	snapshotPerClientRecoveriesTotal.Reset()
+	snapshotPerClientReclaimedTotal.Reset()
 }
