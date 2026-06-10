@@ -20,6 +20,35 @@ const (
 	actionLabel       = "action"
 )
 
+// Defer reasons: every one of these means a client's snapshot update was
+// WITHHELD (Envoy keeps its last published snapshot, or has none yet).
+const (
+	// deferReasonUnresolvedReferences: cluster references remained unresolved
+	// after publish-time resolution (shapes the pruner cannot rewrite, or held
+	// entries whose previous target left the cluster set); deferral is bounded
+	// per episode by the incomplete-inputs budget, after which it publishes
+	// marked degraded.
+	deferReasonUnresolvedReferences = "unresolvable_references"
+	// deferReasonInvalidSnapshot: the built snapshot failed hard validation.
+	deferReasonInvalidSnapshot = "invalid_snapshot"
+	// deferReasonClustersNotReady / deferReasonEndpointsNotReady: the snapshot
+	// transform deferred because a per-client input collection has not derived
+	// this client's row yet.
+	deferReasonClustersNotReady  = "clusters_not_ready"
+	deferReasonEndpointsNotReady = "endpoints_not_ready"
+)
+
+// Degraded-publish reasons: the snapshot WAS published, but with known-
+// incomplete data; the client stays marked stuck so the heartbeat keeps
+// re-running the per-client collections until a clean publish. (Resolution
+// substitutions — carried clusters, held/omitted routes, synthesized CLAs —
+// have their own dedicated counters below.)
+const (
+	// degradedReasonUnresolvedReferences: routes reference clusters absent from
+	// the published CDS (no-cluster errors on those routes until healed).
+	degradedReasonUnresolvedReferences = "unresolved_references"
+)
+
 var (
 	statusSyncHistogramBuckets = []float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
 	statusSyncsTotal           = metrics.NewCounter(
@@ -76,9 +105,22 @@ var (
 		metrics.CounterOpts{
 			Subsystem: snapshotSubsystem,
 			Name:      "perclient_defers_total",
-			Help: "Total per-client XDS snapshot build deferrals, by reason. " +
-				"A sustained rate for a gateway means a connected client's per-client " +
-				"inputs are not becoming ready and its snapshot is being withheld (#14184).",
+			Help: "Total per-client XDS snapshot deferrals, by reason. Every increment " +
+				"means an update was withheld and the client kept its last published " +
+				"snapshot (or none, before first publish). A sustained rate for a " +
+				"gateway means a connected client's snapshot is not becoming " +
+				"publishable (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
+	)
+	snapshotPerClientDegradedPublishesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_degraded_publishes_total",
+			Help: "Total per-client XDS snapshots published with known-incomplete data " +
+				"(routes referencing missing clusters), by reason. Traffic IS being " +
+				"served, but degraded; the heartbeat keeps recomputing until a clean " +
+				"publish (#14184).",
 		},
 		[]string{gatewayLabel, namespaceLabel, reasonLabel},
 	)
@@ -86,9 +128,10 @@ var (
 		metrics.CounterOpts{
 			Subsystem: snapshotSubsystem,
 			Name:      "perclient_recoveries_total",
-			Help: "Total times a per-client XDS snapshot resumed publishing after a " +
-				"prior deferral. With the per-client heartbeat as backstop, recoveries " +
-				"of long-deferred clients are heartbeat-driven heals (#14184).",
+			Help: "Total times a per-client XDS snapshot resumed CLEAN publishing after " +
+				"a prior deferral or degraded publish. With the per-client heartbeat as " +
+				"backstop, recoveries of long-deferred clients are heartbeat-driven " +
+				"heals (#14184).",
 		},
 		[]string{gatewayLabel, namespaceLabel},
 	)
@@ -223,7 +266,8 @@ func collectXDSTransformMetrics(clientKey string) func(error) {
 }
 
 // recordSnapshotDefer increments the per-client defer counter for the gateway the
-// given client belongs to. reason identifies which readiness guard deferred.
+// given client belongs to. reason is one of the deferReason* constants (or a
+// legacy-gate literal).
 func recordSnapshotDefer(clientKey, reason string) {
 	if !metrics.Active() {
 		return
@@ -236,7 +280,22 @@ func recordSnapshotDefer(clientKey, reason string) {
 	)
 }
 
-// recordSnapshotRecovery counts a client resuming publication after a prior defer.
+// recordDegradedPublish counts a snapshot published with known-incomplete data.
+// reason is one of the degradedReason* constants.
+func recordDegradedPublish(clientKey, reason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotPerClientDegradedPublishesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: reasonLabel, Value: reason},
+	)
+}
+
+// recordSnapshotRecovery counts a client resuming CLEAN publication after a
+// prior defer or degraded publish.
 func recordSnapshotRecovery(clientKey string) {
 	if !metrics.Active() {
 		return
@@ -324,6 +383,7 @@ func ResetMetrics() {
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
 	snapshotPerClientDefersTotal.Reset()
+	snapshotPerClientDegradedPublishesTotal.Reset()
 	snapshotPerClientRecoveriesTotal.Reset()
 	snapshotPerClientReclaimedTotal.Reset()
 	snapshotPerClientCarriedClustersTotal.Reset()

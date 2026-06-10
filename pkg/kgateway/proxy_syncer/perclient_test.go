@@ -224,6 +224,7 @@ func TestSnapshotPerClientPublishesWithMissingClusterMetadata(t *testing.T) {
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	// A referenced-but-absent cluster no longer withholds the snapshot: the
@@ -323,6 +324,7 @@ func TestSnapshotPerClientPublishesWithMissingEndpointMetadata(t *testing.T) {
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	// A present EDS cluster lacking its CLA no longer withholds the snapshot:
@@ -431,6 +433,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	g.Eventually(func() int {
@@ -658,6 +661,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	g.Eventually(func() int {
@@ -733,6 +737,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	g.Eventually(func() int {
@@ -851,6 +856,7 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	g.Eventually(func() int {

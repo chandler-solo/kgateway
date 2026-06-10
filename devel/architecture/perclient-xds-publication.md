@@ -72,11 +72,19 @@ Liveness:
 
 - **L1 — Publish liveness.** Every relevant input change produces a published
   snapshot for every connected client. `snapshotPerClient` returns nil only
-  when there is no gateway translation for the client's role at all.
+  when an input has not been derived at all yet: no gateway translation for
+  the client's role, or a per-client row not yet computed (the per-client
+  collections always emit a row once derived — even an empty one — so nil is
+  unambiguous, and a transiently underived row never builds a gutted
+  state-of-the-world snapshot). Publication itself may withhold an update
+  only bounded by a budget (see the publish-time safety net below); past the
+  budget the best available snapshot publishes, marked degraded.
 - **L2 — Bounded staleness.** Any internal hole (a per-client row missing or
   stale relative to current inputs) heals within one heartbeat interval
   (default 30s). This is the level-triggered foundation: correctness does not
-  depend on the dataflow library delivering every recompute edge.
+  depend on the dataflow library delivering every recompute edge — including
+  for withheld publications, which produce no KRT event and are therefore
+  retried directly by the heartbeat loop from a retained pending snapshot.
 
 Route-granular make-before-break:
 
@@ -149,18 +157,47 @@ sound only at route-transition granularity.
 
 ## 5. Liveness machinery
 
-- **Demand-driven heartbeat.** A `RecomputeTrigger` dependency in the
-  per-client cluster/endpoint transforms; fired when any connected client is
-  stuck (deferred since last publish, or connected-but-never-published — the
-  latter catches clients whose very first build deferred and therefore emitted
-  no KRT event), plus a rare unconditional fallback tick. A dropped heartbeat
-  recompute leaves previous rows in place, so the heartbeat can heal holes but
-  never create them. `KGW_PERCLIENT_HEARTBEAT_INTERVAL` tunes cadence;
-  `<= 0` disables the heartbeat only.
-- **Reclaim loop** (independent of the heartbeat's off-switch): clears
-  retained cache entries for clients absent from the connected set past a
-  grace period, with reconnect-resets. Fixes the unbounded SnapshotCache leak
-  that "retain last good on delete" otherwise implies.
+- **Publish-time safety net, bounded.** Hard validation failures
+  (malformed/nil/mistyped resources, snapshot inconsistency, missing SDS
+  references) always withhold — bugs, healed only by a new build. Cluster
+  references that remain unresolved after resolution (shapes the pruner cannot
+  rewrite, held entries whose previous target left the cluster set) withhold
+  only within a clock-bounded episode: the withheld snapshot is retained and
+  re-attempted directly by the heartbeat loop each tick (a withhold produces
+  no KRT event, and an unchanged recompute is hash-suppressed, so budget
+  expiry must not depend on the event stream; a sequence guard makes a retry
+  that raced a newer event-driven publish a no-op). Past the budget the
+  snapshot publishes marked DEGRADED — no-cluster errors on the affected
+  routes — instead of being withheld forever. Resolution substitutions
+  (carried clusters, synthesized CLAs, unsatisfied-target prunes) likewise
+  mark the publish degraded; S4 usability holds do not (they are expected
+  warming, healed by the endpoint events themselves).
+- **Demand-driven heartbeat.** A `RecomputeTrigger` dependency in EVERY
+  transform on the per-client path — the leaf cluster/endpoint collections
+  and the per-UCC stages alike, because a dropped recompute can land on any
+  edge between collections, and a heartbeat that re-runs only the leaves
+  cannot heal a stale row downstream of them (an unchanged leaf recompute is
+  hash-suppressed and propagates nothing). Each tick first re-attempts
+  pending withheld snapshots, then fires the trigger if any connected client
+  is stuck (withheld, degraded, pending, or connected-but-never-published —
+  the latter catches clients whose very first build deferred and therefore
+  emitted no KRT event; clients whose role has no per-gateway snapshot to
+  publish are excluded, since no recompute can help them), plus a rare
+  unconditional fallback tick. A dropped heartbeat recompute leaves previous
+  rows in place, so the heartbeat can heal holes but never create them.
+  `KGW_PERCLIENT_HEARTBEAT_INTERVAL` tunes cadence; `<= 0` disables the
+  heartbeat only.
+- **Reclaim loop** (independent of the heartbeat's off-switch): drops ALL
+  tracked state for clients absent from the connected set past a grace
+  period — clearing retained cache entries for published ones — with
+  reconnect-resets. Fixes the unbounded SnapshotCache leak that "retain last
+  good on delete" otherwise implies, and guarantees no stuck signal outlives
+  its client. Snapshot Delete events are classified by liveness: a
+  still-connected client is marked stuck (transform defer); a departed one
+  only starts the reclaim clock, so routine pod churn never drives the
+  heartbeat. Publication commits atomically with its bookkeeping (SetSnapshot
+  under the reconciler lock, zeroing the orphan clock), so a reclaim pass
+  racing a reconnect can never clear a snapshot that was just written.
 - With R1-R3 in place, deferral events are rare; the heartbeat remains as the
   guarantee that internal holes are bounded (L2) regardless of event-delivery
   behavior, and the stuck-client signal naturally includes clients held up by
@@ -179,9 +216,19 @@ sound only at route-transition granularity.
 
 ## 7. Observability
 
-- `xds_snapshot_perclient_defers_total{reason}` — should approach zero;
-  sustained nonzero indicates a publish-time hold or a regression.
-- `xds_snapshot_perclient_recoveries_total`, `..._reclaimed_total`.
+Every counter draws a hard line between "withheld" and "served degraded":
+
+- `xds_snapshot_perclient_defers_total{reason}` — the update was WITHHELD
+  (`unresolvable_references` within its episode budget, `invalid_snapshot`,
+  `clusters_not_ready` / `endpoints_not_ready`); should approach zero, and a
+  sustained rate indicates inputs that are not becoming publishable.
+- `xds_snapshot_perclient_degraded_publishes_total{reason}` — the snapshot WAS
+  published past the episode budget with unresolved references
+  (`unresolved_references`); traffic is being served, degraded, while the
+  heartbeat heals.
+- `xds_snapshot_perclient_recoveries_total` — a CLEAN publish after a withhold
+  or degraded publish. `..._reclaimed_total` — departed-client cache entries
+  cleared.
 - `xds_snapshot_perclient_carried_clusters_total`,
   `..._held_routes_total{action=held|omitted}`,
   `..._synthesized_load_assignments_total` — sustained carried/held counts

@@ -172,7 +172,7 @@ func TestPerClientSnapshotUpdatesWhenBackendTLSPolicyConflictsAddedLater(t *test
 		uccs,
 		nil,
 	)
-	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient)
+	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, nil)
 
 	fakeClient.RunAndWait(ctx.Done())
 
@@ -413,7 +413,7 @@ func TestPerClientSnapshotUsesSectionSpecificAndServiceWideBackendTLSPolicies(t 
 		uccs,
 		nil,
 	)
-	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient)
+	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, nil)
 
 	fakeClient.RunAndWait(ctx.Done())
 

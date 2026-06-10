@@ -60,7 +60,10 @@ func cla(clusterName string, addresses ...string) *envoyendpointv3.ClusterLoadAs
 				Endpoint: &envoyendpointv3.Endpoint{
 					Address: &envoycorev3.Address{
 						Address: &envoycorev3.Address_SocketAddress{
-							SocketAddress: &envoycorev3.SocketAddress{Address: addr},
+							SocketAddress: &envoycorev3.SocketAddress{
+								Address:       addr,
+								PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 8080},
+							},
 						},
 					},
 				},
@@ -79,6 +82,9 @@ func routeConfigTo(rcName, vhName, routeName, cluster string) *envoyroutev3.Rout
 			Domains: []string{"*"},
 			Routes: []*envoyroutev3.Route{{
 				Name: routeName,
+				Match: &envoyroutev3.RouteMatch{
+					PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"},
+				},
 				Action: &envoyroutev3.Route_Route{
 					Route: &envoyroutev3.RouteAction{
 						ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: cluster},
@@ -317,7 +323,7 @@ func TestFilterEndpointResourcesForClusters_EnforcesEdsSubset(t *testing.T) {
 		cla("removed-c", "10.0.0.3"), // not requested: cluster gone from CDS
 	)
 
-	filtered := filterEndpointResourcesForClusters(clusters, endpoints)
+	filtered := filterEndpointResourcesForClusters(clusters, endpointsWithUccName{endpoints: endpoints})
 	require.Len(t, filtered.Items, 1)
 	require.Contains(t, filtered.Items, "eds-a")
 }
@@ -354,8 +360,9 @@ func TestSyncXdsWithholdsWhenClosureUnrestorable(t *testing.T) {
 		}},
 	}
 	wrapper := XdsSnapWrapper{
-		proxyKey:        "ns~gw",
-		missingClusters: []string{"cluster-missing"},
+		proxyKey:           "ns~gw",
+		missingClusters:    []string{"cluster-missing"},
+		referencedClusters: map[string]struct{}{"cluster-missing": {}},
 		snap: snapshotOf(
 			resourcesOf(edsCluster("cluster-a")),
 			resourcesOf(cla("cluster-a", "10.0.0.1")),
@@ -365,11 +372,27 @@ func TestSyncXdsWithholdsWhenClosureUnrestorable(t *testing.T) {
 	}
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	pt := &ProxyTranslator{xdsCache: cache}
+	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	reconciler := newPerClientReconciler(cache, nil, time.Minute, 15*time.Second)
+	reconciler.now = clk.now
+	pt := &ProxyTranslator{xdsCache: cache, gate: reconciler}
+
+	// Within the deferral budget: withheld, never a dangling reference.
 	require.False(t, pt.syncXds(context.Background(), wrapper),
 		"a surviving dangling reference must withhold publication, not violate S1")
 	_, err = cache.GetSnapshot("ns~gw")
-	require.Error(t, err, "nothing may be published while closure is unrestorable")
+	require.Error(t, err, "nothing may be published while closure is unrestorable and the budget has not elapsed")
+
+	// The withheld wrapper is retained, and a retry tick past the budget
+	// publishes the best available snapshot, marked degraded — bounded
+	// deferral, with NO new KRT event required (quiet inputs produce none).
+	pending := reconciler.pendingRetries()
+	require.Len(t, pending, 1, "an unresolvable-references withhold must retain the snapshot for retry")
+	clk.advance(20 * time.Second)
+	require.True(t, pt.syncXdsAttempt(context.Background(), pending[0].wrap, &pending[0].seq),
+		"budget expiry must be acted on by the retry path")
+	_, err = cache.GetSnapshot("ns~gw")
+	require.NoError(t, err)
 }
 
 // Legacy escape hatch: KGW_LEGACY_SNAPSHOT_GATE restores the #13868 behavior of
@@ -413,6 +436,7 @@ func TestSnapshotPerClientLegacyGateDefers(t *testing.T) {
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	g.Consistently(func() int {

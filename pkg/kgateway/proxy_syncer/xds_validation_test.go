@@ -23,12 +23,15 @@ func TestMissingSnapshotClusterReferencesReportsMissingRouteCluster(t *testing.T
 	})
 
 	// Cluster closure is intentionally NOT a hard validation failure: it is a
-	// dataflow transient whose publish policy (warm-up deferral, then
-	// publish-with-warning) lives in syncXds. The reference must still be
-	// detected, and errored clusters must stay exempt.
+	// dataflow transient whose publish policy (warm-up deferral, then degraded
+	// publish) lives in syncXds, driven by the per-gateway precomputed
+	// reference set. The reference must still be detected, and errored
+	// clusters must stay exempt.
 	g.Expect(validateXDSSnapshotReferences(snap)).To(gomega.Succeed())
-	g.Expect(missingSnapshotClusterReferences(snap, nil)).To(gomega.Equal([]string{"missing-cluster"}))
-	g.Expect(missingSnapshotClusterReferences(snap, []string{"missing-cluster"})).To(gomega.BeEmpty())
+	referenced := collectReferencedClusters(snap.Resources[envoycachetypes.Route], snap.Resources[envoycachetypes.Listener])
+	clusters := snap.Resources[envoycachetypes.Cluster].Items
+	g.Expect(findMissingReferencedClusters(referenced, clusters, nil)).To(gomega.Equal([]string{"missing-cluster"}))
+	g.Expect(findMissingReferencedClusters(referenced, clusters, []string{"missing-cluster"})).To(gomega.BeEmpty())
 }
 
 func TestValidateXDSSnapshotReferencesRejectsMissingADSSecret(t *testing.T) {

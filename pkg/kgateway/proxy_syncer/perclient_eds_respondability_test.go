@@ -160,6 +160,7 @@ func newRespondabilityFixture(
 				return []string{cluster.Client.ResourceName()}
 			}),
 		},
+		nil,
 	)
 
 	return &respondabilityFixture{

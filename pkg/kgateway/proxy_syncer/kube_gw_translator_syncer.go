@@ -12,13 +12,41 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/logging"
 )
 
+// publicationGate is the per-client publication policy and bookkeeping seam,
+// implemented by perClientReconciler. Nil disables deferral and stuck
+// tracking (used by tests); publication then goes straight to the cache.
+type publicationGate interface {
+	// shouldDeferIncomplete reports whether a publish attempt with incomplete
+	// inputs should still be withheld (bounded per episode by a budget).
+	shouldDeferIncomplete(clientKey string) bool
+	// observeWithheld records a withheld publication; a non-nil pending wrapper
+	// is retained for direct retry by the heartbeat loop.
+	observeWithheld(clientKey string, pending *XdsSnapWrapper)
+	// commitPublish atomically publishes and records the outcome; see
+	// perClientReconciler.commitPublish.
+	commitPublish(ctx context.Context, snapWrap XdsSnapWrapper, degraded bool, expectSeq *uint64) (published, recovered bool)
+}
+
 // syncXds publishes the per-client snapshot to the xDS cache, resolving any
 // build-time holes first. It reports whether a snapshot was actually published;
-// false means the safety net withheld it (the caller should treat the client as
-// still deferred so the heartbeat keeps retrying).
+// false means the update was withheld (invalid snapshot, or an episode-bounded
+// deferral of unresolvable references) — the client stays marked stuck so the
+// heartbeat keeps retrying.
 func (s *ProxyTranslator) syncXds(
 	ctx context.Context,
 	snapWrap XdsSnapWrapper,
+) bool {
+	return s.syncXdsAttempt(ctx, snapWrap, nil)
+}
+
+// syncXdsAttempt is syncXds plus the retry entry point: expectSeq non-nil
+// marks a re-attempt of a previously withheld snapshot, which only commits if
+// no newer event superseded it (see perClientReconciler.commitPublish).
+// Resolution re-runs on retry against the then-current previous snapshot.
+func (s *ProxyTranslator) syncXdsAttempt(
+	ctx context.Context,
+	snapWrap XdsSnapWrapper,
+	expectSeq *uint64,
 ) bool {
 	snap := snapWrap.snap
 	proxyKey := snapWrap.proxyKey
@@ -43,49 +71,109 @@ func (s *ProxyTranslator) syncXds(
 	if p, err := s.xdsCache.GetSnapshot(proxyKey); err == nil {
 		prev = p
 	}
+	var stats resolutionStats
 	if snapWrap.needsResolution() || prev != nil {
-		resolved, stats := resolvePublication(snapWrap, prev)
-		if stats.carried+stats.held+stats.omitted+stats.synthesized > 0 {
-			logger.Info("resolved per-client snapshot at publish time",
-				"proxy_key", proxyKey,
-				"carried_clusters", stats.carried,
-				"held_routes", stats.held,
-				"omitted_routes", stats.omitted,
-				"synthesized_load_assignments", stats.synthesized,
-			)
-			recordSnapshotResolution(proxyKey, stats.carried, stats.held, stats.omitted, stats.synthesized)
-		}
-		snap = resolved
+		snap, stats = resolvePublication(snapWrap, prev)
 	}
 
 	// Hard validation of the FINAL artifact (post carry-forward, synthesis,
 	// and pruning): malformed/nil/mistyped resources, generated proto
 	// validation, duplicate listener filter chain matches, snapshot
 	// consistency, and SDS references whose secret is absent always withhold —
-	// these indicate bugs, and Envoy keeps the last good snapshot while the
-	// heartbeat retries.
+	// these indicate bugs, and Envoy keeps the last good snapshot. Retrying
+	// the same data cannot heal these, so no pending retry is retained; the
+	// heal is a new build.
 	if err := ValidateXDSSnapshot(snap); err != nil {
 		logger.Error("invalid xds snapshot; preserving last published snapshot",
 			"proxy_key", proxyKey, "error", err)
-		recordSnapshotDefer(proxyKey, "invalid_snapshot")
+		recordSnapshotDefer(proxyKey, deferReasonInvalidSnapshot)
+		if s.gate != nil && expectSeq == nil {
+			s.gate.observeWithheld(proxyKey, nil)
+		}
 		return false
 	}
 
 	// S1 enforcement on the final snapshot, covering every path uniformly:
 	// references the pruner cannot rewrite (shapes outside RouteAction/TcpProxy
 	// surgery) and held entries whose PREVIOUS target has since left the
-	// cluster set. Withhold rather than hand Envoy a dangling reference; the
-	// heartbeat retries.
-	if missing := missingSnapshotClusterReferences(snap, snapWrap.erroredClusters); len(missing) > 0 {
+	// cluster set. The per-gateway precomputed reference set describes the
+	// BUILT routes/listeners; when pruning held or omitted entries the final
+	// reference set may differ, so only then is the final artifact re-walked.
+	referenced := snapWrap.referencedClusters
+	if stats.held+stats.omitted > 0 {
+		referenced = collectReferencedClusters(
+			snap.Resources[envoycachetypes.Route],
+			snap.Resources[envoycachetypes.Listener],
+		)
+	}
+	missing := findMissingReferencedClusters(
+		referenced,
+		snap.Resources[envoycachetypes.Cluster].Items,
+		snapWrap.erroredClusters,
+	)
+	if len(missing) > 0 && s.gate != nil && s.gate.shouldDeferIncomplete(proxyKey) {
+		// Withhold rather than hand Envoy a dangling reference, bounded per
+		// episode by a budget: the original wrapper is retained so the
+		// heartbeat loop can re-attempt it directly (a withhold produces no
+		// KRT event, and an unchanged recompute is hash-suppressed, so budget
+		// expiry cannot depend on the event stream). Past the budget the
+		// snapshot publishes marked degraded — the referencing routes return
+		// no-cluster errors — instead of being withheld forever.
 		logger.Warn("withholding per-client snapshot: cluster references remain unresolved after pruning",
 			"proxy_key", proxyKey,
 			"missing_clusters", missing,
 		)
-		recordSnapshotDefer(proxyKey, "unresolvable_references")
+		recordSnapshotDefer(proxyKey, deferReasonUnresolvedReferences)
+		if expectSeq == nil {
+			s.gate.observeWithheld(proxyKey, &snapWrap)
+		}
 		return false
 	}
 
-	s.xdsCache.SetSnapshot(ctx, proxyKey, snap)
+	// Degraded means published with known-incomplete or stale-substituted data:
+	// unresolvable references published past the budget, carried-forward
+	// clusters/CLAs, synthesized empty CLAs, or entries pruned because their
+	// target was unsatisfied. Degraded clients count as stuck, so the heartbeat
+	// keeps re-running the per-client collections until a clean publish heals
+	// them. S4 holds/omits for not-yet-usable targets are NOT degraded: they
+	// are expected warming, healed by the endpoint events themselves.
+	degraded := len(missing) > 0 || stats.carried > 0 || stats.synthesized > 0 || stats.unsatisfiedTargets > 0
+
+	var published, recovered bool
+	if s.gate == nil {
+		if err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+			logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+			return false
+		}
+		published = true
+	} else {
+		published, recovered = s.gate.commitPublish(ctx, snapWrap.WithSnapshot(snap), degraded, expectSeq)
+	}
+	if !published {
+		return false
+	}
+
+	if stats.carried+stats.held+stats.omitted+stats.synthesized > 0 {
+		logger.Info("resolved per-client snapshot at publish time",
+			"proxy_key", proxyKey,
+			"carried_clusters", stats.carried,
+			"held_routes", stats.held,
+			"omitted_routes", stats.omitted,
+			"synthesized_load_assignments", stats.synthesized,
+		)
+		recordSnapshotResolution(proxyKey, stats.carried, stats.held, stats.omitted, stats.synthesized)
+	}
+	if len(missing) > 0 {
+		logger.Warn("published snapshot with unresolved cluster references",
+			"proxy_key", proxyKey, "missing_clusters", missing)
+		recordDegradedPublish(proxyKey, degradedReasonUnresolvedReferences)
+	}
+	if recovered {
+		// A clean publish after a prior defer or degraded publish is a
+		// recovery; with the heartbeat as backstop, recoveries of
+		// long-deferred clients are heartbeat-driven heals (#14184).
+		recordSnapshotRecovery(proxyKey)
+	}
 	return true
 }
 
@@ -94,6 +182,11 @@ type resolutionStats struct {
 	held        int
 	omitted     int
 	synthesized int
+	// unsatisfiedTargets counts referenced-but-absent clusters with nothing to
+	// carry forward (R3): their referencing entries were held or omitted
+	// because of a HOLE, as opposed to S4 usability holds. Used to mark the
+	// publish degraded so the heartbeat heals the hole.
+	unsatisfiedTargets int
 }
 
 // resolvePublication produces a publishable snapshot:
@@ -178,6 +271,8 @@ func resolvePublication(snapWrap XdsSnapWrapper, prev envoycache.ResourceSnapsho
 			}
 			endpointsMutated = true
 		}
+
+		stats.unsatisfiedTargets = len(unsatisfied)
 
 		// Versions must change when contents change; recompute from final
 		// contents, but ONLY for resource types actually mutated here — the

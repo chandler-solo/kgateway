@@ -41,6 +41,14 @@ type XdsSnapWrapper struct {
 	// Derived from Cluster/Endpoint versions already covered by Equals.
 	// +noKrtEquals
 	missingEndpointClusters map[string]string
+	// referencedClusters is the per-gateway set of dataplane cluster references
+	// (RouteAction/TcpProxy targets), precomputed once per GatewayXdsResources
+	// so publication does not re-walk LDS/RDS protos per client per event
+	// (publication re-walks only when route/listener pruning changed the
+	// reference set). Shared and read-only. Derived from route/listener
+	// contents (covered by their versions in Equals).
+	// +noKrtEquals
+	referencedClusters map[string]struct{}
 	// +noKrtEquals
 	proxyKey string
 }
