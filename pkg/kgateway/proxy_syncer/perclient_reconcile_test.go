@@ -26,40 +26,28 @@ func newReconcileTestCache() envoycache.SnapshotCache {
 	return envoycache.NewSnapshotCache(false, envoycache.IDHash{}, nil)
 }
 
-func commitClean(t *testing.T, r *perClientReconciler, key string) bool {
-	t.Helper()
-	published, recovered := r.commitPublish(context.Background(), reconcileTestWrapper(key), false, nil)
-	require.True(t, published)
-	return recovered
-}
-
-func commitDegraded(t *testing.T, r *perClientReconciler, key string) bool {
-	t.Helper()
-	published, recovered := r.commitPublish(context.Background(), reconcileTestWrapper(key), true, nil)
-	require.True(t, published)
-	return recovered
-}
-
-// Recovery accounting: only a CLEAN publish after a withhold or a degraded
-// publish counts as a recovery.
+// Recovery accounting: a publish counts as a recovery only when it follows a
+// defer (observed via a snapshot Delete while the client is still connected).
 func TestPerClientReconciler_RecoveryTracking(t *testing.T) {
-	r := newPerClientReconciler(newReconcileTestCache(), nil, time.Minute, 10*time.Second)
-	const key = "client-a"
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	krtopts := krtutil.NewKrtOptions(ctx.Done(), nil)
 
-	require.False(t, commitClean(t, r, key), "first publish is not a recovery")
+	a := heartbeatTestClient("role-a")
+	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{a}, krtopts.ToOptions("UniqueClients")...)
+	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute)
+	key := a.ResourceName()
 
-	r.observeWithheld(key, nil)
-	require.True(t, commitClean(t, r, key), "clean publish after a withhold is a recovery")
-	require.False(t, commitClean(t, r, key), "clean publish without an intervening defer is not a recovery")
-
-	r.observeWithheld(key, nil)
-	require.False(t, commitDegraded(t, r, key), "a degraded publish never counts as a recovery")
-	require.True(t, commitClean(t, r, key), "clean publish after a degraded publish is a recovery")
+	require.False(t, r.commitPublish(context.Background(), reconcileTestWrapper(key)), "first publish is not a recovery")
+	r.observeSnapshotDelete(key) // transform deferred while connected
+	require.True(t, r.commitPublish(context.Background(), reconcileTestWrapper(key)), "publish after a defer is a recovery")
+	require.False(t, r.commitPublish(context.Background(), reconcileTestWrapper(key)), "publish without an intervening defer is not a recovery")
 }
 
-// hasStuckClients must catch every stuck shape for CONNECTED clients —
-// withheld, degraded, never-published — and must NOT fire for departed clients
-// or clients whose role has nothing to publish.
+// hasStuckClients must catch both stuck shapes for CONNECTED clients — a
+// client whose latest snapshot event was a defer, and a client that has never
+// published (whose first deferred build emits no KRT event at all) — and must
+// NOT fire for departed clients.
 func TestPerClientReconciler_HasStuckClients(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -68,27 +56,24 @@ func TestPerClientReconciler_HasStuckClients(t *testing.T) {
 	a := heartbeatTestClient("role-a")
 	b := heartbeatTestClient("role-b")
 	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{a}, krtopts.ToOptions("UniqueClients")...)
-	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute)
 
 	require.True(t, r.hasStuckClients(), "connected-but-never-published client must count as stuck")
 
-	commitClean(t, r, a.ResourceName())
-	require.False(t, r.hasStuckClients(), "cleanly published client is not stuck")
+	require.False(t, r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName())))
+	require.False(t, r.hasStuckClients(), "published client is not stuck")
 
-	r.observeWithheld(a.ResourceName(), nil)
-	require.True(t, r.hasStuckClients(), "withheld client is stuck")
+	r.observeSnapshotDelete(a.ResourceName())
+	require.True(t, r.hasStuckClients(), "deferred client is stuck")
 
-	commitDegraded(t, r, a.ResourceName())
-	require.True(t, r.hasStuckClients(), "degraded client stays stuck until a clean publish")
-
-	commitClean(t, r, a.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
 	require.False(t, r.hasStuckClients(), "recovered client is not stuck")
 
 	// A new client connecting is stuck until its first publish.
 	uccs.UpdateObject(b)
 	requireListLen(t, uccs, 2)
 	require.True(t, r.hasStuckClients(), "newly connected client must count as stuck until first publish")
-	commitClean(t, r, b.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(b.ResourceName()))
 	require.False(t, r.hasStuckClients())
 }
 
@@ -102,7 +87,7 @@ func TestPerClientReconciler_UnpublishableRoleNotStuck(t *testing.T) {
 
 	orphan := heartbeatTestClient("role-orphan")
 	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{orphan}, krtopts.ToOptions("UniqueClients")...)
-	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute)
 	r.roleHasSnapshot = func(role string) bool { return role != "role-orphan" }
 
 	require.False(t, r.hasStuckClients(), "client with no publishable role must not count as stuck")
@@ -122,15 +107,15 @@ func TestPerClientReconciler_DeleteClassifiesDeferVsDeparture(t *testing.T) {
 	a := heartbeatTestClient("role-a")
 	b := heartbeatTestClient("role-b")
 	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{a, b}, krtopts.ToOptions("UniqueClients")...)
-	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute, 10*time.Second)
-	commitClean(t, r, a.ResourceName())
-	commitClean(t, r, b.ResourceName())
+	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute)
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
+	r.commitPublish(context.Background(), reconcileTestWrapper(b.ResourceName()))
 	require.False(t, r.hasStuckClients())
 
 	// a's snapshot row deleted while a is still connected: a transform defer.
 	r.observeSnapshotDelete(a.ResourceName())
 	require.True(t, r.hasStuckClients(), "transform defer for a live client must mark it stuck")
-	commitClean(t, r, a.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
 
 	// b departs, then its snapshot row is deleted: NOT stuck.
 	uccs.DeleteObject(b.ResourceName())
@@ -161,10 +146,10 @@ func TestPerClientReconciler_ReclaimsDepartedAfterGrace(t *testing.T) {
 	cache := newReclaimTestCache(t, ctx, live.ResourceName(), gone.ResourceName())
 
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	r := newPerClientReconciler(cache, uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(cache, uccs, time.Minute)
 	r.now = clk.now
-	commitClean(t, r, live.ResourceName())
-	commitClean(t, r, gone.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(live.ResourceName()))
+	r.commitPublish(context.Background(), reconcileTestWrapper(gone.ResourceName()))
 
 	// First pass only records the orphan timer for the departed client.
 	require.Empty(t, r.reconcile())
@@ -186,9 +171,8 @@ func TestPerClientReconciler_ReclaimsDepartedAfterGrace(t *testing.T) {
 }
 
 // Regression (review finding): state for a departed client that was never
-// published — e.g. its only attempts failed hard validation, so it never
-// entered warm-up — must still be swept, or hasStuckClients stays true forever
-// and the heartbeat recomputes unconditionally for the life of the process.
+// published must still be swept, or hasStuckClients-adjacent state leaks for
+// the life of the process.
 func TestPerClientReconciler_SweepsNeverPublishedDeparted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -197,11 +181,11 @@ func TestPerClientReconciler_SweepsNeverPublishedDeparted(t *testing.T) {
 	a := heartbeatTestClient("role-a")
 	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{a}, krtopts.ToOptions("UniqueClients")...)
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(newReconcileTestCache(), uccs, time.Minute)
 	r.now = clk.now
 
-	// Hard-validation withhold: no pending wrapper, no warm-up clock, never published.
-	r.observeWithheld(a.ResourceName(), nil)
+	// Deferred while connected, never published.
+	r.observeSnapshotDelete(a.ResourceName())
 	require.True(t, r.hasStuckClients())
 
 	// The client departs.
@@ -231,10 +215,10 @@ func TestPerClientReconciler_ReconnectWithinGraceNotReclaimed(t *testing.T) {
 	cache := newReclaimTestCache(t, ctx, a.ResourceName(), b.ResourceName())
 
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	r := newPerClientReconciler(cache, uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(cache, uccs, time.Minute)
 	r.now = clk.now
-	commitClean(t, r, a.ResourceName())
-	commitClean(t, r, b.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
+	r.commitPublish(context.Background(), reconcileTestWrapper(b.ResourceName()))
 
 	// b disconnects.
 	uccs.DeleteObject(b.ResourceName())
@@ -267,72 +251,19 @@ func TestPerClientReconciler_PublishResetsOrphanClock(t *testing.T) {
 	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{}, krtopts.ToOptions("UniqueClients")...)
 	cache := newReconcileTestCache()
 	clk := &fakeClock{t: time.Unix(1_700_000_000, 0)}
-	r := newPerClientReconciler(cache, uccs, time.Minute, 10*time.Second)
+	r := newPerClientReconciler(cache, uccs, time.Minute)
 	r.now = clk.now
 
 	// Published, then departed long past grace — eligible for reclaim.
-	commitClean(t, r, a.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
 	require.Empty(t, r.reconcile()) // starts the orphan clock
 	clk.advance(2 * time.Minute)
 
 	// The client reconnects and republishes just before the reclaim pass runs
 	// against a connected-set view that does not include it yet.
-	commitClean(t, r, a.ResourceName())
+	r.commitPublish(context.Background(), reconcileTestWrapper(a.ResourceName()))
 	require.Empty(t, r.reconcile(), "a fresh publish must restart the orphan grace period")
 	requireSnapshotPresent(t, cache, a.ResourceName())
-}
-
-// Pending retries: a withheld snapshot is retained for direct re-attempt while
-// the client is connected; the sequence guard makes a stale retry a no-op.
-func TestPerClientReconciler_PendingRetries(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	krtopts := krtutil.NewKrtOptions(ctx.Done(), nil)
-
-	a := heartbeatTestClient("role-a")
-	uccs := krt.NewStaticCollection(nil, []ir.UniqlyConnectedClient{a}, krtopts.ToOptions("UniqueClients")...)
-	cache := newReconcileTestCache()
-	r := newPerClientReconciler(cache, uccs, time.Minute, 10*time.Second)
-	key := a.ResourceName()
-
-	require.Empty(t, r.pendingRetries(), "nothing pending initially")
-
-	wrap := reconcileTestWrapper(key)
-	r.observeWithheld(key, &wrap)
-	pending := r.pendingRetries()
-	require.Len(t, pending, 1)
-	staleSeq := pending[0].seq
-
-	// A newer event-driven withhold supersedes the retained wrapper; the old
-	// retry's commit must abort.
-	r.observeWithheld(key, &wrap)
-	published, _ := r.commitPublish(context.Background(), wrap, false, &staleSeq)
-	require.False(t, published, "a stale retry must not commit")
-	requireSnapshotAbsent(t, cache, key)
-
-	// The current retry commits and clears the pending entry.
-	current := r.pendingRetries()
-	require.Len(t, current, 1)
-	published, recovered := r.commitPublish(context.Background(), current[0].wrap, false, &current[0].seq)
-	require.True(t, published)
-	require.True(t, recovered, "publishing a previously withheld snapshot is a recovery")
-	requireSnapshotPresent(t, cache, key)
-	require.Empty(t, r.pendingRetries(), "a committed retry must clear the pending entry")
-
-	// An event-driven publish also clears any pending entry, so a retry that
-	// lost the race aborts at the seq guard.
-	r.observeWithheld(key, &wrap)
-	stale := r.pendingRetries()
-	require.Len(t, stale, 1)
-	commitClean(t, r, key)
-	published, _ = r.commitPublish(context.Background(), stale[0].wrap, false, &stale[0].seq)
-	require.False(t, published, "a retry must not overwrite a newer event-driven publish")
-
-	// Pending entries for departed clients are not retried.
-	r.observeWithheld(key, &wrap)
-	uccs.DeleteObject(key)
-	requireListLen(t, uccs, 0)
-	require.Empty(t, r.pendingRetries(), "departed clients must not be retried")
 }
 
 func requireSnapshotPresent(t *testing.T, cache envoycache.SnapshotCache, key string) {

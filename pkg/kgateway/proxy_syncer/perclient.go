@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -82,10 +81,11 @@ func snapshotPerClient(
 		if heartbeat != nil {
 			heartbeat.MarkDependant(kctx)
 		}
-		// Zero clusters is a legitimate result (a gateway with no backends);
-		// always emit, so that a nil FetchOne downstream unambiguously means
-		// "not derived yet" and can safely defer.
 		clustersForUcc := clusters.FetchClustersForClient(kctx, ucc)
+		if len(clustersForUcc) == 0 {
+			logger.Info("no perclient clusters; defer building snapshot", "client", ucc.ResourceName())
+			return nil
+		}
 		logger.Debug("found perclient clusters", "client", ucc.ResourceName(), "clusters", len(clustersForUcc))
 
 		clustersProto := make([]envoycachetypes.ResourceWithTTL, 0, len(clustersForUcc))
@@ -156,36 +156,75 @@ func snapshotPerClient(
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
 		clientEndpointResources := krt.FetchOne(kctx, endpointResources, krt.FilterKey(ucc.ResourceName()))
 
-		// This transform builds the best snapshot available from CURRENT inputs
-		// and always returns it; it never withholds output because the inputs
-		// look incomplete. Publication policy — what may actually reach the xDS
-		// cache, and when a client's first publish is deferred — lives in
-		// syncXds, which validates each snapshot before SetSnapshot (see
-		// devel/architecture/perclient-xds-publication.md). The only nil
-		// returns are for inputs that have not been derived at all yet: the
-		// per-client collections — driven by the same upstream events as this
-		// handler — may not have re-run when this fires, so FetchOne can
-		// briefly return nil even though results are imminent, and the next
-		// event (or a heartbeat tick, which re-runs this transform) re-runs it.
-		// Both per-client collections always emit a row once derived (even an
-		// empty one), so nil here is unambiguous. Deferring on a nil row
-		// matters for already-published clients: substituting an empty set
-		// instead would publish a state-of-the-world CDS with every backend
-		// cluster removed — a whole-gateway connection drain for a transient.
+		// Defer publishing a per-client snapshot until its per-client inputs
+		// are coherent. This matters for both directions of the reconnect
+		// race: a brand-new (or reconnecting) Envoy may already hold a full,
+		// working config in memory, and a state-of-the-world publish of a
+		// PARTIAL snapshot would REMOVE every resource not in it — an outage
+		// on a healthy proxy. The control plane cannot see what the client
+		// already has, so the only safe first snapshot is a consistent one.
+		// Three guards:
+		//
+		//  1. If per-client endpoints haven't been derived yet for this UCC,
+		//     return nil. This handler can fire before the per-client
+		//     collections — driven by the same upstream events — have
+		//     re-run, so FetchOne may briefly return nil even though results
+		//     are imminent. clustersForUcc is treated differently as a
+		//     defensive measure: a nil clusterSnapshot entry can in principle
+		//     mean either "not yet processed" or "this UCC legitimately has
+		//     zero backend clusters". In practice the latter is hard to hit
+		//     because finalBackends pulls in a BackendObjectIR for every
+		//     Service port in the cluster (kube-apiserver, kube-dns, the
+		//     gateway's own Service, etc.), so clustersForUcc is virtually
+		//     never nil in an operational cluster — even for a gateway whose
+		//     HTTPRoutes only emit RequestRedirect or direct responses.
+		//     Substituting an empty resource set keeps the function honest
+		//     against narrow edge cases (a freshly started controller before
+		//     Service informers have synced, or a configuration whose only
+		//     backends are non-K8s and all fail translation) without
+		//     weakening guards 2 and 3, which still defer if any specific
+		//     cluster reference is missing.
+		//
+		//  2. If any cluster referenced as a dataplane routing target
+		//     (RouteAction / TcpProxy) is not yet present or explicitly
+		//     errored, return nil (see findMissingReferencedClusters below).
+		//     Publishing before then would emit a partial CDS referenced by
+		//     listeners/routes and cause Envoy to return 500/NC on routes
+		//     whose clusters just happen to be in the same CDS response.
+		//
+		//  3. If any referenced EDS cluster has no matching ClusterLoadAssignment
+		//     in the EDS resources that would be sent, return nil. Publishing
+		//     CDS/RDS/LDS before EDS catches up can make Envoy drop all hosts for
+		//     a route that was healthy before a controller restart.
 		//
 		// Returning nil removes this UCC's entry from the output collection,
 		// which surfaces as a Delete event in proxy_syncer.go's xDS
-		// subscriber. That Delete branch is intentionally a no-op so the xDS
-		// snapshot cache retains the last-published Snapshot for this client;
-		// Envoy keeps serving its previous config until a new snapshot
-		// overwrites it.
+		// subscriber. That Delete branch is intentionally a no-op so the
+		// xDS snapshot cache retains the last-published Snapshot for this
+		// client. Envoy therefore keeps serving its previous, coherent
+		// config until a new coherent snapshot overwrites it. This is what
+		// prevents an unresolvable reference — a user BackendRef typo, a
+		// plugin bug — from stranding Envoy: there is no error response on
+		// valid traffic during the defer window, only continuity.
 		//
-		// Historical context: https://github.com/solo-io/gloo/pull/10611 and
-		// the #13868 readiness guards this design replaced.
+		// The defers are bounded in practice by the per-client heartbeat
+		// (#14184): deferred and connected-but-never-published clients count
+		// as stuck, and each heartbeat tick re-runs the whole per-client
+		// path against current inputs, so a defer caused by a missed or
+		// stale recompute heals within one tick instead of persisting
+		// indefinitely.
+		//
+		// BackendRef typos never reach this gate as real cluster names:
+		// IR-time resolution substitutes wellknown.BlackholeClusterName,
+		// which findMissingReferencedClusters explicitly skips.
+		//
+		// Historical context: https://github.com/solo-io/gloo/pull/10611.
 		if clustersForUcc == nil {
-			logger.Info("per-client clusters not ready; deferring snapshot", "client", ucc.ResourceName())
-			recordSnapshotDefer(ucc.ResourceName(), deferReasonClustersNotReady)
-			return nil
+			clustersForUcc = &clustersWithErrors{
+				clusters: envoycache.Resources{
+					Items: map[string]envoycachetypes.ResourceWithTTL{},
+				},
+			}
 		}
 		if clientEndpointResources == nil {
 			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
@@ -206,15 +245,42 @@ func snapshotPerClient(
 			clusterResources.Version = fmt.Sprintf("%d", clustersForUcc.clustersHash^listenerRouteSnapshot.ClustersHash)
 			clusterResources.Items = clustersProto
 		}
-		// S2 (EDS subset) plus synthesis: publish exactly the CLAs required by
-		// EDS clusters in this snapshot's CDS — required-and-available CLAs
-		// as-is, required-but-missing ones synthesized empty. See
-		// reconcileEndpointResourcesForClusters.
-		endpointRes, synthesized := reconcileEndpointResourcesForClusters(clusterResources, *clientEndpointResources)
+		if missingClusters := findMissingReferencedClusters(
+			listenerRouteSnapshot.ReferencedClusters,
+			clusterResources.Items,
+			clustersForUcc.erroredClusters,
+		); len(missingClusters) > 0 {
+			logger.Info(
+				"defer building snapshot until all referenced clusters are ready",
+				"client", ucc.ResourceName(),
+				"missing_clusters", missingClusters,
+			)
+			recordSnapshotDefer(ucc.ResourceName(), deferReasonMissingClusters)
+			return nil
+		}
+		// S2 (EDS subset): publish exactly the CLAs required by EDS clusters in
+		// this snapshot's CDS. Anything else (STATIC clusters' CLAs, stale CLAs
+		// for clusters no longer in CDS) would make go-control-plane suppress
+		// named state-of-the-world ADS EDS responses ("ADS mode: not responding
+		// to request"), freezing endpoint delivery for the whole client even
+		// after its inputs become coherent.
+		endpointRes := filterEndpointResourcesForClusters(clusterResources, *clientEndpointResources)
+		if missingEndpointClusters := findMissingReferencedEndpointResources(
+			listenerRouteSnapshot.ReferencedClusters,
+			clusterResources.Items,
+			endpointRes.Items,
+			clustersForUcc.erroredClusters,
+		); len(missingEndpointClusters) > 0 {
+			logger.Info(
+				"defer building snapshot until all referenced EDS resources are ready",
+				"client", ucc.ResourceName(),
+				"missing_endpoint_clusters", missingEndpointClusters,
+			)
+			recordSnapshotDefer(ucc.ResourceName(), deferReasonMissingEndpoints)
+			return nil
+		}
 
 		snap.erroredClusters = clustersForUcc.erroredClusters
-		snap.referencedClusters = listenerRouteSnapshot.ReferencedClusters
-		snap.synthesizedClas = synthesized
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
 		snapshot.Resources[envoycachetypes.Cluster] = clusterResources
@@ -366,6 +432,97 @@ func findMissingReferencedClusters(
 	return missingClusters
 }
 
+// findMissingReferencedEndpointResources returns the referenced EDS clusters
+// (blackhole and errored clusters exempt) whose required CLA resource name is
+// absent from endpoints — guard 3's predicate.
+func findMissingReferencedEndpointResources(
+	referencedClusters map[string]struct{},
+	clusters map[string]envoycachetypes.ResourceWithTTL,
+	endpoints map[string]envoycachetypes.ResourceWithTTL,
+	erroredClusters []string,
+) []string {
+	erroredClusterSet := stringSet(erroredClusters)
+
+	missingEndpointClusters := make([]string, 0, len(referencedClusters))
+	for name := range referencedClusters {
+		if _, ok := erroredClusterSet[name]; ok {
+			continue
+		}
+		if name == wellknown.BlackholeClusterName {
+			continue
+		}
+
+		clusterResource, ok := clusters[name]
+		if !ok {
+			continue
+		}
+		endpointResourceName, requiresEndpointResource := endpointResourceNameForCluster(clusterResource)
+		if !requiresEndpointResource {
+			continue
+		}
+		if _, ok := endpoints[endpointResourceName]; ok {
+			continue
+		}
+		missingEndpointClusters = append(missingEndpointClusters, name)
+	}
+	sort.Strings(missingEndpointClusters)
+
+	return missingEndpointClusters
+}
+
+// filterEndpointResourcesForClusters returns only the CLAs required by EDS
+// clusters present in clusters — the S2 (EDS subset) invariant. CLAs for STATIC
+// clusters and stale CLAs for clusters no longer in CDS are dropped; either
+// would make go-control-plane suppress named state-of-the-world ADS EDS
+// responses, freezing endpoint delivery for the whole client.
+//
+// The returned version combines two signals, both load-bearing:
+//
+//   - the FILTERED content: the published CLA set changes whenever the cluster
+//     set does — including a cluster being removed and later re-added with
+//     unchanged endpoint inputs — and a version that does not change with it
+//     leaves state-of-the-world EDS watches "up to date", so go-control-plane
+//     never answers and Envoy stalls on initial_fetch_timeout;
+//   - the upstream endpoints version: policy attachment bumps it without
+//     changing CLA contents (see backendEndpointVersionHash) precisely so a
+//     cluster re-warming after a CDS change receives a fresh EDS response;
+//     deriving from content alone would erase that bump and reintroduce the
+//     re-warm stall (envoyproxy/envoy#13009).
+//
+// Per-CLA hashes come precomputed from the endpoints pipeline (claHashes) —
+// the same equality hashes whose changes are what cause this transform to
+// re-run at all, so re-marshaling each CLA here would add cost without adding
+// signal.
+func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints endpointsWithUccName) envoycache.Resources {
+	required := requiredEndpointResourceNames(clusters.Items)
+	filtered := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.endpoints.Items))
+	var contentHash uint64
+	for name, item := range endpoints.endpoints.Items {
+		if _, ok := required[name]; ok {
+			filtered = append(filtered, item)
+			if hash, ok := endpoints.claHashes[name]; ok {
+				contentHash ^= hash
+			} else {
+				contentHash ^= utils.HashProto(item.Resource)
+			}
+		}
+	}
+	version := fmt.Sprintf("%d", contentHash^utils.HashString(endpoints.endpoints.Version))
+	return envoycache.NewResourcesWithTTL(version, filtered)
+}
+
+// requiredEndpointResourceNames returns the set of CLA resource names Envoy will
+// request given the EDS clusters present in clusters.
+func requiredEndpointResourceNames(clusters map[string]envoycachetypes.ResourceWithTTL) map[string]struct{} {
+	required := make(map[string]struct{}, len(clusters))
+	for _, item := range clusters {
+		if claName, isEDS := endpointResourceNameForCluster(item); isEDS {
+			required[claName] = struct{}{}
+		}
+	}
+	return required
+}
+
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
 	cluster, ok := resource.Resource.(*envoyclusterv3.Cluster)
 	if !ok {
@@ -435,79 +592,4 @@ func collectProtoClusterReferences(msg proto.Message, referencedClusters map[str
 			}
 		}
 	})
-}
-
-// reconcileEndpointResourcesForClusters returns exactly the CLAs required by
-// EDS clusters present in clusters, in one build-time step:
-//
-//   - S2 (EDS subset): CLAs for STATIC clusters and stale CLAs for clusters no
-//     longer in CDS are dropped; either would make go-control-plane suppress
-//     named state-of-the-world ADS EDS responses ("ADS mode: not responding to
-//     request"), freezing endpoint delivery for the whole client.
-//   - Synthesis: a required CLA the endpoints pipeline has not produced is
-//     synthesized empty, keeping the snapshot consistent and letting the
-//     cluster finish warming immediately instead of waiting out
-//     initial_fetch_timeout. The affected backend serves no-healthy-upstream
-//     until the real CLA arrives; the synthesized names are returned so
-//     publication can log, count, and mark the client degraded — an empty CLA
-//     actively drops a backend's endpoints and must never be silent.
-//
-// Establishing endpoints == required here, once, keeps the version derivation
-// in one place (publication does not reshape the snapshot).
-//
-// The returned version combines two signals, both load-bearing:
-//
-//   - the RECONCILED content: the published CLA set changes whenever the
-//     cluster set does — including a cluster being removed and later re-added
-//     with unchanged endpoint inputs — and a version that does not change with
-//     it leaves state-of-the-world EDS watches "up to date", so
-//     go-control-plane never answers and Envoy stalls on initial_fetch_timeout.
-//     Per-CLA hashes come precomputed from the endpoints pipeline
-//     (claHashes) — the same equality hashes whose changes are what cause this
-//     transform to re-run at all, so re-marshaling each CLA here would add
-//     cost without adding signal;
-//   - the upstream endpoints version: policy attachment bumps it without
-//     changing CLA contents (see backendEndpointVersionHash) precisely so a
-//     cluster re-warming after a CDS change receives a fresh EDS response;
-//     deriving from content alone would erase that bump and reintroduce the
-//     re-warm stall (envoyproxy/envoy#13009).
-func reconcileEndpointResourcesForClusters(
-	clusters envoycache.Resources,
-	endpoints endpointsWithUccName,
-) (envoycache.Resources, []string) {
-	required := requiredEndpointResourceNames(clusters.Items)
-	out := make([]envoycachetypes.ResourceWithTTL, 0, len(required))
-	var contentHash uint64
-	var synthesized []string
-	for name := range required {
-		if item, ok := endpoints.endpoints.Items[name]; ok {
-			out = append(out, item)
-			if hash, ok := endpoints.claHashes[name]; ok {
-				contentHash ^= hash
-			} else {
-				contentHash ^= utils.HashProto(item.Resource)
-			}
-			continue
-		}
-		out = append(out, envoycachetypes.ResourceWithTTL{
-			Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: name},
-		})
-		contentHash ^= utils.HashString(name)
-		synthesized = append(synthesized, name)
-	}
-	sort.Strings(synthesized)
-	version := fmt.Sprintf("%d", contentHash^utils.HashString(endpoints.endpoints.Version))
-	return envoycache.NewResourcesWithTTL(version, out), synthesized
-}
-
-// requiredEndpointResourceNames returns the set of CLA resource names Envoy will
-// request given the EDS clusters present in clusters.
-func requiredEndpointResourceNames(clusters map[string]envoycachetypes.ResourceWithTTL) map[string]struct{} {
-	required := make(map[string]struct{}, len(clusters))
-	for _, item := range clusters {
-		if claName, isEDS := endpointResourceNameForCluster(item); isEDS {
-			required[claName] = struct{}{}
-		}
-	}
-	return required
 }

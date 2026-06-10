@@ -23,24 +23,10 @@ var UseDetailedUnmarshalling = !envutils.IsEnvTruthy("DISABLE_DETAILED_SNAP_UNMA
 
 type XdsSnapWrapper struct {
 	snap *envoycache.Snapshot
-	// erroredClusters contains clusters that encountered errors during backend
-	// translation; publication exempts them from the missing-reference check.
-	// Derived from the per-client cluster inputs (covered by the CDS version
-	// in Equals).
+	// erroredClusters contains clusters that encountered errors during backend translation
+	// TODO: this is not used anywhere, we need surface this somewhere
 	// +noKrtEquals
 	erroredClusters []string
-	// referencedClusters is the per-gateway set of dataplane cluster references
-	// (RouteAction/TcpProxy targets), precomputed once per GatewayXdsResources
-	// so publication does not re-walk LDS/RDS protos per client per event.
-	// Shared and read-only. Derived from route/listener contents (covered by
-	// their versions in Equals).
-	// +noKrtEquals
-	referencedClusters map[string]struct{}
-	// synthesizedClas names the empty ClusterLoadAssignments synthesized at
-	// build time for required-but-missing CLAs, so publication can log, count,
-	// and mark the client degraded. Covered by the EDS version in Equals.
-	// +noKrtEquals
-	synthesizedClas []string
 	// +noKrtEquals
 	proxyKey string
 }
