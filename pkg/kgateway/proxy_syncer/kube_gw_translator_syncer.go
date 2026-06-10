@@ -44,19 +44,7 @@ func (s *ProxyTranslator) syncXds(
 		prev = p
 	}
 	if snapWrap.needsResolution() || prev != nil {
-		resolved, stats, ok := resolvePublication(snapWrap, prev)
-		if !ok {
-			// Safety net: a reference survived pruning (for example a cluster
-			// reference embedded somewhere the pruner does not model). Publishing
-			// would violate S1, so withhold this update; Envoy keeps the previous
-			// snapshot and the heartbeat retries.
-			logger.Warn("withholding per-client snapshot: cluster references remain unresolved after pruning",
-				"proxy_key", proxyKey,
-				"missing_clusters", snapWrap.missingClusters,
-			)
-			recordSnapshotDefer(proxyKey, "unresolvable_references")
-			return false
-		}
+		resolved, stats := resolvePublication(snapWrap, prev)
 		if stats.carried+stats.held+stats.omitted+stats.synthesized > 0 {
 			logger.Info("resolved per-client snapshot at publish time",
 				"proxy_key", proxyKey,
@@ -68,6 +56,33 @@ func (s *ProxyTranslator) syncXds(
 			recordSnapshotResolution(proxyKey, stats.carried, stats.held, stats.omitted, stats.synthesized)
 		}
 		snap = resolved
+	}
+
+	// Hard validation of the FINAL artifact (post carry-forward, synthesis,
+	// and pruning): malformed/nil/mistyped resources, generated proto
+	// validation, duplicate listener filter chain matches, snapshot
+	// consistency, and SDS references whose secret is absent always withhold —
+	// these indicate bugs, and Envoy keeps the last good snapshot while the
+	// heartbeat retries.
+	if err := ValidateXDSSnapshot(snap); err != nil {
+		logger.Error("invalid xds snapshot; preserving last published snapshot",
+			"proxy_key", proxyKey, "error", err)
+		recordSnapshotDefer(proxyKey, "invalid_snapshot")
+		return false
+	}
+
+	// S1 enforcement on the final snapshot, covering every path uniformly:
+	// references the pruner cannot rewrite (shapes outside RouteAction/TcpProxy
+	// surgery) and held entries whose PREVIOUS target has since left the
+	// cluster set. Withhold rather than hand Envoy a dangling reference; the
+	// heartbeat retries.
+	if missing := missingSnapshotClusterReferences(snap, snapWrap.erroredClusters); len(missing) > 0 {
+		logger.Warn("withholding per-client snapshot: cluster references remain unresolved after pruning",
+			"proxy_key", proxyKey,
+			"missing_clusters", missing,
+		)
+		recordSnapshotDefer(proxyKey, "unresolvable_references")
+		return false
 	}
 
 	s.xdsCache.SetSnapshot(ctx, proxyKey, snap)
@@ -96,9 +111,9 @@ type resolutionStats struct {
 //     previous version or omitted. Entries with unchanged targets always
 //     publish (endpoint truth, S3).
 //
-// Returns ok=false if pruning could not restore reference closure (S1), in
-// which case nothing may be published.
-func resolvePublication(snapWrap XdsSnapWrapper, prev envoycache.ResourceSnapshot) (*envoycache.Snapshot, resolutionStats, bool) {
+// Resolution is best-effort and infallible; whether the result may actually be
+// published (hard validation, reference closure) is decided in syncXds.
+func resolvePublication(snapWrap XdsSnapWrapper, prev envoycache.ResourceSnapshot) (*envoycache.Snapshot, resolutionStats) {
 	var stats resolutionStats
 
 	var prevCDS, prevEDS, prevRDS, prevLDS map[string]envoycachetypes.ResourceWithTTL
@@ -202,17 +217,6 @@ func resolvePublication(snapWrap XdsSnapWrapper, prev envoycache.ResourceSnapsho
 		listeners, heldL, omittedL = pruneListeners(listeners, prevLDS, sets)
 		stats.held = heldR + heldL
 		stats.omitted = omittedR + omittedL
-
-		if len(sets.unsatisfied) > 0 {
-			// S1 safety net: pruning models RouteAction and TcpProxy references
-			// (the same scope collectReferencedClusters gates on). If a reference
-			// survived anyway, refuse to publish rather than hand Envoy a dangling
-			// reference.
-			stillReferenced := collectReferencedClusters(routes, listeners)
-			if missing := findMissingReferencedClusters(stillReferenced, clusterItems, snapWrap.erroredClusters); len(missing) > 0 {
-				return nil, stats, false
-			}
-		}
 	}
 
 	snapshot := &envoycache.Snapshot{}
@@ -221,7 +225,7 @@ func resolvePublication(snapWrap XdsSnapWrapper, prev envoycache.ResourceSnapsho
 	snapshot.Resources[envoycachetypes.Route] = routes
 	snapshot.Resources[envoycachetypes.Listener] = listeners
 	snapshot.Resources[envoycachetypes.Secret] = snapWrap.snap.Resources[envoycachetypes.Secret]
-	return snapshot, stats, true
+	return snapshot, stats
 }
 
 func synthesizeEmptyCla(claName string) envoycachetypes.ResourceWithTTL {

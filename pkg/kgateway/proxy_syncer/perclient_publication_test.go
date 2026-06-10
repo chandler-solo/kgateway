@@ -1,6 +1,7 @@
 package proxy_syncer
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -163,8 +164,7 @@ func TestResolvePublication_CarriesAbsentClusterFromPrevious(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, prev)
 	require.Equal(t, 1, stats.carried)
 	require.Zero(t, stats.held+stats.omitted+stats.synthesized)
 	require.Contains(t, resolved.Resources[envoycachetypes.Cluster].Items, "cluster-b",
@@ -199,8 +199,7 @@ func TestResolvePublication_OmitsNewRouteToUnknownCluster(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, nil) // cold start: no previous snapshot
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, nil) // cold start: no previous snapshot
 	require.Equal(t, 1, stats.omitted)
 	require.Zero(t, stats.held)
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
@@ -232,8 +231,7 @@ func TestResolvePublication_HoldsRetargetedRouteAtPreviousVersion(t *testing.T) 
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, prev)
 	require.Equal(t, 1, stats.held)
 	require.Zero(t, stats.omitted)
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
@@ -262,8 +260,7 @@ func TestResolvePublication_PrunesTcpFilterChains(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, prev)
 	require.Equal(t, 1, stats.held)
 	outListener := resolved.Resources[envoycachetypes.Listener].Items["listener"].Resource.(*envoylistenerv3.Listener)
 	refs := tcpFilterChainClusterRefs(outListener.GetFilterChains()[0])
@@ -271,8 +268,7 @@ func TestResolvePublication_PrunesTcpFilterChains(t *testing.T) {
 		"the TCP chain must be held at its previous target")
 
 	// Without a previous version, the chain is omitted.
-	resolved, stats, ok = resolvePublication(wrapper, nil)
-	require.True(t, ok)
+	resolved, stats = resolvePublication(wrapper, nil)
 	require.Equal(t, 1, stats.omitted)
 	outListener = resolved.Resources[envoycachetypes.Listener].Items["listener"].Resource.(*envoylistenerv3.Listener)
 	require.Empty(t, outListener.GetFilterChains())
@@ -300,14 +296,12 @@ func TestResolvePublication_MissingClaCarriedOrSynthesized(t *testing.T) {
 		resourcesOf(routeConfigTo("rc", "vh", "r1", "cluster-a")),
 		resourcesOf(&envoylistenerv3.Listener{Name: "listener"}),
 	)
-	resolved, stats, ok := resolvePublication(base(), prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(base(), prev)
 	require.Zero(t, stats.synthesized, "previous CLA must be preferred over synthesis")
 	carried := resolved.Resources[envoycachetypes.Endpoint].Items["cluster-a"].Resource.(*envoyendpointv3.ClusterLoadAssignment)
 	require.NotEmpty(t, carried.GetEndpoints(), "the previous CLA's endpoints are carried")
 
-	resolved, stats, ok = resolvePublication(base(), nil)
-	require.True(t, ok)
+	resolved, stats = resolvePublication(base(), nil)
 	require.Equal(t, 1, stats.synthesized)
 	synthesized := resolved.Resources[envoycachetypes.Endpoint].Items["cluster-a"].Resource.(*envoyendpointv3.ClusterLoadAssignment)
 	require.Empty(t, synthesized.GetEndpoints(), "synthesized CLA is empty")
@@ -328,11 +322,12 @@ func TestFilterEndpointResourcesForClusters_EnforcesEdsSubset(t *testing.T) {
 	require.Contains(t, filtered.Items, "eds-a")
 }
 
-// Safety net: a reference shape the pruner does not model (here an inline HCM
-// route config inside a listener, which collectReferencedClusters walks via
-// protoreflect but pruneListeners does not rewrite) must cause resolution to
-// refuse publication rather than hand Envoy a dangling reference (S1).
-func TestResolvePublication_RefusesWhenClosureUnrestorable(t *testing.T) {
+// S1 enforcement at publish: a reference shape the pruner does not model (here
+// an inline HCM route config inside a listener, which
+// collectReferencedClusters walks via protoreflect but pruneListeners does not
+// rewrite) must cause syncXds to withhold publication rather than hand Envoy a
+// dangling reference.
+func TestSyncXdsWithholdsWhenClosureUnrestorable(t *testing.T) {
 	hcm, err := utils.MessageToAny(&envoyhcmv3.HttpConnectionManager{
 		StatPrefix: "http",
 		RouteSpecifier: &envoyhcmv3.HttpConnectionManager_RouteConfig{
@@ -342,6 +337,14 @@ func TestResolvePublication_RefusesWhenClosureUnrestorable(t *testing.T) {
 	require.NoError(t, err)
 	listener := &envoylistenerv3.Listener{
 		Name: "listener",
+		Address: &envoycorev3.Address{
+			Address: &envoycorev3.Address_SocketAddress{
+				SocketAddress: &envoycorev3.SocketAddress{
+					Address:       "0.0.0.0",
+					PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 8080},
+				},
+			},
+		},
 		FilterChains: []*envoylistenerv3.FilterChain{{
 			Name: "chain",
 			Filters: []*envoylistenerv3.Filter{{
@@ -356,14 +359,17 @@ func TestResolvePublication_RefusesWhenClosureUnrestorable(t *testing.T) {
 		snap: snapshotOf(
 			resourcesOf(edsCluster("cluster-a")),
 			resourcesOf(cla("cluster-a", "10.0.0.1")),
-			resourcesOf(&envoyroutev3.RouteConfiguration{Name: "rc"}),
+			resourcesOf(), // no RDS: the route config is inline in the listener
 			resourcesOf(listener),
 		),
 	}
 
-	_, _, ok := resolvePublication(wrapper, nil)
-	require.False(t, ok,
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	pt := &ProxyTranslator{xdsCache: cache}
+	require.False(t, pt.syncXds(context.Background(), wrapper),
 		"a surviving dangling reference must withhold publication, not violate S1")
+	_, err = cache.GetSnapshot("ns~gw")
+	require.Error(t, err, "nothing may be published while closure is unrestorable")
 }
 
 // Legacy escape hatch: KGW_LEGACY_SNAPSHOT_GATE restores the #13868 behavior of

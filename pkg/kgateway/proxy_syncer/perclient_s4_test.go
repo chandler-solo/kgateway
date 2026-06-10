@@ -55,8 +55,7 @@ func TestResolvePublication_S4HoldsRetargetUntilUsable(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(retargeted, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(retargeted, prev)
 	require.Equal(t, 1, stats.held)
 	require.Zero(t, stats.omitted+stats.carried+stats.synthesized)
 	heldRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
@@ -74,8 +73,7 @@ func TestResolvePublication_S4HoldsRetargetUntilUsable(t *testing.T) {
 			resourcesOf(&envoylistenerv3.Listener{Name: "listener"}),
 		),
 	}
-	resolved2, stats2, ok := resolvePublication(activated, resolved)
-	require.True(t, ok)
+	resolved2, stats2 := resolvePublication(activated, resolved)
 	require.Zero(t, stats2.held+stats2.omitted)
 	activatedRC := resolved2.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
 	require.Equal(t, "cluster-b", activatedRC.GetVirtualHosts()[0].GetRoutes()[0].GetRoute().GetCluster(),
@@ -104,8 +102,7 @@ func TestResolvePublication_S4OmitsNewRouteToEmptyCluster(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, prev)
 	require.Equal(t, 1, stats.omitted)
 	require.Zero(t, stats.held)
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
@@ -142,8 +139,7 @@ func TestResolvePublication_S3UnchangedRoutePublishesEmptyCla(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, prev)
 	require.Zero(t, stats.held+stats.omitted,
 		"neither the unchanged route (S3) nor the new route to a usable target may be withheld")
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
@@ -166,8 +162,7 @@ func TestResolvePublication_S4SkippedOnColdStart(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(wrapper, nil)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, nil)
 	require.Zero(t, stats.held+stats.omitted)
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
 	require.Len(t, outRC.GetVirtualHosts()[0].GetRoutes(), 1, "cold start publishes as built")
@@ -185,8 +180,7 @@ func TestResolvePublication_S4SkippedWhenRoutesUnchanged(t *testing.T) {
 	)
 	wrapper := XdsSnapWrapper{proxyKey: "ns~gw", snap: snap}
 
-	resolved, stats, ok := resolvePublication(wrapper, snap)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(wrapper, snap)
 	require.Zero(t, stats.held+stats.omitted)
 	outRC := resolved.Resources[envoycachetypes.Route].Items["rc"].Resource.(*envoyroutev3.RouteConfiguration)
 	require.Len(t, outRC.GetVirtualHosts()[0].GetRoutes(), 1)
@@ -211,8 +205,7 @@ func TestResolvePublication_S4TcpChainRetargetHeldUntilUsable(t *testing.T) {
 		),
 	}
 
-	resolved, stats, ok := resolvePublication(retargeted, prev)
-	require.True(t, ok)
+	resolved, stats := resolvePublication(retargeted, prev)
 	require.Equal(t, 1, stats.held)
 	heldListener := resolved.Resources[envoycachetypes.Listener].Items["listener"].Resource.(*envoylistenerv3.Listener)
 	require.Equal(t, []string{"cluster-a"}, tcpFilterChainClusterRefs(heldListener.GetFilterChains()[0]),
@@ -227,8 +220,7 @@ func TestResolvePublication_S4TcpChainRetargetHeldUntilUsable(t *testing.T) {
 			resourcesOf(tcpListenerTo("cluster-b")),
 		),
 	}
-	resolved2, stats2, ok := resolvePublication(activated, resolved)
-	require.True(t, ok)
+	resolved2, stats2 := resolvePublication(activated, resolved)
 	require.Zero(t, stats2.held+stats2.omitted)
 	activatedListener := resolved2.Resources[envoycachetypes.Listener].Items["listener"].Resource.(*envoylistenerv3.Listener)
 	require.Equal(t, []string{"cluster-b"}, tcpFilterChainClusterRefs(activatedListener.GetFilterChains()[0]),
