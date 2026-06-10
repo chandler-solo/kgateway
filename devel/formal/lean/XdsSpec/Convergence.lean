@@ -36,6 +36,8 @@ def describe : CAction → String
   | .activateNew => "ActivateNew"
   | .beginNextEpisode => "BeginNextEpisode"
   | .observeConverged => "ObserveConverged"
+  | .heartbeatRederive _ _ => "HeartbeatRederive"
+  | .edsWatchNoChange => "EdsWatchNoChange"
   | .buggyClearCacheOnDelete => "BuggyClearCacheOnDelete"
   | .buggyPublishPartial => "BuggyPublishPartial"
   | .buggyPublishStaleEds _ => "BuggyPublishStaleEds"
@@ -104,7 +106,41 @@ def noPublishBugSystem : System CState CAction :=
   mkSystem "NoPublishBug"
     [ .deferPartialInput newSet newSet, .inputBecomesCoherent newSet ]
 
+/-- The KRT-A1 failure mode (the production incident): the fan-out event
+that would make the per-client inputs coherent is dropped, so
+`InputBecomesCoherent` never fires. Every other transition is available,
+yet the client is stuck at `deferredPartial` forever — safety holds
+(Envoy keeps serving last-good config) but liveness fails. -/
+def droppedFanoutBugSystem : System CState CAction :=
+  mkSystem "DroppedFanoutBug"
+    [ .deferPartialInput newSet newSet,
+      .publishCoherent,
+      .envoyLearnsCds,
+      .edsWatchResponds,
+      .edsWatchNoChange,
+      .activateNew,
+      .beginNextEpisode,
+      .observeConverged ]
+
+/-- The same dropped-fanout system plus the watchdog heartbeat: liveness
+is restored, demonstrating at the finite instance what
+`stuck_client_converges` proves in general — the heartbeat discharges
+KRT-A1. -/
+def droppedFanoutWithHeartbeatSystem : System CState CAction :=
+  mkSystem "DroppedFanoutWithHeartbeat"
+    [ .deferPartialInput newSet newSet,
+      .heartbeatRederive newSet newSet,
+      .publishCoherent,
+      .envoyLearnsCds,
+      .edsWatchResponds,
+      .edsWatchNoChange,
+      .activateNew,
+      .beginNextEpisode,
+      .observeConverged ]
+
 def isCoherentInput (s : CState) : Bool := s.phase == .coherentInput
+
+def isDeferredPartial (s : CState) : Bool := s.phase == .deferredPartial
 
 /-- The liveness goal: a coherent input must lead either to activation of
 the new snapshot or back to steady state because the input was already

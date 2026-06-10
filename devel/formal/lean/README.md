@@ -22,7 +22,31 @@ convergence model in `devel/formal/tla/` with three stronger artifacts:
    steady state), and each of the six bug configurations from the TLA+
    model must keep reproducing its counterexample. A bug config that
    stops failing means an invariant lost its teeth.
-3. **Trace conformance** (`XdsSpec/TraceCheck.lean`,
+3. **A liveness theorem** (`XdsSpec/Liveness.lean`). The safety proofs
+   say nothing about progress, and the production stale-endpoints
+   incident lived in exactly that gap (assumption KRT-A1: a dropped KRT
+   fan-out event left a client deferred forever). The spec models the
+   defer watchdog as `heartbeatRederive` and proves
+   `stuck_client_converges`: any reachable deferred state converges
+   within one heartbeat re-derivation, in at most five steps, for any
+   name universe. The model checker carries the finite-instance
+   counterparts: `DroppedFanoutBug` (no coherence event) violates
+   `DeferredPartial ~> Converged`; adding the heartbeat restores it.
+4. **The per-cluster readiness model**
+   (`XdsSpec/PerClusterReadiness.lean`). Guard #3 of
+   `snapshotPerClient` applies a per-cluster fact ("does this
+   referenced EDS cluster have a usable endpoint?") at whole-snapshot
+   granularity, and the two candidate fixes pull it in opposite
+   directions. The model encodes the per-cluster synthesis (publish a
+   previously-active cluster's truth unconditionally, empty included;
+   gate only the route flip onto a newly-referenced cluster) and keeps
+   both rejected variants as machine-checked counterexamples: the
+   strengthened whole-snapshot gate livelocks holding dead endpoints
+   (`WholeSnapshotDeferBug`, a liveness violation), and the demoted
+   gate opens a 503 window by flipping routes onto a cluster that
+   warmed on an empty CLA (`PublishWhileWarmingBug`, a safety violation
+   of `FlipWasGated`).
+5. **Trace conformance** (`XdsSpec/TraceCheck.lean`,
    `lake exe xdsspec trace`). The proxy_syncer Go tests, run with
    `XDS_TRACE_OUT=<file>`, record every `snapshotPerClient` decision
    (defer or publish, with the snapshot data it was made on) as JSONL.
@@ -78,8 +102,14 @@ the toolchain is pinned by `lean-toolchain`. CI runs all of this in the
   invariant, and the `safety` theorem.
 - `XdsSpec/MultiClient.lean` — the unbounded-clients lift: `isolation`
   and `multi_safety`.
+- `XdsSpec/Liveness.lean` — the stuck-client progress theorem
+  (`stuck_client_converges`) behind assumption KRT-A1.
+- `XdsSpec/PerClusterReadiness.lean` — the guard-#3 granularity model:
+  per-cluster make-before-break, with both rejected gate variants as
+  counterexamples.
 - `XdsSpec/TraceCheck.lean` — the JSONL trace conformance checker.
-- `ASSUMPTIONS.md` — the assumption ledger.
+- `ASSUMPTIONS.md` — the assumption ledger (including the open KRT-A1
+  liveness assumption and its planned discharge).
 
 ## Relation to the TLA+ models
 
@@ -93,8 +123,11 @@ disagree, trust the Lean spec and fix the other.
 
 - Port the remaining TLA+ models (`XdsAdsSotw`, `XdsEnvoyWarming`,
   `XdsNamedEdsWatch`) onto the same `System`/`Checker` machinery.
-- A deductive liveness proof (the model checker covers the finite
-  instance; the unbounded statement needs a ranking argument).
+- Unbounded proofs for the per-cluster readiness model (it is currently
+  model-checked only; the convergence spec carries the unbounded
+  results).
+- Flip KRT-A1 to discharged once the defer watchdog lands with its
+  tests.
 - [Veil](https://github.com/verse-lab/veil) integration for SMT-backed
   invariant discovery (counterexample-to-induction) when the models
   outgrow hand-written `IndInv` strengthening.

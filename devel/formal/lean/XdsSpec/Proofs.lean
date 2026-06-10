@@ -99,6 +99,8 @@ def Action.isSafe : Action Name → Bool
   | .activateNew => true
   | .beginNextEpisode => true
   | .observeConverged => true
+  | .heartbeatRederive .. => true
+  | .edsWatchNoChange => true
   | _ => false
 
 /-- Reachability under safe actions from a generalized initial state. -/
@@ -236,6 +238,26 @@ theorem IndInv.preserved {s s' : XdsState Name} {a : Action Name}
         reqEdsAligned := h4, cacheVerDigest := h5, clientVerDigest := h6
         candVerDigest := h7 }
   | observeConverged =>
+    simp only [applyAction] at happ
+    split at happ
+    case isFalse => exact absurd happ (by simp)
+    case isTrue hguard =>
+      cases happ
+      exact {
+        cacheLastGood := h1, cacheIsClosed := h2, activeIsClosed := h3
+        reqEdsAligned := h4, cacheVerDigest := h5, clientVerDigest := h6
+        candVerDigest := h7 }
+  | heartbeatRederive newCds newEds =>
+    simp only [applyAction] at happ
+    split at happ
+    case isFalse => exact absurd happ (by simp)
+    case isTrue hguard =>
+      cases happ
+      exact {
+        cacheLastGood := h1, cacheIsClosed := h2, activeIsClosed := h3
+        reqEdsAligned := h4, cacheVerDigest := h5, clientVerDigest := h6
+        candVerDigest := fun _ => versionEq_refl _ }
+  | edsWatchNoChange =>
     simp only [applyAction] at happ
     split at happ
     case isFalse => exact absurd happ (by simp)

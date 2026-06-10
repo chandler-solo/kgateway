@@ -72,6 +72,36 @@ deterministic by construction but only probabilistically injective.
   in `pkg/kgateway/proxy_syncer/perclient_version_property_test.go`
   (determinism, order invariance, and injectivity over a corpus).
 
+## KRT-A1: per-client inputs eventually become coherent (OPEN)
+
+The KRT fan-out that drives the per-client collections eventually
+delivers the events that make `snapshotPerClient`'s inputs reflect the
+current `clients x backends` truth — no event is dropped permanently.
+
+This is the assumption the production stale-endpoints incident
+violated: a dropped fan-out left one replica's inputs permanently
+partial, so the client sat in the defer window forever. Nothing the
+safety proofs establish was broken — convergence was simply never
+reached, which is why this entry exists: the ledger must name liveness
+assumptions, not only safety ones.
+
+- Spec reliance: `inputBecomesCoherent` in `XdsSpec/Spec.lean` models
+  the fan-out event arriving. `heartbeatRederive` models the watchdog
+  that discharges this assumption mechanically by re-deriving the
+  inputs from current truth on a timer. The progress theorem
+  `stuck_client_converges` (`XdsSpec/Liveness.lean`) proves the
+  heartbeat is sufficient: any reachable deferred state converges
+  within one heartbeat re-derivation (at most five steps). The model
+  checker reproduces both sides at the finite instance: the
+  `DroppedFanoutBug` system (no coherence event) violates
+  `DeferredPartial ~> Converged`, and `DroppedFanoutWithHeartbeat`
+  restores it.
+- Status: **open** on this branch. The discharging mechanism is the
+  defer watchdog on the `fix/defer-watchdog` branch (a periodic
+  reconciler that re-publishes for any live proxy without a current
+  snapshot past a threshold). When that lands here, list its tests as
+  the discharge and flip this entry to discharged.
+
 ## IMPL-A2: per-client isolation
 
 `snapshotPerClient`'s KRT transform for one UniquelyConnectedClient

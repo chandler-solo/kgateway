@@ -205,6 +205,21 @@ inductive Action (Name : Type)
   surfaces no change event); the system is already converged and
   returns to steady state. -/
   | observeConverged
+  /-- Not in the TLA+ model: a watchdog-forced re-derivation of the
+  per-client inputs from current truth. `inputBecomesCoherent` models
+  the KRT *event* arriving; if that fan-out event is dropped (the
+  production failure behind assumption KRT-A1 in ASSUMPTIONS.md), the
+  client is stuck at `deferredPartial` forever. The heartbeat closes
+  that gap by recomputing both the cluster and endpoint inputs without
+  waiting for an event. The parameters carry KRT-A1's content: the
+  re-derivation sees the current (coherent) truth. -/
+  | heartbeatRederive (newCds newEds : List Name)
+  /-- Not in the TLA+ model: go-control-plane does not answer a watch
+  whose version already matches the snapshot — Envoy already holds
+  exactly these EDS resources, so warming completes from its current
+  state. Without this, a published snapshot whose EDS content set-equals
+  what the client already has could never leave `warmingNew`. -/
+  | edsWatchNoChange
   /-- TLA+ `BuggyClearCacheOnDelete` (issue 13868 regression shape). -/
   | buggyClearCacheOnDelete
   /-- TLA+ `BuggyPublishPartial` (publishing a partial snapshot). -/
@@ -291,6 +306,24 @@ def applyAction (s : XdsState Name) : Action Name → Option (XdsState Name)
   | .observeConverged =>
     if s.phase == .coherentInput && cacheMatchesCandidate s then
       some { s with phase := .stableOld, krtEvent := .none }
+    else none
+  | .heartbeatRederive newCds newEds =>
+    if s.phase == .deferredPartial then
+      some { s with
+        phase := .coherentInput
+        candidateCds := newCds
+        candidateEds := newEds
+        candidateEdsVersion := some newEds
+        computedState := .coherent
+        krtEvent := .update }
+    else none
+  | .edsWatchNoChange =>
+    if s.phase == .warmingNew
+        && versionEq s.cache.edsVersion s.clientEdsVersion
+        && canRespond s.cache.eds s.envoyRequestedEds then
+      some { s with
+        phase := .edsResponded
+        edsWatchState := .responded }
     else none
   | .buggyClearCacheOnDelete =>
     if s.phase == .deferredPartial && s.krtEvent == .delete then

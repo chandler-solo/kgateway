@@ -44,6 +44,14 @@ assumptions:
     dischargedBy:
       - file: pkg/kgateway/proxy_syncer/perclient_version_property_test.go
         test: TestFilterEndpointResourcesForClusters_VersionDigestProperties
+  - id: KRT-A1
+    summary: per-client collections eventually reflect current clients x backends (no permanently dropped fan-out events)
+    status: open
+    plannedDischarge: defer watchdog (fix/defer-watchdog branch) re-publishes for any live proxy stranded without a current snapshot; list its tests here when it lands. Spec side is already proven sufficient by XdsSpec.stuck_client_converges.
+    specFile: devel/formal/lean/XdsSpec/Liveness.lean
+    specAnchors:
+      - stuck_client_converges
+      - heartbeatRederive
   - id: IMPL-A2
     summary: snapshotPerClient for one UniquelyConnectedClient writes only that client's snapshot-cache entry
     specFile: devel/formal/lean/XdsSpec/MultiClient.lean

@@ -16,11 +16,17 @@ type formalAssumptions struct {
 }
 
 type formalAssumption struct {
-	ID           string                 `json:"id"`
-	Summary      string                 `json:"summary"`
-	SpecFile     string                 `json:"specFile"`
-	SpecAnchors  []string               `json:"specAnchors"`
-	DischargedBy []formalAssumptionTest `json:"dischargedBy"`
+	ID      string `json:"id"`
+	Summary string `json:"summary"`
+	// Status is "discharged" (default) or "open". An open assumption is
+	// one the spec relies on that no test discharges yet; it must say
+	// how it is planned to be discharged so the ledger records the gap
+	// instead of hiding it.
+	Status           string                 `json:"status,omitempty"`
+	PlannedDischarge string                 `json:"plannedDischarge,omitempty"`
+	SpecFile         string                 `json:"specFile"`
+	SpecAnchors      []string               `json:"specAnchors"`
+	DischargedBy     []formalAssumptionTest `json:"dischargedBy,omitempty"`
 }
 
 type formalAssumptionTest struct {
@@ -83,8 +89,21 @@ func TestFormalAssumptionsDischarged(t *testing.T) {
 				}
 			}
 
-			if len(assumption.DischargedBy) == 0 {
-				t.Fatal("assumption must name at least one discharging test")
+			status := assumption.Status
+			if status == "" {
+				status = "discharged"
+			}
+			switch status {
+			case "discharged":
+				if len(assumption.DischargedBy) == 0 {
+					t.Fatal("discharged assumption must name at least one discharging test")
+				}
+			case "open":
+				if assumption.PlannedDischarge == "" {
+					t.Fatal("open assumption must describe its planned discharge")
+				}
+			default:
+				t.Fatalf("status %q must be one of [discharged open]", status)
 			}
 			for _, discharge := range assumption.DischargedBy {
 				source, err := os.ReadFile(filepath.Join(repoRoot, discharge.File))
