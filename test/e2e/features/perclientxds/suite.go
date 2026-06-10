@@ -7,10 +7,12 @@ import (
 	"net/http"
 
 	"github.com/stretchr/testify/suite"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
-	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
+	testdefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 )
@@ -47,15 +49,22 @@ func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.
 }
 
 // sendExpectOK drives traffic through the shared base gateway to the per-client
-// backend and requires a 200. common.BaseGateway.Send retries, so it tolerates the
-// brief windows during a rollout/scale where endpoints are still converging.
+// backend from the in-cluster curl pod and requires a 200. The assertion
+// retries, so it tolerates the brief windows during a rollout/scale where
+// endpoints are still converging. In-cluster curl (rather than host-side) keeps
+// the suite runnable in local environments where the gateway's LoadBalancer
+// address is not reachable from the host.
 func (s *testingSuite) sendExpectOK() {
-	common.BaseGateway.Send(
-		s.T(),
+	s.TestInstallation.AssertionsT(s.T()).AssertEventualCurlResponse(
+		s.Ctx,
+		testdefaults.CurlPodExecOpt,
+		[]curl.Option{
+			curl.WithHost(kubeutils.ServiceFQDN(metav1.ObjectMeta{Name: "gateway", Namespace: backendNamespace})),
+			curl.WithHostHeader(routeHostname),
+			curl.WithPath("/"),
+			curl.WithPort(80),
+		},
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK},
-		curl.WithHostHeader(routeHostname),
-		curl.WithPath("/"),
-		curl.WithPort(80),
 	)
 }
 
