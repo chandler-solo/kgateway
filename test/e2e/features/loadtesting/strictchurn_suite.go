@@ -147,6 +147,14 @@ type StrictChurnSuite struct {
 }
 
 func (s *StrictChurnSuite) SetupSuite() {
+	// Hard opt-in gate, independent of -run regexes: this suite mutates the
+	// controller deployment (strict validation env, a mid-test restart), so a
+	// broad invocation like the nightly's unanchored `^TestKgateway` matcher
+	// must not pick it up implicitly. `make run-load-tests-strict-churn` sets
+	// the variable.
+	if os.Getenv("KGW_ENABLE_STRICT_CHURN") != "true" {
+		s.T().Skip("StrictChurn mutates the controller deployment; set KGW_ENABLE_STRICT_CHURN=true (or use `make run-load-tests-strict-churn`) to run it")
+	}
 	s.loadTestManager = NewLoadTestManager(s.ctx, s.testInstallation,
 		fmt.Sprintf("kgateway-strictchurn-%d", time.Now().UnixNano()))
 	s.installNamespace = s.testInstallation.Metadata.InstallNamespace
@@ -176,6 +184,11 @@ func (s *StrictChurnSuite) SetupSuite() {
 }
 
 func (s *StrictChurnSuite) TearDownSuite() {
+	// SetupSuite skipped (opt-in gate) before creating anything: do not touch
+	// the cluster — the curl/nginx manifests may be in use by other suites.
+	if s.loadTestManager == nil {
+		return
+	}
 	// Restore the controller before anything else so a failed run doesn't
 	// leave the install in strict mode for whoever uses the cluster next.
 	if s.controllerDeployment != "" {
@@ -439,20 +452,30 @@ func (s *StrictChurnSuite) createDanglingRoute(gateway string) {
 // client — the steady-state load shape of a production fleet where pods are
 // always rolling somewhere.
 func (s *StrictChurnSuite) startEndpointChurner(ctx context.Context) {
-	simNS := s.loadTestManager.simulator.config.Namespace
+	cfg := s.loadTestManager.simulator.config
+	simNS := cfg.Namespace
+	// The simulator sizes the fleet itself: the number of sim-service-*
+	// EndpointSlices is FakeNodeCount*ServicesPerNode, NOT strictChurnBackends.
+	// Rotate over what actually exists or the churner runs off the end of the
+	// fleet and stops producing churn.
+	totalSimServices := cfg.FakeNodeCount * cfg.ServicesPerNode
+	s.Require().Positive(totalSimServices, "simulation must have services to churn")
 	go func() {
 		ticker := time.NewTicker(endpointChurnInterval)
 		defer ticker.Stop()
-		writes := 0
+		attempts, writes := 0, 0
 		for {
 			select {
 			case <-ctx.Done():
-				s.T().Logf("Endpoint churner stopped after %d EndpointSlice rewrites", writes)
+				s.T().Logf("Endpoint churner stopped after %d EndpointSlice rewrites (%d attempts)", writes, attempts)
 				return
 			case <-ticker.C:
 			}
-			idx := writes % strictChurnBackends
-			ip := fmt.Sprintf("10.246.%d.%d", (writes/250)%200, writes%250+1)
+			idx := attempts % totalSimServices
+			ip := fmt.Sprintf("10.246.%d.%d", (attempts/250)%200, attempts%250+1)
+			// Advance every tick regardless of outcome so one unpatchable
+			// slice can never wedge the rotation.
+			attempts++
 			patch := fmt.Sprintf(`[{"op":"replace","path":"/endpoints/0/addresses/0","value":%q}]`, ip)
 			eps := &discoveryv1.EndpointSlice{ObjectMeta: metav1.ObjectMeta{
 				Name: fmt.Sprintf("sim-service-%d", idx), Namespace: simNS,
