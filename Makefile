@@ -1223,7 +1223,7 @@ run-load-tests-production: ## Run production load tests (5000 routes)
 
 .PHONY: run-load-tests-strict-churn
 run-load-tests-strict-churn: ## Run strict-validation churn convergence test (mutates the controller deployment; requires existing cluster and installation)
-	SKIP_INSTALL=true CLUSTER_NAME=$(CLUSTER_NAME) INSTALL_NAMESPACE=$(INSTALL_NAMESPACE) \
+	SKIP_INSTALL=true KGW_ENABLE_STRICT_CHURN=true CLUSTER_NAME=$(CLUSTER_NAME) INSTALL_NAMESPACE=$(INSTALL_NAMESPACE) \
 	go test -tags=e2e -v -timeout 30m ./test/e2e/tests -run "^TestKgateway$$/^StrictChurn$$"
 
 #----------------------------------------------------------------------------------
