@@ -63,6 +63,9 @@ make run-load-tests-production
 
 # Run all load tests (baseline + production)
 make run-load-tests
+
+# Run the strict-validation churn convergence test
+make run-load-tests-strict-churn
 ```
 
 ### VS Code Debug Configuration
@@ -155,6 +158,27 @@ Add this configuration to your `.vscode/launch.json` file:
 - **Teardown Time**: Time to remove 1 route
 - **Total Writes**: Number of status updates during test
 - **Resource Usage**: CPU, memory, and API call metrics
+
+### StrictChurn Test (per-client xDS convergence)
+
+`strictchurn_suite.go` is a convergence/liveness test for the per-client xDS
+pipeline under its worst-case shape (#14184) rather than a latency benchmark:
+
+- **Setup**: Enables `KGW_VALIDATION_MODE=STRICT` on the controller (restored on
+  teardown), creates ~200 simulated backends and baseline routes across two
+  gateways, plus one stable route to a real nginx backend.
+- **Load**: Cycles of Service+EndpointSlice+HTTPRoute create/delete, a
+  persistent dangling backend reference, and a controller restart mid-churn.
+- **Assertions**: The stable route answers 200 at every checkpoint (connected
+  proxies are never stranded on stale or withheld config); a route created
+  after churn becomes routable within a bound (publication liveness);
+  `kgateway_xds_snapshot_perclient_defers_total` plateaus once inputs settle;
+  any deferral episode is followed by a recovery
+  (`kgateway_xds_snapshot_perclient_recoveries_total`).
+
+Because the suite mutates the controller deployment, it is registered with the
+suite runner but excluded from the CI e2e clusters; run it explicitly with
+`make run-load-tests-strict-churn`.
 
 ## Framework Architecture
 
