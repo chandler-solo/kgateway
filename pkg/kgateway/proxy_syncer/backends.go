@@ -54,20 +54,54 @@ func NewPerClientEnvoyClusters(
 		uccs := krt.Fetch(kctx, uccs)
 		uccWithClusterRet := make([]uccWithCluster, 0, len(uccs))
 
-		for _, ucc := range uccs {
-			backendLogger.Debug("applying destination rules for backend", "ucc", ucc.ResourceName())
+		// Deduplicate translation by client equivalence class WITHIN this
+		// transform invocation. Cluster translation's per-client inputs are
+		// only ucc.Namespace and ucc.Labels (the per-client plugin hooks —
+		// destination rules, waypoint — read nothing else; Role and Locality
+		// do not feed the cluster output), so clients sharing both produce
+		// identical clusters. Translating once per class collapses the
+		// dominant cost of this collection — N_backends x N_clients full
+		// translations (each an external Envoy validation in strict mode) per
+		// fan-out event, all serialized on this collection's single queue
+		// goroutine — to N_backends x N_classes; gateway replicas of one
+		// Deployment share a class, so this is typically N_backends x 1.
+		//
+		// Scoping the dedup to a single invocation makes it correct by
+		// construction: every kctx-fetched input the translation reads
+		// (DestinationRules etc.) is constant for the duration of the
+		// transform, so no cross-run invalidation is needed and none is
+		// attempted. The resulting *Cluster is shared across the class's rows;
+		// snapshot resources are treated as immutable downstream (debug
+		// marshalling clones before redacting).
+		type classTranslation struct {
+			cluster *envoyclusterv3.Cluster
+			version uint64
+			err     error
+		}
+		byClass := make(map[string]*classTranslation, 2)
 
-			c, err := translator.TranslateBackend(ctx, kctx, ucc, backendObj)
-			if c == nil {
+		for _, ucc := range uccs {
+			classKey := clusterTranslationClassKey(ucc)
+			tr, ok := byClass[classKey]
+			if !ok {
+				backendLogger.Debug("applying destination rules for backend", "ucc", ucc.ResourceName())
+				c, err := translator.TranslateBackend(ctx, kctx, ucc, backendObj)
+				tr = &classTranslation{cluster: c, err: err}
+				if c != nil {
+					tr.version = utils.HashProto(c)
+				}
+				byClass[classKey] = tr
+			}
+			if tr.cluster == nil {
 				continue
 			}
 			uccWithClusterRet = append(uccWithClusterRet, uccWithCluster{
-				Name:    c.GetName(),
+				Name:    tr.cluster.GetName(),
 				Client:  ucc,
-				Cluster: c,
+				Cluster: tr.cluster,
 				// pass along the error(s) indicating to consumers that this cluster is not usable
-				Error:          err,
-				ClusterVersion: utils.HashProto(c),
+				Error:          tr.err,
+				ClusterVersion: tr.version,
 			})
 		}
 		return uccWithClusterRet
@@ -80,4 +114,22 @@ func NewPerClientEnvoyClusters(
 		clusters: clusters,
 		index:    idx,
 	}
+}
+
+// clusterTranslationClassKey groups connected clients whose backend->cluster
+// translation is identical. CDS translation may depend on the client only
+// through Namespace and Labels (DestinationRule selection by proxy namespace
+// and workload selector; waypoint attachment by labels) — a contract for
+// PerClientProcessBackend implementations. Role and Locality are deliberately
+// excluded: neither feeds cluster output (Locality affects only endpoint
+// translation, which has its own class key in cla.go).
+//
+// HashLabels is a non-cryptographic hash, so two distinct label sets could in
+// principle collide into one class. This is not a new exposure: the snapshot
+// key itself (labeledRole, uniqueclients.go) already collapses clients by the
+// same HashLabels value, so colliding clients were already serving each
+// other's snapshots before this key existed. Any collision-resistance fix
+// must change both sites together.
+func clusterTranslationClassKey(ucc ir.UniqlyConnectedClient) string {
+	return fmt.Sprintf("%d~%s", utils.HashLabels(ucc.Labels), ucc.Namespace)
 }

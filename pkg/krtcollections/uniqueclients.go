@@ -219,46 +219,93 @@ func NormalizeGatewayRole(originalRole, namespace string, labels map[string]stri
 	return xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, namespace, gwName)
 }
 
-func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.DiscoveryRequest, peer peerInfo) (string, bool, error) {
-	var pod *LocalityPod
+// deriveClientIdentity resolves the client's identity (role, namespace,
+// labels, locality) from the CURRENT pod state. The pod lookup is a
+// point-in-time read outside KRT dependency tracking — nothing re-runs this
+// when the pod changes — so callers must re-derive per request (see add) to
+// keep a stream's identity from being frozen on data that was stale at
+// connect time.
+func (x *callbacksCollection) deriveClientIdentity(r *envoy_service_discovery_v3.DiscoveryRequest, peer peerInfo) (*ir.UniqlyConnectedClient, error) {
+	var locality ir.PodLocality
+	var ns string
+	var labels map[string]string
 	// see if user wants to use pod locality info; this is only possible when podRef is set in getPeerInfo
 	if peer.podRef != nil {
 		k := krt.Named{Name: peer.podRef.Name, Namespace: peer.podRef.Namespace}.ResourceName()
-		pod = x.augmentedPods.GetKey(k)
+		pod := x.augmentedPods.GetKey(k)
+		if pod == nil {
+			// we need to use the pod locality info, so it's an error if we can't get the pod
+			return nil, fmt.Errorf("pod not found for node %v", r.GetNode())
+		}
+		locality = pod.Locality
+		ns = pod.Namespace
+		labels = pod.AugmentedLabels
+		peer.role = NormalizeGatewayRole(peer.role, ns, labels)
 	}
-	addedNew := false
+	ucc := ir.NewUniqlyConnectedClient(peer.role, ns, labels, locality)
+	return &ucc, nil
+}
+
+func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.DiscoveryRequest, peer peerInfo) (string, bool, error) {
+	// Identity is re-derived from current pod state on EVERY request, not just
+	// the first. A stream's first request can race the pod/node informers
+	// (controller start is exactly when every Envoy reconnects), freezing an
+	// identity built from stale or incomplete labels/locality — wrong
+	// DestinationRule selection and failover priorities for the stream's
+	// whole lifetime, with nothing to ever correct it short of an Envoy
+	// restart. The derivation is a map lookup plus a label hash, and stream
+	// requests are infrequent.
+	ucc, derr := x.deriveClientIdentity(r, peer)
+
 	x.stateLock.Lock()
 	defer x.stateLock.Unlock()
 	c, ok := x.clients[sid]
-	if !ok {
-		if err := logAndCheckEnvoyVersion(x.logger, r.GetNode()); err != nil {
-			return "", false, err
+	if ok {
+		// An established stream's identity cannot be changed in place: the
+		// snapshot cache key was derived from it when the stream opened (see
+		// newStream's node-metadata rewrite). If the freshly derived identity
+		// differs, close the stream — Envoy reconnects (with backoff) and
+		// re-identifies against current state (OnStreamClosed releases the old
+		// identity's refcount). If derivation transiently failed (pod record
+		// briefly absent, e.g. an informer blip), keep serving under the
+		// established identity rather than churn the stream.
+		//
+		// LIMITATION: this check runs only when a DiscoveryRequest arrives.
+		// SotW Envoys ACK pushed updates and (re)subscribe on warming, so a
+		// client receiving config sends requests regularly and a drifted
+		// identity heals within a push/ACK cycle. But a stream that receives
+		// nothing — e.g. an identity derived from labels so stale that no
+		// snapshot is ever published for it — may also never send another
+		// request, leaving the wrong identity in place until the stream
+		// recycles for another reason (network, controller restart). The
+		// go-control-plane callback API offers no way to close a stream
+		// outside a request event; bounding worst-case staleness server-side
+		// (e.g. gRPC keepalive/MaxConnectionAge) is a deliberate non-goal of
+		// this change.
+		if derr == nil && c.uniqueClientName != ucc.ResourceName() {
+			x.logger.Info("xds client identity changed; closing stream so the client re-identifies",
+				"old", c.uniqueClientName, "new", ucc.ResourceName())
+			return "", false, fmt.Errorf("xds client identity changed from %q to %q", c.uniqueClientName, ucc.ResourceName())
 		}
-		var locality ir.PodLocality
-		var ns string
-		var labels map[string]string
-		if peer.podRef != nil {
-			if pod == nil {
-				// we need to use the pod locality info, so it's an error if we can't get the pod
-				return "", false, fmt.Errorf("pod not found for node %v", r.GetNode())
-			} else {
-				locality = pod.Locality
-				ns = pod.Namespace
-				labels = pod.AugmentedLabels
-				peer.role = NormalizeGatewayRole(peer.role, ns, labels)
-			}
-		}
-		x.logger.Debug("adding xds client", "locality", locality, "ns", ns, "labels", labels, "role", peer.role)
-		// TODO: modify request to include the label that are relevant for the client?
-		ucc := ir.NewUniqlyConnectedClient(peer.role, ns, labels, locality)
-		c = newConnectedClient(ucc.ResourceName())
-		x.clients[sid] = c
-		currentUnique := x.uniqClientsCount[ucc.ResourceName()]
-		x.uniqClientsCount[ucc.ResourceName()] = currentUnique + 1
-		if currentUnique == 0 {
-			x.uniqClients[ucc.ResourceName()] = ucc
-			addedNew = true
-		}
+		return c.uniqueClientName, false, nil
+	}
+
+	if derr != nil {
+		return "", false, derr
+	}
+	if err := logAndCheckEnvoyVersion(x.logger, r.GetNode()); err != nil {
+		return "", false, err
+	}
+	x.logger.Debug("adding xds client", "locality", ucc.Locality, "ns", ucc.Namespace, "labels", ucc.Labels, "role", ucc.Role)
+	// TODO: modify request to include the label that are relevant for the client?
+	c = newConnectedClient(ucc.ResourceName())
+	x.clients[sid] = c
+	addedNew := false
+	currentUnique := x.uniqClientsCount[ucc.ResourceName()]
+	x.uniqClientsCount[ucc.ResourceName()] = currentUnique + 1
+	if currentUnique == 0 {
+		x.uniqClients[ucc.ResourceName()] = *ucc
+		addedNew = true
 	}
 	return c.uniqueClientName, addedNew, nil
 }

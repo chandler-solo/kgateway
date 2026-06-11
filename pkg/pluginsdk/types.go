@@ -26,7 +26,16 @@ var ErrNotFound = errors.New("not found")
 type (
 	EndpointsInputs = endpoints.EndpointsInputs
 	ProcessBackend  func(ctx context.Context, pol ir.PolicyIR, in ir.BackendObjectIR, out *envoyclusterv3.Cluster)
-	EndpointPlugin  func(
+	// EndpointPlugin (PerClientProcessEndpoints) runs once per
+	// (endpoints, client) pair. CONTRACT: implementations may depend on the
+	// client only through ucc.Namespace, ucc.Labels, and ucc.Locality — never
+	// ucc.Role or the resource name. The per-client endpoints collection
+	// deduplicates translation across clients sharing
+	// (Namespace, Labels, Locality) within a transform invocation
+	// (pkg/kgateway/proxy_syncer/cla.go, endpointTranslationClassKey), so an
+	// implementation reading anything else would silently share one client's
+	// output with another.
+	EndpointPlugin func(
 		kctx krt.HandlerContext,
 		ctx context.Context,
 		ucc ir.UniqlyConnectedClient,
@@ -34,6 +43,16 @@ type (
 	) uint64
 )
 
+// PerClientProcessBackend runs once per (backend, client) pair when building
+// per-client clusters. CONTRACT: implementations may depend on the client
+// only through ucc.Namespace and ucc.Labels — never ucc.Role, ucc.Locality,
+// or the resource name. The per-client clusters collection deduplicates
+// translation across clients sharing (Namespace, Labels) within a transform
+// invocation (pkg/kgateway/proxy_syncer/backends.go,
+// clusterTranslationClassKey), so an implementation reading anything else
+// would silently share one client's cluster with another. Locality-dependent
+// behavior belongs in EndpointPlugin, whose equivalence class includes it.
+//
 // TODO: consider changing PerClientProcessBackend to look like this:
 // PerClientProcessBackend  func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniqlyConnectedClient, in ir.BackendObjectIR)
 // so that it only attaches the policy to the backend, and doesn't modify the backend (except for attached policies) or the cluster itself.

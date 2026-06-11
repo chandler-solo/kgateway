@@ -40,6 +40,30 @@ func (v *ValidationMode) Decode(value string) error {
 	}
 }
 
+// ValidatorMode selects the strict-validation execution strategy.
+type ValidatorMode string
+
+const (
+	// ValidatorBinary forks envoy --mode validate per call.
+	ValidatorBinary ValidatorMode = "BINARY"
+	// ValidatorCache wraps ValidatorBinary with an LRU result cache.
+	ValidatorCache ValidatorMode = "CACHE"
+	// ValidatorPooled adds a bounded concurrency pool on top of ValidatorCache.
+	ValidatorPooled ValidatorMode = "POOLED"
+)
+
+// Decode implements envconfig.Decoder.
+func (v *ValidatorMode) Decode(value string) error {
+	mode := ValidatorMode(strings.ToUpper(value))
+	switch mode {
+	case ValidatorBinary, ValidatorCache, ValidatorPooled:
+		*v = mode
+		return nil
+	default:
+		return fmt.Errorf("invalid validator mode: %q", value)
+	}
+}
+
 // DnsLookupFamily controls the DNS lookup family for all static clusters created via Backend resources.
 type DnsLookupFamily string
 
@@ -210,6 +234,24 @@ type Settings struct {
 	// - "STANDARD": Rewrites invalid routes to direct responses (typically HTTP 500)
 	// - "STRICT": Builds on STANDARD by running targeted validation
 	ValidationMode ValidationMode `split_words:"true" default:"STANDARD"`
+
+	// ValidatorMode selects the strict-validation execution strategy. Has no effect
+	// when ValidationMode is "STANDARD". Supported values:
+	// - "BINARY": fork envoy --mode validate per call (the pre-cache behavior).
+	// - "CACHE": wrap BINARY with an LRU result cache keyed on bootstrap content
+	//   hash (default). A validation verdict is a pure function of the config
+	//   bytes, so memoization cannot change outcomes — only skip redundant envoy
+	//   invocations; transient failures are never cached.
+	// - "POOLED": additionally bound concurrent envoy invocations with a worker pool.
+	ValidatorMode ValidatorMode `split_words:"true" default:"CACHE"`
+
+	// ValidatorCacheSize is the LRU capacity used by CACHE and POOLED validator modes.
+	// Ignored when ValidatorMode is BINARY. A value <= 0 selects the implementation default.
+	ValidatorCacheSize int `split_words:"true" default:"4096"`
+
+	// ValidatorPoolSize is the worker count for POOLED validator mode. Ignored otherwise.
+	// A value <= 0 selects runtime.NumCPU().
+	ValidatorPoolSize int `split_words:"true" default:"0"`
 
 	// EnableBuiltinDefaultMetrics enables the default builtin controller-runtime metrics and go runtime metrics.
 	// Since these metrics can be numerous, it is disabled by default.

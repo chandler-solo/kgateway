@@ -41,8 +41,14 @@ type BackendTranslator struct {
 	ContributedBackends map[schema.GroupKind]ir.BackendInit
 	ContributedPolicies map[schema.GroupKind]sdk.PolicyPlugin
 	CommonCols          *collections.CommonCollections
-	Validator           validator.Validator
-	Mode                apisettings.ValidationMode
+	// Validator is the strict-mode xDS validator. In production it is the
+	// composed stack from validator.NewFromSettings (content-hash result
+	// cache over a bounded concurrency pool over the envoy binary), so
+	// identical cluster configs — the common case across the per-client
+	// fan-out — cost one envoy invocation instead of one per
+	// (backend, client) per recompute.
+	Validator validator.Validator
+	Mode      apisettings.ValidationMode
 }
 
 // TranslateBackend translates a BackendObjectIR to an Envoy Cluster. If we encounter any
