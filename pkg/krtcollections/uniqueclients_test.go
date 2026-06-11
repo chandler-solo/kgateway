@@ -306,3 +306,72 @@ func TestNormalizeGatewayRole(t *testing.T) {
 		})
 	}
 }
+
+// A stream's identity is derived from pod data that can be stale at connect
+// time (informer lag during controller start — exactly when every Envoy
+// reconnects). The identity cannot be changed in place for an open stream
+// (the snapshot cache key is bound to it), so when the freshly derived
+// identity differs, the stream must be REJECTED so the client reconnects and
+// re-identifies against current state — instead of serving wrong
+// locality/label-derived config until an Envoy restart.
+func TestUniqueClientsReidentifyOnPodChange(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	role := wellknown.GatewayApiProxyValue + "~best-proxy-role"
+	staleLabels := map[string]string{"a": "b"}
+	freshLabels := map[string]string{"a": "b", corev1.LabelTopologyZone: "zone-1"}
+
+	pods := krt.NewStaticCollection[LocalityPod](nil, []LocalityPod{{
+		Named:           krt.Named{Name: "podname", Namespace: "ns"},
+		AugmentedLabels: staleLabels,
+	}})
+
+	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
+	ucc.WaitUntilSynced(ctx.Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(role),
+				},
+			},
+		},
+	}
+	cloneReq := func() *envoy_service_discovery_v3.DiscoveryRequest {
+		return proto.Clone(req).(*envoy_service_discovery_v3.DiscoveryRequest)
+	}
+
+	staleName := fmt.Sprintf("%s~%d~ns", role, utils.HashLabels(staleLabels))
+	freshName := fmt.Sprintf("%s~%d~ns", role, utils.HashLabels(freshLabels))
+
+	// First contact freezes the identity derived from current (stale) data.
+	g.Expect(cb.OnStreamRequest(1, cloneReq())).To(Succeed())
+	g.Eventually(func() []ir.UniqlyConnectedClient { return ucc.List() }, "1s").Should(HaveLen(1))
+	g.Expect(ucc.List()[0].ResourceName()).To(Equal(staleName))
+
+	// The pod's augmented data catches up while the stream is open.
+	pods.UpdateObject(LocalityPod{
+		Named:           krt.Named{Name: "podname", Namespace: "ns"},
+		AugmentedLabels: freshLabels,
+	})
+
+	// The next request on the SAME stream re-derives identity, detects the
+	// drift, and rejects the stream so the client re-identifies.
+	err := cb.OnStreamRequest(1, cloneReq())
+	g.Expect(err).To(HaveOccurred(), "a drifted identity must close the stream")
+
+	// The reconnect (new stream id) identifies against fresh data.
+	cb.OnStreamClosed(1, nil)
+	g.Expect(cb.OnStreamRequest(2, cloneReq())).To(Succeed())
+	g.Eventually(func() sets.Set[string] {
+		names := sets.New[string]()
+		for _, c := range ucc.List() {
+			names.Insert(c.ResourceName())
+		}
+		return names
+	}, "1s").Should(Equal(sets.New(freshName)), "the reconnected stream must carry the fresh identity and the stale one must be gone")
+}
