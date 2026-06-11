@@ -3,6 +3,7 @@ package proxy_syncer
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	udpaannontations "github.com/cncf/xds/go/udpa/annotations"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -29,6 +30,17 @@ type XdsSnapWrapper struct {
 	erroredClusters []string
 	// +noKrtEquals
 	proxyKey string
+	// deferred marks a snapshot built while its per-client inputs were not yet
+	// fully coherent (see snapshotPerClient's guards). Deferred snapshots are
+	// withheld from clients that already hold a published snapshot — Envoy
+	// keeps its last coherent config — and are published to a never-published
+	// client only after the first-publish budget expires (see syncXds), since
+	// for a client with no config at all an incomplete snapshot beats no
+	// listeners indefinitely.
+	deferred bool
+	// deferReasons lists which guards were not satisfied, for logs and the
+	// defer metric. Sorted, deduplicated by construction.
+	deferReasons []string
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
@@ -39,6 +51,9 @@ func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
 var _ krt.ResourceNamer = XdsSnapWrapper{}
 
 func (p XdsSnapWrapper) Equals(in XdsSnapWrapper) bool {
+	if p.deferred != in.deferred || !slices.Equal(p.deferReasons, in.deferReasons) {
+		return false
+	}
 	// check that all the versions are the equal
 	for i, r := range p.snap.Resources {
 		if r.Version != in.snap.Resources[i].Version {

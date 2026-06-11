@@ -24,6 +24,20 @@ import (
 	krtutil "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 )
 
+// Defer reasons, attached to deferred XdsSnapWrappers for logs and metrics.
+const (
+	// deferReasonEndpointsNotReady: the per-client endpoints collection has
+	// not produced a row for this client yet (initial sync or fan-out lag).
+	deferReasonEndpointsNotReady = "endpoints_not_ready"
+	// deferReasonMissingClusters: a cluster referenced as a dataplane routing
+	// target is not present in the per-client cluster set.
+	deferReasonMissingClusters = "missing_clusters"
+	// deferReasonMissingEndpoints: a referenced EDS cluster has no
+	// ClusterLoadAssignment in the endpoint set (an empty synthesized CLA is
+	// substituted so the snapshot stays self-consistent).
+	deferReasonMissingEndpoints = "missing_endpoints"
+)
+
 type clustersWithErrors struct {
 	// +noKrtEquals
 	clusters envoycache.Resources
@@ -137,56 +151,51 @@ func snapshotPerClient(
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
 		clientEndpointResources := krt.FetchOne(kctx, endpointResources, krt.FilterKey(ucc.ResourceName()))
 
-		// Defer publishing a per-client snapshot until its per-client inputs
-		// are coherent. Three guards:
+		// Detect whether this client's per-client inputs are coherent. Three
+		// guards (computation unchanged from the original defer gate):
 		//
-		//  1. If per-client endpoints haven't been derived yet for this UCC,
-		//     return nil. This handler can fire before the per-client
-		//     collections — driven by the same upstream events — have
-		//     re-run, so FetchOne may briefly return nil even though results
-		//     are imminent. clustersForUcc is treated differently as a
-		//     defensive measure: a nil clusterSnapshot entry can in principle
-		//     mean either "not yet processed" or "this UCC legitimately has
-		//     zero backend clusters". In practice the latter is hard to hit
-		//     because finalBackends pulls in a BackendObjectIR for every
-		//     Service port in the cluster (kube-apiserver, kube-dns, the
-		//     gateway's own Service, etc.), so clustersForUcc is virtually
-		//     never nil in an operational cluster — even for a gateway whose
-		//     HTTPRoutes only emit RequestRedirect or direct responses.
-		//     Substituting an empty resource set keeps the function honest
-		//     against narrow edge cases (a freshly started controller before
-		//     Service informers have synced, or a configuration whose only
-		//     backends are non-K8s and all fail translation) without
-		//     weakening guards 2 and 3, which still defer if any specific
-		//     cluster reference is missing.
+		//  1. Per-client endpoints haven't been derived yet for this UCC.
+		//     This handler can fire before the per-client collections —
+		//     driven by the same upstream events — have re-run, so FetchOne
+		//     may briefly return nil even though results are imminent.
+		//     clustersForUcc is treated differently as a defensive measure:
+		//     a nil clusterSnapshot entry can in principle mean either "not
+		//     yet processed" or "this UCC legitimately has zero backend
+		//     clusters". In practice the latter is hard to hit because
+		//     finalBackends pulls in a BackendObjectIR for every Service
+		//     port in the cluster, so clustersForUcc is virtually never nil
+		//     in an operational cluster.
 		//
-		//  2. If any cluster referenced as a dataplane routing target
-		//     (RouteAction / TcpProxy) is not yet present or explicitly
-		//     errored, return nil (see findMissingReferencedClusters below).
-		//     Publishing before then would emit a partial CDS referenced by
-		//     listeners/routes and cause Envoy to return 500/NC on routes
-		//     whose clusters just happen to be in the same CDS response.
+		//  2. A cluster referenced as a dataplane routing target
+		//     (RouteAction / TcpProxy) is not yet present and not explicitly
+		//     errored (see findMissingReferencedClusters below). Publishing
+		//     that would emit a partial CDS referenced by listeners/routes
+		//     and cause Envoy to return 500/NC on routes whose clusters just
+		//     happen to be in the same CDS response.
 		//
-		//  3. If any referenced EDS cluster has no matching ClusterLoadAssignment
-		//     in the EDS resources that would be sent, return nil. Publishing
-		//     CDS/RDS/LDS before EDS catches up can make Envoy drop all hosts for
-		//     a route that was healthy before a controller restart.
+		//  3. A referenced EDS cluster has no matching ClusterLoadAssignment
+		//     in the EDS resources that would be sent. Publishing CDS/RDS/LDS
+		//     before EDS catches up can make Envoy drop all hosts for a route
+		//     that was healthy before a controller restart.
 		//
-		// Returning nil removes this UCC's entry from the output collection,
-		// which surfaces as a Delete event in proxy_syncer.go's xDS
-		// subscriber. That Delete branch is intentionally a no-op so the
-		// xDS snapshot cache retains the last-published Snapshot for this
-		// client. Envoy therefore keeps serving its previous, coherent
-		// config until a new coherent snapshot overwrites it. This is what
-		// prevents an unresolvable reference — a user BackendRef typo, a
-		// plugin bug — from stranding Envoy: there is no error response on
-		// valid traffic during the defer window, only continuity.
+		// Unlike the original gate, a failed guard no longer withholds the
+		// row (return nil): the snapshot is still built — with explicit empty
+		// ClusterLoadAssignments synthesized for any missing EDS references so
+		// it stays self-consistent — and marked deferred. The PUBLICATION
+		// policy lives in syncXds: a client that already holds a published
+		// snapshot never receives a deferred one (Envoy keeps its last
+		// coherent config, indefinitely — same behavior as the old gate),
+		// while a client that has never been published anything receives the
+		// deferred snapshot once the first-publish budget expires, because for
+		// that client the alternative is no listeners at all (a hard outage,
+		// not staleness).
 		//
-		// BackendRef typos never reach this gate as real cluster names:
+		// BackendRef typos never reach these guards as real cluster names:
 		// IR-time resolution substitutes wellknown.BlackholeClusterName,
 		// which findMissingReferencedClusters explicitly skips.
 		//
 		// Historical context: https://github.com/solo-io/gloo/pull/10611.
+		var deferReasons []string
 		if clustersForUcc == nil {
 			clustersForUcc = &clustersWithErrors{
 				clusters: envoycache.Resources{
@@ -196,7 +205,13 @@ func snapshotPerClient(
 		}
 		if clientEndpointResources == nil {
 			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
-			return nil
+			deferReasons = append(deferReasons, deferReasonEndpointsNotReady)
+			clientEndpointResources = &endpointsWithUccName{
+				endpoints: envoycache.Resources{
+					Items: map[string]envoycachetypes.ResourceWithTTL{},
+				},
+				resourceName: ucc.ResourceName(),
+			}
 		}
 
 		logger.Debug("found perclient clusters", "client", ucc.ResourceName(), "clusters", len(clustersForUcc.clusters.Items))
@@ -222,7 +237,7 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
 			)
-			return nil
+			deferReasons = append(deferReasons, deferReasonMissingClusters)
 		}
 		// Exclude CLAs for STATIC clusters so ADS snapshot only contains resources Envoy will request.
 		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
@@ -237,9 +252,17 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_endpoint_clusters", missingEndpointClusters,
 			)
-			return nil
+			deferReasons = append(deferReasons, deferReasonMissingEndpoints)
+			// Synthesize explicit empty CLAs for the missing references so the
+			// snapshot stays self-consistent if it ends up published to a
+			// never-published client: an explicit empty assignment makes Envoy
+			// treat the cluster as active-with-no-hosts immediately instead of
+			// stalling cluster warming on an absent EDS resource.
+			endpointRes = synthesizeEmptyEndpointResources(missingEndpointClusters, clusterResources.Items, endpointRes)
 		}
 
+		snap.deferred = len(deferReasons) > 0
+		snap.deferReasons = deferReasons
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
@@ -425,6 +448,40 @@ func findMissingReferencedEndpointResources(
 	sort.Strings(missingEndpointClusters)
 
 	return missingEndpointClusters
+}
+
+// synthesizeEmptyEndpointResources returns a copy of endpointRes with an
+// explicit empty ClusterLoadAssignment added for every cluster in
+// missingEndpointClusters (resource-named per the cluster's EDS config). The
+// version is extended with a hash of the synthesized names so a snapshot with
+// synthesized entries can never share a version with one whose real CLAs
+// arrived.
+func synthesizeEmptyEndpointResources(
+	missingEndpointClusters []string,
+	clusters map[string]envoycachetypes.ResourceWithTTL,
+	endpointRes envoycache.Resources,
+) envoycache.Resources {
+	items := make(map[string]envoycachetypes.ResourceWithTTL, len(endpointRes.Items)+len(missingEndpointClusters))
+	maps.Copy(items, endpointRes.Items)
+	var synthHash uint64
+	for _, clusterName := range missingEndpointClusters {
+		clusterResource, ok := clusters[clusterName]
+		if !ok {
+			continue
+		}
+		resourceName, requiresEndpointResource := endpointResourceNameForCluster(clusterResource)
+		if !requiresEndpointResource {
+			continue
+		}
+		items[resourceName] = envoycachetypes.ResourceWithTTL{
+			Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: resourceName},
+		}
+		synthHash ^= utils.HashString(resourceName)
+	}
+	return envoycache.Resources{
+		Version: fmt.Sprintf("%s-synth-%d", endpointRes.Version, synthHash),
+		Items:   items,
+	}
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {

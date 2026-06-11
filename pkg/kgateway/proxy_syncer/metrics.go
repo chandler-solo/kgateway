@@ -16,6 +16,7 @@ const (
 	namespaceLabel    = "namespace"
 	resultLabel       = "result"
 	resourceLabel     = "resource"
+	reasonLabel       = "reason"
 )
 
 var (
@@ -70,7 +71,82 @@ var (
 		},
 		[]string{gatewayLabel, namespaceLabel, resourceLabel},
 	)
+	snapshotPerClientDefersTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_defers_total",
+			Help: "Total per-client XDS snapshot publication deferrals, by reason. " +
+				"Every increment means an update was withheld: the client kept its " +
+				"last published snapshot, or — before first publish — kept waiting " +
+				"up to the first-publish budget. A sustained rate for a gateway " +
+				"means a connected client's per-client inputs are not becoming " +
+				"consistent (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
+	)
+	snapshotPerClientRecoveriesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_recoveries_total",
+			Help: "Total times a per-client XDS snapshot resumed coherent publishing " +
+				"after one or more deferrals.",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientBoundedPublishesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_bounded_publishes_total",
+			Help: "Total deferred snapshots published to never-published clients " +
+				"because the first-publish budget expired. Nonzero means clients " +
+				"started on incomplete-but-self-consistent config instead of " +
+				"waiting indefinitely (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
 )
+
+// recordSnapshotDefer counts one withheld publication for the client's
+// gateway, per reason.
+func recordSnapshotDefer(proxyKey string, reasons []string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	for _, reason := range reasons {
+		snapshotPerClientDefersTotal.Inc(
+			metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+			metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+			metrics.Label{Name: reasonLabel, Value: reason},
+		)
+	}
+}
+
+// recordSnapshotRecovery counts a client resuming coherent publication after
+// a prior deferral.
+func recordSnapshotRecovery(proxyKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	snapshotPerClientRecoveriesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
+// recordBoundedFirstPublish counts a deferred snapshot published because the
+// first-publish budget expired.
+func recordBoundedFirstPublish(proxyKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	snapshotPerClientBoundedPublishesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
 
 // snapshotResourcesMetricLabels defines the labels for XDS snapshot resources metrics.
 type snapshotResourcesMetricLabels struct {
@@ -199,4 +275,7 @@ func ResetMetrics() {
 	snapshotTransformsTotal.Reset()
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
+	snapshotPerClientDefersTotal.Reset()
+	snapshotPerClientRecoveriesTotal.Reset()
+	snapshotPerClientBoundedPublishesTotal.Reset()
 }
