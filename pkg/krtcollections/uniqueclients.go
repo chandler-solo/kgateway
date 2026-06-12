@@ -25,11 +25,20 @@ import (
 
 type ConnectedClient struct {
 	uniqueClientName string
+	// originalRole is the role as presented on the stream's FIRST request,
+	// before newStream rewrites the node metadata to the unique cache key.
+	// Follow-up SotW requests often omit Node, and go-control-plane then
+	// reuses the mutated Node object — so per-request identity re-derivation
+	// must start from this pinned role, never from the node's (possibly
+	// already-augmented) one, or augmentation compounds and every ACK looks
+	// like an identity change.
+	originalRole string
 }
 
-func newConnectedClient(uniqueClientName string) ConnectedClient {
+func newConnectedClient(uniqueClientName, originalRole string) ConnectedClient {
 	return ConnectedClient{
 		uniqueClientName: uniqueClientName,
+		originalRole:     originalRole,
 	}
 }
 
@@ -255,11 +264,21 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 	// whole lifetime, with nothing to ever correct it short of an Envoy
 	// restart. The derivation is a map lookup plus a label hash, and stream
 	// requests are infrequent.
-	ucc, derr := x.deriveClientIdentity(r, peer)
-
 	x.stateLock.Lock()
 	defer x.stateLock.Unlock()
 	c, ok := x.clients[sid]
+	if ok {
+		// Follow-up request on an established stream: when xDS auth is
+		// disabled the role comes from node metadata, and the Node object may
+		// be the one newStream already mutated to the unique cache key
+		// (Envoy omits Node on follow-ups; go-control-plane reuses the first
+		// request's). Re-derive from the stream's pinned ORIGINAL role so
+		// only genuine pod-state drift (labels, locality, namespace) is
+		// detected — never our own augmentation, which would otherwise
+		// compound and close the stream on every ACK.
+		peer.role = c.originalRole
+	}
+	ucc, derr := x.deriveClientIdentity(r, peer)
 	if ok {
 		// An established stream's identity cannot be changed in place: the
 		// snapshot cache key was derived from it when the stream opened (see
@@ -298,7 +317,9 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 	}
 	x.logger.Debug("adding xds client", "locality", ucc.Locality, "ns", ucc.Namespace, "labels", ucc.Labels, "role", ucc.Role)
 	// TODO: modify request to include the label that are relevant for the client?
-	c = newConnectedClient(ucc.ResourceName())
+	// peer.role is the raw, pre-augmentation role from this first request
+	// (deriveClientIdentity normalizes its own copy); pin it for follow-ups.
+	c = newConnectedClient(ucc.ResourceName(), peer.role)
 	x.clients[sid] = c
 	addedNew := false
 	currentUnique := x.uniqClientsCount[ucc.ResourceName()]
