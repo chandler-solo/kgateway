@@ -32,15 +32,24 @@ type XdsSnapWrapper struct {
 	proxyKey string
 	// deferred marks a snapshot built while its per-client inputs were not yet
 	// fully coherent (see snapshotPerClient's guards). Deferred snapshots are
-	// withheld from clients that already hold a published snapshot — Envoy
-	// keeps its last coherent config — and are published to a never-published
-	// client only after the first-publish budget expires (see syncXds), since
-	// for a client with no config at all an incomplete snapshot beats no
-	// listeners indefinitely.
+	// withheld up to the publish budget (see syncXds): a never-published
+	// client then receives the snapshot as-is (an incomplete snapshot beats
+	// no listeners at all), while an already-published client receives it
+	// merged with carry-forward — any referenced cluster/CLA the deferred
+	// snapshot is missing is retained from the currently-published one, so an
+	// incomplete publish can never remove a resource the client is using.
 	deferred bool
 	// deferReasons lists which guards were not satisfied, for logs and the
 	// defer metric. Sorted, deduplicated by construction.
 	deferReasons []string
+	// referencedClusters is the dataplane-referenced cluster set used by the
+	// carry-forward merge; only populated on deferred wrappers.
+	// +noKrtEquals (derived from Routes/Listeners, whose versions are compared)
+	referencedClusters map[string]struct{}
+	// synthesizedClas lists the EDS resource names whose CLAs in snap are
+	// synthesized empties; the carry-forward merge replaces these with the
+	// previously-published real CLAs when available. Sorted by construction.
+	synthesizedClas []string
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
@@ -51,7 +60,8 @@ func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
 var _ krt.ResourceNamer = XdsSnapWrapper{}
 
 func (p XdsSnapWrapper) Equals(in XdsSnapWrapper) bool {
-	if p.deferred != in.deferred || !slices.Equal(p.deferReasons, in.deferReasons) {
+	if p.deferred != in.deferred || !slices.Equal(p.deferReasons, in.deferReasons) ||
+		!slices.Equal(p.synthesizedClas, in.synthesizedClas) {
 		return false
 	}
 	// check that all the versions are the equal
