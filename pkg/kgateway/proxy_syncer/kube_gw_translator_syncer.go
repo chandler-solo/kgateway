@@ -34,8 +34,10 @@ import (
 //     flowing under sustained churn, and staleness shrinks from "the whole
 //     gateway is frozen" to "only the still-incoherent references are stale."
 //
-// Variable rather than const so tests can shorten it.
-var perClientPublishBudget = 15 * time.Second
+// Configurable via KGW_PER_CLIENT_PUBLISH_BUDGET; a value of 0 disables
+// bounded publishing entirely (deferred snapshots are withheld until inputs
+// cohere, the pre-budget behavior) as a conservative opt-out.
+const defaultPerClientPublishBudget = 15 * time.Second
 
 // clientPublishState tracks publication bookkeeping for one client (keyed by
 // proxyKey) between syncXds invocations.
@@ -53,12 +55,20 @@ type clientPublishState struct {
 // publishBudgetGate serializes publication decisions for deferred snapshots.
 // It is shared by reference across ProxyTranslator copies.
 type publishBudgetGate struct {
+	// budget is how long deferred snapshots are withheld before a bounded
+	// publish; 0 disables bounded publishing (withhold until coherent).
+	// Written once at construction/wiring time, before any events flow.
+	budget time.Duration
+
 	mu      sync.Mutex
 	clients map[string]*clientPublishState
 }
 
-func newPublishBudgetGate() *publishBudgetGate {
-	return &publishBudgetGate{clients: make(map[string]*clientPublishState)}
+func newPublishBudgetGate(budget time.Duration) *publishBudgetGate {
+	return &publishBudgetGate{
+		budget:  budget,
+		clients: make(map[string]*clientPublishState),
+	}
 }
 
 // syncXds applies the publication policy for one wrapper event:
@@ -109,13 +119,18 @@ func (s *ProxyTranslator) offerBudgetedPublish(ctx context.Context, proxyKey str
 		g.clients[proxyKey] = st
 	}
 	st.deferredSinceLastPublish = true
+	if g.budget <= 0 {
+		// Bounded publishing disabled: withhold until inputs cohere (the
+		// pre-budget behavior). No pending wrapper is retained.
+		return
+	}
 	st.pending = &snapWrap
 	if st.timer != nil {
 		return // timer already armed; it will publish the latest pending
 	}
 	logger.Info("withholding publish until per-client inputs converge or the budget expires",
-		"client", proxyKey, "budget", perClientPublishBudget, "reasons", snapWrap.deferReasons)
-	st.timer = time.AfterFunc(perClientPublishBudget, func() {
+		"client", proxyKey, "budget", g.budget, "reasons", snapWrap.deferReasons)
+	st.timer = time.AfterFunc(g.budget, func() {
 		s.publishPendingBudgeted(ctx, proxyKey)
 	})
 }

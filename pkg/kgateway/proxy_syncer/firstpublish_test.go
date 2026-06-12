@@ -15,15 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shortenPublishBudget shrinks the budget for the duration of a test.
-// Tests using it must not run in parallel.
-func shortenPublishBudget(t *testing.T, d time.Duration) {
-	t.Helper()
-	orig := perClientPublishBudget
-	perClientPublishBudget = d
-	t.Cleanup(func() { perClientPublishBudget = orig })
-}
-
 func newTestTranslator() *ProxyTranslator {
 	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil))
 	return &pt
@@ -53,6 +44,23 @@ func publishedVersion(t *testing.T, pt *ProxyTranslator) (string, bool) {
 	return snap.GetVersion(resourcev3.ListenerType), true
 }
 
+// KGW_PER_CLIENT_PUBLISH_BUDGET=0 is the conservative opt-out: deferred
+// snapshots are withheld with no deadline, the pre-budget behavior.
+func TestSyncXds_BudgetZeroDisablesBoundedPublishing(t *testing.T) {
+	pt := newTestTranslator()
+	pt.publishBudget.budget = 0
+
+	pt.syncXds(context.Background(), wrapperWithVersion("deferred", true, deferReasonMissingClusters))
+	time.Sleep(100 * time.Millisecond)
+	_, ok := publishedVersion(t, pt)
+	assert.False(t, ok, "budget=0 must withhold deferred snapshots indefinitely")
+
+	// A coherent snapshot still publishes normally.
+	pt.syncXds(context.Background(), wrapperWithVersion("coherent", false))
+	v, _ := publishedVersion(t, pt)
+	assert.Equal(t, "coherent", v)
+}
+
 func TestSyncXds_CoherentPublishesImmediately(t *testing.T) {
 	pt := newTestTranslator()
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", false))
@@ -63,8 +71,8 @@ func TestSyncXds_CoherentPublishesImmediately(t *testing.T) {
 }
 
 func TestSyncXds_DeferredToNeverPublishedWaitsThenPublishes(t *testing.T) {
-	shortenPublishBudget(t, 50*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 50 * time.Millisecond
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
 
@@ -81,8 +89,8 @@ func TestSyncXds_DeferredToNeverPublishedWaitsThenPublishes(t *testing.T) {
 }
 
 func TestSyncXds_LatestDeferredWinsAtBudgetExpiry(t *testing.T) {
-	shortenPublishBudget(t, 80*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 80 * time.Millisecond
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
 	pt.syncXds(context.Background(), wrapperWithVersion("v2", true, deferReasonMissingClusters))
@@ -97,8 +105,8 @@ func TestSyncXds_LatestDeferredWinsAtBudgetExpiry(t *testing.T) {
 }
 
 func TestSyncXds_CoherentSupersedesPendingDeferred(t *testing.T) {
-	shortenPublishBudget(t, 100*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 100 * time.Millisecond
 
 	pt.syncXds(context.Background(), wrapperWithVersion("deferred", true, deferReasonMissingEndpoints))
 	pt.syncXds(context.Background(), wrapperWithVersion("coherent", false))
@@ -150,8 +158,8 @@ func publishedCla(t *testing.T, pt *ProxyTranslator, name string) *envoyendpoint
 // real CLA are retained from the published snapshot — an incomplete publish
 // can never remove a resource the client is using.
 func TestSyncXds_WarmClientGetsCarryForwardMergeAtBudget(t *testing.T) {
-	shortenPublishBudget(t, 60*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 60 * time.Millisecond
 
 	coherent := XdsSnapWrapper{
 		proxyKey: testClientKey,
@@ -201,8 +209,8 @@ func TestSyncXds_WarmClientGetsCarryForwardMergeAtBudget(t *testing.T) {
 // empty CLA for it, the merge must prefer the previously-published real CLA:
 // publishing the empty would drain live traffic.
 func TestSyncXds_CarryForwardPrefersPublishedClaOverSynthesized(t *testing.T) {
-	shortenPublishBudget(t, 40*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 40 * time.Millisecond
 
 	pt.syncXds(context.Background(), XdsSnapWrapper{
 		proxyKey: testClientKey,
@@ -237,8 +245,8 @@ func TestSyncXds_CarryForwardPrefersPublishedClaOverSynthesized(t *testing.T) {
 // client receives an empty endpoints set and then never observes the real
 // endpoints.
 func TestSyncXds_CoherentAfterBoundedPublishOverwrites(t *testing.T) {
-	shortenPublishBudget(t, 30*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 30 * time.Millisecond
 
 	pt.syncXds(context.Background(), wrapperWithVersion("deferred-synth", true, deferReasonMissingEndpoints))
 
@@ -257,8 +265,8 @@ func TestSyncXds_CoherentAfterBoundedPublishOverwrites(t *testing.T) {
 }
 
 func TestSyncXds_ClientDepartureCancelsPendingFirstPublish(t *testing.T) {
-	shortenPublishBudget(t, 50*time.Millisecond)
 	pt := newTestTranslator()
+	pt.publishBudget.budget = 50 * time.Millisecond
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
 	pt.publishBudget.clientDeparted(testClientKey)

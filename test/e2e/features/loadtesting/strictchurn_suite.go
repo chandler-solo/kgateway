@@ -367,9 +367,10 @@ func (s *StrictChurnSuite) TestStrictChurnConvergence() {
 	// the mid-churn restart, so compare against the post-restart baseline.
 	finalDefers := s.scrapeCounterSum(defersMetric)
 	finalRecoveries := s.scrapeCounterSum(recoveriesMetric)
-	finalBounded := s.scrapeCounterSum(boundedPublishesMetric)
-	s.T().Logf("Final counters: defers_total=%v (pre-churn %v), recoveries_total=%v, bounded_publishes_total=%v",
-		finalDefers, defersBeforeChurn, finalRecoveries, finalBounded)
+	finalBoundedFirst := s.scrapeCounterSumMatching(boundedPublishesMetric, `mode="first_publish"`)
+	finalBoundedCarry := s.scrapeCounterSumMatching(boundedPublishesMetric, `mode="carry_forward"`)
+	s.T().Logf("Final counters: defers_total=%v (pre-churn %v), recoveries_total=%v, bounded_publishes_total{first_publish}=%v, bounded_publishes_total{carry_forward}=%v",
+		finalDefers, defersBeforeChurn, finalRecoveries, finalBoundedFirst, finalBoundedCarry)
 	if finalDefers > 0 {
 		s.Require().GreaterOrEqual(finalRecoveries, float64(1),
 			"clients were deferred (%v defers) but never recovered; per-client publication is wedged", finalDefers)
@@ -664,6 +665,34 @@ func (s *StrictChurnSuite) scrapeCounterSum(metricName string) float64 {
 			return false
 		}
 		sum = sumCounterText(resp.StdOut, metricName)
+		return true
+	}, 60*time.Second, 2*time.Second, "should scrape controller metrics")
+	return sum
+}
+
+// scrapeCounterSumMatching is scrapeCounterSum restricted to samples whose
+// label block contains labelSubstr (e.g. `mode="carry_forward"`).
+func (s *StrictChurnSuite) scrapeCounterSumMatching(metricName, labelSubstr string) float64 {
+	var sum float64
+	s.Require().Eventually(func() bool {
+		resp, err := s.testInstallation.ClusterContext.Cli.CurlFromPod(s.ctx, testdefaults.CurlPodExecOpt,
+			curl.WithHost(kubeutils.ServiceFQDN(metav1.ObjectMeta{
+				Name: strictChurnMetricsService, Namespace: s.installNamespace,
+			})),
+			curl.WithPort(metricsPort),
+			curl.WithPath("/metrics"),
+		)
+		if err != nil {
+			s.T().Logf("metrics scrape failed (will retry): %v", err)
+			return false
+		}
+		var filtered strings.Builder
+		for line := range strings.Lines(resp.StdOut) {
+			if strings.Contains(line, labelSubstr) {
+				filtered.WriteString(line)
+			}
+		}
+		sum = sumCounterText(filtered.String(), metricName)
 		return true
 	}, 60*time.Second, 2*time.Second, "should scrape controller metrics")
 	return sum
