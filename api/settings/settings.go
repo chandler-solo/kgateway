@@ -286,6 +286,16 @@ type Settings struct {
 	// implementation default, validator.DefaultCacheSize.
 	ValidatorCacheSize int `split_words:"true"`
 
+	// PerClientPublishBudget bounds how long a per-client xDS snapshot
+	// publication may be deferred while waiting for the client's inputs to
+	// become coherent. When the budget expires, the latest deferred snapshot
+	// is published: as-is to a client that has never been published (so new
+	// gateway pods always become Ready), or merged with carry-forward to an
+	// already-published client (so resources in use are never removed by an
+	// incomplete publish). A value of 0 disables bounded publishing entirely:
+	// deferred snapshots are withheld until inputs cohere, with no deadline.
+	PerClientPublishBudget time.Duration `split_words:"true" default:"15s"`
+
 	// EnableBuiltinDefaultMetrics enables the default builtin controller-runtime metrics and go runtime metrics.
 	// Since these metrics can be numerous, it is disabled by default.
 	EnableBuiltinDefaultMetrics bool `split_words:"true" default:"false"`

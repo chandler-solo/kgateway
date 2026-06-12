@@ -159,12 +159,16 @@ func NewProxySyncer(
 	xdsCache envoycache.SnapshotCache,
 	validator validator.Validator,
 ) *ProxySyncer {
+	proxyTranslator := NewProxyTranslator(xdsCache)
+	// The publish budget is operator-tunable (KGW_PER_CLIENT_PUBLISH_BUDGET;
+	// 0 disables bounded publishing). Applied here, before any events flow.
+	proxyTranslator.publishBudget.budget = commonCols.Settings.PerClientPublishBudget
 	return &ProxySyncer{
 		controllerName:           controllerName,
 		commonCols:               commonCols,
 		mgr:                      mgr,
 		apiClient:                client,
-		proxyTranslator:          NewProxyTranslator(xdsCache),
+		proxyTranslator:          proxyTranslator,
 		uniqueClients:            uniqueClients,
 		translator:               translator.NewCombinedTranslator(ctx, mergedPlugins, commonCols, validator),
 		plugins:                  mergedPlugins,
@@ -185,7 +189,7 @@ type ProxyTranslator struct {
 func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
 	return ProxyTranslator{
 		xdsCache:      xdsCache,
-		publishBudget: newPublishBudgetGate(),
+		publishBudget: newPublishBudgetGate(defaultPerClientPublishBudget),
 	}
 }
 
