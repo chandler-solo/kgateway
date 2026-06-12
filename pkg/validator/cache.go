@@ -67,9 +67,12 @@ func NewCaching(v Validator, size int) Validator {
 
 func (c *cachingValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
 	// The key is an IN-PROCESS cache key only: it hashes protojson output,
-	// which is stable within one process but deliberately non-deterministic
-	// across binaries (protojson randomizes whitespace per process). It must
-	// never be persisted or compared across replicas.
+	// which is deterministic for a given binary but deliberately unstable
+	// across builds (protojson varies whitespace via a seed derived from a
+	// hash of the executable itself; see protobuf's internal/detrand). It
+	// must never be persisted or compared across versions; if that ever
+	// happens anyway, the failure mode is a cache miss, never a wrong
+	// verdict.
 	key, err := cacheKeyFor(bootstrap)
 	if err != nil {
 		// If we can't compute a key, fall through to the inner validator.
