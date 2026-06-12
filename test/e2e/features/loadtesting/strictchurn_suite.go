@@ -85,8 +85,9 @@ const (
 	strictChurnMetricsService = "kgateway-loadtest-metrics"
 	metricsPort               = 9092
 
-	defersMetric     = "kgateway_xds_snapshot_perclient_defers_total"
-	recoveriesMetric = "kgateway_xds_snapshot_perclient_recoveries_total"
+	defersMetric           = "kgateway_xds_snapshot_perclient_defers_total"
+	recoveriesMetric       = "kgateway_xds_snapshot_perclient_recoveries_total"
+	boundedPublishesMetric = "kgateway_xds_snapshot_perclient_bounded_publishes_total"
 
 	stableRouteHost    = "stable.strict-churn.example.com"
 	postChurnRouteHost = "postchurn.strict-churn.example.com"
@@ -366,8 +367,9 @@ func (s *StrictChurnSuite) TestStrictChurnConvergence() {
 	// the mid-churn restart, so compare against the post-restart baseline.
 	finalDefers := s.scrapeCounterSum(defersMetric)
 	finalRecoveries := s.scrapeCounterSum(recoveriesMetric)
-	s.T().Logf("Final counters: defers_total=%v (pre-churn %v), recoveries_total=%v",
-		finalDefers, defersBeforeChurn, finalRecoveries)
+	finalBounded := s.scrapeCounterSum(boundedPublishesMetric)
+	s.T().Logf("Final counters: defers_total=%v (pre-churn %v), recoveries_total=%v, bounded_publishes_total=%v",
+		finalDefers, defersBeforeChurn, finalRecoveries, finalBounded)
 	if finalDefers > 0 {
 		s.Require().GreaterOrEqual(finalRecoveries, float64(1),
 			"clients were deferred (%v defers) but never recovered; per-client publication is wedged", finalDefers)
