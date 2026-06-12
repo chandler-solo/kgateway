@@ -176,16 +176,16 @@ func NewProxySyncer(
 
 type ProxyTranslator struct {
 	xdsCache envoycache.SnapshotCache
-	// firstPublish tracks never-published clients awaiting their bounded
-	// first publish (see kube_gw_translator_syncer.go). Pointer so the state
-	// is shared across ProxyTranslator copies.
-	firstPublish *firstPublishGate
+	// publishBudget tracks clients with deferred snapshots awaiting their
+	// bounded publish (see kube_gw_translator_syncer.go). Pointer so the
+	// state is shared across ProxyTranslator copies.
+	publishBudget *publishBudgetGate
 }
 
 func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
 	return ProxyTranslator{
-		xdsCache:     xdsCache,
-		firstPublish: newFirstPublishGate(),
+		xdsCache:      xdsCache,
+		publishBudget: newPublishBudgetGate(),
 	}
 }
 
@@ -434,7 +434,7 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 				// call was already commented out); reclaiming these entries
 				// requires a departure signal cross-referenced with uccCol
 				// membership and is left to a follow-up.
-				s.proxyTranslator.firstPublish.clientDeparted(e.Latest().ResourceName())
+				s.proxyTranslator.publishBudget.clientDeparted(e.Latest().ResourceName())
 			}
 
 			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{

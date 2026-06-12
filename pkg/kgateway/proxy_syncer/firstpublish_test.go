@@ -15,13 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// shortenFirstPublishBudget shrinks the budget for the duration of a test.
+// shortenPublishBudget shrinks the budget for the duration of a test.
 // Tests using it must not run in parallel.
-func shortenFirstPublishBudget(t *testing.T, d time.Duration) {
+func shortenPublishBudget(t *testing.T, d time.Duration) {
 	t.Helper()
-	orig := perClientFirstPublishBudget
-	perClientFirstPublishBudget = d
-	t.Cleanup(func() { perClientFirstPublishBudget = orig })
+	orig := perClientPublishBudget
+	perClientPublishBudget = d
+	t.Cleanup(func() { perClientPublishBudget = orig })
 }
 
 func newTestTranslator() *ProxyTranslator {
@@ -63,7 +63,7 @@ func TestSyncXds_CoherentPublishesImmediately(t *testing.T) {
 }
 
 func TestSyncXds_DeferredToNeverPublishedWaitsThenPublishes(t *testing.T) {
-	shortenFirstPublishBudget(t, 50*time.Millisecond)
+	shortenPublishBudget(t, 50*time.Millisecond)
 	pt := newTestTranslator()
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
@@ -81,7 +81,7 @@ func TestSyncXds_DeferredToNeverPublishedWaitsThenPublishes(t *testing.T) {
 }
 
 func TestSyncXds_LatestDeferredWinsAtBudgetExpiry(t *testing.T) {
-	shortenFirstPublishBudget(t, 80*time.Millisecond)
+	shortenPublishBudget(t, 80*time.Millisecond)
 	pt := newTestTranslator()
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
@@ -97,7 +97,7 @@ func TestSyncXds_LatestDeferredWinsAtBudgetExpiry(t *testing.T) {
 }
 
 func TestSyncXds_CoherentSupersedesPendingDeferred(t *testing.T) {
-	shortenFirstPublishBudget(t, 100*time.Millisecond)
+	shortenPublishBudget(t, 100*time.Millisecond)
 	pt := newTestTranslator()
 
 	pt.syncXds(context.Background(), wrapperWithVersion("deferred", true, deferReasonMissingEndpoints))
@@ -114,19 +114,120 @@ func TestSyncXds_CoherentSupersedesPendingDeferred(t *testing.T) {
 	assert.Equal(t, "coherent", v, "a canceled first-publish timer must never overwrite a coherent snapshot")
 }
 
-func TestSyncXds_WarmClientNeverReceivesDeferred(t *testing.T) {
-	shortenFirstPublishBudget(t, 50*time.Millisecond)
+// snapshotWith builds a snapshot with explicit cluster/endpoint content; the
+// listener version doubles as the snapshot's identity marker in assertions.
+func snapshotWith(listenerVersion string, clusters, endpoints map[string]envoycachetypes.ResourceWithTTL) *envoycache.Snapshot {
+	s := &envoycache.Snapshot{}
+	s.Resources[envoycachetypes.Listener] = envoycache.NewResources(listenerVersion, nil)
+	s.Resources[envoycachetypes.Cluster] = envoycache.Resources{Version: "clusters-" + listenerVersion, Items: clusters}
+	s.Resources[envoycachetypes.Endpoint] = envoycache.Resources{Version: "endpoints-" + listenerVersion, Items: endpoints}
+	return s
+}
+
+func realCla(name string) envoycachetypes.ResourceWithTTL {
+	return envoycachetypes.ResourceWithTTL{Resource: &envoyendpointv3.ClusterLoadAssignment{
+		ClusterName: name,
+		Endpoints:   []*envoyendpointv3.LocalityLbEndpoints{{}},
+	}}
+}
+
+func emptyCla(name string) envoycachetypes.ResourceWithTTL {
+	return envoycachetypes.ResourceWithTTL{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}}
+}
+
+func publishedCla(t *testing.T, pt *ProxyTranslator, name string) *envoyendpointv3.ClusterLoadAssignment {
+	t.Helper()
+	snap, err := pt.xdsCache.GetSnapshot(testClientKey)
+	require.NoError(t, err)
+	res, ok := snap.GetResourcesAndTTL(resourcev3.EndpointType)[name]
+	require.True(t, ok, "published snapshot must contain CLA %s", name)
+	return res.Resource.(*envoyendpointv3.ClusterLoadAssignment)
+}
+
+// A warm client must be withheld within the budget, then receive the deferred
+// snapshot MERGED with carry-forward at budget expiry: the new config flows,
+// while the cluster the deferred snapshot is missing (mid-rebuild) and its
+// real CLA are retained from the published snapshot — an incomplete publish
+// can never remove a resource the client is using.
+func TestSyncXds_WarmClientGetsCarryForwardMergeAtBudget(t *testing.T) {
+	shortenPublishBudget(t, 60*time.Millisecond)
 	pt := newTestTranslator()
 
-	pt.syncXds(context.Background(), wrapperWithVersion("coherent", false))
-	pt.syncXds(context.Background(), wrapperWithVersion("deferred", true, deferReasonMissingClusters))
+	coherent := XdsSnapWrapper{
+		proxyKey: testClientKey,
+		snap: snapshotWith("v1",
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": edsClusterResource("cluster-a")},
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": realCla("cluster-a")}),
+	}
+	pt.syncXds(context.Background(), coherent)
 
-	// Far past the budget: the warm client must still hold the coherent
-	// snapshot — the bound applies only to never-published clients.
-	time.Sleep(150 * time.Millisecond)
+	// The deferred snapshot has NEW config (listener v2, new cluster-b) but
+	// lost cluster-a mid-rebuild; its only CLA is a synthesized empty for b.
+	deferred := XdsSnapWrapper{
+		proxyKey: testClientKey,
+		snap: snapshotWith("v2",
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-b": edsClusterResource("cluster-b")},
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-b": emptyCla("cluster-b")}),
+		deferred:           true,
+		deferReasons:       []string{deferReasonMissingClusters},
+		referencedClusters: map[string]struct{}{"cluster-a": {}, "cluster-b": {}},
+		synthesizedClas:    []string{"cluster-b"},
+	}
+	pt.syncXds(context.Background(), deferred)
+
+	// Within the budget: withheld, the coherent snapshot stays published.
 	v, ok := publishedVersion(t, pt)
 	require.True(t, ok)
-	assert.Equal(t, "coherent", v, "warm clients keep their last coherent snapshot, with no time bound")
+	assert.Equal(t, "v1", v, "warm client must be withheld within the budget")
+
+	// At budget expiry: the new config is published with carry-forward.
+	require.Eventually(t, func() bool {
+		v, ok := publishedVersion(t, pt)
+		return ok && v == "v2"
+	}, 2*time.Second, 5*time.Millisecond, "budget expiry must publish the new config to the warm client")
+
+	snap, err := pt.xdsCache.GetSnapshot(testClientKey)
+	require.NoError(t, err)
+	clusters := snap.GetResourcesAndTTL(resourcev3.ClusterType)
+	assert.Contains(t, clusters, "cluster-a", "the in-use cluster must be carried forward, not removed")
+	assert.Contains(t, clusters, "cluster-b", "the new cluster must be present")
+	assert.NotEmpty(t, publishedCla(t, pt, "cluster-a").GetEndpoints(),
+		"the carried-forward cluster must keep its real endpoints")
+	assert.Contains(t, snap.GetVersion(resourcev3.ClusterType), "-carry-",
+		"merged resource versions must be distinct from both inputs")
+}
+
+// When the deferred snapshot still has the cluster but only a synthesized
+// empty CLA for it, the merge must prefer the previously-published real CLA:
+// publishing the empty would drain live traffic.
+func TestSyncXds_CarryForwardPrefersPublishedClaOverSynthesized(t *testing.T) {
+	shortenPublishBudget(t, 40*time.Millisecond)
+	pt := newTestTranslator()
+
+	pt.syncXds(context.Background(), XdsSnapWrapper{
+		proxyKey: testClientKey,
+		snap: snapshotWith("v1",
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": edsClusterResource("cluster-a")},
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": realCla("cluster-a")}),
+	})
+	pt.syncXds(context.Background(), XdsSnapWrapper{
+		proxyKey: testClientKey,
+		snap: snapshotWith("v2",
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": edsClusterResource("cluster-a")},
+			map[string]envoycachetypes.ResourceWithTTL{"cluster-a": emptyCla("cluster-a")}),
+		deferred:           true,
+		deferReasons:       []string{deferReasonMissingEndpoints},
+		referencedClusters: map[string]struct{}{"cluster-a": {}},
+		synthesizedClas:    []string{"cluster-a"},
+	})
+
+	require.Eventually(t, func() bool {
+		v, ok := publishedVersion(t, pt)
+		return ok && v == "v2"
+	}, 2*time.Second, 5*time.Millisecond)
+
+	assert.NotEmpty(t, publishedCla(t, pt, "cluster-a").GetEndpoints(),
+		"the published real CLA must be preferred over the synthesized empty")
 }
 
 // The bounded publish must never be a dead end: once the budget has expired
@@ -136,7 +237,7 @@ func TestSyncXds_WarmClientNeverReceivesDeferred(t *testing.T) {
 // client receives an empty endpoints set and then never observes the real
 // endpoints.
 func TestSyncXds_CoherentAfterBoundedPublishOverwrites(t *testing.T) {
-	shortenFirstPublishBudget(t, 30*time.Millisecond)
+	shortenPublishBudget(t, 30*time.Millisecond)
 	pt := newTestTranslator()
 
 	pt.syncXds(context.Background(), wrapperWithVersion("deferred-synth", true, deferReasonMissingEndpoints))
@@ -156,11 +257,11 @@ func TestSyncXds_CoherentAfterBoundedPublishOverwrites(t *testing.T) {
 }
 
 func TestSyncXds_ClientDepartureCancelsPendingFirstPublish(t *testing.T) {
-	shortenFirstPublishBudget(t, 50*time.Millisecond)
+	shortenPublishBudget(t, 50*time.Millisecond)
 	pt := newTestTranslator()
 
 	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, deferReasonMissingClusters))
-	pt.firstPublish.clientDeparted(testClientKey)
+	pt.publishBudget.clientDeparted(testClientKey)
 
 	time.Sleep(150 * time.Millisecond)
 	_, ok := publishedVersion(t, pt)
@@ -197,8 +298,9 @@ func TestSynthesizeEmptyEndpointResources(t *testing.T) {
 		},
 	}
 
-	out := synthesizeEmptyEndpointResources([]string{"eds-b", "static-c", "not-a-cluster"}, clusters, existing)
+	out, synthesizedNames := synthesizeEmptyEndpointResources([]string{"eds-b", "static-c", "not-a-cluster"}, clusters, existing)
 
+	assert.Equal(t, []string{"eds-b"}, synthesizedNames, "only the synthesizable EDS cluster is reported")
 	require.Contains(t, out.Items, "eds-b", "missing EDS cluster gets a synthesized CLA")
 	synth := out.Items["eds-b"].Resource.(*envoyendpointv3.ClusterLoadAssignment)
 	assert.Equal(t, "eds-b", synth.GetClusterName())

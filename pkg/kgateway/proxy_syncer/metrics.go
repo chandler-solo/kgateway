@@ -17,6 +17,7 @@ const (
 	resultLabel       = "result"
 	resourceLabel     = "resource"
 	reasonLabel       = "reason"
+	modeLabel         = "mode"
 )
 
 var (
@@ -97,13 +98,21 @@ var (
 		metrics.CounterOpts{
 			Subsystem: snapshotSubsystem,
 			Name:      "perclient_bounded_publishes_total",
-			Help: "Total deferred snapshots published to never-published clients " +
-				"because the first-publish budget expired. Nonzero means clients " +
-				"started on incomplete-but-self-consistent config instead of " +
-				"waiting indefinitely (#14184).",
+			Help: "Total deferred snapshots published because the publish budget " +
+				"expired, by mode: first_publish (a never-published client started " +
+				"on incomplete-but-self-consistent config instead of waiting " +
+				"indefinitely) or carry_forward (an already-published client " +
+				"received fresh config merged with its in-use resources instead " +
+				"of staying frozen) (#14184).",
 		},
-		[]string{gatewayLabel, namespaceLabel},
+		[]string{gatewayLabel, namespaceLabel, modeLabel},
 	)
+)
+
+// Modes for the bounded-publishes counter.
+const (
+	boundedPublishFirstPublish = "first_publish"
+	boundedPublishCarryForward = "carry_forward"
 )
 
 // recordSnapshotDefer counts one withheld publication for the client's
@@ -135,9 +144,9 @@ func recordSnapshotRecovery(proxyKey string) {
 	)
 }
 
-// recordBoundedFirstPublish counts a deferred snapshot published because the
-// first-publish budget expired.
-func recordBoundedFirstPublish(proxyKey string) {
+// recordBoundedPublish counts a deferred snapshot published because the
+// publish budget expired, by mode (first_publish or carry_forward).
+func recordBoundedPublish(proxyKey, mode string) {
 	if !metrics.Active() {
 		return
 	}
@@ -145,6 +154,7 @@ func recordBoundedFirstPublish(proxyKey string) {
 	snapshotPerClientBoundedPublishesTotal.Inc(
 		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: modeLabel, Value: mode},
 	)
 }
 

@@ -257,12 +257,18 @@ func snapshotPerClient(
 			// snapshot stays self-consistent if it ends up published to a
 			// never-published client: an explicit empty assignment makes Envoy
 			// treat the cluster as active-with-no-hosts immediately instead of
-			// stalling cluster warming on an absent EDS resource.
-			endpointRes = synthesizeEmptyEndpointResources(missingEndpointClusters, clusterResources.Items, endpointRes)
+			// stalling cluster warming on an absent EDS resource. The names are
+			// recorded on the wrapper so the carry-forward merge can prefer a
+			// previously-published real CLA over the synthesized empty.
+			endpointRes, snap.synthesizedClas = synthesizeEmptyEndpointResources(missingEndpointClusters, clusterResources.Items, endpointRes)
 		}
 
 		snap.deferred = len(deferReasons) > 0
 		snap.deferReasons = deferReasons
+		if snap.deferred {
+			// Consumed by the carry-forward merge in syncXds; read-only there.
+			snap.referencedClusters = listenerRouteSnapshot.ReferencedClusters
+		}
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
@@ -460,9 +466,10 @@ func synthesizeEmptyEndpointResources(
 	missingEndpointClusters []string,
 	clusters map[string]envoycachetypes.ResourceWithTTL,
 	endpointRes envoycache.Resources,
-) envoycache.Resources {
+) (envoycache.Resources, []string) {
 	items := make(map[string]envoycachetypes.ResourceWithTTL, len(endpointRes.Items)+len(missingEndpointClusters))
 	maps.Copy(items, endpointRes.Items)
+	synthesized := make([]string, 0, len(missingEndpointClusters))
 	var synthHash uint64
 	for _, clusterName := range missingEndpointClusters {
 		clusterResource, ok := clusters[clusterName]
@@ -476,12 +483,14 @@ func synthesizeEmptyEndpointResources(
 		items[resourceName] = envoycachetypes.ResourceWithTTL{
 			Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: resourceName},
 		}
+		synthesized = append(synthesized, resourceName)
 		synthHash ^= utils.HashString(resourceName)
 	}
+	sort.Strings(synthesized)
 	return envoycache.Resources{
 		Version: fmt.Sprintf("%s-synth-%d", endpointRes.Version, synthHash),
 		Items:   items,
-	}
+	}, synthesized
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
