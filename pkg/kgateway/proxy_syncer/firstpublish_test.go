@@ -129,6 +129,32 @@ func TestSyncXds_WarmClientNeverReceivesDeferred(t *testing.T) {
 	assert.Equal(t, "coherent", v, "warm clients keep their last coherent snapshot, with no time bound")
 }
 
+// The bounded publish must never be a dead end: once the budget has expired
+// and a deferred snapshot (with synthesized empty CLAs) was published, a later
+// coherent snapshot — e.g. the real ClusterLoadAssignments arriving — must
+// overwrite it. This is the guard against the classic failure mode where a
+// client receives an empty endpoints set and then never observes the real
+// endpoints.
+func TestSyncXds_CoherentAfterBoundedPublishOverwrites(t *testing.T) {
+	shortenFirstPublishBudget(t, 30*time.Millisecond)
+	pt := newTestTranslator()
+
+	pt.syncXds(context.Background(), wrapperWithVersion("deferred-synth", true, deferReasonMissingEndpoints))
+
+	require.Eventually(t, func() bool {
+		v, ok := publishedVersion(t, pt)
+		return ok && v == "deferred-synth"
+	}, 2*time.Second, 5*time.Millisecond, "budget expiry must publish the deferred snapshot")
+
+	// The real inputs arrive: the coherent snapshot must supersede the
+	// bounded one.
+	pt.syncXds(context.Background(), wrapperWithVersion("coherent-real", false))
+	v, ok := publishedVersion(t, pt)
+	require.True(t, ok)
+	assert.Equal(t, "coherent-real", v,
+		"a coherent snapshot after a bounded publish must overwrite the synthesized one")
+}
+
 func TestSyncXds_ClientDepartureCancelsPendingFirstPublish(t *testing.T) {
 	shortenFirstPublishBudget(t, 50*time.Millisecond)
 	pt := newTestTranslator()
