@@ -106,14 +106,14 @@ type ValidationCallerMetrics struct {
 
 func (m ValidationMetrics) Delta(base ValidationMetrics) ValidationMetrics {
 	out := ValidationMetrics{
-		Calls:            m.Calls - base.Calls,
-		CacheHits:        m.CacheHits - base.CacheHits,
-		CacheMisses:      m.CacheMisses - base.CacheMisses,
-		Valid:            m.Valid - base.Valid,
-		InvalidXDS:       m.InvalidXDS - base.InvalidXDS,
-		InvocationErrors: m.InvocationErrors - base.InvocationErrors,
+		Calls:            subtractInt64(m.Calls, base.Calls),
+		CacheHits:        subtractInt64(m.CacheHits, base.CacheHits),
+		CacheMisses:      subtractInt64(m.CacheMisses, base.CacheMisses),
+		Valid:            subtractInt64(m.Valid, base.Valid),
+		InvalidXDS:       subtractInt64(m.InvalidXDS, base.InvalidXDS),
+		InvocationErrors: subtractInt64(m.InvocationErrors, base.InvocationErrors),
 		DurationCount:    subtractUint64(m.DurationCount, base.DurationCount),
-		DurationSeconds:  m.DurationSeconds - base.DurationSeconds,
+		DurationSeconds:  subtractFloat64(m.DurationSeconds, base.DurationSeconds),
 		ByCaller:         map[string]ValidationCallerMetrics{},
 	}
 
@@ -131,18 +131,32 @@ func (m ValidationMetrics) Delta(base ValidationMetrics) ValidationMetrics {
 
 func (m ValidationCallerMetrics) delta(base ValidationCallerMetrics) ValidationCallerMetrics {
 	return ValidationCallerMetrics{
-		Calls:            m.Calls - base.Calls,
-		CacheHits:        m.CacheHits - base.CacheHits,
-		CacheMisses:      m.CacheMisses - base.CacheMisses,
-		Valid:            m.Valid - base.Valid,
-		InvalidXDS:       m.InvalidXDS - base.InvalidXDS,
-		InvocationErrors: m.InvocationErrors - base.InvocationErrors,
+		Calls:            subtractInt64(m.Calls, base.Calls),
+		CacheHits:        subtractInt64(m.CacheHits, base.CacheHits),
+		CacheMisses:      subtractInt64(m.CacheMisses, base.CacheMisses),
+		Valid:            subtractInt64(m.Valid, base.Valid),
+		InvalidXDS:       subtractInt64(m.InvalidXDS, base.InvalidXDS),
+		InvocationErrors: subtractInt64(m.InvocationErrors, base.InvocationErrors),
 		DurationCount:    subtractUint64(m.DurationCount, base.DurationCount),
-		DurationSeconds:  m.DurationSeconds - base.DurationSeconds,
+		DurationSeconds:  subtractFloat64(m.DurationSeconds, base.DurationSeconds),
 	}
 }
 
+func subtractInt64(after, before int64) int64 {
+	if after < before {
+		return 0
+	}
+	return after - before
+}
+
 func subtractUint64(after, before uint64) uint64 {
+	if after < before {
+		return 0
+	}
+	return after - before
+}
+
+func subtractFloat64(after, before float64) float64 {
 	if after < before {
 		return 0
 	}

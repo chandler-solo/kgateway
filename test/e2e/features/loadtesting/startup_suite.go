@@ -27,7 +27,7 @@ const (
 	controllerDeploymentName      = "kgateway"
 	startupBenchmarkAnnotation    = "e2e.kgateway.dev/startup-benchmark-at"
 	startupBenchmarkPollInterval  = 500 * time.Millisecond
-	startupBenchmarkReadyDeadline = 30 * time.Minute
+	startupBenchmarkReadyDeadline = 5 * time.Minute
 )
 
 var _ e2e.NewSuiteFunc = NewStartupBenchmarkSuite
