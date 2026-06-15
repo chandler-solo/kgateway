@@ -3,7 +3,6 @@ package validator
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
@@ -15,7 +14,7 @@ import (
 const DefaultCacheSize = 4096
 
 // cachingValidator wraps an inner Validator with an LRU cache keyed on the
-// content hash of the sanitized bootstrap. Successful and ErrInvalidXDS
+// content hash of the marshalled bootstrap. Successful and ErrInvalidXDS
 // outcomes are memoized; transient errors (e.g. exec failures, context
 // cancellation) are not, so flaky underlying invocations do not get pinned in
 // the cache. Concurrent misses on the same key are collapsed to one inner
@@ -55,9 +54,6 @@ func (e *cachedInvalidError) Unwrap() error { return ErrInvalidXDS }
 // NewCaching wraps v with an LRU result cache of the given size. If size <= 0,
 // DefaultCacheSize is used.
 func NewCaching(v Validator, size int) Validator {
-	if v == nil {
-		return nil
-	}
 	if size <= 0 {
 		size = DefaultCacheSize
 	}
@@ -71,22 +67,23 @@ func NewCaching(v Validator, size int) Validator {
 }
 
 func (c *cachingValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	start := time.Now()
 	caller := validationCaller(ctx)
 	recordValidationCall(caller)
 
-	if err := ctx.Err(); err != nil {
-		recordValidationResult(caller, validationResultInvocationError, start)
-		return err
-	}
-
+	// The key is an in-process cache key only: it hashes protojson output,
+	// which is deterministic for a given binary but deliberately unstable
+	// across builds (protojson varies whitespace via a seed derived from a
+	// hash of the executable itself; see protobuf's internal/detrand). It
+	// must never be persisted or compared across versions; if that ever
+	// happens anyway, the failure mode is a cache miss, never a wrong
+	// verdict.
 	key, err := cacheKeyFor(bootstrap)
 	if err != nil {
-		recordValidationResult(caller, validationResultInvocationError, start)
-		return fmt.Errorf("could not hash bootstrap config for validation cache: %w", err)
+		// If we cannot compute a key, fall through to the inner validator.
+		innerErr := c.inner.Validate(ctx, bootstrap)
+		recordValidationResult(caller, validationResultFromError(innerErr), start)
+		return innerErr
 	}
 
 	if hit, ok := c.cache.Get(key); ok {
@@ -102,9 +99,6 @@ func (c *cachingValidator) Validate(ctx context.Context, bootstrap *envoybootstr
 	// error and nothing is cached.
 	res, sfErr, _ := c.sf.Do(key, func() (any, error) {
 		innerErr := c.inner.Validate(ctx, bootstrap)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
 		if innerErr == nil {
 			r := cachedResult{ok: true}
 			c.cache.Add(key, r)

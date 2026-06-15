@@ -22,18 +22,6 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 )
 
-type countingValidator struct {
-	calls int
-	err   error
-}
-
-var _ Validator = &countingValidator{}
-
-func (v *countingValidator) Validate(context.Context, *envoybootstrapv3.Bootstrap) error {
-	v.calls++
-	return v.err
-}
-
 func TestBinaryValidator_Validate(t *testing.T) {
 	// note: actual config content doesn't matter for these tests. we cannot easily
 	// test valid/invalid config with the binary validator, so we mock it as there's no
