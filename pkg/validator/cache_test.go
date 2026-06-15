@@ -98,6 +98,33 @@ func TestCachingValidator_KeyStability(t *testing.T) {
 	assert.NotEqual(t, keyA, keyC)
 }
 
+func TestCachingValidator_KeyUsesSanitizedBootstrap(t *testing.T) {
+	stub := &stubValidator{}
+	v := NewCaching(stub, 2)
+
+	first := bootstrapForNode("same")
+	first.ApplicationLogConfig = &envoybootstrapv3.Bootstrap_ApplicationLogConfig{
+		LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat{
+			LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat_TextFormat{
+				TextFormat: "first",
+			},
+		},
+	}
+	second := bootstrapForNode("same")
+	second.ApplicationLogConfig = &envoybootstrapv3.Bootstrap_ApplicationLogConfig{
+		LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat{
+			LogFormat: &envoybootstrapv3.Bootstrap_ApplicationLogConfig_LogFormat_TextFormat{
+				TextFormat: "second",
+			},
+		},
+	}
+
+	require.NoError(t, v.Validate(context.Background(), first))
+	require.NoError(t, v.Validate(context.Background(), second))
+
+	assert.Equal(t, 1, stub.Calls(), "application log config should not affect the cache key")
+}
+
 func TestCachingValidator_Eviction(t *testing.T) {
 	stub := &stubValidator{}
 	v := NewCaching(stub, 2)
@@ -116,6 +143,22 @@ func TestCachingValidator_Eviction(t *testing.T) {
 
 	require.NoError(t, v.Validate(context.Background(), c))
 	assert.Equal(t, 4, stub.Calls(), "still-cached entry should not re-call")
+}
+
+func TestCachingValidator_RespectsContextCancellationAndDoesNotCache(t *testing.T) {
+	stub := &stubValidator{}
+	v := NewCaching(stub, 2)
+	bootstrap := bootstrapForNode("cancelled")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := v.Validate(ctx, bootstrap)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 0, stub.Calls())
+
+	require.NoError(t, v.Validate(context.Background(), bootstrap))
+	assert.Equal(t, 1, stub.Calls())
 }
 
 type gatedValidator struct {

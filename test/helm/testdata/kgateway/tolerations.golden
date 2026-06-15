@@ -351,7 +351,7 @@ spec:
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
-            failureThreshold: 1800
+            failureThreshold: 600
             httpGet:
               path: /readyz
               port: 9093

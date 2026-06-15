@@ -70,16 +70,6 @@ func NewCaching(v Validator, size int) Validator {
 	return &cachingValidator{inner: v, cache: cache}
 }
 
-// NewCached wraps a validator with a bounded in-memory LRU cache. It is kept as
-// an alias for callers introduced by the strict-validation optimization work.
-func NewCached(v Validator, capacity ...int) Validator {
-	size := DefaultCacheSize
-	if len(capacity) > 0 {
-		size = capacity[0]
-	}
-	return NewCaching(v, size)
-}
-
 func (c *cachingValidator) Validate(ctx context.Context, bootstrap *envoybootstrapv3.Bootstrap) error {
 	if ctx == nil {
 		ctx = context.Background()
