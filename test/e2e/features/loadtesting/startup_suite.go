@@ -149,7 +149,7 @@ func (s *LoadTestingSuite) waitForControllerRollout(generation int64, desiredRep
 	ticker := time.NewTicker(startupBenchmarkPollInterval)
 	defer ticker.Stop()
 
-	lastStatus := "deployment status not observed"
+	var lastStatus string
 	for {
 		deployment, err := deployments.Get(ctx, controllerDeploymentName, metav1.GetOptions{})
 		if err != nil {
@@ -163,6 +163,9 @@ func (s *LoadTestingSuite) waitForControllerRollout(generation int64, desiredRep
 
 		select {
 		case <-ctx.Done():
+			if lastStatus == "" {
+				lastStatus = "deployment status not observed"
+			}
 			return time.Since(start), lastStatus, fmt.Errorf("controller deployment was not ready within %s", startupBenchmarkReadyDeadline)
 		case <-ticker.C:
 		}

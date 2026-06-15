@@ -179,7 +179,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefix,
-					Value: ptrTo("/"),
+					Value: new("/"),
 				},
 			},
 		},
@@ -188,7 +188,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathExact,
-					Value: ptrTo("/exact"),
+					Value: new("/exact"),
 				},
 			},
 		},
@@ -197,7 +197,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefix,
-					Value: ptrTo("/separated"),
+					Value: new("/separated"),
 				},
 			},
 		},
@@ -233,7 +233,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathRegex,
-					Value: ptrTo("[[invalid"),
+					Value: new("[[invalid"),
 				},
 			},
 		},
@@ -242,7 +242,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefixPtr,
-					Value: ptrTo("/"),
+					Value: new("/"),
 				},
 				Headers: []gwv1.HTTPHeaderMatch{{
 					Type:  &headerRegex,
@@ -256,7 +256,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefixPtr,
-					Value: ptrTo("/"),
+					Value: new("/"),
 				},
 				QueryParams: []gwv1.HTTPQueryParamMatch{{
 					Type:  &queryRegex,
@@ -304,10 +304,6 @@ func testRouteWithMatch(match *envoyroutev3.RouteMatch) *envoyroutev3.Route {
 			},
 		},
 	}
-}
-
-func ptrTo[T any](v T) *T {
-	return &v
 }
 
 var pathPrefixPtr = gwv1.PathMatchPathPrefix

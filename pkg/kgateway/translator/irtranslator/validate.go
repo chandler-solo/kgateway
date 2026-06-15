@@ -192,14 +192,6 @@ func runValidation(
 	return nil
 }
 
-// validateMatcherOnly validates just the matcher using a dummy route.
-func validateMatcherOnly(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
-	if handled, err := validateGeneratedMatcher(route.GetMatch()); handled {
-		return err
-	}
-	return validateMatcherOnlyEnvoy(ctx, route, v)
-}
-
 func validateMatcherOnlyEnvoy(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
 	clusterName := "dummy-cluster"
 	builder := bootstrap.New()
