@@ -20,7 +20,6 @@ spec:
       app.kubernetes.io/name: kgateway
       app.kubernetes.io/instance: test-release
   maxUnavailable: 25%
-
 ---
 # Source: kgateway/templates/serviceaccount.yaml
 apiVersion: v1
@@ -267,7 +266,6 @@ rules:
   - get
   - list
   - watch
-
 ---
 # Source: kgateway/templates/serviceaccount.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -282,7 +280,6 @@ roleRef:
   kind: ClusterRole
   name: kgateway-default
   apiGroup: rbac.authorization.k8s.io
-
 ---
 # Source: kgateway/templates/service.yaml
 apiVersion: v1
@@ -317,7 +314,6 @@ spec:
     kgateway: kgateway
     app.kubernetes.io/name: kgateway
     app.kubernetes.io/instance: test-release
-
 ---
 # Source: kgateway/templates/deployment.yaml
 apiVersion: apps/v1
