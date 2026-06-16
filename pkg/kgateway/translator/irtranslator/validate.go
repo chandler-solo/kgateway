@@ -10,10 +10,8 @@ import (
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/regexutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/xds/bootstrap"
 )
@@ -51,12 +49,11 @@ var (
 // These include basic Envoy route property validation such as paths, prefixes, and weighted clusters,
 // along with quick checks for common issues that could cause problems.
 //
-// In strict mode, generated Gateway API matchers are checked in-process where possible. The full
-// route is then validated against Envoy in a single invocation. If that invocation fails, matcher
-// validation disambiguates whether the failure originates in the route's match block (drop the
-// route) or in its action (replace with a direct response). Matcher shapes this code cannot prove
-// safe fall back to Envoy matcher-only validation. Valid routes, the common case, pay only one
-// envoy invocation; invalid routes pay two at most.
+// In strict mode, the full route is validated against envoy in a single invocation. If that
+// invocation fails, a second matcher-only invocation disambiguates whether the failure
+// originates in the route's match block (drop the route) or in its action (replace with a
+// direct response). Valid routes, the common case, pay only one envoy invocation; invalid
+// routes pay two.
 //
 // This two-tiered approach is necessary because Envoy validate mode output does not provide
 // enough information to determine if the error is due to an invalid matcher (drop route)
@@ -76,16 +73,13 @@ func validateRoute(
 	if mode != apisettings.ValidationStrict {
 		return nil
 	}
-	if handled, err := validateGeneratedMatcher(route.GetMatch()); handled && err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
-	}
 	fullErr := validateFullRoute(ctx, route, v)
 	if fullErr == nil {
 		return nil
 	}
 	// Only run the matcher-only validation when the full route already failed,
 	// purely to attribute the failure to ErrInvalidMatcher vs ErrInvalidRoute.
-	if matcherErr := validateMatcherOnlyEnvoy(ctx, route, v); matcherErr != nil {
+	if matcherErr := validateMatcherOnly(ctx, route, v); matcherErr != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidMatcher, matcherErr)
 	}
 	return fmt.Errorf("%w: %w", ErrInvalidRoute, fullErr)
@@ -192,7 +186,7 @@ func runValidation(
 	return nil
 }
 
-func validateMatcherOnlyEnvoy(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
+func validateMatcherOnly(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
 	clusterName := "dummy-cluster"
 	builder := bootstrap.New()
 	builder.AddRoute(&envoyroutev3.Route{
@@ -222,119 +216,6 @@ func validateFullRoute(ctx context.Context, route *envoyroutev3.Route, v validat
 	}
 
 	return runValidation(ctx, v, builder, validator.CallerRouteFull)
-}
-
-func validateGeneratedMatcher(match *envoyroutev3.RouteMatch) (bool, error) {
-	if match == nil {
-		return false, nil
-	}
-	if match.GetRuntimeFraction() != nil || match.GetGrpc() != nil || match.GetTlsContext() != nil || match.GetDynamicMetadata() != nil {
-		return false, nil
-	}
-
-	if handled, err := validateGeneratedPathMatcher(match); !handled || err != nil {
-		return handled, err
-	}
-	for _, header := range match.GetHeaders() {
-		if handled, err := validateGeneratedHeaderMatcher(header); !handled || err != nil {
-			return handled, err
-		}
-	}
-	for _, query := range match.GetQueryParameters() {
-		if handled, err := validateGeneratedQueryMatcher(query); !handled || err != nil {
-			return handled, err
-		}
-	}
-
-	return true, nil
-}
-
-func validateGeneratedPathMatcher(match *envoyroutev3.RouteMatch) (bool, error) {
-	switch path := match.GetPathSpecifier().(type) {
-	case *envoyroutev3.RouteMatch_Path:
-		return true, nil
-	case *envoyroutev3.RouteMatch_Prefix:
-		return true, nil
-	case *envoyroutev3.RouteMatch_PathSeparatedPrefix:
-		if !isValidPathSeparated(path.PathSeparatedPrefix) {
-			return true, fmt.Errorf("path separated prefix %q is invalid", path.PathSeparatedPrefix)
-		}
-		return true, nil
-	case *envoyroutev3.RouteMatch_SafeRegex:
-		return true, validateRegexMatcher(path.SafeRegex, "path regex")
-	default:
-		return false, nil
-	}
-}
-
-func validateGeneratedHeaderMatcher(header *envoyroutev3.HeaderMatcher) (bool, error) {
-	if header == nil {
-		return false, nil
-	}
-	switch matcher := header.GetHeaderMatchSpecifier().(type) {
-	case *envoyroutev3.HeaderMatcher_PresentMatch:
-		return true, nil
-	case *envoyroutev3.HeaderMatcher_StringMatch:
-		return validateGeneratedStringMatcher(matcher.StringMatch, fmt.Sprintf("header %q", header.GetName()))
-	default:
-		return false, nil
-	}
-}
-
-func validateGeneratedQueryMatcher(query *envoyroutev3.QueryParameterMatcher) (bool, error) {
-	if query == nil {
-		return false, nil
-	}
-	switch matcher := query.GetQueryParameterMatchSpecifier().(type) {
-	case *envoyroutev3.QueryParameterMatcher_PresentMatch:
-		return true, nil
-	case *envoyroutev3.QueryParameterMatcher_StringMatch:
-		return validateGeneratedStringMatcher(matcher.StringMatch, fmt.Sprintf("query parameter %q", query.GetName()))
-	default:
-		return false, nil
-	}
-}
-
-func validateGeneratedStringMatcher(matcher *envoy_type_matcher_v3.StringMatcher, field string) (bool, error) {
-	if matcher == nil {
-		return false, nil
-	}
-	switch pattern := matcher.GetMatchPattern().(type) {
-	case *envoy_type_matcher_v3.StringMatcher_Exact:
-		return true, nil
-	case *envoy_type_matcher_v3.StringMatcher_SafeRegex:
-		return true, validateRegexMatcher(pattern.SafeRegex, field+" regex")
-	default:
-		return false, nil
-	}
-}
-
-func validateRegexMatcher(matcher *envoy_type_matcher_v3.RegexMatcher, field string) error {
-	if matcher == nil {
-		return fmt.Errorf("%s is missing", field)
-	}
-	if err := regexutils.CheckRegexString(matcher.GetRegex()); err != nil {
-		return fmt.Errorf(
-			"validation failed: %w: error initializing configuration '/dev/fd/0': %s",
-			validator.ErrInvalidXDS,
-			envoyRegexError(matcher.GetRegex(), err),
-		)
-	}
-	return nil
-}
-
-func envoyRegexError(pattern string, err error) string {
-	errText := err.Error()
-	if strings.Contains(errText, "missing closing ]") {
-		if bracket := strings.Index(pattern, "["); bracket >= 0 {
-			pattern = pattern[bracket:]
-		}
-		return "missing ]: " + pattern
-	}
-	if strings.Contains(errText, "invalid named capture") {
-		return "invalid named capture group: " + pattern
-	}
-	return errText
 }
 
 // createStubClusters creates minimal cluster definitions for validation purposes.
