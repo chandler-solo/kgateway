@@ -29,11 +29,19 @@ var e2eTestsNotRequiredInPRShards = map[string]string{
 }
 
 // TestAllE2ETestsInShards verifies that every E2E test function and registered
-// suite in test/e2e/tests/ is covered by at least one regex in e2e.yaml.
+// suite in test/e2e/tests/ is covered by at least one regex in either the
+// per-PR e2e.yaml shards or a dedicated job in nightly-tests.yaml.
 // This prevents new tests from being added without CI coverage.
+//
+// Most suites run in the e2e.yaml shards. A few (e.g. StrictChurn) mutate the
+// controller deployment, are hard-gated behind an env var so broad -run regexes
+// skip them, and instead run in a dedicated nightly job. Accepting nightly
+// coverage lets those suites be exempt from the PR shards without losing the
+// guarantee that they run somewhere in CI.
 func TestAllE2ETestsInShards(t *testing.T) {
 	sourceTests := discoverE2ETestPaths(t)
 	shardPaths := parseE2EWorkflowPaths(t)
+	shardPaths = append(shardPaths, parseNightlyWorkflowPaths(t)...)
 
 	var missing []string
 	for _, tp := range sourceTests {
@@ -47,7 +55,7 @@ func TestAllE2ETestsInShards(t *testing.T) {
 
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		t.Errorf("E2E tests not covered by e2e.yaml:\n  %s\n\nUpdate .github/workflows/e2e.yaml to include these tests",
+		t.Errorf("E2E tests not covered by CI:\n  %s\n\nUpdate .github/workflows/e2e.yaml (or nightly-tests.yaml for nightly-only suites) to include these tests",
 			strings.Join(missing, "\n  "))
 	}
 }
@@ -188,6 +196,54 @@ func parseE2EWorkflowPaths(t *testing.T) []shardPath {
 				continue
 			}
 			for alt := range strings.SplitSeq(shard.GoTestRunRegex, "|") {
+				entries = append(entries, regexToShardPath(alt))
+			}
+		}
+	}
+
+	return entries
+}
+
+// nightlyWorkflowConfig captures the parts of nightly-tests.yaml needed to
+// discover test coverage. Nightly jobs invoke the kubernetes-e2e-tests action
+// directly with a step-level `run-regex` rather than a strategy matrix, so the
+// shape differs from workflowConfig.
+type nightlyWorkflowConfig struct {
+	Jobs map[string]struct {
+		Steps []struct {
+			With struct {
+				RunRegex string `json:"run-regex"`
+			} `json:"with"`
+		} `json:"steps"`
+	} `json:"jobs"`
+}
+
+// parseNightlyWorkflowPaths extracts test paths from the literal step-level
+// `run-regex` values in nightly-tests.yaml. Regexes that interpolate a matrix
+// value (e.g. "${{ matrix.controllers.regex }}") are skipped because they can't
+// be resolved statically; the suites they cover are already in the e2e.yaml
+// shards.
+func parseNightlyWorkflowPaths(t *testing.T) []shardPath {
+	t.Helper()
+
+	data, err := os.ReadFile("../../../.github/workflows/nightly-tests.yaml")
+	if err != nil {
+		t.Fatalf("failed to read nightly-tests.yaml: %v", err)
+	}
+
+	var config nightlyWorkflowConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatalf("failed to parse nightly-tests.yaml: %v", err)
+	}
+
+	var entries []shardPath
+	for _, job := range config.Jobs {
+		for _, step := range job.Steps {
+			regex := step.With.RunRegex
+			if regex == "" || strings.Contains(regex, "${{") {
+				continue
+			}
+			for alt := range strings.SplitSeq(regex, "|") {
 				entries = append(entries, regexToShardPath(alt))
 			}
 		}
