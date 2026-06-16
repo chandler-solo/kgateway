@@ -1,0 +1,85 @@
+# Machine-checked mapping from the per-cluster readiness spec
+# (devel/formal/lean/XdsSpec/PerClusterReadiness.lean) to the Go code it
+# describes. Gated by formal_model_map_test.go.
+#
+# Statuses:
+#   covered   - snapshotPerClient implements the obligation; the listed
+#               tests discharge it.
+#   divergent - the current code is one of the spec's bug systems; the
+#               listed divergence pins assert the CURRENT behavior so the
+#               gap is load-bearing in CI. When the per-cluster synthesis
+#               lands, the pins fail and must be rewritten to assert the
+#               safe-system behavior, and the entry flips to covered.
+#   open      - not implemented; the note says where the work is tracked.
+obligations:
+  - id: C1-steady-state-publish
+    summary: a referenced cluster with usable endpoints publishes its current truth
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - publishA
+    status: covered
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientEndpointOnlyUpdateOnlyChangesEDSVersion
+  - id: C2-scale-to-zero-publishes-truth
+    summary: a previously-active cluster that scales to zero publishes its empty CLA so Envoy drops the dead endpoints
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - publishA
+      - truthPublishedA
+    status: divergent
+    note: snapshotPerClient is the spec's wholeSnapshotDeferBugSystem here - the empty CLA can never pass guard #3, so Envoy keeps routing to endpoints that no longer exist (the original incident complaint). The fix is the per-cluster synthesis; see the spec module docs.
+    divergencePins:
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go
+        test: TestSnapshotPerClientScaleToZeroCurrentlyDefersInsteadOfPublishingEmptyCLA
+  - id: C3-flip-gated-on-usable-endpoint
+    summary: the route flip onto a newly-referenced cluster waits for a CLA with a usable endpoint (make-before-break, no 503 window)
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - flipRoutes
+      - flipWasGated
+    status: covered
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint
+      - file: test/e2e/features/xds_warming/suite.go
+        test: TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic
+      - file: test/e2e/features/xds_warming/suite.go
+        test: TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic
+  - id: C3-isolation-warming-cluster-does-not-block-others
+    summary: while a newly-referenced cluster warms, only its route flip is held - other clusters' updates keep publishing
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - truthLagsA
+      - truthPublishedA
+    status: divergent
+    note: the whole-snapshot gate strands every update for the client behind one perpetually-unready backend (the probe-backend livelock). Same fix as C2.
+    divergencePins:
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go
+        test: TestSnapshotPerClientWarmingClusterCurrentlyBlocksUnrelatedEndpointUpdates
+  - id: C4-removed-cluster-prunes-cla
+    summary: a cluster removed from CDS takes its CLA with it (EDS subset, named-watch respondability)
+    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    specAnchors:
+      - cacheSnapshotClosed
+    status: covered
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved
+  - id: C5-cla-travels-with-cluster
+    summary: a published CLA is always accompanied by its CDS cluster (no orphans; constrains any future carry-forward mechanism)
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - noOrphanB
+    status: covered
+    note: also enforced on every recorded publish by the trace checker's no-orphan-cla rule (XdsSpec/TraceCheck.lean).
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestFilterEndpointResourcesForClusters_FiltersStaleClusterLoadAssignments
+  - id: KRT-A1-heartbeat-restores-progress
+    summary: a client stuck in the defer window converges within one watchdog re-derivation
+    specFile: devel/formal/lean/XdsSpec/Liveness.lean
+    specAnchors:
+      - stuck_client_converges
+    status: open
+    note: proven sufficient in the spec; the Go mechanism is the defer watchdog (fix/defer-watchdog branch). Discharge tracked as assumption KRT-A1 in formal-assumptions.yaml.

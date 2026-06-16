@@ -1,10 +1,8 @@
 package develtesting
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -106,17 +104,7 @@ func TestFormalAssumptionsDischarged(t *testing.T) {
 				t.Fatalf("status %q must be one of [discharged open]", status)
 			}
 			for _, discharge := range assumption.DischargedBy {
-				source, err := os.ReadFile(filepath.Join(repoRoot, discharge.File))
-				if err != nil {
-					t.Errorf("discharging test file %q does not exist: %v", discharge.File, err)
-					continue
-				}
-				// Match both top-level test funcs and suite methods.
-				declaration := regexp.MustCompile(
-					fmt.Sprintf(`func\s+(\([^)]*\)\s*)?%s\s*\(`, regexp.QuoteMeta(discharge.Test)))
-				if !declaration.Match(source) {
-					t.Errorf("discharging test %q not declared in %s", discharge.Test, discharge.File)
-				}
+				requireTestDeclared(t, repoRoot, discharge.File, discharge.Test)
 			}
 		})
 	}

@@ -45,7 +45,15 @@ convergence model in `devel/formal/tla/` with three stronger artifacts:
    (`WholeSnapshotDeferBug`, a liveness violation), and the demoted
    gate opens a 503 window by flipping routes onto a cluster that
    warmed on an empty CLA (`PublishWhileWarmingBug`, a safety violation
-   of `FlipWasGated`).
+   of `FlipWasGated`). Each obligation is tied to the Go code through
+   `devel/testing/formal-model-map.yaml` (gated by
+   `TestFormalModelMap`): covered obligations name their discharging
+   tests, and the two places where `snapshotPerClient` currently *is*
+   the bug system (C2 scale-to-zero, C3 isolation) are pinned by
+   characterization tests in
+   `pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go`
+   that assert today's behavior and must flip when the per-cluster
+   synthesis lands — the divergence is load-bearing in CI, not prose.
 5. **Trace conformance** (`XdsSpec/TraceCheck.lean`,
    `lake exe xdsspec trace`). The proxy_syncer Go tests, run with
    `XDS_TRACE_OUT=<file>`, record every `snapshotPerClient` decision

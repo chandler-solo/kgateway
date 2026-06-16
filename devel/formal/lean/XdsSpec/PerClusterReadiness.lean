@@ -46,6 +46,16 @@ that matter. Pruning of removed clusters (C4) and the carry-forward
 pairing constraint (C5: a carried CLA always travels with its CDS
 cluster) are covered by the convergence spec's `CacheSnapshotClosed`
 and the trace checker's no-orphan-cla rule.
+
+Connection to the implementation: every obligation here is mapped to
+the Go test that discharges it — or to a characterization test that
+pins the current divergence — in devel/testing/formal-model-map.yaml,
+gated by TestFormalModelMap. As of this writing `snapshotPerClient` IS
+the `wholeSnapshotDeferBugSystem`: the C2 and C3-isolation divergences
+are pinned by the tests in
+pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go,
+which assert the current behavior on purpose and must be flipped when
+the per-cluster synthesis lands.
 -/
 import XdsSpec.Checker
 
