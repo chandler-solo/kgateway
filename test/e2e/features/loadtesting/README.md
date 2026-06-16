@@ -195,8 +195,8 @@ pipeline under its worst-case shape (#14184) rather than a latency benchmark:
   (`kgateway_xds_snapshot_perclient_recoveries_total`).
 
 Because the suite mutates the controller deployment, it is registered with the
-suite runner but excluded from the CI e2e clusters; run it explicitly with
-`make run-load-tests-strict-churn`.
+suite runner but excluded from shared CI e2e clusters. It runs in a dedicated
+nightly job and can be run explicitly with `make run-load-tests-strict-churn`.
 
 ## Framework Architecture
 
