@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stretchr/testify/suite"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -19,8 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	typedappsv1 "k8s.io/client-go/kubernetes/typed/apps/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 )
 
 const (
@@ -29,22 +26,6 @@ const (
 	startupBenchmarkPollInterval  = 500 * time.Millisecond
 	startupBenchmarkReadyDeadline = 5 * time.Minute
 )
-
-var _ e2e.NewSuiteFunc = NewStartupBenchmarkSuite
-
-func NewStartupBenchmarkSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.TestingSuite {
-	return &StartupBenchmarkSuite{
-		LoadTestingSuite: LoadTestingSuite{
-			Suite:            suite.Suite{},
-			ctx:              ctx,
-			testInstallation: testInst,
-		},
-	}
-}
-
-type StartupBenchmarkSuite struct {
-	LoadTestingSuite
-}
 
 type startupBenchmarkResult struct {
 	Namespace         string
@@ -59,12 +40,6 @@ type startupBenchmarkResult struct {
 	LastStatus        string
 	PodSnapshot       string
 	RecentEvents      string
-}
-
-func (s *StartupBenchmarkSuite) TestControllerRolloutStartup() {
-	result, err := s.measureControllerRolloutStartup()
-	s.logStartupBenchmarkResult(result, err == nil)
-	s.Require().NoError(err, "startup benchmark failed: status=%s pods=%s events=%s", result.LastStatus, result.PodSnapshot, result.RecentEvents)
 }
 
 func (s *LoadTestingSuite) measureControllerRolloutStartup() (*startupBenchmarkResult, error) {

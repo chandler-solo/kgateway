@@ -7,7 +7,7 @@ This directory contains the KGateway load testing framework that implements perf
 The load testing framework provides:
 
 - **Attached Routes Test**: Measures Gateway API route attachment performance
-- **Startup Benchmark**: Measures kgateway controller rollout startup time
+- **Controller Restart Measurement**: Measures kgateway controller rollout recovery while baseline routes already exist
 - **VCluster Simulation**: Creates fake cluster resources to simulate production-scale environments
 - **Scale-Aware Testing**: Automatically adjusts thresholds based on route count (1000 vs 5000+ routes)
 - **Performance Monitoring**: Tracks setup time, teardown time, and status propagation
@@ -67,13 +67,6 @@ make run-load-tests
 
 # Run against an already-installed strict-validation controller
 VALIDATION_MODE=strict make run-load-tests
-
-# Run the startup benchmark against the normal TestKgateway installation
-go test -tags e2e -timeout 10m ./test/e2e/tests -run '^TestKgateway$/^StartupBenchmark$'
-
-# Run the startup benchmark against an already-installed release
-SKIP_INSTALL=true CLUSTER_NAME=kind INSTALL_NAMESPACE=kgateway-system \
-  go test -tags e2e -timeout 10m ./test/e2e/tests -run '^TestStartupBenchmark$'
 ```
 
 ### VS Code Debug Configuration
@@ -145,14 +138,12 @@ Add this configuration to your `.vscode/launch.json` file:
 - `CLUSTER_NAME=kind`: Targets the kind cluster named "kind"
 - `INSTALL_NAMESPACE=kgateway-system`: Specifies where KGateway is installed
 
-The nightly Gateway API version matrix runs the startup benchmark through the
-`TestKgateway/StartupBenchmark` suite. The benchmark emits a
-`startup_benchmark_result` log line with the Gateway API CRD version/channel,
-validation mode, controller image, rollout generation, duration, and failure
-diagnostics.
-
 The nightly load-test action runs the full attached-routes suite twice: once
 with `validation.level=standard` and once with `validation.level=strict`.
+Each attached-routes run restarts the controller after creating baseline routes
+and emits a `startup_benchmark_result` log line with the Gateway API CRD
+version/channel, validation mode, controller image, rollout generation,
+duration, and failure diagnostics.
 
 ## Test Types and Metrics
 
@@ -168,9 +159,9 @@ with `validation.level=standard` and once with `validation.level=strict`.
 - **Thresholds**: Setup <90s, Teardown <20s
 - **Batch Size**: 500 routes per batch
 
-### Startup Benchmark
+### Controller Restart Measurement
 
-- **Purpose**: Measures the time from a controller rollout restart to a fully ready new deployment generation
+- **Purpose**: Measures the time from a controller rollout restart to a fully ready new deployment generation after baseline routes are present
 - **Failure Signal**: Fails if the controller deployment does not become ready within 5 minutes
 - **Diagnostics**: Records deployment status, controller pod state, recent pod events, and installed Gateway API metadata
 
