@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
 )
 
@@ -20,10 +21,12 @@ const (
 
 	validationSubsystem             = "validation"
 	validationCallerLabel           = "caller"
+	validationModeLabel             = "mode"
 	validationResultLabel           = "result"
 	validationResultValid           = "valid"
 	validationResultInvalidXDS      = "invalid_xds"
 	validationResultInvocationError = "invocation_error"
+	validatorModeLabel              = "validator_mode"
 )
 
 type validationCallerContextKey struct{}
@@ -86,7 +89,27 @@ var (
 		},
 		[]string{validationCallerLabel, validationResultLabel},
 	)
+	validationModeInfo = metrics.NewGauge(
+		metrics.GaugeOpts{
+			Subsystem: validationSubsystem,
+			Name:      "mode",
+			Help:      "Configured validation mode. The active mode series has value 1.",
+		},
+		[]string{validationModeLabel, validatorModeLabel},
+	)
 )
+
+// RecordValidationMode publishes the controller's configured validation modes.
+func RecordValidationMode(mode apisettings.ValidationMode, validatorMode apisettings.ValidatorMode) {
+	if !metrics.Active() {
+		return
+	}
+	validationModeInfo.Reset()
+	validationModeInfo.Set(1, []metrics.Label{
+		{Name: validationModeLabel, Value: string(mode)},
+		{Name: validatorModeLabel, Value: string(validatorMode)},
+	}...)
+}
 
 func WithValidationCaller(ctx context.Context, caller ValidationCaller) context.Context {
 	if ctx == nil {
