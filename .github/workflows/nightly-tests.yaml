@@ -24,6 +24,10 @@ on:
         description: "Run load testing suite"
         type: boolean
         default: false
+      run-strict-churn:
+        description: "Run strict churn convergence test"
+        type: boolean
+        default: false
       run-e2e-tests:
         description: "Run e2e tests"
         type: boolean
@@ -121,6 +125,61 @@ jobs:
         with:
           ref: ${{ matrix.ref.checkout_ref }}
       - uses: ./.github/actions/kube-gateway-api-load-tests
+
+  kgateway_strict_churn_test:
+    name: Strict Churn (k8s=max, gw-api=v1.5.1-experimental)
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.run-strict-churn ) || github.event.schedule == '0 5 * * *' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ env.BRANCH }}
+      - name: Prep Go Runner
+        uses: ./.github/actions/prep-go-runner
+      - name: Dotenv Action
+        uses: falti/dotenv-action@a33be0b8cf6a6e6f1b82cc9f3782061ab1022be5 # v1.1.4
+        id: dotenv
+        with:
+          path: ./.github/workflows/.env/nightly-tests/max_versions.env
+          log-variables: true
+      - name: Setup KinD Cluster
+        if: ${{ steps.dotenv.outputs.cluster_type != 'k3d' }}
+        uses: ./.github/actions/setup-kind-cluster
+        with:
+          gateway-api-version: v1.5.1
+          gateway-api-channel: experimental
+          cluster-name: kgw-strict-churn-nightly
+          kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
+          istio-version: ${{ steps.dotenv.outputs.istio_version }}
+          kind-node-version: ${{ steps.dotenv.outputs.node_version }}
+          localstack: "false"
+      - name: Setup k3d Cluster
+        if: ${{ steps.dotenv.outputs.cluster_type == 'k3d' }}
+        uses: ./.github/actions/setup-k3d-cluster
+        with:
+          gateway-api-version: v1.5.1
+          gateway-api-channel: experimental
+          cluster-name: kgw-strict-churn-nightly
+          kubectl-version: ${{ steps.dotenv.outputs.kubectl_version }}
+          istio-version: ${{ steps.dotenv.outputs.istio_version }}
+          node-version: ${{ steps.dotenv.outputs.node_version }}
+          localstack: "false"
+          github-token: ${{ github.token }}
+      - id: run-tests
+        uses: ./.github/actions/kubernetes-e2e-tests
+        env:
+          VERSION: 'v1.0.0-ci1'
+          GITHUB_TOKEN: ${{ github.token }}
+          KGW_ENABLE_STRICT_CHURN: 'true'
+          GOTESTSUM_ARGS: '--format=standard-verbose'
+        with:
+          cluster-name: kgw-strict-churn-nightly
+          cluster-type: ${{ steps.dotenv.outputs.cluster_type || 'kind' }}
+          test-args: '-timeout=30m'
+          run-regex: '^TestKgateway$$/^StrictChurn$$'
+          istio-version: ${{ steps.dotenv.outputs.istio_version }}
+          matrix-label: nightly-strict-churn
 
   kgateway_e2e_tests_for_gateway_api_versions:
     name: E2E (ref=${{ matrix.ref.display_ref }}, k8s=${{ matrix.env-versions.label }}, gw-api=${{ matrix.gateway-api-version.version }}-${{ matrix.gateway-api-version.channel }})

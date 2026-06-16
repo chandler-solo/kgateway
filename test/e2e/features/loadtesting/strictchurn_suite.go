@@ -46,9 +46,10 @@ import (
 //     (kgateway_xds_snapshot_perclient_recoveries_total).
 //
 // The suite mutates the controller deployment (KGW_VALIDATION_MODE=STRICT)
-// and restores it on teardown, so it must not share a cluster with suites
-// that assume a steady controller. It is registered with the suite runner but
-// excluded from the CI e2e clusters; run it via `make run-load-tests-strict-churn`.
+// and restores it on teardown, so it must not share a cluster with suites that
+// assume a steady controller. It is registered with the suite runner but
+// excluded from shared CI e2e clusters; run it via the dedicated nightly job or
+// `make run-load-tests-strict-churn`.
 
 // Scale and timing knobs. The scale is sized so a full per-client fan-out is
 // hundreds of strict validations per connected client — large enough that a
