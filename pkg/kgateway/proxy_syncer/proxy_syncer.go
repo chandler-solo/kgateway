@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"sync/atomic"
 
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -197,31 +198,43 @@ func (r report) ResourceName() string {
 
 // do we really need this for a singleton?
 func (r report) Equals(in report) bool {
-	if !maps.Equal(r.reportMap.Gateways, in.reportMap.Gateways) {
+	if !maps.EqualFunc(r.reportMap.Gateways, in.reportMap.Gateways, reportValueEqual[reports.GatewayReport]) {
 		return false
 	}
 	if !maps.EqualFunc(r.reportMap.ListenerSets, in.reportMap.ListenerSets,
 		func(a, b map[types.NamespacedName]*reports.ListenerSetReport) bool {
-			return maps.Equal(a, b)
+			return maps.EqualFunc(a, b, reportValueEqual[reports.ListenerSetReport])
 		}) {
 		return false
 	}
-	if !maps.Equal(r.reportMap.HTTPRoutes, in.reportMap.HTTPRoutes) {
+	if !maps.EqualFunc(r.reportMap.HTTPRoutes, in.reportMap.HTTPRoutes, reportValueEqual[reports.RouteReport]) {
 		return false
 	}
-	if !maps.Equal(r.reportMap.TCPRoutes, in.reportMap.TCPRoutes) {
+	if !maps.EqualFunc(r.reportMap.GRPCRoutes, in.reportMap.GRPCRoutes, reportValueEqual[reports.RouteReport]) {
 		return false
 	}
-	if !maps.Equal(r.reportMap.TLSRoutes, in.reportMap.TLSRoutes) {
+	if !maps.EqualFunc(r.reportMap.TCPRoutes, in.reportMap.TCPRoutes, reportValueEqual[reports.RouteReport]) {
 		return false
 	}
-	if !maps.Equal(r.reportMap.Policies, in.reportMap.Policies) {
+	if !maps.EqualFunc(r.reportMap.TLSRoutes, in.reportMap.TLSRoutes, reportValueEqual[reports.RouteReport]) {
+		return false
+	}
+	if !maps.EqualFunc(r.reportMap.Policies, in.reportMap.Policies, reportValueEqual[reports.PolicyReport]) {
 		return false
 	}
 	if !maps.EqualFunc(r.reportMap.Backends, in.reportMap.Backends, backendReportEqual) {
 		return false
 	}
 	return true
+}
+
+// reportValueEqual compares two non-nil pointers by value (reflect.DeepEqual on the
+// dereferenced structs). Reports contain unexported fields so we must use reflect.
+func reportValueEqual[T any](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return reflect.DeepEqual(*a, *b)
 }
 
 // backendReportEqual reports whether two BackendReports hold the same conditions and observed generation.

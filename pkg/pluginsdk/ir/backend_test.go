@@ -9,6 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
@@ -88,6 +90,80 @@ func createTestBackendObjectIR(trafficDist wellknown.TrafficDistribution) Backen
 	}
 	backend.TrafficDistribution = trafficDist
 	return backend
+}
+
+func makeGatewayForEquality(resourceVersion string) *gwv1.Gateway {
+	return &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-gateway",
+			Namespace:       "default",
+			UID:             types.UID("test-gateway-uid"),
+			ResourceVersion: resourceVersion,
+			Generation:      1,
+			Labels: map[string]string{
+				"policy": "enabled",
+			},
+			Annotations: map[string]string{
+				"kgateway.dev/test": "true",
+			},
+		},
+		Spec: gwv1.GatewaySpec{
+			GatewayClassName: gwv1.ObjectName("kgateway"),
+			Listeners: []gwv1.Listener{{
+				Name:     "http",
+				Port:     80,
+				Protocol: gwv1.HTTPProtocolType,
+			}},
+		},
+	}
+}
+
+func makeGatewayIRForEquality(gatewayObject *gwv1.Gateway) Gateway {
+	return Gateway{
+		ObjectSource: ObjectSource{
+			Group:     gwv1.GroupVersion.Group,
+			Kind:      wellknown.GatewayKind,
+			Namespace: gatewayObject.Namespace,
+			Name:      gatewayObject.Name,
+		},
+		Obj: gatewayObject,
+		Listeners: Listeners{{
+			Listener: gatewayObject.Spec.Listeners[0],
+			Parent:   gatewayObject,
+		}},
+		AllowedListenerSets: map[schema.GroupVersionKind]ListenerSets{},
+		DeniedListenerSets:  map[schema.GroupVersionKind]ListenerSets{},
+	}
+}
+
+func TestGatewayEqualsIgnoresStatusOnlyParentUpdates(t *testing.T) {
+	baseGateway := makeGatewayForEquality("1")
+	statusUpdatedGateway := baseGateway.DeepCopy()
+	statusUpdatedGateway.ResourceVersion = "2"
+	statusUpdatedGateway.Status = gwv1.GatewayStatus{
+		Conditions: []metav1.Condition{{
+			Type:               string(gwv1.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(gwv1.GatewayReasonAccepted),
+			ObservedGeneration: baseGateway.Generation,
+			LastTransitionTime: metav1.Now(),
+		}},
+	}
+
+	baseGatewayIR := makeGatewayIRForEquality(baseGateway)
+	statusUpdatedGatewayIR := makeGatewayIRForEquality(statusUpdatedGateway)
+	require.True(t, baseGatewayIR.Equals(statusUpdatedGatewayIR))
+
+	labelUpdatedGateway := baseGateway.DeepCopy()
+	labelUpdatedGateway.ResourceVersion = "3"
+	labelUpdatedGateway.Labels["policy"] = "disabled"
+	require.False(t, baseGatewayIR.Equals(makeGatewayIRForEquality(labelUpdatedGateway)))
+
+	specUpdatedGateway := baseGateway.DeepCopy()
+	specUpdatedGateway.ResourceVersion = "4"
+	specUpdatedGateway.Generation = 2
+	specUpdatedGateway.Spec.Listeners[0].Port = 8080
+	require.False(t, baseGatewayIR.Equals(makeGatewayIRForEquality(specUpdatedGateway)))
 }
 
 func TestBackendObjectIREquals(t *testing.T) {
