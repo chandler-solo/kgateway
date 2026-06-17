@@ -182,11 +182,12 @@ func snapshotPerClient(
 		//   - a client that already holds a published snapshot never receives
 		//     a deferred one — Envoy keeps its last coherent config, with no
 		//     deadline (make-before-break, unchanged from #13868);
-		//   - a client that has NEVER been published anything receives the
-		//     deferred snapshot once the first-publish budget expires, because
-		//     for that client the alternative is no listeners at all — the pod
-		//     never reports Ready and crash-loops, re-triggering the whole
-		//     per-client fan-out each restart.
+		//   - a client that has NEVER been published anything by this
+		//     controller, and has not reported a prior accepted xDS version,
+		//     receives the deferred snapshot once the first-publish budget
+		//     expires, because the alternative may be no listeners at all —
+		//     the pod never reports Ready and crash-loops, re-triggering the
+		//     whole per-client fan-out each restart.
 		//
 		// This deliberately keeps the warm-client behavior identical to the
 		// gate it replaces, and does NOT add carry-forward, a usable-endpoint

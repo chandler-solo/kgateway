@@ -18,6 +18,7 @@ const (
 	resourceLabel     = "resource"
 	reasonLabel       = "reason"
 	modeLabel         = "mode"
+	warmReasonLabel   = "warm_reason"
 )
 
 var (
@@ -107,11 +108,30 @@ var (
 		},
 		[]string{gatewayLabel, namespaceLabel, modeLabel},
 	)
+	snapshotPerClientDeferredWithheldTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_deferred_withheld_total",
+			Help: "Total deferred per-client XDS snapshots withheld indefinitely " +
+				"because the client may already be serving traffic. warm_reason " +
+				"identifies whether the safety signal was this controller's local " +
+				"snapshot cache or Envoy reporting a prior accepted xDS version. " +
+				"Nonzero prior_xds_version counts mean kgateway preserved last-good " +
+				"config after reconnect/controller restart instead of risking a " +
+				"partial SotW publish (#13868).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel, warmReasonLabel},
+	)
 )
 
 // boundedPublishFirstPublish is the only bounded-publish mode this minimal
 // bound emits (carry_forward publishes are a main-only follow-up).
 const boundedPublishFirstPublish = "first_publish"
+
+const (
+	warmReasonLocalCache      = "local_cache"
+	warmReasonPriorXDSVersion = "prior_xds_version"
+)
 
 // recordSnapshotDefer counts one withheld publication for the client's gateway,
 // per reason.
@@ -168,6 +188,23 @@ func (r snapshotResourcesMetricLabels) toMetricsLabels() []metrics.Label {
 		{Name: gatewayLabel, Value: r.Gateway},
 		{Name: namespaceLabel, Value: r.Namespace},
 		{Name: resourceLabel, Value: r.Resource},
+	}
+}
+
+// recordDeferredSnapshotWithheld counts deferred snapshots that are withheld
+// indefinitely for a warm client.
+func recordDeferredSnapshotWithheld(proxyKey string, reasons []string, warmReason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	for _, reason := range reasons {
+		snapshotPerClientDeferredWithheldTotal.Inc(
+			metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+			metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+			metrics.Label{Name: reasonLabel, Value: reason},
+			metrics.Label{Name: warmReasonLabel, Value: warmReason},
+		)
 	}
 }
 
@@ -286,4 +323,5 @@ func ResetMetrics() {
 	snapshotPerClientDefersTotal.Reset()
 	snapshotPerClientRecoveriesTotal.Reset()
 	snapshotPerClientBoundedPublishesTotal.Reset()
+	snapshotPerClientDeferredWithheldTotal.Reset()
 }

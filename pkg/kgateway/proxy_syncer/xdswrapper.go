@@ -32,11 +32,12 @@ type XdsSnapWrapper struct {
 	proxyKey string
 	// deferred marks a snapshot built while its per-client inputs were not yet
 	// coherent (see snapshotPerClient's guards). A deferred snapshot is
-	// withheld from a client that already holds a published snapshot — Envoy
-	// keeps its last coherent config — and is published to a never-published
-	// client only after the first-publish budget expires (see syncXds), since
-	// for a client with no config at all an incomplete snapshot beats no
-	// listeners (the pod never goes Ready and crash-loops). Warm-client
+	// withheld from a warm client — one that either already holds a published
+	// snapshot in this controller's cache or reported a prior accepted xDS
+	// version — so Envoy keeps its last coherent config. It is published only
+	// after the first-publish budget expires for a client with no local
+	// snapshot and no prior-version signal (see syncXds), since that client
+	// may otherwise sit at no listeners and never go Ready. Warm-client
 	// make-before-break is unchanged from #13868: deferral keeps last-good
 	// with no deadline.
 	deferred bool

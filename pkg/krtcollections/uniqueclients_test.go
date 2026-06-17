@@ -7,6 +7,7 @@ import (
 
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"istio.io/istio/pkg/kube/krt"
@@ -189,7 +190,7 @@ func TestUniqueClients(t *testing.T) {
 				pods.WaitUntilSynced(context.Background().Done())
 			}
 
-			cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+			cb, uccBuilder, _ := NewUniquelyConnectedClients(nil, false)
 			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods)
 			ucc.WaitUntilSynced(context.Background().Done())
 
@@ -242,6 +243,57 @@ func TestUniqueClients(t *testing.T) {
 			}, "5s").Should(BeEmpty())
 		})
 	}
+}
+
+func TestUniqueClientsTracksPriorXDSVersion(t *testing.T) {
+	g := NewWithT(t)
+	cb, uccBuilder, clientState := NewUniquelyConnectedClients(nil, false)
+	ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, nil)
+	ucc.WaitUntilSynced(context.Background().Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		TypeUrl:     envoyresource.ListenerType,
+		VersionInfo: "already-accepted",
+		Node: &envoycorev3.Node{
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(wellknown.GatewayApiProxyValue + "~warm-proxy"),
+				},
+			},
+		},
+	}
+	g.Expect(cb.OnStreamRequest(1, req)).To(Succeed())
+	clientKey := req.GetNode().GetMetadata().GetFields()[xds.RoleKey].GetStringValue()
+	g.Expect(clientState.HasPriorXDSVersion(clientKey)).To(BeTrue())
+
+	cb.OnStreamClosed(1, nil)
+	g.Eventually(ucc.List, "5s").Should(BeEmpty())
+	g.Expect(clientState.HasPriorXDSVersion(clientKey)).To(BeFalse())
+}
+
+func TestUniqueClientsDoesNotTrackCurrentStreamACKAsPriorXDSVersion(t *testing.T) {
+	g := NewWithT(t)
+	cb, uccBuilder, clientState := NewUniquelyConnectedClients(nil, false)
+	ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, nil)
+	ucc.WaitUntilSynced(context.Background().Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		TypeUrl:       envoyresource.ListenerType,
+		VersionInfo:   "acked-on-this-stream",
+		ResponseNonce: "nonce",
+		Node: &envoycorev3.Node{
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(wellknown.GatewayApiProxyValue + "~cold-proxy"),
+				},
+			},
+		},
+	}
+	g.Expect(cb.OnStreamRequest(1, req)).To(Succeed())
+	clientKey := req.GetNode().GetMetadata().GetFields()[xds.RoleKey].GetStringValue()
+	g.Expect(clientState.HasPriorXDSVersion(clientKey)).To(BeFalse())
+
+	cb.OnStreamClosed(1, nil)
 }
 
 func TestNormalizeGatewayRole(t *testing.T) {

@@ -157,13 +157,14 @@ func NewProxySyncer(
 	commonCols *collections.CommonCollections,
 	xdsCache envoycache.SnapshotCache,
 	validator validator.Validator,
+	xdsClientState priorXDSVersionReader,
 ) *ProxySyncer {
 	return &ProxySyncer{
 		controllerName:           controllerName,
 		commonCols:               commonCols,
 		mgr:                      mgr,
 		apiClient:                client,
-		proxyTranslator:          NewProxyTranslator(xdsCache),
+		proxyTranslator:          NewProxyTranslator(xdsCache, xdsClientState),
 		uniqueClients:            uniqueClients,
 		translator:               translator.NewCombinedTranslator(ctx, mergedPlugins, commonCols, validator),
 		plugins:                  mergedPlugins,
@@ -172,18 +173,24 @@ func NewProxySyncer(
 	}
 }
 
+type priorXDSVersionReader interface {
+	HasPriorXDSVersion(resourceName string) bool
+}
+
 type ProxyTranslator struct {
-	xdsCache envoycache.SnapshotCache
+	xdsCache       envoycache.SnapshotCache
+	xdsClientState priorXDSVersionReader
 	// firstPublish bounds the first publish for never-published clients (see
 	// kube_gw_translator_syncer.go). Pointer so the state is shared across
 	// ProxyTranslator copies.
 	firstPublish *firstPublishGate
 }
 
-func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
+func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader) ProxyTranslator {
 	return ProxyTranslator{
-		xdsCache:     xdsCache,
-		firstPublish: newFirstPublishGate(),
+		xdsCache:       xdsCache,
+		xdsClientState: xdsClientState,
+		firstPublish:   newFirstPublishGate(),
 	}
 }
 

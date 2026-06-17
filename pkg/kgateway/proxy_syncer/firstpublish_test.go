@@ -24,8 +24,22 @@ func deferredWrapper(version, reason string) XdsSnapWrapper {
 
 const testClientKey = "c1"
 
+type testXDSClientState map[string]bool
+
+func (s testXDSClientState) HasPriorXDSVersion(resourceName string) bool {
+	return s[resourceName]
+}
+
 func newTestTranslator() *ProxyTranslator {
-	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil))
+	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), nil)
+	return &pt
+}
+
+func newTestTranslatorWithPriorVersion() *ProxyTranslator {
+	pt := NewProxyTranslator(
+		envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil),
+		testXDSClientState{testClientKey: true},
+	)
 	return &pt
 }
 
@@ -127,6 +141,39 @@ func TestSyncXds_WarmClientNeverReceivesDeferred(t *testing.T) {
 	assert.Equal(t, "coherent", v, "warm clients keep their last coherent snapshot, with no time bound")
 }
 
+// A reconnecting Envoy may be warm even when this controller's local cache has
+// no snapshot for it. Its prior xDS version is the protocol-level signal that
+// partial SotW would remove live config, so keep #13868's make-before-break
+// behavior and do not budget-publish.
+func TestSyncXds_PriorXDSVersionNeverReceivesDeferred(t *testing.T) {
+	shortenBudget(t, 50*time.Millisecond)
+	pt := newTestTranslatorWithPriorVersion()
+
+	pt.syncXds(context.Background(), wrapper("deferred", true))
+
+	time.Sleep(150 * time.Millisecond) // well past the budget
+	_, ok := publishedVersion(t, pt)
+	assert.False(t, ok, "clients that report a prior xDS version must not receive deferred snapshots")
+}
+
+// Prior xDS version only blocks deferred snapshots. A coherent snapshot is still
+// published immediately and clears the stale-risk state.
+func TestSyncXds_PriorXDSVersionPublishesCoherentImmediately(t *testing.T) {
+	shortenBudget(t, 50*time.Millisecond)
+	pt := newTestTranslatorWithPriorVersion()
+
+	pt.syncXds(context.Background(), wrapper("deferred", true))
+	pt.syncXds(context.Background(), wrapper("coherent", false))
+
+	v, ok := publishedVersion(t, pt)
+	require.True(t, ok)
+	assert.Equal(t, "coherent", v)
+
+	time.Sleep(150 * time.Millisecond) // well past the budget
+	v, _ = publishedVersion(t, pt)
+	assert.Equal(t, "coherent", v, "a prior-version deferred event must not arm a timer that overwrites coherent config")
+}
+
 // A never-published deferred client increments defers_total{reason} and, at
 // budget expiry, bounded_publishes_total{mode=first_publish}.
 func TestMetrics_DeferAndBoundedPublish(t *testing.T) {
@@ -161,6 +208,41 @@ func TestMetrics_DeferAndBoundedPublish(t *testing.T) {
 				{Name: "mode", Value: boundedPublishFirstPublish},
 			},
 			Test: metricstest.Equal(1),
+		},
+	})
+}
+
+func TestMetrics_DeferredWithheldWarmReasons(t *testing.T) {
+	ResetMetrics()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	localWarm := newTestTranslator()
+	localWarm.syncXds(ctx, wrapper("coherent", false))
+	localWarm.syncXds(ctx, deferredWrapper("deferred", deferReasonMissingClusters))
+
+	priorVersionWarm := newTestTranslatorWithPriorVersion()
+	priorVersionWarm.syncXds(ctx, deferredWrapper("deferred", deferReasonMissingEndpoints))
+
+	g := metricstest.MustGatherMetricsContext(ctx, t, "kgateway_xds_snapshot_perclient_deferred_withheld_total")
+	g.AssertMetricsInclude("kgateway_xds_snapshot_perclient_deferred_withheld_total", []metricstest.ExpectMetric{
+		&metricstest.ExpectedMetricValueTest{
+			Labels: []metrics.Label{
+				{Name: "gateway", Value: "unknown"},
+				{Name: "namespace", Value: "unknown"},
+				{Name: "reason", Value: deferReasonMissingClusters},
+				{Name: "warm_reason", Value: warmReasonLocalCache},
+			},
+			Test: metricstest.GreaterOrEqual(1),
+		},
+		&metricstest.ExpectedMetricValueTest{
+			Labels: []metrics.Label{
+				{Name: "gateway", Value: "unknown"},
+				{Name: "namespace", Value: "unknown"},
+				{Name: "reason", Value: deferReasonMissingEndpoints},
+				{Name: "warm_reason", Value: warmReasonPriorXDSVersion},
+			},
+			Test: metricstest.GreaterOrEqual(1),
 		},
 	})
 }
