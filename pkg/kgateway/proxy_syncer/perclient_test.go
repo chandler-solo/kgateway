@@ -226,9 +226,13 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		},
 	)
 
-	g.Consistently(func() int {
-		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	// While cluster-b is missing the wrapper is built but marked deferred; the
+	// publication policy in syncXds is what withholds it.
+	g.Eventually(func() bool {
+		l := snapshots.List()
+		return len(l) == 1 && l[0].deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"snapshot should be built but deferred while a referenced cluster is missing")
 
 	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
@@ -237,9 +241,11 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		ClusterVersion: 2,
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	g.Eventually(func() bool {
+		l := snapshots.List()
+		return len(l) == 1 && !l[0].deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"snapshot should become coherent once all referenced clusters exist")
 
 	snap := snapshots.List()[0].snap
 	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-a"))
@@ -314,9 +320,15 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		},
 	)
 
-	g.Consistently(func() int {
-		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	// While the referenced EDS cluster has no CLA the wrapper is built but
+	// marked deferred (the minimal bound keeps the base predicate: a present
+	// CLA — even empty — satisfies the gate; the usable-endpoint check is
+	// #14257, deliberately not included here).
+	g.Eventually(func() bool {
+		l := snapshots.List()
+		return len(l) == 1 && l[0].deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"snapshot should be built but deferred while a referenced EDS cluster has no CLA")
 
 	endpointCol.UpdateObject(UccWithEndpoints{
 		Client: ucc,
@@ -327,9 +339,11 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		endpointsName: "cluster-a",
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+	g.Eventually(func() bool {
+		l := snapshots.List()
+		return len(l) == 1 && !l[0].deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"snapshot should become coherent once the CLA arrives")
 
 	snap := snapshots.List()[0].snap
 	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))

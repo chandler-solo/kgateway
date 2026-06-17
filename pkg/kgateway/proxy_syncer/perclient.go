@@ -24,6 +24,13 @@ import (
 	krtutil "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 )
 
+// Defer reasons, attached to a deferred snapshot for the defer metric.
+const (
+	deferReasonEndpointsNotReady = "endpoints_not_ready"
+	deferReasonMissingClusters   = "missing_clusters"
+	deferReasonMissingEndpoints  = "missing_endpoints"
+)
+
 type clustersWithErrors struct {
 	// +noKrtEquals
 	clusters envoycache.Resources
@@ -168,21 +175,31 @@ func snapshotPerClient(
 		//     CDS/RDS/LDS before EDS catches up can make Envoy drop all hosts for
 		//     a route that was healthy before a controller restart.
 		//
-		// Returning nil removes this UCC's entry from the output collection,
-		// which surfaces as a Delete event in proxy_syncer.go's xDS
-		// subscriber. That Delete branch is intentionally a no-op so the
-		// xDS snapshot cache retains the last-published Snapshot for this
-		// client. Envoy therefore keeps serving its previous, coherent
-		// config until a new coherent snapshot overwrites it. This is what
-		// prevents an unresolvable reference — a user BackendRef typo, a
-		// plugin bug — from stranding Envoy: there is no error response on
-		// valid traffic during the defer window, only continuity.
+		// A failed guard no longer withholds the row (return nil). The
+		// snapshot is still BUILT and marked deferred; the publication policy
+		// lives in syncXds:
+		//
+		//   - a client that already holds a published snapshot never receives
+		//     a deferred one — Envoy keeps its last coherent config, with no
+		//     deadline (make-before-break, unchanged from #13868);
+		//   - a client that has NEVER been published anything receives the
+		//     deferred snapshot once the first-publish budget expires, because
+		//     for that client the alternative is no listeners at all — the pod
+		//     never reports Ready and crash-loops, re-triggering the whole
+		//     per-client fan-out each restart.
+		//
+		// This deliberately keeps the warm-client behavior identical to the
+		// gate it replaces, and does NOT add carry-forward, a usable-endpoint
+		// check, or synthesized empty CLAs (see #14237 / #14257 for those):
+		// it is the minimal bound that stops a never-published client from
+		// waiting forever.
 		//
 		// BackendRef typos never reach this gate as real cluster names:
 		// IR-time resolution substitutes wellknown.BlackholeClusterName,
 		// which findMissingReferencedClusters explicitly skips.
 		//
 		// Historical context: https://github.com/solo-io/gloo/pull/10611.
+		var deferReasons []string
 		if clustersForUcc == nil {
 			clustersForUcc = &clustersWithErrors{
 				clusters: envoycache.Resources{
@@ -192,7 +209,11 @@ func snapshotPerClient(
 		}
 		if clientEndpointResources == nil {
 			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
-			return nil
+			deferReasons = append(deferReasons, deferReasonEndpointsNotReady)
+			clientEndpointResources = &endpointsWithUccName{
+				endpoints:    envoycache.Resources{Items: map[string]envoycachetypes.ResourceWithTTL{}},
+				resourceName: ucc.ResourceName(),
+			}
 		}
 
 		logger.Debug("found perclient clusters", "client", ucc.ResourceName(), "clusters", len(clustersForUcc.clusters.Items))
@@ -218,7 +239,7 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
 			)
-			return nil
+			deferReasons = append(deferReasons, deferReasonMissingClusters)
 		}
 		// Exclude CLAs for STATIC clusters so ADS snapshot only contains resources Envoy will request.
 		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, clientEndpointResources.endpoints)
@@ -233,9 +254,11 @@ func snapshotPerClient(
 				"client", ucc.ResourceName(),
 				"missing_endpoint_clusters", missingEndpointClusters,
 			)
-			return nil
+			deferReasons = append(deferReasons, deferReasonMissingEndpoints)
 		}
 
+		snap.deferred = len(deferReasons) > 0
+		snap.deferReasons = deferReasons
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}

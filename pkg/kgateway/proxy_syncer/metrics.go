@@ -16,6 +16,8 @@ const (
 	namespaceLabel    = "namespace"
 	resultLabel       = "result"
 	resourceLabel     = "resource"
+	reasonLabel       = "reason"
+	modeLabel         = "mode"
 )
 
 var (
@@ -70,7 +72,89 @@ var (
 		},
 		[]string{gatewayLabel, namespaceLabel, resourceLabel},
 	)
+	snapshotPerClientDefersTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_defers_total",
+			Help: "Total per-client XDS snapshot publication deferrals, by reason. " +
+				"Every increment means an update was withheld: the client kept its " +
+				"last published snapshot, or — before first publish — kept waiting " +
+				"up to the first-publish budget. A sustained rate for a gateway " +
+				"means a connected client's per-client inputs are not becoming " +
+				"consistent (#14184).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
+	)
+	snapshotPerClientRecoveriesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_recoveries_total",
+			Help: "Total times a per-client XDS snapshot resumed coherent publishing " +
+				"after one or more deferrals.",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
+	snapshotPerClientBoundedPublishesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_bounded_publishes_total",
+			Help: "Total deferred snapshots published because the first-publish " +
+				"budget expired (mode=first_publish), i.e. a never-published client " +
+				"started on incomplete config instead of waiting indefinitely. " +
+				"Nonzero means a gateway pod would otherwise have crash-looped " +
+				"(#14184). The mode label is forward-compatible with carry-forward " +
+				"publishes, which this minimal bound does not perform.",
+		},
+		[]string{gatewayLabel, namespaceLabel, modeLabel},
+	)
 )
+
+// boundedPublishFirstPublish is the only bounded-publish mode this minimal
+// bound emits (carry_forward publishes are a main-only follow-up).
+const boundedPublishFirstPublish = "first_publish"
+
+// recordSnapshotDefer counts one withheld publication for the client's gateway,
+// per reason.
+func recordSnapshotDefer(proxyKey string, reasons []string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	for _, reason := range reasons {
+		snapshotPerClientDefersTotal.Inc(
+			metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+			metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+			metrics.Label{Name: reasonLabel, Value: reason},
+		)
+	}
+}
+
+// recordSnapshotRecovery counts a client resuming coherent publication after a
+// prior deferral.
+func recordSnapshotRecovery(proxyKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	snapshotPerClientRecoveriesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+	)
+}
+
+// recordBoundedPublish counts a deferred snapshot published because the
+// first-publish budget expired.
+func recordBoundedPublish(proxyKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	snapshotPerClientBoundedPublishesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: modeLabel, Value: boundedPublishFirstPublish},
+	)
+}
 
 // snapshotResourcesMetricLabels defines the labels for XDS snapshot resources metrics.
 type snapshotResourcesMetricLabels struct {
@@ -199,4 +283,7 @@ func ResetMetrics() {
 	snapshotTransformsTotal.Reset()
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
+	snapshotPerClientDefersTotal.Reset()
+	snapshotPerClientRecoveriesTotal.Reset()
+	snapshotPerClientBoundedPublishesTotal.Reset()
 }

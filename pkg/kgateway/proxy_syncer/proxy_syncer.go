@@ -174,11 +174,16 @@ func NewProxySyncer(
 
 type ProxyTranslator struct {
 	xdsCache envoycache.SnapshotCache
+	// firstPublish bounds the first publish for never-published clients (see
+	// kube_gw_translator_syncer.go). Pointer so the state is shared across
+	// ProxyTranslator copies.
+	firstPublish *firstPublishGate
 }
 
 func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
 	return ProxyTranslator{
-		xdsCache: xdsCache,
+		xdsCache:     xdsCache,
+		firstPublish: newFirstPublishGate(),
 	}
 }
 
@@ -465,25 +470,21 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 				snapWrap := e.Latest()
 				s.proxyTranslator.syncXds(ctx, snapWrap)
 			} else {
-				// Intentional no-op. When snapshotPerClient returns nil (its
-				// readiness guards deferred publishing), KRT surfaces a Delete
-				// for this UCC. Clearing the xDS cache here would withdraw
-				// Envoy's last coherent Snapshot for the duration of the defer,
-				// causing 500/NC on valid routes. Leaving the cache alone means
-				// Envoy keeps serving its previously-published config until a
-				// new coherent snapshot overwrites it — the "retain last good"
-				// behavior that prevents unresolvable cluster references from
-				// stranding live traffic.
+				// A Delete here means the client's wrapper row is gone: the
+				// UCC departed, or its gateway snapshot is missing. (Readiness
+				// deferral no longer produces Deletes — deferred snapshots are
+				// emitted and the publication policy in syncXds withholds
+				// them.) Cancel any pending first-publish timer so it cannot
+				// fire for a departed client; leave the xDS snapshot cache
+				// alone so a still-connected Envoy keeps its last coherent
+				// config.
 				//
-				// Known leak: this branch also fires when a UCC truly goes
-				// away (Envoy pod replaced on rollout, scaled down, etc.),
-				// and we cannot distinguish that from the "defer" case here.
-				// The SnapshotCache entry for that UCC is therefore never
-				// cleared and accumulates over the controller's lifetime.
-				// Pre-existing behavior (the prior ClearSnapshot call was
-				// already commented out); reclaiming these entries requires
-				// a separate signal — e.g. cross-referencing uccCol
-				// membership — and is left to a follow-up.
+				// Known leak: the SnapshotCache entry for a truly-departed UCC
+				// is never cleared and accumulates over the controller's
+				// lifetime. Pre-existing behavior (the prior ClearSnapshot call
+				// was already commented out); reclaiming these entries is a
+				// separate follow-up.
+				s.proxyTranslator.firstPublish.clientDeparted(e.Latest().ResourceName())
 			}
 
 			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
