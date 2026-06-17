@@ -3,10 +3,12 @@ package irtranslator
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoy_hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -283,6 +285,80 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 	}
 }
 
+func TestComputeVirtualHostStrictBatchesFullRouteValidation(t *testing.T) {
+	calls := 0
+	var routeCounts []int
+	v := &routeMockValidator{validateFunc: func(_ context.Context, config *envoybootstrapv3.Bootstrap) error {
+		calls++
+		routeCounts = append(routeCounts, len(routesFromValidationBootstrap(t, config)))
+		return nil
+	}}
+	h := testHTTPRouteTranslator(v, apisettings.ValidationStrict)
+
+	out := h.computeVirtualHost(context.Background(), &ir.VirtualHost{
+		Name:     "test-vhost",
+		Hostname: "example.com",
+		Rules: []ir.HttpRouteRuleMatchIR{
+			testRouteIR(0, "/one", "cluster-one"),
+			testRouteIR(1, "/two", "cluster-two"),
+		},
+	})
+
+	require.Len(t, out.GetRoutes(), 2)
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, []int{2}, routeCounts)
+}
+
+func TestComputeVirtualHostStrictIsolatesInvalidRouteAfterBatchFailure(t *testing.T) {
+	calls := 0
+	var routeCounts []int
+	v := &routeMockValidator{validateFunc: func(_ context.Context, config *envoybootstrapv3.Bootstrap) error {
+		calls++
+		routes := routesFromValidationBootstrap(t, config)
+		routeCounts = append(routeCounts, len(routes))
+		switch calls {
+		case 1:
+			require.Len(t, routes, 2)
+			return errors.New("batch failed")
+		case 2:
+			require.Len(t, routes, 1)
+			assert.Contains(t, routes[0].GetName(), "route-0")
+			return nil
+		case 3:
+			require.Len(t, routes, 1)
+			assert.Contains(t, routes[0].GetName(), "route-1")
+			return errors.New("bad route")
+		case 4:
+			require.Len(t, routes, 1)
+			assert.Contains(t, routes[0].GetName(), "route-1")
+			return nil
+		case 5:
+			require.Len(t, routes, 2)
+			return nil
+		default:
+			t.Fatalf("unexpected validation call %d", calls)
+			return nil
+		}
+	}}
+	h := testHTTPRouteTranslator(v, apisettings.ValidationStrict)
+
+	out := h.computeVirtualHost(context.Background(), &ir.VirtualHost{
+		Name:     "test-vhost",
+		Hostname: "example.com",
+		Rules: []ir.HttpRouteRuleMatchIR{
+			testRouteIR(0, "/one", "cluster-one"),
+			testRouteIR(1, "/two", "cluster-two"),
+		},
+	})
+
+	require.Len(t, out.GetRoutes(), 2)
+	_, ok := out.GetRoutes()[0].GetAction().(*envoyroutev3.Route_Route)
+	assert.True(t, ok)
+	_, ok = out.GetRoutes()[1].GetAction().(*envoyroutev3.Route_DirectResponse)
+	assert.True(t, ok)
+	assert.Equal(t, []int{2, 1, 1, 1, 2}, routeCounts)
+}
+
 func refFor(name string) *ir.AttachedPolicyRef {
 	return &ir.AttachedPolicyRef{
 		Group:     "gateway.kgateway.dev",
@@ -311,6 +387,53 @@ func stringPtr(value string) *string {
 }
 
 var pathPrefixPtr = gwv1.PathMatchPathPrefix
+
+func testHTTPRouteTranslator(v validator.Validator, mode apisettings.ValidationMode) *httpRouteConfigurationTranslator {
+	return &httpRouteConfigurationTranslator{
+		gw: ir.GatewayIR{
+			SourceObject: &ir.Gateway{Obj: &gwv1.Gateway{
+				Spec: gwv1.GatewaySpec{GatewayClassName: "test-class"},
+			}},
+		},
+		pluginPass:      TranslationPassPlugins{},
+		logger:          slog.Default(),
+		validator:       v,
+		validationLevel: mode,
+	}
+}
+
+func testRouteIR(matchIndex int, path string, clusterName string) ir.HttpRouteRuleMatchIR {
+	return ir.HttpRouteRuleMatchIR{
+		MatchIndex: matchIndex,
+		Match: gwv1.HTTPRouteMatch{
+			Path: &gwv1.HTTPPathMatch{
+				Type:  &pathPrefixPtr,
+				Value: stringPtr(path),
+			},
+		},
+		Backends: []ir.HttpBackend{{
+			Backend: ir.BackendRefIR{
+				ClusterName: clusterName,
+				Weight:      1,
+			},
+		}},
+	}
+}
+
+func routesFromValidationBootstrap(t *testing.T, config *envoybootstrapv3.Bootstrap) []*envoyroutev3.Route {
+	t.Helper()
+	listeners := config.GetStaticResources().GetListeners()
+	require.Len(t, listeners, 1)
+	filterChains := listeners[0].GetFilterChains()
+	require.Len(t, filterChains, 1)
+	filters := filterChains[0].GetFilters()
+	require.NotEmpty(t, filters)
+	hcm := &envoy_hcm.HttpConnectionManager{}
+	require.NoError(t, filters[0].GetTypedConfig().UnmarshalTo(hcm))
+	vhosts := hcm.GetRouteConfig().GetVirtualHosts()
+	require.Len(t, vhosts, 1)
+	return vhosts[0].GetRoutes()
+}
 
 func TestSummarizeRuleErrors_NilReturnsEmpty(t *testing.T) {
 	assert.Equal(t, "", summarizeRuleErrors(nil))
