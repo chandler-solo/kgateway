@@ -389,14 +389,27 @@ func (ltm *LoadTestManager) CollectKGatewayValidationMetrics() (ValidationMetric
 
 func (ltm *LoadTestManager) fetchKGatewayMetrics() ([]byte, error) {
 	namespace := ltm.testInstallation.Metadata.InstallNamespace
-	raw, err := ltm.testInstallation.ClusterContext.Clientset.CoreV1().
-		Services(namespace).
-		ProxyGet("http", controllerDeploymentName, "metrics", "/metrics", nil).
-		DoRaw(ltm.ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetch kgateway metrics from service %s/%s: %w", namespace, controllerDeploymentName, err)
+	var lastErr error
+	timeout := time.After(15 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		raw, err := ltm.testInstallation.ClusterContext.Clientset.CoreV1().
+			Services(namespace).
+			ProxyGet("http", controllerDeploymentName, "metrics", "/metrics", nil).
+			DoRaw(ltm.ctx)
+		if err == nil {
+			return raw, nil
+		}
+		lastErr = err
+		select {
+		case <-ltm.ctx.Done():
+			return nil, fmt.Errorf("fetch kgateway metrics from service %s/%s: %w", namespace, controllerDeploymentName, ltm.ctx.Err())
+		case <-timeout:
+			return nil, fmt.Errorf("fetch kgateway metrics from service %s/%s after retrying: %w", namespace, controllerDeploymentName, lastErr)
+		case <-ticker.C:
+		}
 	}
-	return raw, nil
 }
 
 func addCounterFamily(
