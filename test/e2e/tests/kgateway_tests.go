@@ -91,7 +91,7 @@ func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner.Register("AutoHostRewrite", auto_host_rewrite.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("AttachedRoutes", loadtesting.NewAttachedRoutesSuite)
 	// StrictChurn mutates the controller deployment; hard-gated behind
-	// KGW_ENABLE_STRICT_CHURN and excluded from CI e2e clusters.
+	// KGW_ENABLE_STRICT_CHURN so CI shard coverage only exercises the skip path.
 	kubeGatewaySuiteRunner.Register("StrictChurn", loadtesting.NewStrictChurnSuite)
 	kubeGatewaySuiteRunner.Register("DirectResponse", directresponse.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("PathMatching", path_matching.NewTestingSuite)

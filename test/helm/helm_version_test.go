@@ -14,6 +14,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+func normalizeHelmTemplateGoldenOutput(in []byte) []byte {
+	// Helm v4 emits an extra blank line before some YAML document separators.
+	// Keep the goldens focused on rendered resources rather than that formatter detail.
+	return []byte(strings.ReplaceAll(string(in), "\n\n---\n# Source:", "\n---\n# Source:"))
+}
+
 func TestHelmChartVersionAndAppVersion(t *testing.T) {
 	goldenFile := filepath.Join("testdata", "helm-version-output.golden")
 	helmChartPath := filepath.Join("..", "..", "install", "helm", "kgateway")
@@ -683,7 +689,7 @@ controller:
 				err = helmCmd.Run()
 				require.NoError(t, err, "helm template failed: %s", stderr.String())
 
-				got := output.Bytes()
+				got := normalizeHelmTemplateGoldenOutput(output.Bytes())
 
 				// Golden file path: testdata/<chart>/<values-case>.golden
 				goldenDir := filepath.Join("testdata", chart)
