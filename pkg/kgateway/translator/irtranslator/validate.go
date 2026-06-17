@@ -336,6 +336,10 @@ func validateGeneratedStringMatcher(matcher *envoy_type_matcher_v3.StringMatcher
 	}
 }
 
+// validateRegexMatcher checks RE2 *syntax* only. Envoy's RE2 max_program_size
+// (default 100) is the compiled-instruction count, which Go's regexp cannot
+// reproduce, so an oversized-but-syntactically-valid regex passes here and is
+// caught by the authoritative Envoy validation in validateFullRoutes.
 func validateRegexMatcher(matcher *envoy_type_matcher_v3.RegexMatcher, field string) error {
 	if matcher == nil {
 		return fmt.Errorf("%s is missing", field)
