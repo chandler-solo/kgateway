@@ -44,19 +44,18 @@ var (
 	ErrInvalidRoute = errors.New("invalid route configuration")
 )
 
-// validateRoute performs RDS validation against the given route that's been translated from the IR.
+// validateRoute performs RDS validation against a single route that's been translated from the IR.
 // It provides validation checks that prevent invalid routes from being sent to the xDS server.
 //
 // The validation pipeline runs lightweight checks regardless of route replacement mode.
 // These include basic Envoy route property validation such as paths, prefixes, and weighted clusters,
 // along with quick checks for common issues that could cause problems.
 //
-// In strict mode, generated Gateway API matchers are checked in-process where possible. The full
-// route is then validated against Envoy in a single invocation. If that invocation fails, matcher
-// validation disambiguates whether the failure originates in the route's match block (drop the
-// route) or in its action (replace with a direct response). Matcher shapes this code cannot prove
-// safe fall back to Envoy matcher-only validation. Valid routes, the common case, pay only one
-// envoy invocation; invalid routes pay two at most.
+// In strict mode, generated Gateway API matchers are checked in-process where possible. The full route
+// is then validated against Envoy in a single invocation. If that invocation fails, matcher validation
+// disambiguates whether the failure originates in the route's match block (drop the route) or in its
+// action (replace with a direct response). Matcher shapes this code cannot prove safe fall back to Envoy
+// matcher-only validation.
 //
 // This two-tiered approach is necessary because Envoy validate mode output does not provide
 // enough information to determine if the error is due to an invalid matcher (drop route)
@@ -67,6 +66,16 @@ func validateRoute(
 	v validator.Validator,
 	mode apisettings.ValidationMode,
 ) error {
+	if err := validateRoutePreEnvoy(route, mode); err != nil {
+		return err
+	}
+	if mode != apisettings.ValidationStrict {
+		return nil
+	}
+	return validateRouteWithEnvoy(ctx, route, v)
+}
+
+func validateRoutePreEnvoy(route *envoyroutev3.Route, mode apisettings.ValidationMode) error {
 	if route == nil {
 		return fmt.Errorf("route cannot be nil for RDS validation")
 	}
@@ -78,6 +87,17 @@ func validateRoute(
 	}
 	if handled, err := validateGeneratedMatcher(route.GetMatch()); handled && err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidMatcher, err)
+	}
+	return nil
+}
+
+func validateRouteWithEnvoy(
+	ctx context.Context,
+	route *envoyroutev3.Route,
+	v validator.Validator,
+) error {
+	if route == nil {
+		return fmt.Errorf("route cannot be nil for RDS validation")
 	}
 	fullErr := validateFullRoute(ctx, route, v)
 	if fullErr == nil {
@@ -214,9 +234,19 @@ func validateMatcherOnlyEnvoy(ctx context.Context, route *envoyroutev3.Route, v 
 
 // validateFullRoute validates the complete route configuration.
 func validateFullRoute(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
+	return validateFullRoutes(ctx, []*envoyroutev3.Route{route}, v)
+}
+
+// validateFullRoutes validates a set of complete route configurations in one Envoy invocation.
+func validateFullRoutes(ctx context.Context, routes []*envoyroutev3.Route, v validator.Validator) error {
 	builder := bootstrap.New()
-	builder.AddRoute(route)
-	stubClusters := createStubClusters(extractClusterNames(route))
+	clusterNames := make([]string, 0)
+	seenClusterNames := make(map[string]struct{})
+	for _, route := range routes {
+		builder.AddRoute(route)
+		clusterNames = appendClusterNames(clusterNames, seenClusterNames, route)
+	}
+	stubClusters := createStubClusters(clusterNames)
 	for _, cluster := range stubClusters {
 		builder.AddCluster(cluster)
 	}
@@ -355,32 +385,37 @@ func createStubClusters(clusterNames []string) []*envoyclusterv3.Cluster {
 // handling both single cluster routes and weighted cluster routes.
 // Returns a slice of unique cluster names to prevent redundant stub cluster creation.
 func extractClusterNames(route *envoyroutev3.Route) []string {
-	clusterNameSet := make(map[string]struct{})
+	return appendClusterNames(nil, make(map[string]struct{}), route)
+}
+
+func appendClusterNames(clusterNames []string, seen map[string]struct{}, route *envoyroutev3.Route) []string {
 	if route == nil {
-		return []string{}
+		return clusterNames
+	}
+	appendClusterName := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		clusterNames = append(clusterNames, name)
 	}
 	switch action := route.GetAction().(type) {
 	case *envoyroutev3.Route_Route:
 		if action.Route != nil {
 			switch clusterSpec := action.Route.GetClusterSpecifier().(type) {
 			case *envoyroutev3.RouteAction_Cluster:
-				if clusterSpec.Cluster != "" {
-					clusterNameSet[clusterSpec.Cluster] = struct{}{}
-				}
+				appendClusterName(clusterSpec.Cluster)
 			case *envoyroutev3.RouteAction_WeightedClusters:
 				if clusterSpec.WeightedClusters != nil {
 					for _, weightedCluster := range clusterSpec.WeightedClusters.GetClusters() {
-						if weightedCluster.GetName() != "" {
-							clusterNameSet[weightedCluster.GetName()] = struct{}{}
-						}
+						appendClusterName(weightedCluster.GetName())
 					}
 				}
 			}
 		}
-	}
-	clusterNames := make([]string, 0, len(clusterNameSet))
-	for name := range clusterNameSet {
-		clusterNames = append(clusterNames, name)
 	}
 	return clusterNames
 }
