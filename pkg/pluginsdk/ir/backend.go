@@ -418,6 +418,10 @@ func (c Listener) Equals(in Listener) bool {
 	if (c.Parent == nil) != (in.Parent == nil) {
 		return false
 	}
+	// Currently, only Gateway and ListenerSet's Equals() calls Listener.Equals(),
+	// and both of those check versionEquals on the Parent before calling Listener.Equals(),
+	// so, this versionEquals check is somewhat redundant, but it's safer to have it here in
+	// case Listener.Equals() is called directly in the future without a Parent version check.
 	if c.Parent != nil && !versionEquals(c.Parent, in.Parent) {
 		return false
 	}
