@@ -390,26 +390,53 @@ func (ltm *LoadTestManager) CollectKGatewayValidationMetrics() (ValidationMetric
 func (ltm *LoadTestManager) fetchKGatewayMetrics() ([]byte, error) {
 	namespace := ltm.testInstallation.Metadata.InstallNamespace
 	var lastErr error
-	timeout := time.After(15 * time.Second)
+	timeout := time.After(60 * time.Second)
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		raw, err := ltm.testInstallation.ClusterContext.Clientset.CoreV1().
-			Services(namespace).
-			ProxyGet("http", controllerDeploymentName, "metrics", "/metrics", nil).
-			DoRaw(ltm.ctx)
-		if err == nil {
-			return raw, nil
+		pods, err := ltm.testInstallation.ClusterContext.Clientset.CoreV1().
+			Pods(namespace).
+			List(ltm.ctx, metav1.ListOptions{
+				LabelSelector: "app.kubernetes.io/instance=kgateway,app.kubernetes.io/name=kgateway,kgateway=kgateway",
+			})
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("no ready kgateway controller pods found")
+			for _, pod := range pods.Items {
+				if !podReady(&pod) {
+					continue
+				}
+				raw, err := ltm.testInstallation.ClusterContext.Clientset.CoreV1().
+					Pods(namespace).
+					ProxyGet("http", pod.Name, "9092", "/metrics", nil).
+					DoRaw(ltm.ctx)
+				if err == nil {
+					return raw, nil
+				}
+				lastErr = err
+			}
 		}
-		lastErr = err
 		select {
 		case <-ltm.ctx.Done():
 			return nil, fmt.Errorf("fetch kgateway metrics from service %s/%s: %w", namespace, controllerDeploymentName, ltm.ctx.Err())
 		case <-timeout:
-			return nil, fmt.Errorf("fetch kgateway metrics from service %s/%s after retrying: %w", namespace, controllerDeploymentName, lastErr)
+			return nil, fmt.Errorf("fetch kgateway metrics from namespace %s after retrying: %w", namespace, lastErr)
 		case <-ticker.C:
 		}
 	}
+}
+
+func podReady(pod *corev1.Pod) bool {
+	if pod == nil || pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
 }
 
 func addCounterFamily(
