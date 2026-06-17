@@ -51,6 +51,13 @@ type RouteReport struct {
 	observedGeneration int64
 }
 
+func (r *RouteReport) GetObservedGeneration() int64 {
+	if r == nil {
+		return 0
+	}
+	return r.observedGeneration
+}
+
 // TODO: rename to e.g. RouteParentRefReport
 type ParentRefReport struct {
 	Conditions []metav1.Condition

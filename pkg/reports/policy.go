@@ -24,6 +24,13 @@ type PolicyReport struct {
 	observedGeneration int64
 }
 
+func (r *PolicyReport) GetObservedGeneration() int64 {
+	if r == nil {
+		return 0
+	}
+	return r.observedGeneration
+}
+
 func (r *PolicyReport) AncestorRef(ref gwv1.ParentReference) reporter.AncestorRefReporter {
 	return r.ancestorRef(ref)
 }

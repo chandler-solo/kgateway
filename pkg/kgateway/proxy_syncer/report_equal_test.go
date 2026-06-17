@@ -1,0 +1,178 @@
+package proxy_syncer
+
+import (
+	"testing"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/reporter"
+	"github.com/kgateway-dev/kgateway/v2/pkg/reports"
+)
+
+func TestBackendReportEqual(t *testing.T) {
+	mk := func(generation int64, conditionMsg string) *reports.BackendReport {
+		rm := reports.NewReportMap()
+		r := reports.NewReporter(&rm)
+		backend := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "backend", Generation: generation}}
+		r.Backend(backend).SetCondition(reporter.BackendCondition{
+			Type:    "Accepted",
+			Status:  metav1.ConditionTrue,
+			Reason:  "Accepted",
+			Message: conditionMsg,
+		})
+		return rm.Backends[types.NamespacedName{Namespace: "default", Name: "backend"}]
+	}
+
+	t.Run("ignores LastTransitionTime", func(t *testing.T) {
+		a := mk(1, "same")
+		b := mk(1, "same")
+		a.Conditions[0].LastTransitionTime = metav1.NewTime(time.Unix(1, 0))
+		b.Conditions[0].LastTransitionTime = metav1.NewTime(time.Unix(2, 0))
+		if !backendReportEqual(a, b) {
+			t.Fatal("expected backend reports to be equal when only LastTransitionTime differs")
+		}
+	})
+
+	t.Run("detects semantic condition changes", func(t *testing.T) {
+		a := mk(1, "msg-a")
+		b := mk(1, "msg-b")
+		if backendReportEqual(a, b) {
+			t.Fatal("expected backend reports to differ when condition message differs")
+		}
+	})
+
+	t.Run("detects observed generation changes", func(t *testing.T) {
+		a := mk(1, "same")
+		b := mk(2, "same")
+		if backendReportEqual(a, b) {
+			t.Fatal("expected backend reports to differ when observed generation differs")
+		}
+	})
+}
+
+func TestRouteReportEqual(t *testing.T) {
+	mk := func(generation int64) *reports.RouteReport {
+		rm := reports.NewReportMap()
+		r := reports.NewReporter(&rm)
+		route := &gwv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "route", Generation: generation}}
+		parent := gwv1.ParentReference{
+			Group:     localPtr(gwv1.Group("gateway.networking.k8s.io")),
+			Kind:      localPtr(gwv1.Kind("Gateway")),
+			Name:      gwv1.ObjectName("gw"),
+			Namespace: localPtr(gwv1.Namespace("default")),
+		}
+		r.Route(route).ParentRef(&parent).SetCondition(reporter.RouteCondition{
+			Type:    gwv1.RouteConditionAccepted,
+			Status:  metav1.ConditionTrue,
+			Reason:  gwv1.RouteReasonAccepted,
+			Message: "accepted",
+		})
+		return rm.HTTPRoutes[types.NamespacedName{Namespace: "default", Name: "route"}]
+	}
+
+	t.Run("ignores LastTransitionTime", func(t *testing.T) {
+		a := mk(1)
+		b := mk(1)
+		setFirstParentConditionTime(a, metav1.NewTime(time.Unix(1, 0)))
+		setFirstParentConditionTime(b, metav1.NewTime(time.Unix(2, 0)))
+		if !routeReportEqual(a, b) {
+			t.Fatal("expected route reports to be equal when only LastTransitionTime differs")
+		}
+	})
+
+	t.Run("detects observed generation changes", func(t *testing.T) {
+		a := mk(1)
+		b := mk(2)
+		if routeReportEqual(a, b) {
+			t.Fatal("expected route reports to differ when observed generation differs")
+		}
+	})
+
+	t.Run("detects parent mismatch", func(t *testing.T) {
+		a := mk(1)
+		b := mk(1)
+		for k := range b.Parents {
+			delete(b.Parents, k)
+			break
+		}
+		if routeReportEqual(a, b) {
+			t.Fatal("expected route reports to differ when parent refs differ")
+		}
+	})
+}
+
+func TestPolicyReportEqual(t *testing.T) {
+	mk := func(generation int64, state reporter.PolicyAttachmentState) *reports.PolicyReport {
+		rm := reports.NewReportMap()
+		r := reports.NewReporter(&rm)
+		key := reporter.PolicyKey{Group: "g", Kind: "k", Namespace: "default", Name: "policy"}
+		ancestor := gwv1.ParentReference{
+			Group:     localPtr(gwv1.Group("gateway.networking.k8s.io")),
+			Kind:      localPtr(gwv1.Kind("Gateway")),
+			Name:      gwv1.ObjectName("gw"),
+			Namespace: localPtr(gwv1.Namespace("default")),
+		}
+		ar := r.Policy(key, generation).AncestorRef(ancestor)
+		ar.SetCondition(reporter.PolicyCondition{
+			Type:               "Accepted",
+			Status:             metav1.ConditionTrue,
+			Reason:             "Accepted",
+			Message:            "accepted",
+			ObservedGeneration: generation,
+		})
+		ar.SetAttachmentState(state)
+		return rm.Policies[key]
+	}
+
+	t.Run("ignores LastTransitionTime", func(t *testing.T) {
+		a := mk(1, reporter.PolicyAttachmentStateAttached)
+		b := mk(1, reporter.PolicyAttachmentStateAttached)
+		setFirstAncestorConditionTime(a, metav1.NewTime(time.Unix(1, 0)))
+		setFirstAncestorConditionTime(b, metav1.NewTime(time.Unix(2, 0)))
+		if !policyReportEqual(a, b) {
+			t.Fatal("expected policy reports to be equal when only LastTransitionTime differs")
+		}
+	})
+
+	t.Run("detects attachment state changes", func(t *testing.T) {
+		a := mk(1, reporter.PolicyAttachmentStateAttached)
+		b := mk(1, reporter.PolicyAttachmentStateMerged)
+		if policyReportEqual(a, b) {
+			t.Fatal("expected policy reports to differ when attachment state differs")
+		}
+	})
+
+	t.Run("detects observed generation changes", func(t *testing.T) {
+		a := mk(1, reporter.PolicyAttachmentStateAttached)
+		b := mk(2, reporter.PolicyAttachmentStateAttached)
+		if policyReportEqual(a, b) {
+			t.Fatal("expected policy reports to differ when observed generation differs")
+		}
+	})
+}
+
+func localPtr[T any](v T) *T {
+	return &v
+}
+
+func setFirstParentConditionTime(r *reports.RouteReport, ts metav1.Time) {
+	for _, parent := range r.Parents {
+		if len(parent.Conditions) > 0 {
+			parent.Conditions[0].LastTransitionTime = ts
+		}
+		return
+	}
+}
+
+func setFirstAncestorConditionTime(r *reports.PolicyReport, ts metav1.Time) {
+	for _, ancestor := range r.Ancestors {
+		if len(ancestor.Conditions) > 0 {
+			ancestor.Conditions[0].LastTransitionTime = ts
+		}
+		return
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
@@ -207,19 +208,19 @@ func (r report) Equals(in report) bool {
 		}) {
 		return false
 	}
-	if !maps.EqualFunc(r.reportMap.HTTPRoutes, in.reportMap.HTTPRoutes, reportValueEqual[reports.RouteReport]) {
+	if !maps.EqualFunc(r.reportMap.HTTPRoutes, in.reportMap.HTTPRoutes, routeReportEqual) {
 		return false
 	}
-	if !maps.EqualFunc(r.reportMap.GRPCRoutes, in.reportMap.GRPCRoutes, reportValueEqual[reports.RouteReport]) {
+	if !maps.EqualFunc(r.reportMap.GRPCRoutes, in.reportMap.GRPCRoutes, routeReportEqual) {
 		return false
 	}
-	if !maps.EqualFunc(r.reportMap.TCPRoutes, in.reportMap.TCPRoutes, reportValueEqual[reports.RouteReport]) {
+	if !maps.EqualFunc(r.reportMap.TCPRoutes, in.reportMap.TCPRoutes, routeReportEqual) {
 		return false
 	}
-	if !maps.EqualFunc(r.reportMap.TLSRoutes, in.reportMap.TLSRoutes, reportValueEqual[reports.RouteReport]) {
+	if !maps.EqualFunc(r.reportMap.TLSRoutes, in.reportMap.TLSRoutes, routeReportEqual) {
 		return false
 	}
-	if !maps.EqualFunc(r.reportMap.Policies, in.reportMap.Policies, reportValueEqual[reports.PolicyReport]) {
+	if !maps.EqualFunc(r.reportMap.Policies, in.reportMap.Policies, policyReportEqual) {
 		return false
 	}
 	if !maps.EqualFunc(r.reportMap.Backends, in.reportMap.Backends, backendReportEqual) {
@@ -245,17 +246,65 @@ func backendReportEqual(a, b *reports.BackendReport) bool {
 	if a.GetObservedGeneration() != b.GetObservedGeneration() {
 		return false
 	}
-	ac, bc := a.GetConditions(), b.GetConditions()
-	if len(ac) != len(bc) {
+	return conditionsEqual(a.GetConditions(), b.GetConditions())
+}
+
+// routeReportEqual reports whether two RouteReports hold the same parent refs,
+// observed generation, and semantic conditions (ignoring LastTransitionTime).
+func routeReportEqual(a, b *reports.RouteReport) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.GetObservedGeneration() != b.GetObservedGeneration() {
 		return false
 	}
-	for i := range ac {
-		other := meta.FindStatusCondition(bc, ac[i].Type)
+	if len(a.Parents) != len(b.Parents) {
+		return false
+	}
+	for key, aParent := range a.Parents {
+		bParent, ok := b.Parents[key]
+		if !ok || !conditionsEqual(aParent.Conditions, bParent.Conditions) {
+			return false
+		}
+	}
+	return true
+}
+
+// policyReportEqual reports whether two PolicyReports hold the same ancestor refs,
+// attachment state, observed generation, and semantic conditions (ignoring LastTransitionTime).
+func policyReportEqual(a, b *reports.PolicyReport) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.GetObservedGeneration() != b.GetObservedGeneration() {
+		return false
+	}
+	if len(a.Ancestors) != len(b.Ancestors) {
+		return false
+	}
+	for key, aAncestor := range a.Ancestors {
+		bAncestor, ok := b.Ancestors[key]
+		if !ok || aAncestor.AttachmentState != bAncestor.AttachmentState ||
+			!conditionsEqual(aAncestor.Conditions, bAncestor.Conditions) {
+			return false
+		}
+	}
+	return true
+}
+
+// conditionsEqual compares conditions by type and semantic fields, intentionally
+// ignoring LastTransitionTime to avoid false diffs on timestamp-only updates.
+func conditionsEqual(a, b []metav1.Condition) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		other := meta.FindStatusCondition(b, a[i].Type)
 		if other == nil ||
-			ac[i].Status != other.Status ||
-			ac[i].Reason != other.Reason ||
-			ac[i].Message != other.Message ||
-			ac[i].ObservedGeneration != other.ObservedGeneration {
+			a[i].Status != other.Status ||
+			a[i].Reason != other.Reason ||
+			a[i].Message != other.Message ||
+			a[i].ObservedGeneration != other.ObservedGeneration {
 			return false
 		}
 	}
