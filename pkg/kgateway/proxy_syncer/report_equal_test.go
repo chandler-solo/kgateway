@@ -155,8 +155,9 @@ func TestPolicyReportEqual(t *testing.T) {
 	})
 }
 
+//go:fix inline
 func localPtr[T any](v T) *T {
-	return &v
+	return new(v)
 }
 
 func setFirstParentConditionTime(r *reports.RouteReport, ts metav1.Time) {
