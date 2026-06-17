@@ -598,10 +598,7 @@ func (s *AttachedRoutesSuite) deleteIncrementalRoute(route *gwv1.HTTPRoute) erro
 
 func (s *AttachedRoutesSuite) collectValidationMetrics(label string) ValidationMetrics {
 	metrics, err := s.loadTestManager.CollectKGatewayValidationMetrics()
-	if err != nil {
-		s.T().Logf("Validation metrics unavailable %s: %v", label, err)
-		return metrics
-	}
+	s.Require().NoError(err, "validation metrics should be available %s", label)
 	s.T().Logf(
 		"Validation metrics %s: calls=%d cache_hits=%d cache_misses=%d valid=%d invalid_xds=%d invocation_errors=%d duration_seconds=%.3f by_caller=%s",
 		label,
