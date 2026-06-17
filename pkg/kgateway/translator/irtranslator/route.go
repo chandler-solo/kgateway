@@ -149,7 +149,7 @@ func (h *httpRouteConfigurationTranslator) computeVirtualHost(
 			routeReport = h.reporter.Route(route.Parent.SourceObject).ParentRef(&route.ParentRef)
 		}
 		generatedName := fmt.Sprintf("%s-route-%d", virtualHost.Name, i)
-		computedRoute := h.envoyRoutes(ctx, routeReport, route, generatedName)
+		computedRoute := h.envoyRoutes(routeReport, route, generatedName)
 		if computedRoute != nil {
 			envoyRoutes = append(envoyRoutes, computedRoute)
 			computedRoutes = append(computedRoutes, computedHTTPRoute{
@@ -238,7 +238,6 @@ type computedHTTPRoute struct {
 }
 
 func (h *httpRouteConfigurationTranslator) envoyRoutes(
-	ctx context.Context,
 	routeReport reportssdk.ParentRefReporter,
 	in ir.HttpRouteRuleMatchIR,
 	generatedName string,
