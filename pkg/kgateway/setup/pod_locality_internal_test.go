@@ -95,10 +95,15 @@ func TestLocalityInUseFromInputs(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "DR localityLb + endpoints single locality: not in use",
+			// A DR's localityLbSetting can target hosts (e.g. a ServiceEntry with
+			// DNS resolution) whose endpoints are not represented in the endpoints
+			// collection, so their spread is not observable. We conservatively keep
+			// locality on whenever an enabled localityLbSetting exists, even when
+			// the endpoints we can see are single-locality.
+			name: "DR localityLb keeps locality regardless of observed endpoint spread",
 			eps:  []ir.EndpointsForBackend{epsFor(wellknown.TrafficDistributionAny, zoneA1)},
 			drs:  []destrule.DestinationRuleWrapper{drWithLocalityLb(true)},
-			want: false,
+			want: true,
 		},
 		{
 			name: "DR present but localityLb disabled: not in use",

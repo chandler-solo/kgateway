@@ -15,14 +15,18 @@ import (
 )
 
 // localityGate answers, at stream-connect time, whether locality-aware routing
-// is in use AND the topology actually spans the dimension that routing keys on
-// — i.e. whether folding pod locality into a client's xDS identity can change
-// any client's config. It backs the PodLocalityXDS "AUTO" mode: when locality
-// cannot affect the result, the identity is collapsed to one per gateway role.
+// is in use — i.e. whether folding pod locality into a client's xDS identity can
+// change any client's config. It backs the PodLocalityXDS "AUTO" mode: when
+// locality cannot affect the result, the identity is collapsed to one per
+// gateway role.
 //
-// Endpoint spread is a sound signal: if a backend's endpoints do not span the
-// keyed dimension, every proxy computes the same prioritization for it (one
-// priority tier, all endpoints active), so collapsing is behaviorally neutral.
+// Where the endpoints are observable, endpoint spread is a sound refinement: if
+// a backend's endpoints do not span the keyed dimension, every proxy computes
+// the same prioritization for it (one priority tier, all endpoints active), so
+// collapsing is behaviorally neutral. DestinationRule localityLbSetting can
+// target hosts whose endpoints are not observable (e.g. a ServiceEntry served
+// inline on the cluster rather than via EDS), so for those we keep locality on
+// rather than risk collapsing an identity that mattered.
 type localityGate struct {
 	endpoints krt.Collection[ir.EndpointsForBackend]
 	// drs is nil when Istio integration is disabled, since DestinationRules are
@@ -53,18 +57,21 @@ func (g *localityGate) localityInUse() bool {
 	return localityInUseFromInputs(g.endpoints.List(), drs)
 }
 
-// localityInUseFromInputs is the pure decision: locality can affect routing iff
-// some backend uses a traffic distribution (or a DestinationRule sets an
-// enabled localityLbSetting) AND its endpoints actually span the keyed locality
-// dimension.
+// localityInUseFromInputs is the pure decision: locality can affect routing
+// when locality-aware routing is configured and, where the endpoints are
+// observable, they actually span the keyed locality dimension.
 //
-//   - PreferSameZone keys on region/zone: matters only if endpoints span >1
-//     distinct (region, zone).
-//   - DestinationRule localityLbSetting can prioritize down to subzone: matters
-//     only if endpoints span >1 distinct (region, zone, subzone).
+//   - PreferSameZone keys on region/zone: matters only if a backend's endpoints
+//     span >1 distinct (region, zone). The trafficDistribution lives on the
+//     backend's own endpoints, so the spread is always observable here.
 //   - PreferSameNode (node/hostname) and PreferNetwork key on dimensions not
 //     captured by PodLocality, so we cannot prove them inert here and
 //     conservatively keep locality on.
+//   - A DestinationRule localityLbSetting can target hosts whose endpoints are
+//     not represented in the endpoints collection (e.g. a ServiceEntry with DNS
+//     resolution serves its endpoints inline on the cluster, not via EDS), so
+//     we cannot observe their spread. We therefore keep locality on whenever any
+//     DestinationRule enables localityLbSetting.
 func localityInUseFromInputs(eps []ir.EndpointsForBackend, drs []destrule.DestinationRuleWrapper) bool {
 	for _, e := range eps {
 		switch e.TrafficDistribution {
@@ -76,14 +83,7 @@ func localityInUseFromInputs(eps []ir.EndpointsForBackend, drs []destrule.Destin
 			}
 		}
 	}
-	if len(drs) > 0 && slices.ContainsFunc(drs, destrule.HasEnabledLocalityLbSetting) {
-		for _, e := range eps {
-			if localitiesSpanSubzone(e.LbEps) {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(drs, destrule.HasEnabledLocalityLbSetting)
 }
 
 // localitiesSpanZone reports whether the endpoint localities cover more than one
@@ -103,14 +103,6 @@ func localitiesSpanZone(m ir.LocalityLbMap) bool {
 		}
 	}
 	return false
-}
-
-// localitiesSpanSubzone reports whether the endpoint localities cover more than
-// one distinct (region, zone, subzone). The LbEps map is keyed by the full
-// PodLocality, so more than one key means the localities differ at subzone
-// granularity or coarser.
-func localitiesSpanSubzone(m ir.LocalityLbMap) bool {
-	return len(m) > 1
 }
 
 // newLocalityGate builds a localityGate from the (already plugin-initialized)
