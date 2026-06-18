@@ -61,7 +61,13 @@ type callbacks struct {
 	collection         atomic.Pointer[callbacksCollection]
 	extraXDSCallbacks  xdsserver.Callbacks
 	streamIDToPeerInfo sync.Map
-	xdsAuth            bool
+	// streamUsePodLocality caches the usePodLocality decision per stream (keyed
+	// by stream ID, value bool). The decision is fixed for the life of a stream,
+	// so we evaluate it once when the stream is first seen and reuse it for later
+	// requests; in AUTO mode this avoids re-listing the endpoint/DestinationRule
+	// collections on every xDS request. Entries are cleared in OnStreamClosed.
+	streamUsePodLocality sync.Map
+	xdsAuth              bool
 }
 
 type peerInfo struct {
@@ -177,6 +183,7 @@ func (x *callbacks) OnStreamClosed(sid int64, node *envoycorev3.Node) {
 	if x.xdsAuth {
 		x.streamIDToPeerInfo.Delete(sid)
 	}
+	x.streamUsePodLocality.Delete(sid)
 	c := x.collection.Load()
 	if c == nil {
 		return
@@ -292,7 +299,17 @@ func (x *callbacks) OnStreamRequest(sid int64, r *envoy_service_discovery_v3.Dis
 		return errors.New("kgateway not initialized")
 	}
 
-	peerInfo, err := x.getPeerInfo(sid, r, c.usePodLocality() && c.augmentedPods != nil)
+	// The usePodLocality decision is fixed for the life of a stream, so evaluate
+	// it once when the stream is first seen and reuse it for subsequent requests.
+	// In AUTO mode this avoids re-running the topology check (which lists the
+	// endpoint/DestinationRule collections) on every xDS request.
+	usePod, ok := x.streamUsePodLocality.Load(sid)
+	if !ok {
+		usePod = c.usePodLocality() && c.augmentedPods != nil
+		x.streamUsePodLocality.Store(sid, usePod)
+	}
+
+	peerInfo, err := x.getPeerInfo(sid, r, usePod.(bool))
 	if err != nil {
 		return err
 	}

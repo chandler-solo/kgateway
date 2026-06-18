@@ -145,11 +145,14 @@ type PodLocalityXDS string
 
 const (
 	// PodLocalityXDSAuto includes pod locality in the client identity only when
-	// it can actually affect routing — i.e. when some backend sets a traffic
-	// distribution other than "Any", or (with Istio integration enabled) some
-	// DestinationRule sets an enabled localityLbSetting. When nothing can consume
-	// proxy locality, every replica of a gateway produces an identical snapshot,
-	// so the identity is collapsed to one per gateway. This is the default.
+	// it can actually affect routing. That requires both that locality-aware
+	// routing is configured — some backend sets a traffic distribution other
+	// than "Any", or (with Istio integration enabled) some DestinationRule sets
+	// an enabled localityLbSetting — and that the backend's endpoints actually
+	// span the locality dimension that routing keys on. When locality cannot
+	// change any client's config, every replica of a gateway produces an
+	// identical snapshot, so the identity is collapsed to one per gateway. This
+	// is the default.
 	PodLocalityXDSAuto PodLocalityXDS = "AUTO"
 	// PodLocalityXDSOn always includes pod locality in the client identity.
 	PodLocalityXDSOn PodLocalityXDS = "ON"
