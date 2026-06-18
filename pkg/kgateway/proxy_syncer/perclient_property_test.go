@@ -29,14 +29,15 @@ package proxy_syncer
 // — a true oracle false-positive. Covering errored clusters needs a refined
 // oracle and is left as follow-up.
 //
-// Generator coupling: the model never reaches "EDS cluster in CDS with no
-// CLA at all" (cluster-without-CLA). A probe (xds_consistency_probe_test.go)
-// confirmed that state is tolerated by go-control-plane — the orphan cluster
-// warms alone with no traffic or stream impact — so it is a benign
-// inconsistency, not a bug, and halting on it would mask deeper failures. The
-// inverse, CLA-without-cluster, IS allowed: it is the #14184 orphan-CLA case
-// that filterEndpointResourcesForClusters must drop, and is where a real
-// regression would show up.
+// The generator freely produces both inconsistency directions:
+// cluster-without-CLA (an EDS cluster in CDS with no CLA yet) and
+// CLA-without-cluster (a stale CLA whose cluster has left CDS).
+// filterEndpointResourcesForClusters must reconcile both — dropping stale CLAs
+// and synthesizing empty assignments for EDS clusters lacking one — so every
+// published snapshot is EDS-consistent. This test is the regression gate for
+// that synthesis: before it was added, the cluster-without-CLA case published
+// an inconsistent snapshot (xds_consistency_probe_test.go documents the
+// go-control-plane tolerance it used to lean on).
 //
 // Determinism: each iteration runs a fixed seed (base seed overridable via
 // XDS_PROP_SEED); iteration/step/cluster counts are overridable via
@@ -51,6 +52,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -205,7 +207,7 @@ func TestSnapshotPerClientRandomizedEventSequencesConformToSpec(t *testing.T) {
 	steps := envInt("XDS_PROP_STEPS", 20)
 	numClusters := envInt("XDS_PROP_CLUSTERS", 4)
 
-	for iter := 0; iter < iters; iter++ {
+	for iter := range iters {
 		seed := baseSeed + int64(iter)
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
 			runPropertySeed(t, seed, steps, numClusters)
@@ -214,6 +216,7 @@ func TestSnapshotPerClientRandomizedEventSequencesConformToSpec(t *testing.T) {
 }
 
 func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
+	//nolint:gosec // G404: a deterministic, seeded PRNG is intentional here so failing sequences reproduce; not security-sensitive.
 	rng := rand.New(rand.NewSource(seed))
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -292,44 +295,32 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		// KRT recompute is fast and synchronous-ish for static collections;
 		// sample a few times across a short window to catch transients and the
 		// settled state.
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			checkPublished(stepDesc)
 			time.Sleep(15 * time.Millisecond)
 		}
 	}
 
-	for step := 0; step < steps; step++ {
+	for step := range steps {
 		c := clusterNames[rng.Intn(numClusters)]
-		// Each event maintains the invariant "never (inCDS && ep==absent)"
-		// (no cluster-without-CLA, the benign case) while permitting
-		// (ep!=absent && !inCDS) (CLA-without-cluster, the #14184 filter case).
-		switch rng.Intn(5) {
+		// Inputs are toggled freely and independently, so both inconsistency
+		// directions arise: toggling CDS can leave an EDS cluster without a CLA
+		// (cluster-without-CLA) and cycling EDS can leave a CLA whose cluster is
+		// gone (CLA-without-cluster). The published snapshot must be consistent
+		// regardless.
+		switch rng.Intn(4) {
 		case 0: // toggle route reference (and occasionally the route style)
 			w.refs[c] = !w.refs[c]
 			if rng.Intn(3) == 0 {
 				w.weighted = !w.weighted
 			}
 			w.applyRefs()
-		case 1: // backend appears: cluster + at least an empty CLA together
-			w.applyCDS(c, true)
-			if w.ep[c] == epAbsent {
-				w.applyEP(c, epEmpty)
-			}
-		case 2: // cluster leaves CDS; its CLA may linger (orphan -> filter must drop)
-			if w.inCDS[c] {
-				w.applyCDS(c, false)
-			}
-		case 3: // endpoints flip ready<->empty (CLA stays present)
-			if w.ep[c] == epReady {
-				w.applyEP(c, epEmpty)
-			} else {
-				w.applyEP(c, epReady)
-			}
-		case 4: // backend fully removed: drop cluster first, then its CLA
-			if w.inCDS[c] {
-				w.applyCDS(c, false)
-			}
-			w.applyEP(c, epAbsent)
+		case 1: // toggle cluster presence in CDS
+			w.applyCDS(c, !w.inCDS[c])
+		case 2: // cycle endpoint state (absent -> empty -> ready -> ...)
+			w.applyEP(c, epState((int(w.ep[c])+1+rng.Intn(2))%3))
+		case 3: // jump endpoint straight to a random state
+			w.applyEP(c, epState(rng.Intn(3)))
 		}
 		settleAndCheck(fmt.Sprintf("step %d", step))
 	}
@@ -378,7 +369,7 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 	// so a genuinely stuck-defer would never publish across any number of
 	// fresh events; coherent inputs publish on some round.
 	var snap *envoycache.Snapshot
-	for round := 0; round < 12; round++ {
+	for range 12 {
 		if snap = waitPublished(400 * time.Millisecond); snap != nil {
 			break
 		}
@@ -397,12 +388,12 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 }
 
 func joinJournal(journal []string) string {
-	out := ""
+	var out strings.Builder
 	for i, e := range journal {
 		if i > 0 {
-			out += "\n  "
+			out.WriteString("\n  ")
 		}
-		out += e
+		out.WriteString(e)
 	}
-	return out
+	return out.String()
 }

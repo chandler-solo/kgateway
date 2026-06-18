@@ -585,10 +585,21 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 	collectProtoClusterReferences(msg.Interface(), referencedClusters)
 }
 
-// filterEndpointResourcesForClusters returns endpoint resources required by EDS
-// clusters in the same CDS snapshot. Envoy requests EDS resources from CDS, so
-// publishing CLAs for STATIC clusters or removed EDS clusters can make the ADS
-// cache refuse named EDS responses.
+// filterEndpointResourcesForClusters returns the EDS resource set that exactly
+// matches the EDS clusters in the same CDS snapshot: it drops CLAs for STATIC
+// clusters and for EDS clusters no longer in CDS (Envoy requests EDS names
+// from CDS, so a stale CLA can make the ADS cache refuse named EDS responses),
+// and it synthesizes an empty ClusterLoadAssignment for any EDS cluster that
+// has no CLA yet. The synthesis keeps the published snapshot EDS-consistent —
+// every EDS cluster has exactly one CLA and there are no CLAs without a
+// cluster (go-control-plane's Snapshot.Consistent() invariant) — rather than
+// relying on the cache tolerating a dangling EDS cluster, and it lets Envoy
+// treat such a cluster as active-with-no-hosts immediately instead of stalling
+// its warming on an absent EDS resource until the initial-fetch timeout.
+// Referenced clusters whose only CLA is a synthesized empty are still deferred
+// upstream by findMissingReferencedEndpointResources, which checks for a
+// usable endpoint; the synthesized empties therefore only ever reach Envoy for
+// clusters no route targets.
 func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
 	requiredEndpointNames := make(map[string]struct{})
 	for _, item := range clusters.Items {
@@ -596,6 +607,7 @@ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints
 			requiredEndpointNames[endpointName] = struct{}{}
 		}
 	}
+	covered := make(map[string]struct{}, len(requiredEndpointNames))
 	filteredEndpoints := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.Items))
 	var resourcesHash uint64
 	for _, item := range endpoints.Items {
@@ -607,9 +619,22 @@ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints
 			continue
 		}
 		filteredEndpoints = append(filteredEndpoints, item)
+		covered[cla.GetClusterName()] = struct{}{}
 		resourcesHash ^= utils.HashProto(cla)
 	}
-	if len(filteredEndpoints) == len(endpoints.Items) {
+	// Synthesize empty assignments for EDS clusters that have no CLA yet so the
+	// published snapshot stays EDS-consistent.
+	synthesized := 0
+	for name := range requiredEndpointNames {
+		if _, ok := covered[name]; ok {
+			continue
+		}
+		empty := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
+		filteredEndpoints = append(filteredEndpoints, envoycachetypes.ResourceWithTTL{Resource: empty})
+		resourcesHash ^= utils.HashProto(empty)
+		synthesized++
+	}
+	if synthesized == 0 && len(filteredEndpoints) == len(endpoints.Items) {
 		return endpoints
 	}
 	return envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", resourcesHash), filteredEndpoints)
