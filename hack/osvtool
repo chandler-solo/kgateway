@@ -389,9 +389,13 @@ emit_summary() {
                     end;
                 def image_label:
                     (.most_recent_instance.category // "") as $c
-                    | ((try ($c | capture("-images-(?<img>.+)-linux-(amd64|arm64)$").img) catch null) // "unknown");
+                    | ((try ($c | capture("^osv-scanner-.*-images-(?<img>.+)-linux-(amd64|arm64)$").img) catch null) // "unknown");
                 def by_image:
-                    reduce (.[] | select(is_image)) as $alert ({}; .[$alert | image_label] += 1);
+                    reduce (.[] | select(is_image)) as $alert (
+                        {};
+                        ($alert | image_label) as $img
+                        | .[$img] = ((.[$img] // 0) + 1)
+                    );
                 def sev: (.rule.security_severity_level // "unknown" | ascii_downcase);
                 def age_days($now): (($now - ((.created_at | fromdateiso8601)? // $now)) / 86400 | floor);
                 def zero_counts: {critical: 0, high: 0, medium: 0, low: 0, unknown: 0};
