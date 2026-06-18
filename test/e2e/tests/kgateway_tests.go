@@ -33,6 +33,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/loadtesting"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/oauth"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/path_matching"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/podlocalityxds"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/features/policyselector"
 	global_rate_limit "github.com/kgateway-dev/kgateway/v2/test/e2e/features/rate_limit/global"
 	local_rate_limit "github.com/kgateway-dev/kgateway/v2/test/e2e/features/rate_limit/local"
@@ -103,6 +104,7 @@ func KubeGatewaySuiteRunner() e2e.SuiteRunner {
 	kubeGatewaySuiteRunner.Register("BasicAuth", basicauth.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("OAuth", oauth.NewTestingSuite)
 	kubeGatewaySuiteRunner.Register("WebSocket", websocket.NewTestingSuite)
+	kubeGatewaySuiteRunner.Register("PodLocalityXDS", podlocalityxds.NewTestingSuite)
 
 	return kubeGatewaySuiteRunner
 }

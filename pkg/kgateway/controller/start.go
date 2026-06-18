@@ -91,6 +91,13 @@ type StartConfig struct {
 
 	// StatusSyncerOptions is the list of options to be passed when creating the StatusSyncer
 	StatusSyncerOptions []proxy_syncer.StatusSyncerOption
+
+	// DisablePodLocalityXDS selects the locality-agnostic xDS graph in the proxy
+	// syncer (set from the DISABLE_POD_LOCALITY_XDS env var in setup). When true,
+	// every replica of a gateway shares one locality-agnostic identity, so each
+	// backend is translated once and snapshots are assembled per gateway role
+	// rather than per connected client.
+	DisablePodLocalityXDS bool
 }
 
 // Start runs the controllers responsible for processing the K8s Gateway API objects
@@ -158,6 +165,7 @@ func NewControllerBuilder(ctx context.Context, cfg StartConfig) (*ControllerBuil
 			cfg.CommonCollections,
 			cfg.SetupOpts.Cache,
 			cfg.Validator,
+			cfg.DisablePodLocalityXDS,
 		)
 		proxySyncer.Init(ctx, cfg.KrtOptions)
 		if err := cfg.Manager.Add(proxySyncer); err != nil {

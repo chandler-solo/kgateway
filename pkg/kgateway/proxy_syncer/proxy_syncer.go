@@ -57,6 +57,12 @@ type ProxySyncer struct {
 
 	uniqueClients krt.Collection[ir.UniquelyConnectedClient]
 
+	// disablePodLocalityXDS selects the locality-agnostic xDS graph (see
+	// snapshotPerRole). When true, backends are translated once (client-agnostic)
+	// and snapshots are assembled per gateway role rather than per connected
+	// client, because every replica of a gateway shares one identity.
+	disablePodLocalityXDS bool
+
 	statusReport            krt.Singleton[report]
 	backendPolicyReport     krt.Singleton[report]
 	backendStatusReport     krt.Singleton[report]
@@ -160,6 +166,7 @@ func NewProxySyncer(
 	commonCols *collections.CommonCollections,
 	xdsCache envoycache.SnapshotCache,
 	validator validator.Validator,
+	disablePodLocalityXDS bool,
 ) *ProxySyncer {
 	return &ProxySyncer{
 		controllerName:           controllerName,
@@ -170,6 +177,7 @@ func NewProxySyncer(
 		uniqueClients:            uniqueClients,
 		translator:               translator.NewCombinedTranslator(ctx, mergedPlugins, commonCols, validator),
 		plugins:                  mergedPlugins,
+		disablePodLocalityXDS:    disablePodLocalityXDS,
 		reportQueue:              utils.NewAsyncQueue[reports.ReportMap](),
 		backendPolicyReportQueue: utils.NewAsyncQueue[reports.ReportMap](),
 		backendStatusReportQueue: utils.NewAsyncQueue[reports.ReportMap](),
@@ -304,27 +312,61 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		return toResources(gw, *xdsSnap, rm)
 	}, krtopts.ToOptions("MostXdsSnapshots")...)
 
-	epPerClient := NewPerClientEnvoyEndpoints(
-		krtopts,
-		s.uniqueClients,
-		newFinalBackendEndpoints(krtopts, finalBackends, allEndpoints),
-		s.translator.TranslateEndpoints,
-	)
-	clustersPerClient := NewPerClientEnvoyClusters(
-		ctx,
-		krtopts,
-		s.translator.GetBackendTranslator(),
-		finalBackends,
-		s.uniqueClients,
-	)
+	// statusClusters is the cluster collection consumed by backendStatusReport for
+	// per-backend translation-error attribution. Both xDS paths populate it; the
+	// locality-agnostic path produces one row per backend, the per-client path one
+	// row per (backend, client).
+	var statusClusters krt.Collection[uccWithCluster]
+	if s.disablePodLocalityXDS {
+		// Locality-agnostic graph: translate each backend once (no per-client
+		// fan-out) and assemble one snapshot per gateway role. See snapshotPerRole.
+		if s.commonCols.Settings.EnableIstioIntegration {
+			logger.Info("DISABLE_POD_LOCALITY_XDS is set: DestinationRule per-client " +
+				"workload selection is inert (clients have no locality/labels); " +
+				"host-scoped DestinationRule effects still apply identically to all clients")
+		}
+		agnosticClusters := NewAgnosticEnvoyClusters(
+			ctx,
+			krtopts,
+			s.translator.GetBackendTranslator(),
+			finalBackends,
+		)
+		agnosticEndpoints := NewAgnosticEnvoyEndpoints(
+			krtopts,
+			newFinalBackendEndpoints(krtopts, finalBackends, allEndpoints),
+			s.translator.TranslateEndpoints,
+		)
+		s.perclientSnapCollection = snapshotPerRole(
+			krtopts,
+			s.mostXdsSnapshots,
+			agnosticEndpoints,
+			agnosticClusters,
+		)
+		statusClusters = agnosticClusters
+	} else {
+		epPerClient := NewPerClientEnvoyEndpoints(
+			krtopts,
+			s.uniqueClients,
+			newFinalBackendEndpoints(krtopts, finalBackends, allEndpoints),
+			s.translator.TranslateEndpoints,
+		)
+		clustersPerClient := NewPerClientEnvoyClusters(
+			ctx,
+			krtopts,
+			s.translator.GetBackendTranslator(),
+			finalBackends,
+			s.uniqueClients,
+		)
 
-	s.perclientSnapCollection = snapshotPerClient(
-		krtopts,
-		s.uniqueClients,
-		s.mostXdsSnapshots,
-		epPerClient,
-		clustersPerClient,
-	)
+		s.perclientSnapCollection = snapshotPerClient(
+			krtopts,
+			s.uniqueClients,
+			s.mostXdsSnapshots,
+			epPerClient,
+			clustersPerClient,
+		)
+		statusClusters = clustersPerClient.clusters
+	}
 
 	excludedPolicyKinds := make(map[schema.GroupKind]struct{})
 	for gk, plugin := range s.plugins.ContributesPolicies {
@@ -354,7 +396,7 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		if kgwBackendCol != nil {
 			kgwBackends = krt.Fetch(kctx, kgwBackendCol)
 		}
-		clusters := krt.Fetch(kctx, clustersPerClient.clusters)
+		clusters := krt.Fetch(kctx, statusClusters)
 		merged := GenerateBackendStatusReport(kgwBackends, clusters)
 		return &report{merged}
 	}, krtopts.ToOptions("BackendStatusReport")...)

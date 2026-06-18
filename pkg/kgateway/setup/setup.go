@@ -400,7 +400,12 @@ func (s *setup) buildKgatewayWithConfig(
 
 	augmentedPods, _ := krtcollections.NewPodsCollection(s.apiClient, krtOpts)
 	augmentedPodsForUcc := augmentedPods
-	if envutils.IsEnvTruthy("DISABLE_POD_LOCALITY_XDS") {
+	// DISABLE_POD_LOCALITY_XDS collapses every replica of a gateway to a single
+	// locality-agnostic client identity (see uniqueclients.go). The same decision
+	// selects the locality-agnostic xDS graph in the proxy syncer, so capture it
+	// once here and thread it through StartConfig to keep the two consistent.
+	disablePodLocalityXDS := envutils.IsEnvTruthy("DISABLE_POD_LOCALITY_XDS")
+	if disablePodLocalityXDS {
 		augmentedPodsForUcc = nil
 	}
 
@@ -435,6 +440,7 @@ func (s *setup) buildKgatewayWithConfig(
 		Validator:                   s.validator,
 		GatewayControllerExtension:  s.gatewayControllerExtension,
 		StatusSyncerOptions:         s.statusSyncerOptions,
+		DisablePodLocalityXDS:       disablePodLocalityXDS,
 	})
 	if err != nil {
 		slog.Error("failed initializing controller: ", "error", err)

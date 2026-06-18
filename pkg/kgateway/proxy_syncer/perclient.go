@@ -257,7 +257,16 @@ func snapshotPerClient(
 		return &snap
 	}, krtopts.ToOptions("PerClientXdsSnapshots")...)
 
-	metrics.RegisterEvents(xdsSnapshotsForUcc, func(o krt.Event[XdsSnapWrapper]) {
+	registerSnapshotResourceMetrics(xdsSnapshotsForUcc)
+
+	return xdsSnapshotsForUcc
+}
+
+// registerSnapshotResourceMetrics publishes per-resource-type counts for each
+// published snapshot (and zeroes them on Delete). Shared by both the per-client
+// (snapshotPerClient) and per-role (snapshotPerRole) xDS graphs.
+func registerSnapshotResourceMetrics(snapshots krt.Collection[XdsSnapWrapper]) {
+	metrics.RegisterEvents(snapshots, func(o krt.Event[XdsSnapWrapper]) {
 		cd := getDetailsFromXDSClientResourceName(o.Latest().ResourceName())
 
 		switch o.Event {
@@ -329,8 +338,125 @@ func snapshotPerClient(
 				}.toMetricsLabels()...)
 		}
 	})
+}
 
-	return xdsSnapshotsForUcc
+// snapshotPerRole builds one xDS snapshot per gateway role for the
+// locality-agnostic path (DISABLE_POD_LOCALITY_XDS). Unlike snapshotPerClient it
+// is keyed off the per-gateway listener/route snapshots (mostXdsSnapshots), not
+// off the connected-client set, and it draws clusters/endpoints from
+// client-agnostic collections that are translated once per backend. Because no
+// collection here depends on the UniquelyConnectedClient set, a client
+// connecting or disconnecting triggers no recomputation, and there are no
+// per-(client,backend) rows that can go missing — the O(backends x clients)
+// fan-out that #14184 traces to is structurally absent on this path.
+//
+// The #13868 coherence guards are preserved, just applied per role: if a
+// referenced cluster or its EDS ClusterLoadAssignment is not yet present, the
+// transform returns nil, which surfaces as a Delete and is a no-op in the xDS
+// subscriber (retain last-good). A warm Envoy keeps serving its previous
+// snapshot until a coherent one replaces it.
+func snapshotPerRole(
+	krtopts krtutil.KrtOptions,
+	mostXdsSnapshots krt.Collection[GatewayXdsResources],
+	endpoints krt.Collection[UccWithEndpoints],
+	clusters krt.Collection[uccWithCluster],
+) krt.Collection[XdsSnapWrapper] {
+	snapshots := krt.NewCollection(mostXdsSnapshots, func(kctx krt.HandlerContext, gw GatewayXdsResources) *XdsSnapWrapper {
+		proxyKey := gw.ResourceName()
+		defer (collectXDSTransformMetrics(proxyKey))(nil)
+
+		// Client-agnostic clusters/endpoints are global (one row per backend), so
+		// every role draws from the same set; fetch them all.
+		allClusters := krt.Fetch(kctx, clusters)
+		allEndpoints := krt.Fetch(kctx, endpoints)
+
+		// Build backend cluster resources, separating errored clusters (they share a
+		// blackhole proto and are never sent to Envoy), mirroring snapshotPerClient.
+		clustersProto := make(map[string]envoycachetypes.ResourceWithTTL, len(allClusters)+len(gw.Clusters))
+		var (
+			clustersHash    uint64
+			erroredClusters []string
+		)
+		for _, c := range allClusters {
+			if c.Error != nil {
+				erroredClusters = append(erroredClusters, c.Name)
+				continue
+			}
+			clustersProto[c.Name] = envoycachetypes.ResourceWithTTL{Resource: c.Cluster}
+			clustersHash ^= c.ClusterVersion
+		}
+		// Merge the per-gateway extra clusters (ext_authz, ratelimit, etc.) carried in
+		// the role's listener/route snapshot.
+		for _, item := range gw.Clusters {
+			clustersProto[envoycache.GetResourceName(item.Resource)] = item
+		}
+		clusterResources := envoycache.Resources{
+			Version: fmt.Sprintf("%d", clustersHash^gw.ClustersHash),
+			Items:   clustersProto,
+		}
+
+		if missingClusters := findMissingReferencedClusters(
+			gw.ReferencedClusters,
+			clusterResources.Items,
+			erroredClusters,
+		); len(missingClusters) > 0 {
+			logger.Info(
+				"defer building snapshot until all referenced clusters are ready",
+				"proxy_key", proxyKey,
+				"missing_clusters", missingClusters,
+			)
+			return nil
+		}
+
+		endpointsProto := make([]envoycachetypes.ResourceWithTTL, 0, len(allEndpoints))
+		var endpointsHash uint64
+		for _, ep := range allEndpoints {
+			endpointsProto = append(endpointsProto, envoycachetypes.ResourceWithTTL{Resource: ep.Endpoints})
+			endpointsHash ^= ep.EndpointsHash
+		}
+		endpointResources := envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", endpointsHash), endpointsProto)
+
+		// Exclude CLAs for STATIC clusters so the ADS snapshot only contains resources Envoy will request.
+		endpointRes := filterEndpointResourcesForStaticClusters(clusterResources, endpointResources)
+		if missingEndpointClusters := findMissingReferencedEndpointResources(
+			gw.ReferencedClusters,
+			clusterResources.Items,
+			endpointRes.Items,
+			erroredClusters,
+		); len(missingEndpointClusters) > 0 {
+			logger.Info(
+				"defer building snapshot until all referenced EDS resources are ready",
+				"proxy_key", proxyKey,
+				"missing_endpoint_clusters", missingEndpointClusters,
+			)
+			return nil
+		}
+
+		snap := XdsSnapWrapper{
+			erroredClusters: erroredClusters,
+			proxyKey:        proxyKey,
+		}
+		snapshot := &envoycache.Snapshot{}
+		snapshot.Resources[envoycachetypes.Cluster] = clusterResources
+		snapshot.Resources[envoycachetypes.Endpoint] = endpointRes
+		snapshot.Resources[envoycachetypes.Route] = gw.Routes
+		snapshot.Resources[envoycachetypes.Listener] = gw.Listeners
+		snapshot.Resources[envoycachetypes.Secret] = gw.Secrets
+		snap.snap = snapshot
+		logger.Debug("snapshots", "proxy_key", proxyKey,
+			"listeners", resourcesStringer(gw.Listeners).String(),
+			"clusters", resourcesStringer(clusterResources).String(),
+			"routes", resourcesStringer(gw.Routes).String(),
+			"endpoints", resourcesStringer(endpointRes).String(),
+			"secrets", resourcesStringer(gw.Secrets).String(),
+		)
+
+		return &snap
+	}, krtopts.ToOptions("PerRoleXdsSnapshots")...)
+
+	registerSnapshotResourceMetrics(snapshots)
+
+	return snapshots
 }
 
 // collectReferencedClusters returns the set of cluster names referenced as
