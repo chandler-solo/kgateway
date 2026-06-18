@@ -106,7 +106,7 @@ func (r *ReportMap) BuildGWStatus(ctx context.Context, gw gwv1.Gateway, attached
 	handleInvalidAddresses(gwReport, &gw)
 	handleInsecureFrontendValidationMode(gwReport, &gw)
 
-	addMissingGatewayConditions(r.Gateway(&gw), &gw)
+	addMissingGatewayConditions(r.Gateway(&gw))
 
 	finalConditions := make([]metav1.Condition, 0)
 	for _, gwCondition := range gwReport.GetConditions() {
@@ -211,12 +211,6 @@ func isReporterOwnedGatewayConditionType(conditionType gwv1.GatewayConditionType
 func shouldPreserveGatewayCondition(condition metav1.Condition, finalConditions []metav1.Condition) bool {
 	if meta.FindStatusCondition(finalConditions, condition.Type) != nil {
 		return false
-	}
-
-	if condition.Type == string(gwv1.GatewayConditionAccepted) &&
-		condition.Status == metav1.ConditionFalse &&
-		condition.Reason == string(gwv1.GatewayReasonInvalidParameters) {
-		return true
 	}
 
 	return !isReporterOwnedGatewayConditionType(gwv1.GatewayConditionType(condition.Type))
@@ -549,14 +543,8 @@ func ParentString(ref gwv1.ParentReference) string {
 // Reports will initially only contain negative conditions found during translation,
 // so all missing conditions are assumed to be positive. Here we will add all missing conditions
 // to a given report, i.e. set healthy conditions
-func addMissingGatewayConditions(gwReport *GatewayReport, gw *gwv1.Gateway) {
-	// If the existing Gateway status contains an Accepted=False with Reason=InvalidParameters,
-	// we don't want to override it with a true Accepted status. The controller will set Accepted=True
-	// when the GatewayParameters are valid again. Otherwise there is a race condition between the controller and reporter.
-	// HACK: This is because both the controller and reporter set Accepted status.
-	existingAccepted := meta.FindStatusCondition(gw.Status.Conditions, string(gwv1.GatewayConditionAccepted))
-	hasInvalidParams := existingAccepted != nil && existingAccepted.Status == metav1.ConditionFalse && existingAccepted.Reason == string(gwv1.GatewayReasonInvalidParameters)
-	if !hasInvalidParams && meta.FindStatusCondition(gwReport.GetConditions(), string(gwv1.GatewayConditionAccepted)) == nil {
+func addMissingGatewayConditions(gwReport *GatewayReport) {
+	if meta.FindStatusCondition(gwReport.GetConditions(), string(gwv1.GatewayConditionAccepted)) == nil {
 		gwReport.SetCondition(reporter.GatewayCondition{
 			Type:    gwv1.GatewayConditionAccepted,
 			Status:  metav1.ConditionTrue,

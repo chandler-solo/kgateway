@@ -19,7 +19,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/reports"
 )
 
-func TestSyncGatewayStatusPreservesControllerInvalidParameters(t *testing.T) {
+func TestSyncGatewayStatusMergesControllerInvalidParametersReport(t *testing.T) {
 	ctx := context.Background()
 	const controllerName = "kgateway.dev/kgateway"
 	gatewayKey := types.NamespacedName{Namespace: "default", Name: "gw"}
@@ -36,15 +36,6 @@ func TestSyncGatewayStatusPreservesControllerInvalidParameters(t *testing.T) {
 				Name:     "http",
 				Port:     80,
 				Protocol: gwv1.HTTPProtocolType,
-			}},
-		},
-		Status: gwv1.GatewayStatus{
-			Conditions: []metav1.Condition{{
-				Type:               string(gwv1.GatewayConditionAccepted),
-				Status:             metav1.ConditionFalse,
-				Reason:             string(gwv1.GatewayReasonInvalidParameters),
-				Message:            "invalid gateway parameters",
-				ObservedGeneration: 2,
 			}},
 		},
 	}
@@ -69,10 +60,19 @@ func TestSyncGatewayStatusPreservesControllerInvalidParameters(t *testing.T) {
 	})
 
 	syncer := &StatusSyncer{
-		mgr:            statusSyncerTestManager{client: kubeClient},
-		controllerName: controllerName,
+		mgr:                      statusSyncerTestManager{client: kubeClient},
+		controllerName:           controllerName,
+		gatewayControllerReports: make(map[types.NamespacedName]*reports.GatewayReport),
 	}
-	syncer.syncGatewayStatus(ctx, slog.New(slog.DiscardHandler), rm)
+	controllerReport := gatewayStatusReport(gateway, reporter.GatewayCondition{
+		Type:    gwv1.GatewayConditionAccepted,
+		Status:  metav1.ConditionFalse,
+		Reason:  gwv1.GatewayReasonInvalidParameters,
+		Message: "invalid gateway parameters",
+	})
+	syncer.gatewayStatusReportForControllerReport(controllerReport)
+	mergedReport := syncer.gatewayStatusReportForTranslation(rm)
+	syncer.syncGatewayStatus(ctx, slog.New(slog.DiscardHandler), mergedReport)
 
 	updated := &gwv1.Gateway{}
 	require.NoError(t, kubeClient.Get(ctx, gatewayKey, updated))
@@ -86,6 +86,72 @@ func TestSyncGatewayStatusPreservesControllerInvalidParameters(t *testing.T) {
 	require.NotNil(t, programmed)
 	require.Equal(t, metav1.ConditionTrue, programmed.Status)
 	require.Equal(t, string(gwv1.GatewayReasonProgrammed), programmed.Reason)
+}
+
+func TestSyncGatewayStatusClearsControllerInvalidParametersReport(t *testing.T) {
+	ctx := context.Background()
+	const controllerName = "kgateway.dev/kgateway"
+	gatewayKey := types.NamespacedName{Namespace: "default", Name: "gw"}
+
+	gateway := &gwv1.Gateway{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:  gatewayKey.Namespace,
+			Name:       gatewayKey.Name,
+			Generation: 2,
+		},
+		Spec: gwv1.GatewaySpec{
+			GatewayClassName: "kgateway",
+			Listeners: []gwv1.Listener{{
+				Name:     "http",
+				Port:     80,
+				Protocol: gwv1.HTTPProtocolType,
+			}},
+		},
+	}
+	gatewayClass := &gwv1.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "kgateway"},
+		Spec: gwv1.GatewayClassSpec{
+			ControllerName: gwv1.GatewayController(controllerName),
+		},
+	}
+
+	kubeClient := newFakeGatewayStatusClient(t, gateway, gatewayClass)
+	syncer := &StatusSyncer{
+		mgr:                      statusSyncerTestManager{client: kubeClient},
+		controllerName:           controllerName,
+		gatewayControllerReports: make(map[types.NamespacedName]*reports.GatewayReport),
+	}
+
+	translationReport := reports.NewReportMap()
+	reports.NewReporter(&translationReport).Gateway(gateway)
+	syncer.gatewayStatusReportForControllerReport(gatewayStatusReport(gateway, reporter.GatewayCondition{
+		Type:    gwv1.GatewayConditionAccepted,
+		Status:  metav1.ConditionFalse,
+		Reason:  gwv1.GatewayReasonInvalidParameters,
+		Message: "invalid gateway parameters",
+	}))
+
+	syncer.gatewayStatusReportForControllerReport(gatewayStatusReport(gateway, reporter.GatewayCondition{
+		Type:    gwv1.GatewayConditionAccepted,
+		Status:  metav1.ConditionTrue,
+		Reason:  gwv1.GatewayReasonAccepted,
+		Message: reports.GatewayAcceptedMessage,
+	}))
+	mergedReport := syncer.gatewayStatusReportForTranslation(translationReport)
+	syncer.syncGatewayStatus(ctx, slog.New(slog.DiscardHandler), mergedReport)
+
+	updated := &gwv1.Gateway{}
+	require.NoError(t, kubeClient.Get(ctx, gatewayKey, updated))
+	accepted := apimeta.FindStatusCondition(updated.Status.Conditions, string(gwv1.GatewayConditionAccepted))
+	require.NotNil(t, accepted)
+	require.Equal(t, metav1.ConditionTrue, accepted.Status)
+	require.Equal(t, string(gwv1.GatewayReasonAccepted), accepted.Reason)
+}
+
+func gatewayStatusReport(gateway *gwv1.Gateway, condition reporter.GatewayCondition) reports.ReportMap {
+	rm := reports.NewReportMap()
+	reports.NewReporter(&rm).Gateway(gateway).SetCondition(condition)
+	return rm
 }
 
 func newFakeGatewayStatusClient(t *testing.T, objs ...ctrlclient.Object) ctrlclient.Client {
