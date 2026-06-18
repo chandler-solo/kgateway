@@ -240,7 +240,7 @@ func TestPolicyReportEqual(t *testing.T) {
 
 //go:fix inline
 func localPtr[T any](v T) *T {
-	return &v
+	return new(v)
 }
 
 func setFirstParentConditionTime(r *reports.RouteReport, ts metav1.Time) {
@@ -302,7 +302,7 @@ func makeGatewayReport(generation int64, forceTransition bool) *reports.GatewayR
 		Message: "accepted",
 	})
 	listenerReporter.SetSupportedKinds([]gwv1.RouteGroupKind{{
-		Group: localPtr(gwv1.Group(wellknown.HTTPRouteGVK.Group)),
+		Group: new(gwv1.Group(wellknown.HTTPRouteGVK.Group)),
 		Kind:  gwv1.Kind(wellknown.HTTPRouteGVK.Kind),
 	}})
 	listenerReporter.SetAttachedRoutes(2)
@@ -356,7 +356,7 @@ func makeListenerSetReport(generation int64, forceTransition bool) *reports.List
 		Message: "accepted",
 	})
 	listenerReporter.SetSupportedKinds([]gwv1.RouteGroupKind{{
-		Group: localPtr(gwv1.Group(wellknown.HTTPRouteGVK.Group)),
+		Group: new(gwv1.Group(wellknown.HTTPRouteGVK.Group)),
 		Kind:  gwv1.Kind(wellknown.HTTPRouteGVK.Kind),
 	}})
 	listenerReporter.SetAttachedRoutes(2)
