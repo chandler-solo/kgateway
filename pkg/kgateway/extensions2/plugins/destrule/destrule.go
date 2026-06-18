@@ -126,6 +126,26 @@ func (d *DestinationRuleIndex) FetchDestRulesFor(kctx krt.HandlerContext, proxyN
 	return &oldestDestRule
 }
 
+// HasEnabledLocalityLbSetting reports whether the DestinationRule sets an
+// enabled localityLbSetting, at the top level or on any port-level setting.
+// It is used to decide whether a connected proxy's locality can affect routing
+// (see the PodLocalityXDS "AUTO" mode in setup).
+func HasEnabledLocalityLbSetting(dr DestinationRuleWrapper) bool {
+	tp := dr.Spec.GetTrafficPolicy()
+	if tp == nil {
+		return false
+	}
+	if getLocalityLbSetting(tp) != nil {
+		return true
+	}
+	for _, portLevel := range tp.GetPortLevelSettings() {
+		if getLocalityLbSetting(convertPortLevel(portLevel)) != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func getLocalityLbSetting(trafficPolicy *v1alpha3.TrafficPolicy) *v1alpha3.LocalityLoadBalancerSetting {
 	if trafficPolicy == nil {
 		return nil

@@ -42,7 +42,12 @@ func newConnectedClient(uniqueClientName string) ConnectedClient {
 // We then fetch that pod to get its labels, create a `UniquelyConnectedClient`, and add it to the collection.
 
 type callbacksCollection struct {
-	logger           *slog.Logger
+	logger *slog.Logger
+	// usePodLocality reports whether pod locality/labels should be folded into
+	// the client identity for a connecting stream. It is consulted per stream
+	// connect so the decision can track config (see the PodLocalityXDS setting).
+	// When it returns false, clients collapse to one identity per gateway role.
+	usePodLocality   func() bool
 	augmentedPods    krt.Collection[LocalityPod]
 	clients          map[int64]ConnectedClient
 	uniqClientsCount map[string]uint64
@@ -94,8 +99,13 @@ func (x *callbacks) getPeerInfo(sid int64, r *envoy_service_discovery_v3.Discove
 	return p, nil
 }
 
-// If augmentedPods is nil, we won't use the pod locality info, and all pods for the same gateway will receive the same config.
-type UniquelyConnectedClientsBuilder func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod]) krt.Collection[ir.UniquelyConnectedClient]
+// augmentedPods supplies pod locality/labels for the client identity.
+// usePodLocality is consulted per stream connect: when it returns false, the
+// pod is not looked up and all pods for the same gateway receive the same
+// config (one identity per gateway role). A nil usePodLocality is treated as
+// "always use pod locality" (the historical default) as long as augmentedPods
+// is non-nil.
+type UniquelyConnectedClientsBuilder func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod], usePodLocality func() bool) krt.Collection[ir.UniquelyConnectedClient]
 
 // THIS IS THE SET OF THINGS WE RUN TRANSLATION FOR
 // add returned callbacks to the xds server.
@@ -119,10 +129,15 @@ func NewUniquelyConnectedClients(
 }
 
 func buildCollection(callbacks *callbacks) UniquelyConnectedClientsBuilder {
-	return func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod]) krt.Collection[ir.UniquelyConnectedClient] {
+	return func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod], usePodLocality func() bool) krt.Collection[ir.UniquelyConnectedClient] {
+		if usePodLocality == nil {
+			// nil means "use pod locality whenever it's available" (historical default).
+			usePodLocality = func() bool { return augmentedPods != nil }
+		}
 		trigger := krt.NewRecomputeTrigger(true)
 		col := &callbacksCollection{
 			logger:           logger,
+			usePodLocality:   usePodLocality,
 			augmentedPods:    augmentedPods,
 			clients:          make(map[int64]ConnectedClient),
 			uniqClientsCount: make(map[string]uint64),
@@ -277,7 +292,7 @@ func (x *callbacks) OnStreamRequest(sid int64, r *envoy_service_discovery_v3.Dis
 		return errors.New("kgateway not initialized")
 	}
 
-	peerInfo, err := x.getPeerInfo(sid, r, c.augmentedPods != nil)
+	peerInfo, err := x.getPeerInfo(sid, r, c.usePodLocality() && c.augmentedPods != nil)
 	if err != nil {
 		return err
 	}
@@ -356,7 +371,7 @@ func (x *callbacks) OnFetchRequest(ctx context.Context, r *envoy_service_discove
 
 func (x *callbacksCollection) fetchRequest(_ context.Context, r *envoy_service_discovery_v3.DiscoveryRequest) error {
 	// nothing special to do in a fetch request, as we don't need to maintain state
-	if x.augmentedPods == nil {
+	if !x.usePodLocality() || x.augmentedPods == nil {
 		return nil
 	}
 

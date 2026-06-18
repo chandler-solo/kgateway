@@ -3,6 +3,8 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +133,39 @@ func (m *DnsLookupFamily) Decode(value string) error {
 		return nil
 	default:
 		return fmt.Errorf("invalid DNS lookup family: %q", value)
+	}
+}
+
+// PodLocalityXDS controls whether a connected Envoy's pod locality and labels
+// are folded into its unique-client xDS identity. Including them lets the
+// control plane serve locality-prioritized endpoints per client, but it also
+// multiplies per-client translation by the number of distinct replica
+// localities, which can be a significant cost at scale.
+type PodLocalityXDS string
+
+const (
+	// PodLocalityXDSAuto includes pod locality in the client identity only when
+	// it can actually affect routing — i.e. when some backend sets a traffic
+	// distribution other than "Any", or (with Istio integration enabled) some
+	// DestinationRule sets an enabled localityLbSetting. When nothing can consume
+	// proxy locality, every replica of a gateway produces an identical snapshot,
+	// so the identity is collapsed to one per gateway. This is the default.
+	PodLocalityXDSAuto PodLocalityXDS = "AUTO"
+	// PodLocalityXDSOn always includes pod locality in the client identity.
+	PodLocalityXDSOn PodLocalityXDS = "ON"
+	// PodLocalityXDSOff never includes pod locality in the client identity.
+	PodLocalityXDSOff PodLocalityXDS = "OFF"
+)
+
+// Decode implements envconfig.Decoder.
+func (p *PodLocalityXDS) Decode(value string) error {
+	mode := PodLocalityXDS(strings.ToUpper(value))
+	switch mode {
+	case PodLocalityXDSAuto, PodLocalityXDSOn, PodLocalityXDSOff:
+		*p = mode
+		return nil
+	default:
+		return fmt.Errorf("invalid pod locality xds mode: %q", value)
 	}
 }
 
@@ -338,6 +373,12 @@ type Settings struct {
 	// - "PERMISSIVE": ReferenceGrant required for BackendRef and SecretRef (default behavior).
 	// - "STRICT": ReferenceGrant required for all cross-namespace references including ExtensionRef.
 	ReferenceGrantMode ReferenceGrantMode `split_words:"true" default:"PERMISSIVE"`
+
+	// PodLocalityXDS controls whether pod locality is folded into the per-client
+	// xDS identity. "AUTO" (default) includes it only when locality-aware routing
+	// is actually in use; "ON" always includes it; "OFF" never does. The legacy
+	// DISABLE_POD_LOCALITY_XDS env var still forces "OFF" when this is unset.
+	PodLocalityXDS PodLocalityXDS `split_words:"true" default:"AUTO"`
 }
 
 // BuildSettings returns a zero-valued Settings obj if error is encountered when parsing env
@@ -345,6 +386,14 @@ func BuildSettings() (*Settings, error) {
 	settings := &Settings{}
 	if err := envconfig.Process("KGW", settings); err != nil {
 		return settings, err
+	}
+	// Back-compat: the legacy DISABLE_POD_LOCALITY_XDS env var forces locality
+	// off, but only when the typed KGW_POD_LOCALITY_XDS setting was not set
+	// explicitly (the typed setting always wins).
+	if _, explicit := os.LookupEnv("KGW_POD_LOCALITY_XDS"); !explicit {
+		if truthy, _ := strconv.ParseBool(os.Getenv("DISABLE_POD_LOCALITY_XDS")); truthy {
+			settings.PodLocalityXDS = PodLocalityXDSOff
+		}
 	}
 	return settings, nil
 }

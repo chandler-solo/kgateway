@@ -190,7 +190,7 @@ func TestUniqueClients(t *testing.T) {
 			}
 
 			cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
-			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods)
+			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods, nil)
 			ucc.WaitUntilSynced(context.Background().Done())
 
 			// check fetch as well
@@ -240,6 +240,78 @@ func TestUniqueClients(t *testing.T) {
 				allUcc = ucc.List()
 				return allUcc
 			}, "5s").Should(BeEmpty())
+		})
+	}
+}
+
+// TestUniqueClientsPodLocalityGate verifies that the usePodLocality func passed
+// to the builder controls whether pod locality is folded into the client
+// identity: when it returns false, two replicas of the same gateway on
+// different nodes/localities collapse to a single role-only identity; when it
+// returns true they remain distinct.
+func TestUniqueClientsPodLocalityGate(t *testing.T) {
+	const role = wellknown.GatewayApiProxyValue + "~best-proxy-role"
+	inputs := []any{
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "podname", Namespace: "ns", Labels: map[string]string{"a": "b"}},
+			Spec:       corev1.PodSpec{NodeName: "node"},
+		},
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", Labels: map[string]string{
+			corev1.LabelTopologyRegion: "region", corev1.LabelTopologyZone: "zone",
+		}}},
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "podname2", Namespace: "ns", Labels: map[string]string{"a": "b"}},
+			Spec:       corev1.PodSpec{NodeName: "node2"},
+		},
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node2", Labels: map[string]string{
+			corev1.LabelTopologyRegion: "region2", corev1.LabelTopologyZone: "zone2",
+		}}},
+	}
+	newReq := func(podName string) *envoy_service_discovery_v3.DiscoveryRequest {
+		return &envoy_service_discovery_v3.DiscoveryRequest{
+			Node: &envoycorev3.Node{
+				Id:       podName + ".ns",
+				Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{xds.RoleKey: structpb.NewStringValue(role)}},
+			},
+		}
+	}
+
+	cases := []struct {
+		name           string
+		usePodLocality func() bool
+		expectedCount  int
+		// when collapsed, the single identity is exactly the role
+		expectCollapsed bool
+	}{
+		{name: "locality off collapses to one identity", usePodLocality: func() bool { return false }, expectedCount: 1, expectCollapsed: true},
+		{name: "locality on keeps distinct identities", usePodLocality: func() bool { return true }, expectedCount: 2},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			mock := krttest.NewMock(t, inputs)
+			nodes := NewNodeMetadataCollection(krttest.GetMockCollection[*corev1.Node](mock))
+			pods := NewLocalityPodsCollection(nodes, krttest.GetMockCollection[*corev1.Pod](mock), krtutil.KrtOptions{})
+			nodes.WaitUntilSynced(context.Background().Done())
+			pods.WaitUntilSynced(context.Background().Done())
+
+			cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods, tc.usePodLocality)
+			ucc.WaitUntilSynced(context.Background().Done())
+
+			cb.OnStreamRequest(1, proto.Clone(newReq("podname")).(*envoy_service_discovery_v3.DiscoveryRequest))
+			cb.OnStreamRequest(2, proto.Clone(newReq("podname2")).(*envoy_service_discovery_v3.DiscoveryRequest))
+
+			var all []ir.UniquelyConnectedClient
+			g.Eventually(func() []ir.UniquelyConnectedClient {
+				all = ucc.List()
+				return all
+			}, "1s").Should(HaveLen(tc.expectedCount))
+
+			if tc.expectCollapsed {
+				g.Expect(all[0].ResourceName()).To(Equal(role), "collapsed identity should be the bare role")
+			}
 		})
 	}
 }

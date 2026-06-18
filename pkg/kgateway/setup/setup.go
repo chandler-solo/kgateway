@@ -38,7 +38,6 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/collections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/namespaces"
 	"github.com/kgateway-dev/kgateway/v2/pkg/validator"
 )
@@ -399,12 +398,15 @@ func (s *setup) buildKgatewayWithConfig(
 	krtOpts := krtutil.NewKrtOptions(ctx.Done(), setupOpts.KrtDebugger)
 
 	augmentedPods, _ := krtcollections.NewPodsCollection(s.apiClient, krtOpts)
-	augmentedPodsForUcc := augmentedPods
-	if envutils.IsEnvTruthy("DISABLE_POD_LOCALITY_XDS") {
-		augmentedPodsForUcc = nil
-	}
 
-	ucc := uccBuilder(ctx, krtOpts, augmentedPodsForUcc)
+	// Decide whether pod locality is folded into the per-client xDS identity
+	// (the PodLocalityXDS setting; legacy DISABLE_POD_LOCALITY_XDS is resolved
+	// into it by BuildSettings). In AUTO mode the gate is installed once the
+	// backend index is populated by InitPlugins (below); until then the
+	// decision defaults to "use locality" so a cluster that relies on it is
+	// never prematurely collapsed.
+	localityDecision := newPodLocalityDecision(s.globalSettings.PodLocalityXDS)
+	ucc := uccBuilder(ctx, krtOpts, augmentedPods, localityDecision.use)
 
 	gatewayClassInfos := controller.GetDefaultClassInfo(
 		setupOpts.GlobalSettings,
@@ -439,6 +441,19 @@ func (s *setup) buildKgatewayWithConfig(
 	if err != nil {
 		slog.Error("failed initializing controller: ", "error", err)
 		return err
+	}
+
+	// AUTO mode: now that InitPlugins (inside NewControllerBuilder) has
+	// populated the endpoints collection, build the locality signal and install
+	// it. Connections are not served until mgr.Start below, so this is in place
+	// before any client connects.
+	if s.globalSettings.PodLocalityXDS == apisettings.PodLocalityXDSAuto {
+		localityDecision.install(newLocalityGate(
+			krtOpts,
+			commonCollections.Endpoints,
+			s.apiClient,
+			s.globalSettings.EnableIstioIntegration,
+		))
 	}
 
 	slog.Info("waiting for cache sync")

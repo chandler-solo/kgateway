@@ -57,7 +57,43 @@ func allEnvVarsSet() map[string]string {
 		"KGW_WORKLOAD_ENTRIES_EXCLUSION_LABELS":         "example.io/managed-by,example.io/other-key",
 		"KGW_SERVICE_ENTRIES_EXCLUSION_LABEL_SELECTORS": `[{"matchLabels":{"example.io/managed-by":"some-controller"}}]`,
 		"KGW_REFERENCE_GRANT_MODE":                      string(ReferenceGrantStrict),
+		"KGW_POD_LOCALITY_XDS":                          string(PodLocalityXDSOff),
 	}
+}
+
+// defaultSettings returns the Settings produced when no env vars are set.
+func defaultSettings() *Settings {
+	return &Settings{
+		DnsLookupFamily:                       DnsLookupFamilyV4Preferred,
+		ListenerBindIpv6:                      true,
+		AdminBindAddress:                      "localhost",
+		IstioNamespace:                        "istio-system",
+		ServiceEntriesExclusionLabelSelectors: "[]",
+		XdsServiceName:                        wellknown.DefaultXdsService,
+		XdsServicePort:                        wellknown.DefaultXdsPort,
+		XdsAuth:                               true,
+		DefaultImageRegistry:                  "cr.kgateway.dev",
+		DefaultImagePullPolicy:                "IfNotPresent",
+		IngressUseWaypoints:                   true,
+		LogLevel:                              "info",
+		DiscoveryNamespaceSelectors:           "[]",
+		EnableEnvoy:                           true,
+		ValidatorMode:                         ValidatorCache,
+		AwsEc2RefreshInterval:                 30 * time.Second,
+		ValidationMode:                        ValidationStandard,
+		ReferenceGrantMode:                    ReferenceGrantPermissive,
+		PolicyMerge:                           "{}",
+		EnableExperimentalGatewayAPIFeatures:  true,
+		GatewayClassParametersRefs:            GatewayClassParametersRefs{},
+		PodLocalityXDS:                        PodLocalityXDSAuto,
+	}
+}
+
+// defaultSettingsWith returns the default Settings after applying mutate.
+func defaultSettingsWith(mutate func(*Settings)) *Settings {
+	s := defaultSettings()
+	mutate(s)
+	return s
 }
 
 func TestSettings(t *testing.T) {
@@ -115,6 +151,7 @@ func TestSettings(t *testing.T) {
 				GatewayClassParametersRefs:            GatewayClassParametersRefs{},
 				EnableAuthMetadata:                    false,
 				ServiceEntriesExclusionLabelSelectors: "[]",
+				PodLocalityXDS:                        PodLocalityXDSAuto,
 			},
 		},
 		{
@@ -165,6 +202,7 @@ func TestSettings(t *testing.T) {
 				},
 				EnableAuthMetadata: true,
 				ReferenceGrantMode: ReferenceGrantStrict,
+				PodLocalityXDS:     PodLocalityXDSOff,
 			},
 		},
 		{
@@ -266,7 +304,34 @@ func TestSettings(t *testing.T) {
 				EnableExperimentalGatewayAPIFeatures:  true,
 				GatewayClassParametersRefs:            GatewayClassParametersRefs{},
 				ServiceEntriesExclusionLabelSelectors: "[]",
+				PodLocalityXDS:                        PodLocalityXDSAuto,
 			},
+		},
+		{
+			name: "errors on invalid pod locality xds mode",
+			envVars: map[string]string{
+				"KGW_POD_LOCALITY_XDS": "sometimes",
+			},
+			expectedErrorStr: `invalid pod locality xds mode: "sometimes"`,
+		},
+		{
+			name: "legacy DISABLE_POD_LOCALITY_XDS forces off when typed setting unset",
+			envVars: map[string]string{
+				"DISABLE_POD_LOCALITY_XDS": "true",
+			},
+			expectedSettings: defaultSettingsWith(func(s *Settings) {
+				s.PodLocalityXDS = PodLocalityXDSOff
+			}),
+		},
+		{
+			name: "typed KGW_POD_LOCALITY_XDS wins over legacy DISABLE_POD_LOCALITY_XDS",
+			envVars: map[string]string{
+				"DISABLE_POD_LOCALITY_XDS": "true",
+				"KGW_POD_LOCALITY_XDS":     string(PodLocalityXDSOn),
+			},
+			expectedSettings: defaultSettingsWith(func(s *Settings) {
+				s.PodLocalityXDS = PodLocalityXDSOn
+			}),
 		},
 	}
 
