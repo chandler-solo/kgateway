@@ -181,7 +181,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefix,
-					Value: stringPtr("/"),
+					Value: new("/"),
 				},
 			},
 		},
@@ -190,7 +190,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathExact,
-					Value: stringPtr("/exact"),
+					Value: new("/exact"),
 				},
 			},
 		},
@@ -199,7 +199,7 @@ func TestValidateRouteStrictSkipsMatcherOnlyEnvoyValidationForCommonMatchers(t *
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefix,
-					Value: stringPtr("/separated"),
+					Value: new("/separated"),
 				},
 			},
 		},
@@ -235,7 +235,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathRegex,
-					Value: stringPtr("[[invalid"),
+					Value: new("[[invalid"),
 				},
 			},
 		},
@@ -244,7 +244,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefixPtr,
-					Value: stringPtr("/"),
+					Value: new("/"),
 				},
 				Headers: []gwv1.HTTPHeaderMatch{{
 					Type:  &headerRegex,
@@ -258,7 +258,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 			match: gwv1.HTTPRouteMatch{
 				Path: &gwv1.HTTPPathMatch{
 					Type:  &pathPrefixPtr,
-					Value: stringPtr("/"),
+					Value: new("/"),
 				},
 				QueryParams: []gwv1.HTTPQueryParamMatch{{
 					Type:  &queryRegex,
@@ -382,10 +382,6 @@ func testRouteWithMatch(match *envoyroutev3.RouteMatch) *envoyroutev3.Route {
 	}
 }
 
-func stringPtr(value string) *string {
-	return &value
-}
-
 var pathPrefixPtr = gwv1.PathMatchPathPrefix
 
 func testHTTPRouteTranslator(v validator.Validator, mode apisettings.ValidationMode) *httpRouteConfigurationTranslator {
@@ -408,7 +404,7 @@ func testRouteIR(matchIndex int, path string, clusterName string) ir.HttpRouteRu
 		Match: gwv1.HTTPRouteMatch{
 			Path: &gwv1.HTTPPathMatch{
 				Type:  &pathPrefixPtr,
-				Value: stringPtr(path),
+				Value: new(path),
 			},
 		},
 		Backends: []ir.HttpBackend{{
