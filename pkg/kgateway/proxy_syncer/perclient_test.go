@@ -1249,7 +1249,6 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 			hasResource(servedB.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
 		"client A should retain old cache while client B publishes coherent new state")
-
 }
 
 func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.T) {
