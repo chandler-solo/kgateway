@@ -21,10 +21,14 @@ func (s *ProxyTranslator) syncXds(
 
 	logger.Log(ctx, logging.LevelTrace, "syncing xds snapshot", "proxy_key", proxyKey)
 
-	// if the snapshot is not consistent, make it so
-	// TODO: me may need to copy this to not change krt cache.
-	// TODO: this is also may not be needed now that envoy has
-	// a default initial fetch timeout
-	// snap.MakeConsistent()
-	s.xdsCache.SetSnapshot(ctx, proxyKey, snap)
+	// The snapshot is EDS-consistent by construction: snapshotPerClient drops
+	// CLAs for clusters absent from CDS and synthesizes empty assignments for
+	// EDS clusters that have no CLA yet (see filterEndpointResourcesForClusters),
+	// so we no longer rely on a post-hoc MakeConsistent() pass — which would
+	// also have mutated the snapshot shared with the krt cache.
+	if err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+		// A rejected snapshot leaves the client on its previous config; surface
+		// it rather than silently dropping the update.
+		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+	}
 }
