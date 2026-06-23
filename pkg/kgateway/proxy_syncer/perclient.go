@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"sync"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -58,6 +59,41 @@ var _ krt.Equaler[endpointsWithUccName] = new(endpointsWithUccName)
 
 func (c endpointsWithUccName) Equals(k endpointsWithUccName) bool {
 	return c.endpoints.Version == k.endpoints.Version && c.resourceName == k.resourceName
+}
+
+// servedClientSet tracks the UniquelyConnectedClients for which snapshotPerClient
+// has already published at least one coherent snapshot. It distinguishes the
+// cold-start regime (this client has never been served) from the steady-state
+// regime (a snapshot is already serving and must not be regressed). It is
+// add-only on purpose: once a client has been served we keep applying
+// make-before-break on every subsequent recomputation, and a transient defer
+// (which surfaces as a Delete and leaves the served cache in place) must never
+// demote the client back to cold-start and republish an empty snapshot. The
+// set is consulted at the top of the per-client transform and updated only on
+// the successful publish path, so the mark is established before the snapshot
+// becomes observable in the output collection. Entries are never reclaimed for
+// departed clients — the same bounded leak already accepted for the xDS cache
+// in proxy_syncer.go's Delete no-op.
+type servedClientSet struct {
+	mu sync.RWMutex
+	m  map[string]struct{}
+}
+
+func newServedClientSet() *servedClientSet {
+	return &servedClientSet{m: make(map[string]struct{})}
+}
+
+func (s *servedClientSet) markServed(name string) {
+	s.mu.Lock()
+	s.m[name] = struct{}{}
+	s.mu.Unlock()
+}
+
+func (s *servedClientSet) hasServed(name string) bool {
+	s.mu.RLock()
+	_, ok := s.m[name]
+	s.mu.RUnlock()
+	return ok
 }
 
 func snapshotPerClient(
@@ -127,6 +163,8 @@ func snapshotPerClient(
 		}
 	}, krtopts.ToOptions("EndpointResources")...)
 
+	served := newServedClientSet()
+
 	xdsSnapshotsForUcc := krt.NewCollection(uccCol, func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient) *XdsSnapWrapper {
 		defer (collectXDSTransformMetrics(ucc.ResourceName()))(nil)
 
@@ -168,12 +206,27 @@ func snapshotPerClient(
 		//     listeners/routes and cause Envoy to return 500/NC on routes
 		//     whose clusters just happen to be in the same CDS response.
 		//
-		//  3. If any referenced EDS cluster has no matching ready
-		//     ClusterLoadAssignment in the EDS resources that would be sent,
-		//     return nil. A CLA with zero usable endpoints is not ready for
-		//     make-before-break publication: publishing CDS/RDS/LDS before EDS
-		//     catches up can make Envoy drop all hosts for a route that was
-		//     healthy before the update.
+		//  3. If a snapshot has ALREADY been published for this client and any
+		//     referenced EDS cluster would now have no usable endpoint, return
+		//     nil. A CLA with zero usable endpoints is not ready for
+		//     make-before-break publication: replacing a serving snapshot with
+		//     one whose route targets have no hosts can make Envoy drop all
+		//     hosts for a route that was healthy a moment ago. This guard is
+		//     deliberately scoped to the steady-state regime (served.hasServed).
+		//     On the FIRST publish for a client there is no prior config to
+		//     protect, so deferring would not preserve a healthy route — it
+		//     would strand the entire gateway (no LDS/RDS/CDS at all, so even
+		//     routes whose backends are healthy go dark) on a backend that may
+		//     legitimately have zero endpoints (scaled to zero, still starting,
+		//     or every replica down). Gateway "Programmed" reflects config
+		//     coherence, not backend endpoint health, so on cold start we
+		//     publish with the synthesized empty CLAs produced by
+		//     filterEndpointResourcesForClusters; Envoy treats such a cluster as
+		//     active-with-no-hosts (503 for that route only) until its endpoints
+		//     arrive. A controller restart re-enters this cold-start regime for
+		//     every client because the snapshot cache is in-memory, so without
+		//     this scoping a single zero-endpoint backend could keep an entire
+		//     gateway from re-programming after a restart.
 		//
 		// Returning nil removes this UCC's entry from the output collection,
 		// which surfaces as a Delete event in proxy_syncer.go's xDS
@@ -231,18 +284,23 @@ func snapshotPerClient(
 		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
 		// longer present in CDS can make go-control-plane suppress ADS responses.
 		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
-		if missingEndpointClusters := findMissingReferencedEndpointResources(
-			listenerRouteSnapshot.ReferencedClusters,
-			clusterResources.Items,
-			endpointRes.Items,
-			clustersForUcc.erroredClusters,
-		); len(missingEndpointClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced EDS resources are ready",
-				"client", ucc.ResourceName(),
-				"missing_endpoint_clusters", missingEndpointClusters,
-			)
-			return nil
+		// Make-before-break: only defer on missing usable endpoints once this
+		// client already has a serving snapshot to protect. On cold start we
+		// publish with the synthesized empty CLAs instead (see guard 3 above).
+		if served.hasServed(ucc.ResourceName()) {
+			if missingEndpointClusters := findMissingReferencedEndpointResources(
+				listenerRouteSnapshot.ReferencedClusters,
+				clusterResources.Items,
+				endpointRes.Items,
+				clustersForUcc.erroredClusters,
+			); len(missingEndpointClusters) > 0 {
+				logger.Info(
+					"defer make-before-break update until all referenced EDS resources are ready",
+					"client", ucc.ResourceName(),
+					"missing_endpoint_clusters", missingEndpointClusters,
+				)
+				return nil
+			}
 		}
 
 		snap.erroredClusters = clustersForUcc.erroredClusters
@@ -262,6 +320,13 @@ func snapshotPerClient(
 			"endpoints", resourcesStringer(endpointRes).String(),
 			"secrets", resourcesStringer(listenerRouteSnapshot.Secrets).String(),
 		)
+
+		// Record that this client now has a coherent serving snapshot so
+		// subsequent recomputations enter the make-before-break regime (guard
+		// 3). Marking here, before the wrapper becomes observable in the output
+		// collection, keeps the cold-start exemption race-free: any later
+		// recomputation that could regress the snapshot already sees hasServed.
+		served.markServed(ucc.ResourceName())
 
 		return &snap
 	}, krtopts.ToOptions("PerClientXdsSnapshots")...)
@@ -586,10 +651,14 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 // relying on the cache tolerating a dangling EDS cluster, and it lets Envoy
 // treat such a cluster as active-with-no-hosts immediately instead of stalling
 // its warming on an absent EDS resource until the initial-fetch timeout.
-// Referenced clusters whose only CLA is a synthesized empty are still deferred
-// upstream by findMissingReferencedEndpointResources, which requires a usable
-// endpoint, so synthesized empties only ever reach Envoy for clusters no route
-// targets.
+// In the steady-state regime a referenced cluster whose only CLA would be a
+// synthesized empty is still deferred upstream by
+// findMissingReferencedEndpointResources (which requires a usable endpoint), so
+// for an already-serving client synthesized empties only reach Envoy for
+// clusters that are not route targets. On cold start that defer is skipped, so
+// a synthesized empty also reaches Envoy for a referenced route target — by
+// design, so the gateway programs instead of being stranded on a zero-endpoint
+// backend (see the guard 3 note in snapshotPerClient).
 func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
 	requiredEndpointNames := make(map[string]struct{})
 	for _, item := range clusters.Items {

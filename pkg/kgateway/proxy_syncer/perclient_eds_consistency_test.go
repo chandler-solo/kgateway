@@ -6,9 +6,11 @@ package proxy_syncer
 // must still satisfy go-control-plane's Snapshot.Consistent() invariant: every
 // EDS cluster has exactly one CLA and there are no CLAs without a cluster.
 // filterEndpointResourcesForClusters drops stale/STATIC CLAs and synthesizes
-// empty assignments for EDS clusters that have no CLA yet; referenced clusters
-// whose only CLA would be a synthesized empty are still deferred by the
-// usable-endpoint gate, so empties only reach Envoy for unreferenced clusters.
+// empty assignments for EDS clusters that have no CLA yet. For an already-serving
+// client, a referenced cluster whose only CLA would be a synthesized empty is
+// still deferred by the usable-endpoint gate, so empties reach Envoy only for
+// unreferenced clusters; on a client's first (cold-start) publish that gate is
+// skipped so the gateway programs rather than being stranded.
 
 import (
 	"testing"
