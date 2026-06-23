@@ -146,11 +146,26 @@ func TestTrafficDistribution(t *testing.T) {
 	runScenario(t, "testdata/traffic_distribution", st)
 }
 
+// shortPublishBudget shrinks the per-client first-publish budget for tests that
+// apply a backend with no usable endpoints (e.g. a Service with no
+// EndpointSlice). Such a snapshot is deferred until the budget expires, then
+// published with an empty CLA synthesized for the missing reference. The
+// production default (15s, see api/settings) exceeds the xDS-dump wait windows
+// in these tests, so a client would never observe its (intentionally degraded)
+// snapshot before the test gives up. It is applied only to the scenarios that
+// need it — leaving the default elsewhere — because a short budget arms the
+// budget timer on every connect/disconnect, and that extra goroutine churn
+// aggravates pre-existing -race flakiness in the Istio-integration scenarios.
+const shortPublishBudget = 3 * time.Second
+
 func TestWithStandardSettings(t *testing.T) {
 	st, err := envtestutil.BuildSettings()
 	if err != nil {
 		t.Fatalf("can't get settings %v", err)
 	}
+	// testdata/standard includes extproc scenarios whose ratings backend has no
+	// EndpointSlice, so their snapshot stays deferred until the budget expires.
+	st.PerClientPublishBudget = shortPublishBudget
 	runScenario(t, "testdata/standard", st)
 }
 
@@ -349,6 +364,21 @@ spec:
     - protocol: TCP
       port: 8080
       targetPort: 8080
+`, `apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: test-service-eps
+  namespace: gwtest
+  labels:
+    kubernetes.io/service-name: test-service
+addressType: IPv4
+endpoints:
+  - addresses:
+      - 10.244.1.50
+    conditions:
+      ready: true
+ports:
+  - port: 8080
 `)
 		if err != nil {
 			t.Fatalf("failed to apply initial resources: %v", err)
