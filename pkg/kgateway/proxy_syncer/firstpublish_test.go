@@ -15,8 +15,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// stubPriorXDS stubs the prior-xDS-version reader. has=false models a cold
+// client (the default for most tests); has=true models a warm reconnect that
+// reported a prior accepted version.
+type stubPriorXDS struct{ has bool }
+
+func (s stubPriorXDS) HasPriorXDSVersion(string) bool { return s.has }
+
 func newTestTranslator() *ProxyTranslator {
-	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil))
+	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), stubPriorXDS{})
+	return &pt
+}
+
+func newTestTranslatorPriorXDS() *ProxyTranslator {
+	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), stubPriorXDS{has: true})
 	return &pt
 }
 
@@ -283,6 +295,25 @@ func edsClusterResource(name string) envoycachetypes.ResourceWithTTL {
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
 		},
 	}
+}
+
+// A client with no local snapshot that reports a prior accepted xDS version is
+// warm (a reconnect / controller restart), so at budget expiry its deferred
+// snapshot is WITHHELD, not published — publishing incomplete config would
+// replace what it is already serving (#13868). Contrast with
+// TestSyncXds_DeferredToNeverPublishedWaitsThenPublishes (a cold client, which
+// does get the bounded publish).
+func TestSyncXds_PriorXDSVersionClientWithheldAtBudget(t *testing.T) {
+	pt := newTestTranslatorPriorXDS()
+	pt.publishBudget.budget = 50 * time.Millisecond
+
+	pt.syncXds(context.Background(), wrapperWithVersion("v1", true, "missing_clusters"))
+
+	require.Never(t, func() bool {
+		_, ok := publishedVersion(t, pt)
+		return ok
+	}, 250*time.Millisecond, 20*time.Millisecond,
+		"a prior-xDS-version (warm reconnect) client must not receive a deferred snapshot at budget expiry")
 }
 
 func TestSynthesizeEmptyEndpointResources(t *testing.T) {

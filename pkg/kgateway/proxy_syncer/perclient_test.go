@@ -406,9 +406,9 @@ func TestSnapshotPerClientDefersWhenReferencedEDSClusterHasOnlyEmptyCLA(t *testi
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
-	ucc := ir.NewUniqlyConnectedClient(role, "", nil, ir.PodLocality{})
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
 
-	uccs := krt.NewStaticCollection[ir.UniqlyConnectedClient](nil, []ir.UniqlyConnectedClient{ucc})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
 	routes := sliceToResources([]*envoyroutev3.RouteConfiguration{
 		{
 			Name: "route-config",

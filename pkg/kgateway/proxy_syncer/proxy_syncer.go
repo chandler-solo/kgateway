@@ -158,8 +158,9 @@ func NewProxySyncer(
 	commonCols *collections.CommonCollections,
 	xdsCache envoycache.SnapshotCache,
 	validator validator.Validator,
+	xdsClientState priorXDSVersionReader,
 ) *ProxySyncer {
-	proxyTranslator := NewProxyTranslator(xdsCache)
+	proxyTranslator := NewProxyTranslator(xdsCache, xdsClientState)
 	// The publish budget is operator-tunable (KGW_PER_CLIENT_PUBLISH_BUDGET;
 	// 0 disables bounded publishing). Applied here, before any events flow.
 	proxyTranslator.publishBudget.budget = commonCols.Settings.PerClientPublishBudget
@@ -178,18 +179,27 @@ func NewProxySyncer(
 	}
 }
 
+// priorXDSVersionReader reports whether a client reported a prior accepted xDS
+// version on connect — i.e. it may already be serving traffic even if this
+// controller has no local snapshot for it (reconnect / controller restart).
+type priorXDSVersionReader interface {
+	HasPriorXDSVersion(resourceName string) bool
+}
+
 type ProxyTranslator struct {
-	xdsCache envoycache.SnapshotCache
+	xdsCache       envoycache.SnapshotCache
+	xdsClientState priorXDSVersionReader
 	// publishBudget tracks clients with deferred snapshots awaiting their
 	// bounded publish (see kube_gw_translator_syncer.go). Pointer so the
 	// state is shared across ProxyTranslator copies.
 	publishBudget *publishBudgetGate
 }
 
-func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
+func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader) ProxyTranslator {
 	return ProxyTranslator{
-		xdsCache:      xdsCache,
-		publishBudget: newPublishBudgetGate(defaultPerClientPublishBudget),
+		xdsCache:       xdsCache,
+		xdsClientState: xdsClientState,
+		publishBudget:  newPublishBudgetGate(defaultPerClientPublishBudget),
 	}
 }
 

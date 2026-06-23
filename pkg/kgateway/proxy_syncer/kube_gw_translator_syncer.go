@@ -106,6 +106,13 @@ func (s *ProxyTranslator) syncXds(
 	s.offerBudgetedPublish(ctx, proxyKey, snapWrap)
 }
 
+// hasPriorXDSVersion reports whether the client reported a prior accepted xDS
+// version on connect — i.e. it may already be serving traffic even though this
+// controller has no local snapshot for it (reconnect / controller restart).
+func (s *ProxyTranslator) hasPriorXDSVersion(proxyKey string) bool {
+	return s.xdsClientState != nil && s.xdsClientState.HasPriorXDSVersion(proxyKey)
+}
+
 // offerBudgetedPublish records the latest deferred wrapper for a client and
 // arms the budget timer if one is not already running for this episode.
 func (s *ProxyTranslator) offerBudgetedPublish(ctx context.Context, proxyKey string, snapWrap XdsSnapWrapper) {
@@ -158,7 +165,21 @@ func (s *ProxyTranslator) publishPendingBudgeted(ctx context.Context, proxyKey s
 
 	published, err := s.xdsCache.GetSnapshot(proxyKey)
 	if err != nil {
-		// Never-published client: an incomplete snapshot beats no listeners.
+		// No snapshot in this controller's cache. That usually means a
+		// genuinely cold client — but a reconnect or controller restart can
+		// leave an Envoy still serving prior-accepted config while new to this
+		// process. If it reported a prior xDS version, treat it as warm and
+		// withhold: publishing an incomplete SotW snapshot would replace the
+		// config it is already serving (#13868). There is nothing to carry
+		// forward (the cache is empty), so it stays withheld until its inputs
+		// cohere.
+		if s.hasPriorXDSVersion(proxyKey) {
+			logger.Warn("publish budget expired, but client reported a prior xDS version; withholding deferred snapshot",
+				"client", proxyKey, "reasons", wrap.deferReasons)
+			recordDeferredSnapshotWithheld(proxyKey, wrap.deferReasons, warmReasonPriorXDSVersion)
+			return
+		}
+		// Cold client: an incomplete snapshot beats no listeners.
 		logger.Warn("publish budget expired; publishing deferred snapshot so the client can start",
 			"client", proxyKey, "reasons", wrap.deferReasons)
 		s.xdsCache.SetSnapshot(ctx, proxyKey, wrap.snap)
