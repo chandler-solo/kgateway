@@ -46,8 +46,9 @@ type firstPublishGate struct {
 }
 
 type pendingFirstPublish struct {
-	snap  *envoycache.Snapshot
-	timer *time.Timer
+	snap    *envoycache.Snapshot
+	reasons []string
+	timer   *time.Timer
 }
 
 type warmWithheldDeferred struct {
@@ -105,7 +106,7 @@ func (s *ProxyTranslator) syncXds(
 	}
 
 	// Never-published, no-prior-version client: hold up to the budget, then publish.
-	s.firstPublish.offer(ctx, s.xdsCache, proxyKey, snapWrap.snap)
+	s.firstPublish.offer(ctx, s.xdsCache, proxyKey, snapWrap.snap, snapWrap.deferReasons, s.hasPriorXDSVersion)
 }
 
 func (s *ProxyTranslator) hasPriorXDSVersion(proxyKey string) bool {
@@ -174,7 +175,14 @@ func (g *firstPublishGate) withholdWarm(proxyKey string, reasons []string, warmR
 
 // offer records the latest deferred snapshot for a never-published client and
 // arms the budget timer once; the timer publishes whatever is latest.
-func (g *firstPublishGate) offer(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, snap *envoycache.Snapshot) {
+func (g *firstPublishGate) offer(
+	ctx context.Context,
+	cache envoycache.SnapshotCache,
+	proxyKey string,
+	snap *envoycache.Snapshot,
+	reasons []string,
+	hasPriorXDSVersion func(string) bool,
+) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := g.pending[proxyKey]
@@ -185,18 +193,24 @@ func (g *firstPublishGate) offer(ctx context.Context, cache envoycache.SnapshotC
 			"client", proxyKey, "budget", perClientFirstPublishBudget)
 	}
 	st.snap = snap
+	st.reasons = slices.Clone(reasons)
 	if st.timer != nil {
 		return // already armed; it will publish the latest snap
 	}
 	st.timer = time.AfterFunc(perClientFirstPublishBudget, func() {
-		g.firePending(ctx, cache, proxyKey)
+		g.firePending(ctx, cache, proxyKey, hasPriorXDSVersion)
 	})
 }
 
 // firePending runs at budget expiry: publish the latest deferred snapshot
 // unless a coherent snapshot won the race. The check and publish happen under
 // the lock, so they cannot interleave with a coherent publish.
-func (g *firstPublishGate) firePending(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string) {
+func (g *firstPublishGate) firePending(
+	ctx context.Context,
+	cache envoycache.SnapshotCache,
+	proxyKey string,
+	hasPriorXDSVersion func(string) bool,
+) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := g.pending[proxyKey]
@@ -207,6 +221,12 @@ func (g *firstPublishGate) firePending(ctx context.Context, cache envoycache.Sna
 	delete(g.pending, proxyKey)
 	if _, err := cache.GetSnapshot(proxyKey); err == nil {
 		return // a coherent snapshot was published while the timer was in flight
+	}
+	if hasPriorXDSVersion != nil && hasPriorXDSVersion(proxyKey) {
+		logger.Warn("first-publish budget expired, but client reported a prior xDS version; withholding deferred snapshot",
+			"client", proxyKey)
+		recordDeferredSnapshotWithheld(proxyKey, st.reasons, warmReasonPriorXDSVersion)
+		return
 	}
 	logger.Warn("first-publish budget expired; publishing deferred snapshot so the client can start",
 		"client", proxyKey)

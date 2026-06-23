@@ -2,6 +2,7 @@ package proxy_syncer
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,14 @@ type testXDSClientState map[string]bool
 
 func (s testXDSClientState) HasPriorXDSVersion(resourceName string) bool {
 	return s[resourceName]
+}
+
+type mutableTestXDSClientState struct {
+	hasPrior atomic.Bool
+}
+
+func (s *mutableTestXDSClientState) HasPriorXDSVersion(resourceName string) bool {
+	return resourceName == testClientKey && s.hasPrior.Load()
 }
 
 func newTestTranslator() *ProxyTranslator {
@@ -154,6 +163,22 @@ func TestSyncXds_PriorXDSVersionNeverReceivesDeferred(t *testing.T) {
 	time.Sleep(150 * time.Millisecond) // well past the budget
 	_, ok := publishedVersion(t, pt)
 	assert.False(t, ok, "clients that report a prior xDS version must not receive deferred snapshots")
+}
+
+// A client can reveal prior accepted config after the first-publish timer has
+// already been armed, for example on a later ADS DiscoveryRequest. The timer
+// must recheck that state before publishing the deferred snapshot.
+func TestSyncXds_PriorXDSVersionDiscoveredBeforeBudgetPreventsPublish(t *testing.T) {
+	shortenBudget(t, 50*time.Millisecond)
+	state := &mutableTestXDSClientState{}
+	pt := NewProxyTranslator(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), state)
+
+	pt.syncXds(context.Background(), deferredWrapper("deferred", deferReasonMissingClusters))
+	state.hasPrior.Store(true)
+
+	time.Sleep(150 * time.Millisecond) // well past the budget
+	_, ok := publishedVersion(t, &pt)
+	assert.False(t, ok, "a deferred timer must not publish after the client reports a prior xDS version")
 }
 
 // Prior xDS version only blocks deferred snapshots. A coherent snapshot is still
