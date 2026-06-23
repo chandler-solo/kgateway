@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: xdsrace-backend
+  namespace: kgateway-base
+  labels:
+    app: xdsrace-backend
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 3000
+  selector:
+    app.kubernetes.io/name: xdsrace-backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xdsrace-backend
+  namespace: kgateway-base
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: xdsrace-backend
+      version: v1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: xdsrace-backend
+        version: v1
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - image: registry.k8s.io/gateway-api/echo-basic:v1.5.0@sha256:fcbdfab85b3c4441e2fe8fdedd382904332ccb8253a5d51f6006c16903e7ae40
+          imagePullPolicy: IfNotPresent
+          name: xdsrace-backend
+          ports:
+            - containerPort: 3000
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: SERVICE_NAME
+              value: xdsrace-backend

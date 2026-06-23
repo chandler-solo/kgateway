@@ -264,9 +264,18 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 	// whole lifetime, with nothing to ever correct it short of an Envoy
 	// restart. The derivation is a map lookup plus a label hash, and stream
 	// requests are infrequent.
-	x.stateLock.Lock()
-	defer x.stateLock.Unlock()
+	//
+	// deriveClientIdentity does an augmentedPods.GetKey lookup and a label
+	// hash (NewUniqlyConnectedClient), neither of which touches our shared
+	// maps — so it runs WITHOUT stateLock held. Keeping it inside the
+	// critical section would serialize every concurrent xDS stream behind one
+	// client's pod lookup. We hold the lock only to read the per-stream entry
+	// up front and to mutate the maps at the end. go-control-plane serializes
+	// callbacks for a single stream id, so this stream's clients[sid] entry
+	// can't change underneath us between those two sections.
+	x.stateLock.RLock()
 	c, ok := x.clients[sid]
+	x.stateLock.RUnlock()
 	if ok {
 		// Follow-up request on an established stream: when xDS auth is
 		// disabled the role comes from node metadata, and the Node object may
@@ -316,10 +325,16 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 		return "", false, err
 	}
 	x.logger.Debug("adding xds client", "locality", ucc.Locality, "ns", ucc.Namespace, "labels", ucc.Labels, "role", ucc.Role)
-	// TODO: modify request to include the label that are relevant for the client?
 	// peer.role is the raw, pre-augmentation role from this first request
 	// (deriveClientIdentity normalizes its own copy); pin it for follow-ups.
 	c = newConnectedClient(ucc.ResourceName(), peer.role)
+
+	// Re-lock only to publish the new stream into the shared maps. uniqClients
+	// and uniqClientsCount are keyed by resource name and shared across all
+	// streams, so this section must be serialized; the identity derivation
+	// above must not.
+	x.stateLock.Lock()
+	defer x.stateLock.Unlock()
 	x.clients[sid] = c
 	addedNew := false
 	currentUnique := x.uniqClientsCount[ucc.ResourceName()]
