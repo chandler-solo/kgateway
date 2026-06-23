@@ -285,6 +285,14 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 		// only genuine pod-state drift (labels, locality, namespace) is
 		// detected — never our own augmentation, which would otherwise
 		// compound and close the stream on every ACK.
+		//
+		// Pinning the role does NOT freeze the resource name: the
+		// role's real inputs (labels/locality/namespace) are still
+		// read from current pod state below and folded into a freshly
+		// recomputed resource name via NewUniqlyConnectedClient
+		// inside deriveClientIdentity. A changed role yields a
+		// changed resource name, which is what the drift check
+		// compares.
 		peer.role = c.originalRole
 	}
 	ucc, derr := x.deriveClientIdentity(r, peer)
