@@ -309,15 +309,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		"published CDS names must exactly match the current coherent per-client cluster inputs")
 }
 
-// TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSCluster
-// covers the cold-start regime: a brand-new client whose referenced EDS cluster
-// has no endpoints yet still gets a coherent snapshot immediately (carrying a
-// synthesized empty CLA, so the gateway programs and Envoy treats the cluster
-// as active-with-no-hosts) instead of being stranded. Once endpoints arrive the
-// same client's snapshot upgrades to include them. The make-before-break defer
-// only applies on subsequent updates, once a snapshot is already serving — see
-// the TestSnapshotPerClientDefersMakeBeforeBreak* tests.
-func TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSCluster(t *testing.T) {
+func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -385,27 +377,18 @@ func TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSCluster(t *
 		},
 	)
 
-	// Cold start: the snapshot publishes immediately even though cluster-a has
-	// no endpoints yet, carrying a synthesized empty CLA.
-	coldSnap := eventuallySingleSnapshot(t, snapshots)
-	g.Expect(coldSnap.Consistent()).ToNot(gomega.HaveOccurred(),
-		"cold-start snapshot must be EDS-consistent")
-	g.Expect(coldSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
-	g.Expect(clusterLoadAssignmentHasUsableEndpoint(coldSnap.Resources[envoycachetypes.Endpoint].Items["cluster-a"])).
-		To(gomega.BeFalse(), "the cold-start CLA for cluster-a has no usable endpoint yet")
+	g.Consistently(func() int {
+		return len(snapshots.List())
+	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
 
-	// Once endpoints arrive, the same client's snapshot upgrades to include them.
 	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-a", 3))
 
-	g.Eventually(func() bool {
-		snap := eventuallyCurrentSnapshot(snapshots)
-		if snap == nil {
-			return false
-		}
-		ep, ok := snap.Resources[envoycachetypes.Endpoint].Items["cluster-a"]
-		return ok && clusterLoadAssignmentHasUsableEndpoint(ep)
-	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"cluster-a CLA must gain a usable endpoint after endpoints arrive")
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+
+	snap := snapshots.List()[0].snap
+	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
 }
 
 func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *testing.T) {
@@ -968,11 +951,7 @@ func TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache(t *testing
 	g.Expect(coherentServed.Resources[envoycachetypes.Endpoint].Version).ToNot(gomega.Equal(initialEndpointVersion))
 }
 
-// TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSServiceName
-// is the cold-start counterpart for an EDS cluster that uses an explicit
-// service_name: the first snapshot publishes immediately with a synthesized
-// empty CLA keyed by the service_name, then upgrades once endpoints arrive.
-func TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSServiceName(t *testing.T) {
+func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -980,7 +959,7 @@ func TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSServiceName
 
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
 	routes := routeResourcesForClusters("cluster-a")
-	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
 		Routes:             routes,
@@ -1010,29 +989,20 @@ func TestSnapshotPerClientPublishesColdStartThenUpgradesReferencedEDSServiceName
 		},
 	)
 
-	// Cold start: publishes immediately with a synthesized empty CLA keyed by
-	// the cluster's EDS service_name (not the cluster name), before any
-	// endpoints for that service_name exist.
-	coldSnap := eventuallySingleSnapshot(t, snapshots)
-	g.Expect(coldSnap.Consistent()).ToNot(gomega.HaveOccurred(),
-		"cold-start snapshot must be EDS-consistent")
-	g.Expect(coldSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"))
-	g.Expect(coldSnap.Resources[envoycachetypes.Endpoint].Items).ToNot(gomega.HaveKey("cluster-a"))
-	g.Expect(clusterLoadAssignmentHasUsableEndpoint(coldSnap.Resources[envoycachetypes.Endpoint].Items["backend-service"])).
-		To(gomega.BeFalse(), "the cold-start CLA for backend-service has no usable endpoint yet")
+	g.Consistently(func() int {
+		return len(snapshots.List())
+	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0),
+		"cluster EDS service_name should defer until that CLA exists")
 
-	// Once endpoints arrive for the service_name, the snapshot upgrades.
 	endpointCol.UpdateObject(endpointsForClient(ucc, "backend-service", 3))
 
-	g.Eventually(func() bool {
-		snap := eventuallyCurrentSnapshot(snapshots)
-		if snap == nil {
-			return false
-		}
-		ep, ok := snap.Resources[envoycachetypes.Endpoint].Items["backend-service"]
-		return ok && clusterLoadAssignmentHasUsableEndpoint(ep)
-	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"backend-service CLA must gain a usable endpoint after endpoints arrive")
+	g.Eventually(func() int {
+		return len(snapshots.List())
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
+
+	snap := snapshots.List()[0].snap
+	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"))
+	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).ToNot(gomega.HaveKey("cluster-a"))
 }
 
 func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved(t *testing.T) {
