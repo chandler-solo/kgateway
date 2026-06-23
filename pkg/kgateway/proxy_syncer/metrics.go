@@ -18,6 +18,7 @@ const (
 	resourceLabel     = "resource"
 	reasonLabel       = "reason"
 	modeLabel         = "mode"
+	warmReasonLabel   = "warm_reason"
 )
 
 var (
@@ -107,6 +108,20 @@ var (
 		},
 		[]string{gatewayLabel, namespaceLabel, modeLabel},
 	)
+	snapshotPerClientDeferredWithheldTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_deferred_withheld_total",
+			Help: "Total deferred per-client XDS snapshots withheld indefinitely " +
+				"because the client may already be serving traffic. warm_reason " +
+				"identifies whether the safety signal was this controller's local " +
+				"snapshot cache or Envoy reporting a prior accepted xDS version. " +
+				"Nonzero prior_xds_version counts mean kgateway preserved last-good " +
+				"config after reconnect/controller restart instead of risking a " +
+				"partial SotW publish (#13868).",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel, warmReasonLabel},
+	)
 )
 
 // Modes for the bounded-publishes counter.
@@ -114,6 +129,12 @@ const (
 	boundedPublishFirstPublish = "first_publish"
 	boundedPublishCarryForward = "carry_forward"
 )
+
+// warmReasonPriorXDSVersion is the warm_reason for a deferred snapshot withheld
+// because the client reported a prior accepted xDS version (reconnect/restart).
+// (A client warm via this controller's local cache is carried-forward rather
+// than withheld, so it is recorded as a bounded publish, not a withhold.)
+const warmReasonPriorXDSVersion = "prior_xds_version"
 
 // recordSnapshotDefer counts one withheld publication for the client's
 // gateway, per reason.
@@ -156,6 +177,23 @@ func recordBoundedPublish(proxyKey, mode string) {
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
 		metrics.Label{Name: modeLabel, Value: mode},
 	)
+}
+
+// recordDeferredSnapshotWithheld counts deferred snapshots that are withheld
+// indefinitely for a warm client.
+func recordDeferredSnapshotWithheld(proxyKey string, reasons []string, warmReason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	for _, reason := range reasons {
+		snapshotPerClientDeferredWithheldTotal.Inc(
+			metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+			metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+			metrics.Label{Name: reasonLabel, Value: reason},
+			metrics.Label{Name: warmReasonLabel, Value: warmReason},
+		)
+	}
 }
 
 // snapshotResourcesMetricLabels defines the labels for XDS snapshot resources metrics.
@@ -288,4 +326,5 @@ func ResetMetrics() {
 	snapshotPerClientDefersTotal.Reset()
 	snapshotPerClientRecoveriesTotal.Reset()
 	snapshotPerClientBoundedPublishesTotal.Reset()
+	snapshotPerClientDeferredWithheldTotal.Reset()
 }
