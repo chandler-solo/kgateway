@@ -89,7 +89,7 @@ else
 	OSV_SCANNER_PLATFORM := --platform=linux/amd64
 endif
 
-export ENVOY_IMAGE ?= envoyproxy/envoy:v1.37.3
+export ENVOY_IMAGE ?= envoyproxy/envoy:v1.37.4
 
 # ENVOY_IMAGE is used by some of the *-docker targets which are used by CI e2e tests, so figure out the correct image
 # to use base on GOARCH. This doesn't affect goreleaser
@@ -172,12 +172,10 @@ fmt-changed: fmt-go-changed fmt-yaml-changed ## Format changed Go and YAML files
 mod-download:  ## Download transitive dependencies
 	go mod download
 	cd tools && go mod download
-	cd test/e2e/defaults/extproc && go mod download
 
 .PHONY: mod-tidy
 mod-tidy: ## Tidy the go mod file
 	@echo "Tidying tools..." && cd tools && go mod tidy
-	@echo "Tidying test/e2e/defaults/extproc..." && cd test/e2e/defaults/extproc && go mod tidy
 	@echo "Tidying top level" && go mod tidy
 
 #----------------------------------------------------------------------------
@@ -517,8 +515,7 @@ MOCK_SOURCE_FILES := pkg/kgateway/query/query_test.go
 
 # Files that track dependency changes
 MOD_FILES := go.mod go.sum \
-	tools/go.mod tools/go.sum \
-	test/e2e/defaults/extproc/go.mod test/e2e/defaults/extproc/go.sum
+	tools/go.mod tools/go.sum
 
 # Clean generated code
 .PHONY: clean-gen
@@ -769,11 +766,20 @@ EXTPROC_SERVER_DIR=test/e2e/defaults/extproc
 EXTPROC_SERVER_OUTPUT_DIR=$(OUTPUT_DIR)/$(EXTPROC_SERVER_DIR)
 export EXTPROC_SERVER_IMAGE_REPO ?= extproc-server
 EXTPROC_SERVER_VERSION=0.0.1
+EXTPROC_SERVER_SOURCES=$(shell find $(EXTPROC_SERVER_DIR) -name '*.go')
 
-$(EXTPROC_SERVER_OUTPUT_DIR)/.docker-stamp-$(EXTPROC_SERVER_VERSION)-$(GOARCH): $(shell find $(EXTPROC_SERVER_DIR) -name '*.go') $(EXTPROC_SERVER_DIR)/Dockerfile
-	$(BUILDX_BUILD) --load $(PLATFORM) $(EXTPROC_SERVER_DIR) -f $(EXTPROC_SERVER_DIR)/Dockerfile \
+$(EXTPROC_SERVER_OUTPUT_DIR)/extproc-server-linux-$(GOARCH): $(EXTPROC_SERVER_SOURCES)
+	@mkdir -p $(@D)
+	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./$(EXTPROC_SERVER_DIR)
+
+$(EXTPROC_SERVER_OUTPUT_DIR)/Dockerfile.extproc-server: $(EXTPROC_SERVER_DIR)/Dockerfile
+	@mkdir -p $(@D)
+	cp $< $@
+
+$(EXTPROC_SERVER_OUTPUT_DIR)/.docker-stamp-$(EXTPROC_SERVER_VERSION)-$(GOARCH): $(EXTPROC_SERVER_OUTPUT_DIR)/extproc-server-linux-$(GOARCH) $(EXTPROC_SERVER_OUTPUT_DIR)/Dockerfile.extproc-server
+	$(BUILDX_BUILD) --load $(PLATFORM) $(EXTPROC_SERVER_OUTPUT_DIR) -f $(EXTPROC_SERVER_OUTPUT_DIR)/Dockerfile.extproc-server \
+		--build-arg GOARCH=$(GOARCH) \
 		-t $(IMAGE_REGISTRY)/$(EXTPROC_SERVER_IMAGE_REPO):$(EXTPROC_SERVER_VERSION)
-	@mkdir -p $(dir $@)
 	@touch $@
 
 .PHONY: extproc-server-docker
