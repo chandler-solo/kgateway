@@ -2,6 +2,7 @@ package proxy_syncer
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/types"
@@ -58,6 +59,47 @@ func TestIsGatewayStatusEqual(t *testing.T) {
 			if got := isGatewayStatusEqual(tt.objA, tt.objB); got != tt.want {
 				t.Errorf("isGatewayStatusEqual() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestXDSReadyGrace(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{
+			name: "default when unset",
+			env:  "",
+			want: defaultXDSReadyGrace,
+		},
+		{
+			name: "disabled",
+			env:  "0s",
+			want: 0,
+		},
+		{
+			name: "custom duration",
+			env:  "250ms",
+			want: 250 * time.Millisecond,
+		},
+		{
+			name: "invalid falls back to default",
+			env:  "nope",
+			want: defaultXDSReadyGrace,
+		},
+		{
+			name: "negative falls back to default",
+			env:  "-1s",
+			want: defaultXDSReadyGrace,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(xdsReadyGraceEnv, tt.env)
+			assert.Equal(t, tt.want, xdsReadyGrace())
 		})
 	}
 }

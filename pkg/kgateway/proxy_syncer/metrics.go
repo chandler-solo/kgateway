@@ -14,6 +14,7 @@ const (
 	gatewayLabel      = "gateway"
 	nameLabel         = "name"
 	namespaceLabel    = "namespace"
+	reasonLabel       = "reason"
 	resultLabel       = "result"
 	resourceLabel     = "resource"
 )
@@ -69,6 +70,14 @@ var (
 			Help:      "Current number of resources in XDS snapshot",
 		},
 		[]string{gatewayLabel, namespaceLabel, resourceLabel},
+	)
+	snapshotIncompletePublishesTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "incomplete_publishes_total",
+			Help:      "Total number of per-client XDS snapshots published while referenced inputs were incomplete",
+		},
+		[]string{gatewayLabel, namespaceLabel, reasonLabel},
 	)
 )
 
@@ -160,6 +169,18 @@ func collectXDSTransformMetrics(clientKey string) func(error) {
 	}
 }
 
+func recordIncompleteXDSPublish(clientKey, reason string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(clientKey)
+	snapshotIncompletePublishesTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
+		metrics.Label{Name: reasonLabel, Value: reason},
+	)
+}
+
 type resourceNameDetails struct {
 	Role      string
 	Namespace string
@@ -199,4 +220,5 @@ func ResetMetrics() {
 	snapshotTransformsTotal.Reset()
 	snapshotTransformDuration.Reset()
 	snapshotResources.Reset()
+	snapshotIncompletePublishesTotal.Reset()
 }

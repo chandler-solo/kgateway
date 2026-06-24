@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"sync/atomic"
+	"time"
 
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -36,6 +38,12 @@ import (
 )
 
 var _ manager.LeaderElectionRunnable = &ProxySyncer{}
+
+const (
+	xdsReadyGraceEnv      = "KGW_XDS_READY_GRACE"
+	defaultXDSReadyGrace  = 5 * time.Second
+	disabledXDSReadyGrace = 0 * time.Second
+)
 
 // ProxySyncer orchestrates the translation of K8s Gateway CRs to xDS
 // and setting the output xDS snapshot in the envoy snapshot cache,
@@ -465,25 +473,11 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 				snapWrap := e.Latest()
 				s.proxyTranslator.syncXds(ctx, snapWrap)
 			} else {
-				// Intentional no-op. When snapshotPerClient returns nil (its
-				// readiness guards deferred publishing), KRT surfaces a Delete
-				// for this UCC. Clearing the xDS cache here would withdraw
-				// Envoy's last coherent Snapshot for the duration of the defer,
-				// causing 500/NC on valid routes. Leaving the cache alone means
-				// Envoy keeps serving its previously-published config until a
-				// new coherent snapshot overwrites it — the "retain last good"
-				// behavior that prevents unresolvable cluster references from
-				// stranding live traffic.
-				//
-				// Known leak: this branch also fires when a UCC truly goes
-				// away (Envoy pod replaced on rollout, scaled down, etc.),
-				// and we cannot distinguish that from the "defer" case here.
-				// The SnapshotCache entry for that UCC is therefore never
-				// cleared and accumulates over the controller's lifetime.
-				// Pre-existing behavior (the prior ClearSnapshot call was
-				// already commented out); reclaiming these entries requires
-				// a separate signal — e.g. cross-referencing uccCol
-				// membership — and is left to a follow-up.
+				// Intentional no-op. A Delete can mean the UCC went away, or
+				// the gateway snapshot for this role is currently absent. In
+				// both cases, retain the last xDS cache snapshot until a future
+				// Add/Update overwrites it or a separate UCC-membership-based
+				// reclaimer proves the client has truly departed.
 			}
 
 			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
@@ -494,9 +488,45 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 		}
 	}, true)
 
+	if err := waitForXDSReadyGrace(ctx, xdsReadyGrace()); err != nil {
+		return err
+	}
+
 	s.ready.Store(true)
 	<-ctx.Done()
 	return nil
+}
+
+func xdsReadyGrace() time.Duration {
+	raw := os.Getenv(xdsReadyGraceEnv)
+	if raw == "" {
+		return defaultXDSReadyGrace
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		logger.Warn("invalid XDS ready grace duration; using default", "env", xdsReadyGraceEnv, "value", raw, "default", defaultXDSReadyGrace, "error", err)
+		return defaultXDSReadyGrace
+	}
+	if parsed < disabledXDSReadyGrace {
+		logger.Warn("negative XDS ready grace duration; using default", "env", xdsReadyGraceEnv, "value", raw, "default", defaultXDSReadyGrace)
+		return defaultXDSReadyGrace
+	}
+	return parsed
+}
+
+func waitForXDSReadyGrace(ctx context.Context, grace time.Duration) error {
+	if grace <= disabledXDSReadyGrace {
+		return nil
+	}
+	logger.Info("waiting before declaring xDS ready", "duration", grace)
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *ProxySyncer) HasSynced() bool {
