@@ -99,7 +99,7 @@ func validateRouteWithEnvoy(
 	if route == nil {
 		return fmt.Errorf("route cannot be nil for RDS validation")
 	}
-	fullErr := validateFullRoute(ctx, route, v)
+	fullErr := validateFullRoutes(ctx, []*envoyroutev3.Route{route}, v)
 	if fullErr == nil {
 		return nil
 	}
@@ -230,11 +230,6 @@ func validateMatcherOnlyEnvoy(ctx context.Context, route *envoyroutev3.Route, v 
 		Name: clusterName,
 	})
 	return runValidation(ctx, v, builder, validator.CallerRouteMatcher)
-}
-
-// validateFullRoute validates the complete route configuration.
-func validateFullRoute(ctx context.Context, route *envoyroutev3.Route, v validator.Validator) error {
-	return validateFullRoutes(ctx, []*envoyroutev3.Route{route}, v)
 }
 
 // validateFullRoutes validates a set of complete route configurations in one Envoy invocation.
@@ -379,13 +374,6 @@ func createStubClusters(clusterNames []string) []*envoyclusterv3.Cluster {
 		}
 	}
 	return clusters
-}
-
-// extractClusterNames extracts all cluster names referenced by a route,
-// handling both single cluster routes and weighted cluster routes.
-// Returns a slice of unique cluster names to prevent redundant stub cluster creation.
-func extractClusterNames(route *envoyroutev3.Route) []string {
-	return appendClusterNames(nil, make(map[string]struct{}), route)
 }
 
 func appendClusterNames(clusterNames []string, seen map[string]struct{}, route *envoyroutev3.Route) []string {
