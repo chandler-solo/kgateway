@@ -41,9 +41,10 @@ func NewPlugin(ctx context.Context, commoncol *collections.CommonCollections) sd
 	return sdk.Plugin{
 		ContributesPolicies: map[schema.GroupKind]sdk.PolicyPlugin{
 			gk: {
-				Name:                      "destrule",
-				PerClientProcessBackend:   d.processBackend,
-				PerClientProcessEndpoints: d.processEndpoints,
+				Name:                           "destrule",
+				PerClientProcessBackend:        d.processBackend,
+				PerClientProcessBackendApplies: d.appliesToBackend,
+				PerClientProcessEndpoints:      d.processEndpoints,
 			},
 		},
 	}
@@ -77,6 +78,19 @@ func (d *destrulePlugin) processEndpoints(
 	hasher.Write([]byte(destrule.UID))
 	hasher.Write(fmt.Appendf(nil, "%v", destrule.Generation))
 	return hasher.Sum64()
+}
+
+// appliesToBackend reports whether processBackend would mutate the cluster for this (backend,
+// client) pair: there must be a matching destination rule whose traffic policy carries outlier
+// detection. It mirrors processBackend's guard exactly so the per-client cluster copy is only taken
+// when the overlay actually changes the cluster.
+func (d *destrulePlugin) appliesToBackend(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR) bool {
+	destrule := d.destinationRulesIndex.FetchDestRulesFor(kctx, ucc.Namespace, in.CanonicalHostname, ucc.Labels)
+	if destrule == nil {
+		return false
+	}
+	trafficPolicy := getTrafficPolicy(destrule, uint32(in.GetPort())) //nolint:gosec // G115: BackendObjectIR port is int32 representing a port number, always in valid range
+	return trafficPolicy.GetOutlierDetection() != nil
 }
 
 func (d *destrulePlugin) processBackend(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR, outCluster *envoyclusterv3.Cluster) {

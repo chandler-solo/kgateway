@@ -46,6 +46,18 @@ type PerClientProcessBackend func(
 	out *envoyclusterv3.Cluster,
 )
 
+// PerClientProcessBackendApplies reports whether PerClientProcessBackend would modify the cluster
+// for this (backend, client) pair. It must be cheap and free of side effects. When set, the
+// translator uses it to skip the per-client cluster copy entirely for pairs the plugin does not
+// touch, so the client reuses the shared base cluster. A plugin that sets PerClientProcessBackend
+// but leaves this nil is conservatively assumed to always apply (the cluster is always copied).
+type PerClientProcessBackendApplies func(
+	kctx krt.HandlerContext,
+	ctx context.Context,
+	ucc ir.UniquelyConnectedClient,
+	in ir.BackendObjectIR,
+) bool
+
 type (
 	// GetPolicyStatusFn is a type that plugins can implement to get the PolicyStatus for the given policy
 	GetPolicyStatusFn func(context.Context, types.NamespacedName) (gwv1.PolicyStatus, error)
@@ -60,9 +72,10 @@ type PolicyPlugin struct {
 	NewGatewayTranslationPass func(tctx ir.GwTranslationCtx, reporter reporter.Reporter) ir.ProxyTranslationPass
 
 	// Backend processing for envoy proxy
-	ProcessBackend            ProcessBackend
-	PerClientProcessBackend   PerClientProcessBackend
-	PerClientProcessEndpoints EndpointPlugin
+	ProcessBackend                 ProcessBackend
+	PerClientProcessBackend        PerClientProcessBackend
+	PerClientProcessBackendApplies PerClientProcessBackendApplies
+	PerClientProcessEndpoints      EndpointPlugin
 
 	Policies krt.Collection[ir.PolicyWrapper]
 	// ProcessPolicyStaleStatusMarkers add empty reports for policies to clear stale status

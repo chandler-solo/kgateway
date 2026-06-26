@@ -190,9 +190,10 @@ func (t *BackendTranslator) ApplyPerClientOverlay(
 	base *BackendBaseCluster,
 ) (*envoyclusterv3.Cluster, error) {
 	// Fast path: when nothing varies per client for this cluster and we are not validating,
-	// reuse the shared base proto directly (it is immutable downstream). This is the common
-	// case for EDS clusters when Istio integration is disabled.
-	if t.Mode != apisettings.ValidationStrict && base.InlineEps == nil && !t.hasPerClientBackendPlugins() {
+	// reuse the shared base proto directly (it is immutable downstream). This is the common case
+	// for EDS clusters when no per-client plugin (destination rule, waypoint) matches this pair --
+	// including every cluster when Istio integration is disabled.
+	if t.Mode != apisettings.ValidationStrict && base.InlineEps == nil && !t.anyPerClientBackendApplies(kctx, ctx, ucc, backend) {
 		return base.Cluster, nil
 	}
 
@@ -223,12 +224,26 @@ func newBlackholeBase(backend *ir.BackendObjectIR, err error) *BackendBaseCluste
 	}
 }
 
-// hasPerClientBackendPlugins reports whether any contributed policy plugin performs per-client
-// backend processing. When none do (and there are no inline endpoints), the per-client overlay is
-// a no-op and the base cluster can be reused as-is.
-func (t *BackendTranslator) hasPerClientBackendPlugins() bool {
+// anyPerClientBackendApplies reports whether any contributed policy plugin would modify the cluster
+// for this (backend, client) pair. A plugin that performs per-client backend processing but does not
+// provide a PerClientProcessBackendApplies predicate is conservatively assumed to always apply. When
+// this returns false (and there are no inline endpoints), the per-client overlay is a no-op and the
+// base cluster can be reused as-is, avoiding a per-pair clone.
+func (t *BackendTranslator) anyPerClientBackendApplies(
+	kctx krt.HandlerContext,
+	ctx context.Context,
+	ucc ir.UniquelyConnectedClient,
+	backend *ir.BackendObjectIR,
+) bool {
 	for _, p := range t.ContributedPolicies {
-		if p.PerClientProcessBackend != nil {
+		if p.PerClientProcessBackend == nil {
+			continue
+		}
+		if p.PerClientProcessBackendApplies == nil {
+			// Plugin may modify the cluster; we cannot safely skip the overlay.
+			return true
+		}
+		if p.PerClientProcessBackendApplies(kctx, ctx, ucc, *backend) {
 			return true
 		}
 	}

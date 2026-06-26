@@ -68,7 +68,8 @@ func NewPlugin(
 			// Contributing a PerClientProcessEndpoints function can return an empty CLA but
 			// it is still redundant.
 			VirtualWaypointGK: {
-				PerClientProcessBackend: pcp.processBackend,
+				PerClientProcessBackend:        pcp.processBackend,
+				PerClientProcessBackendApplies: pcp.appliesToBackend,
 			},
 		}
 	}
@@ -80,6 +81,18 @@ type PerClientProcessor struct {
 	waypointQueries          waypointquery.WaypointQueries
 	commonCols               *collections.CommonCollections
 	waypointGatewayClassName string
+}
+
+// appliesToBackend reports whether processBackend might modify the cluster for this (backend,
+// client) pair. It applies the same cheap filters processBackend uses first -- the ambient
+// redirection annotation on the ucc and the ingress-use-waypoint label on the backend -- so the
+// dominant non-ambient case skips the per-client cluster copy. The deeper gateway/service checks in
+// processBackend may still no-op, which is acceptable since ambient-redirected clients are rare.
+func (t *PerClientProcessor) appliesToBackend(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR) bool {
+	if val, ok := ucc.Labels[istioannot.AmbientRedirection.Name]; !ok || val != "enabled" {
+		return false
+	}
+	return HasIngressUseWaypointLabel(kctx, t.commonCols, in)
 }
 
 func (t *PerClientProcessor) processBackend(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR, out *envoyclusterv3.Cluster) {
