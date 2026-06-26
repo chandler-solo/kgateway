@@ -66,21 +66,39 @@ func NewPerClientEnvoyClusters(
 	finalBackends krt.Collection[*ir.BackendObjectIR],
 	uccs krt.Collection[ir.UniquelyConnectedClient],
 ) PerClientEnvoyClusters {
+	// baseClusters holds the client-independent ("base") translation of each Backend, computed
+	// once per Backend rather than once per (backend, client). The per-client overlay (destination
+	// rules, locality priorities) is layered on cheaply below.
+	baseClusters := krt.NewCollection(finalBackends, func(kctx krt.HandlerContext, backendObj *ir.BackendObjectIR) *irtranslator.BackendBaseCluster {
+		return translator.TranslateBackendBase(ctx, backendObj)
+	}, krtopts.ToOptions("BackendBaseClusters")...)
+
 	clusters := krt.NewManyCollection(finalBackends, func(kctx krt.HandlerContext, backendObj *ir.BackendObjectIR) []uccWithCluster {
-		backendLogger := logger.With("backend", backendObj)
+		base := krt.FetchOne(kctx, baseClusters, krt.FilterKey(backendObj.ResourceName()))
+		if base == nil || base.Cluster == nil {
+			// Unsupported backend (no translator/plugin); nothing to emit.
+			return nil
+		}
+
 		uccs := krt.Fetch(kctx, uccs)
 		uccWithClusterRet := make([]uccWithCluster, 0, len(uccs))
 
-		for _, ucc := range uccs {
-			backendLogger.Debug("applying destination rules for backend", "ucc", ucc.ResourceName())
+		var backendGeneration int64
+		if backendObj.Obj != nil {
+			backendGeneration = backendObj.Obj.GetGeneration()
+		}
 
-			c, err := translator.TranslateBackend(ctx, kctx, ucc, backendObj)
+		for _, ucc := range uccs {
+			var c *envoyclusterv3.Cluster
+			var err error
+			if base.Err != nil {
+				// Base translation failed; every client shares the blackhole cluster + error.
+				c, err = base.Cluster, base.Err
+			} else {
+				c, err = translator.ApplyPerClientOverlay(ctx, kctx, ucc, backendObj, base)
+			}
 			if c == nil {
 				continue
-			}
-			var backendGeneration int64
-			if backendObj.Obj != nil {
-				backendGeneration = backendObj.Obj.GetGeneration()
 			}
 			uccWithClusterRet = append(uccWithClusterRet, uccWithCluster{
 				Name:    c.GetName(),

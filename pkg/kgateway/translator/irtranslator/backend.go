@@ -46,11 +46,60 @@ type BackendTranslator struct {
 	Mode                apisettings.ValidationMode
 }
 
-// TranslateBackend translates a BackendObjectIR to an Envoy Cluster. If we encounter any
-// errors during translation, a blackhole cluster is returned along with the error. The error
-// return value is what matters as consumers (pkg/kgateway/proxy_syncer/perclient.go) will
-// drop errored clusters from the xDS snapshot and track them separately for status reporting.
-// The blackhole cluster itself is not sent to Envoy but provides a consistent return structure.
+// BackendBaseCluster is the client-independent ("base") translation of a Backend into an
+// Envoy Cluster. It is produced once per Backend and shared across all uniquely-connected
+// clients; the per-client overlay (destination rules, locality priorities) is applied later
+// by ApplyPerClientOverlay. Splitting translation this way avoids re-running the full backend
+// plugin chain once per (backend, client) pair.
+type BackendBaseCluster struct {
+	// Name is the source Backend's ResourceName; it keys this element in the KRT collection.
+	Name string
+	// Cluster is the base proto. When Err != nil this is a blackhole cluster and the overlay
+	// is skipped (all clients share the blackhole + error).
+	// +krtEqualsTodo include full cluster diff in equality
+	Cluster *envoyclusterv3.Cluster
+	// Version is HashProto(Cluster); it stands in for a deep proto diff in Equals.
+	Version uint64
+	// InlineEps are the inline endpoints captured from InitEnvoyBackend, needed by the
+	// per-client endpoint plugins / inline-CLA path. Nil for EDS clusters.
+	InlineEps *ir.EndpointsForBackend
+	// Err is the base translation error, if any. Compared by message in Equals because all
+	// errored clusters share one blackhole proto, so Version can't tell error states apart.
+	Err error
+}
+
+func (b BackendBaseCluster) ResourceName() string {
+	return b.Name
+}
+
+func (b BackendBaseCluster) Equals(in BackendBaseCluster) bool {
+	return b.Name == in.Name &&
+		b.Version == in.Version &&
+		errMsg(b.Err) == errMsg(in.Err) &&
+		inlineEpsEqual(b.InlineEps, in.InlineEps)
+}
+
+func errMsg(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func inlineEpsEqual(a, b *ir.EndpointsForBackend) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equals(*b)
+}
+
+// TranslateBackend translates a BackendObjectIR to an Envoy Cluster for a single client. It is a
+// thin wrapper over the base translation (TranslateBackendBase) followed by the per-client overlay
+// (ApplyPerClientOverlay). If we encounter any errors during translation, a blackhole cluster is
+// returned along with the error. The error return value is what matters as consumers
+// (pkg/kgateway/proxy_syncer/perclient.go) will drop errored clusters from the xDS snapshot and
+// track them separately for status reporting. The blackhole cluster itself is not sent to Envoy
+// but provides a consistent return structure.
 func (t *BackendTranslator) TranslateBackend(
 	ctx context.Context,
 	kctx krt.HandlerContext,
@@ -67,11 +116,41 @@ func (t *BackendTranslator) TranslateBackend(
 		return nil, errors.New("no backend plugin found for " + gk.String())
 	}
 
+	base := t.TranslateBackendBase(ctx, backend)
+	if base == nil {
+		// Unreachable given the checks above, but keep a defined return.
+		return nil, errors.New("no base cluster translated for " + gk.String())
+	}
+	if base.Err != nil {
+		return base.Cluster, base.Err
+	}
+	return t.ApplyPerClientOverlay(ctx, kctx, ucc, backend, base)
+}
+
+// TranslateBackendBase performs the client-independent ("base") translation of a Backend into an
+// Envoy Cluster: initialization, the backend plugin, DNS lookup family, client-independent backend
+// policies (ProcessBackend), default locality config, and the gateway backend client certificate.
+// Per-client concerns (destination rules, endpoint locality priorities, the inline CLA) are NOT
+// applied here; they are layered on by ApplyPerClientOverlay. Returns nil only when the Backend is
+// unsupported (no translator / no plugin), mirroring the old nil-cluster contract.
+func (t *BackendTranslator) TranslateBackendBase(
+	ctx context.Context,
+	backend *ir.BackendObjectIR,
+) *BackendBaseCluster {
+	gk := backend.GetGroupKind()
+	process, ok := t.ContributedBackends[gk]
+	if !ok {
+		return nil
+	}
+	if process.InitEnvoyBackend == nil {
+		return nil
+	}
+
 	// Check for pre-existing errors in the Backend IR before starting translation.
 	// Exit translation early if we have errors
 	if backend.Errors != nil {
 		logger.Error("backend has pre-existing errors", "backend", backend.GetName(), "errors", backend.Errors)
-		return buildBlackholeCluster(backend), errors.Join(backend.Errors...)
+		return newBlackholeBase(backend, errors.Join(backend.Errors...))
 	}
 
 	// Initialize the cluster with minimal configuration
@@ -79,18 +158,51 @@ func (t *BackendTranslator) TranslateBackend(
 	inlineEps := process.InitEnvoyBackend(ctx, *backend, out)
 	processDnsLookupFamily(out, t.CommonCols)
 
-	// Apply policies to the computed cluster
-	if err := t.runPolicies(kctx, ctx, ucc, backend, inlineEps, out); err != nil {
+	// Apply client-independent backend policies to the computed cluster.
+	if err := t.runBaseBackendPolicies(ctx, backend, out); err != nil {
 		logger.Error("failed to apply policies to cluster", "cluster", out.GetName(), "error", err)
-		return buildBlackholeCluster(backend), err
+		return newBlackholeBase(backend, err)
 	}
 	defaultLocalityConfig(out)
 	if err := applyGatewayBackendClientCertificate(out, backend); err != nil {
 		logger.Error("failed to apply gateway backend client certificate", "cluster", out.GetName(), "error", err)
-		return buildBlackholeCluster(backend), err
+		return newBlackholeBase(backend, err)
 	}
 
-	// In strict mode, validate the final cluster configuration using Envoy
+	return &BackendBaseCluster{
+		Name:      backend.ResourceName(),
+		Cluster:   out,
+		Version:   utils.HashProto(out),
+		InlineEps: inlineEps,
+	}
+}
+
+// ApplyPerClientOverlay layers the per-client concerns onto a copy of the base cluster: the
+// PerClientProcessBackend hooks (e.g. Istio destination rules, waypoint), endpoint plugins, and the
+// inline ClusterLoadAssignment built from the client's locality. The base proto is never mutated.
+// In strict mode the final per-client cluster is validated (the caching validator deduplicates
+// identical content across clients).
+func (t *BackendTranslator) ApplyPerClientOverlay(
+	ctx context.Context,
+	kctx krt.HandlerContext,
+	ucc ir.UniquelyConnectedClient,
+	backend *ir.BackendObjectIR,
+	base *BackendBaseCluster,
+) (*envoyclusterv3.Cluster, error) {
+	// Fast path: when nothing varies per client for this cluster and we are not validating,
+	// reuse the shared base proto directly (it is immutable downstream). This is the common
+	// case for EDS clusters when Istio integration is disabled.
+	if t.Mode != apisettings.ValidationStrict && base.InlineEps == nil && !t.hasPerClientBackendPlugins() {
+		return base.Cluster, nil
+	}
+
+	out, ok := proto.Clone(base.Cluster).(*envoyclusterv3.Cluster)
+	if !ok {
+		return buildBlackholeCluster(backend), errors.New("failed to clone base cluster")
+	}
+	t.runPerClientPolicies(kctx, ctx, ucc, backend, base.InlineEps, out)
+
+	// In strict mode, validate the final per-client cluster configuration using Envoy.
 	if t.Mode == apisettings.ValidationStrict && t.Validator != nil {
 		if err := t.validateClusterConfig(ctx, out); err != nil {
 			logger.Error("cluster failed xDS validation in strict mode", "cluster", out.GetName(), "error", err)
@@ -99,6 +211,28 @@ func (t *BackendTranslator) TranslateBackend(
 	}
 
 	return out, nil
+}
+
+func newBlackholeBase(backend *ir.BackendObjectIR, err error) *BackendBaseCluster {
+	bh := buildBlackholeCluster(backend)
+	return &BackendBaseCluster{
+		Name:    backend.ResourceName(),
+		Cluster: bh,
+		Version: utils.HashProto(bh),
+		Err:     err,
+	}
+}
+
+// hasPerClientBackendPlugins reports whether any contributed policy plugin performs per-client
+// backend processing. When none do (and there are no inline endpoints), the per-client overlay is
+// a no-op and the base cluster can be reused as-is.
+func (t *BackendTranslator) hasPerClientBackendPlugins() bool {
+	for _, p := range t.ContributedPolicies {
+		if p.PerClientProcessBackend != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultLocalityConfig keeps traffic evenly distributed across zones for clusters
@@ -131,34 +265,15 @@ func defaultLocalityConfig(c *envoyclusterv3.Cluster) {
 	}
 }
 
-func (t *BackendTranslator) runPolicies(
-	kctx krt.HandlerContext,
+// runBaseBackendPolicies applies the client-independent backend policies (ProcessBackend) to the
+// cluster. It is run once per Backend as part of base translation.
+func (t *BackendTranslator) runBaseBackendPolicies(
 	ctx context.Context,
-	ucc ir.UniquelyConnectedClient,
 	backend *ir.BackendObjectIR,
-	inlineEps *ir.EndpointsForBackend,
 	out *envoyclusterv3.Cluster,
 ) error {
-	// if the backend was initialized with inlineEps then we
-	// need an EndpointsInputs to run plugins against
-	var endpointInputs *endpoints.EndpointsInputs
-	if inlineEps != nil {
-		endpointInputs = &endpoints.EndpointsInputs{
-			EndpointsForBackend: *inlineEps,
-		}
-		endpointInputs.EndpointsForBackend.AttachedPolicies = backend.AttachedPolicies
-	}
-
 	var errs []error
 	for gk, policyPlugin := range t.ContributedPolicies {
-		// TODO: in theory it would be nice to do `ProcessBackend` once, and only do
-		// the the per-client processing for each client.
-		// that would require refactoring and thinking about the proper IR, so we'll punt on that for
-		// now, until we have more backend plugin examples to properly understand what it should look
-		// like.
-		if policyPlugin.PerClientProcessBackend != nil {
-			policyPlugin.PerClientProcessBackend(kctx, ctx, ucc, *backend, out)
-		}
 		// if the policy plugin has no ProcessBackend function, skip it
 		if policyPlugin.ProcessBackend == nil {
 			continue
@@ -178,6 +293,35 @@ func (t *BackendTranslator) runPolicies(
 			policyPlugin.ProcessBackend(ctx, polAttachment.PolicyIr, *backend, out)
 		}
 	}
+	return errors.Join(errs...)
+}
+
+// runPerClientPolicies applies the client-specific overlay to a (cloned) cluster: the
+// PerClientProcessBackend hooks, endpoint plugins, and the inline ClusterLoadAssignment derived from
+// the client's locality. None of the per-client hooks return errors, so this does not.
+func (t *BackendTranslator) runPerClientPolicies(
+	kctx krt.HandlerContext,
+	ctx context.Context,
+	ucc ir.UniquelyConnectedClient,
+	backend *ir.BackendObjectIR,
+	inlineEps *ir.EndpointsForBackend,
+	out *envoyclusterv3.Cluster,
+) {
+	// if the backend was initialized with inlineEps then we
+	// need an EndpointsInputs to run plugins against
+	var endpointInputs *endpoints.EndpointsInputs
+	if inlineEps != nil {
+		endpointInputs = &endpoints.EndpointsInputs{
+			EndpointsForBackend: *inlineEps,
+		}
+		endpointInputs.EndpointsForBackend.AttachedPolicies = backend.AttachedPolicies
+	}
+
+	for _, policyPlugin := range t.ContributedPolicies {
+		if policyPlugin.PerClientProcessBackend != nil {
+			policyPlugin.PerClientProcessBackend(kctx, ctx, ucc, *backend, out)
+		}
+	}
 
 	if endpointInputs != nil {
 		for _, processEndpoints := range t.orderedEndpointPlugins() {
@@ -194,8 +338,6 @@ func (t *BackendTranslator) runPolicies(
 			*endpointInputs,
 		)
 	}
-
-	return errors.Join(errs...)
 }
 
 func (t *BackendTranslator) orderedEndpointPlugins() []sdk.EndpointPlugin {
