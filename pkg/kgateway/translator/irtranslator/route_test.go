@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 
 	envoybootstrapv3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
@@ -285,7 +287,7 @@ func TestValidateRouteStrictInvalidGeneratedRegexMatcher(t *testing.T) {
 	}
 }
 
-func TestComputeVirtualHostStrictBatchesFullRouteValidation(t *testing.T) {
+func TestComputeRouteConfigurationStrictBatchesFullRouteValidation(t *testing.T) {
 	calls := 0
 	var routeCounts []int
 	v := &routeMockValidator{validateFunc: func(_ context.Context, config *envoybootstrapv3.Bootstrap) error {
@@ -295,21 +297,22 @@ func TestComputeVirtualHostStrictBatchesFullRouteValidation(t *testing.T) {
 	}}
 	h := testHTTPRouteTranslator(v, apisettings.ValidationStrict)
 
-	out := h.computeVirtualHost(context.Background(), &ir.VirtualHost{
+	cfg := h.ComputeRouteConfiguration(context.Background(), []*ir.VirtualHost{{
 		Name:     "test-vhost",
 		Hostname: "example.com",
 		Rules: []ir.HttpRouteRuleMatchIR{
 			testRouteIR(0, "/one", "cluster-one"),
 			testRouteIR(1, "/two", "cluster-two"),
 		},
-	})
+	}})
 
-	require.Len(t, out.GetRoutes(), 2)
+	require.Len(t, cfg.GetVirtualHosts(), 1)
+	require.Len(t, cfg.GetVirtualHosts()[0].GetRoutes(), 2)
 	assert.Equal(t, 1, calls)
 	assert.Equal(t, []int{2}, routeCounts)
 }
 
-func TestComputeVirtualHostStrictIsolatesInvalidRouteAfterBatchFailure(t *testing.T) {
+func TestComputeRouteConfigurationStrictIsolatesInvalidRouteAfterBatchFailure(t *testing.T) {
 	calls := 0
 	var routeCounts []int
 	v := &routeMockValidator{validateFunc: func(_ context.Context, config *envoybootstrapv3.Bootstrap) error {
@@ -342,21 +345,89 @@ func TestComputeVirtualHostStrictIsolatesInvalidRouteAfterBatchFailure(t *testin
 	}}
 	h := testHTTPRouteTranslator(v, apisettings.ValidationStrict)
 
-	out := h.computeVirtualHost(context.Background(), &ir.VirtualHost{
+	cfg := h.ComputeRouteConfiguration(context.Background(), []*ir.VirtualHost{{
 		Name:     "test-vhost",
 		Hostname: "example.com",
 		Rules: []ir.HttpRouteRuleMatchIR{
 			testRouteIR(0, "/one", "cluster-one"),
 			testRouteIR(1, "/two", "cluster-two"),
 		},
-	})
+	}})
 
+	require.Len(t, cfg.GetVirtualHosts(), 1)
+	out := cfg.GetVirtualHosts()[0]
 	require.Len(t, out.GetRoutes(), 2)
 	_, ok := out.GetRoutes()[0].GetAction().(*envoyroutev3.Route_Route)
 	assert.True(t, ok)
 	_, ok = out.GetRoutes()[1].GetAction().(*envoyroutev3.Route_DirectResponse)
 	assert.True(t, ok)
 	assert.Equal(t, []int{2, 1, 1, 1, 2}, routeCounts)
+}
+
+// markingRouteConfigPass is a RouteConfig-scope plugin that mutates a route after the vhosts have
+// been computed -- mirroring how the TrafficPolicy plugin's applyGatewayLevelPerRouteSettings pushes
+// retry onto routes from ApplyRouteConfigPlugin. It tags one route's name with a marker the test
+// validator treats as invalid.
+type markingRouteConfigPass struct {
+	ir.UnimplementedProxyTranslationPass
+	marker   string
+	routeIdx int
+}
+
+func (p *markingRouteConfigPass) ApplyRouteConfigPlugin(_ *ir.RouteConfigContext, out *envoyroutev3.RouteConfiguration) {
+	for _, vh := range out.GetVirtualHosts() {
+		if p.routeIdx < len(vh.Routes) {
+			// Mark the route's action (not its match) so the full-route validation sees the marker
+			// while the matcher-only disambiguation does not -- i.e. an invalid action that should be
+			// replaced with a direct response, not a dropped matcher.
+			if ra := vh.Routes[p.routeIdx].GetRoute(); ra != nil {
+				ra.ClusterSpecifier = &envoyroutev3.RouteAction_Cluster{Cluster: p.marker}
+			}
+		}
+	}
+}
+
+// TestComputeRouteConfigurationValidatesRouteConfigScopeMutations is the regression guard for the
+// validate-at-the-sink fix: a RouteConfig-scope plugin runs after the vhosts (and their routes) are
+// computed and mutates a route. Strict validation must run after that phase and isolate the now-invalid
+// route. If validation were performed earlier (e.g. inside computeVirtualHost, before the
+// RouteConfig-scope plugin loop) the mutation would slip through unvalidated and this test would fail.
+func TestComputeRouteConfigurationValidatesRouteConfigScopeMutations(t *testing.T) {
+	const marker = "rc-scope-invalid"
+	v := &routeMockValidator{validateFunc: func(_ context.Context, config *envoybootstrapv3.Bootstrap) error {
+		for _, r := range routesFromValidationBootstrap(t, config) {
+			if strings.Contains(r.GetRoute().GetCluster(), marker) {
+				return errors.New("invalid route action injected by route-config-scope plugin")
+			}
+		}
+		return nil
+	}}
+	h := testHTTPRouteTranslator(v, apisettings.ValidationStrict)
+
+	// Attach a RouteConfig-scope plugin that marks route index 1 invalid. PolicyRef is nil so status
+	// reporting is skipped (the test translator has no reporter).
+	gk := schema.GroupKind{Group: "test", Kind: "RCPolicy"}
+	h.pluginPass = TranslationPassPlugins{gk: &TranslationPass{ProxyTranslationPass: &markingRouteConfigPass{marker: marker, routeIdx: 1}}}
+	h.attachedPolicies = ir.AttachedPolicies{Policies: map[schema.GroupKind][]ir.PolicyAtt{
+		gk: {{GroupKind: gk}},
+	}}
+
+	cfg := h.ComputeRouteConfiguration(context.Background(), []*ir.VirtualHost{{
+		Name:     "test-vhost",
+		Hostname: "example.com",
+		Rules: []ir.HttpRouteRuleMatchIR{
+			testRouteIR(0, "/one", "cluster-one"),
+			testRouteIR(1, "/two", "cluster-two"),
+		},
+	}})
+
+	require.Len(t, cfg.GetVirtualHosts(), 1)
+	out := cfg.GetVirtualHosts()[0]
+	require.Len(t, out.GetRoutes(), 2)
+	_, ok := out.GetRoutes()[0].GetAction().(*envoyroutev3.Route_Route)
+	assert.True(t, ok, "untouched route should be preserved")
+	_, ok = out.GetRoutes()[1].GetAction().(*envoyroutev3.Route_DirectResponse)
+	assert.True(t, ok, "route mutated to be invalid by a RouteConfig-scope plugin must be isolated")
 }
 
 func refFor(name string) *ir.AttachedPolicyRef {

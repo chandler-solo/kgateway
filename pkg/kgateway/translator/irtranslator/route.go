@@ -62,7 +62,11 @@ func (h *httpRouteConfigurationTranslator) ComputeRouteConfiguration(
 	// Compute virtual hosts from the IR. In listener merging scenarios, vhosts contains
 	// all virtual hosts from multiple listeners that share the same port. Each distinct
 	// hostname on each HTTPRoute attached to a listener will be a separate vhost.
-	cfg.VirtualHosts = h.computeVirtualHosts(ctx, vhosts)
+	computedVhosts := h.computeVirtualHosts(ctx, vhosts)
+	cfg.VirtualHosts = make([]*envoyroutev3.VirtualHost, 0, len(computedVhosts))
+	for _, cvh := range computedVhosts {
+		cfg.VirtualHosts = append(cfg.VirtualHosts, cvh.out)
+	}
 
 	// Gateway API spec requires that port values in HTTP Host headers be ignored when performing a match
 	// See https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPRouteSpec - hostnames field
@@ -114,18 +118,47 @@ func (h *httpRouteConfigurationTranslator) ComputeRouteConfiguration(
 	}
 	cfg.TypedPerFilterConfig = typedPerFilterConfigRoute.ToAnyMap()
 
+	// Validate at the sink: now that every route-mutating phase has run -- per-route plugins, vhost
+	// plugins, and the RouteConfig-scope plugins above (which can push settings like TrafficPolicy
+	// retry onto individual routes) -- run strict route validation over the fully assembled routes.
+	// This is the single strict validation point; the route pointers here are the same ones the
+	// plugins mutated, so any invalid route config is caught and isolated/replaced rather than
+	// reaching Envoy. Fallback vhosts (a vhost plugin already replaced them with a synthetic 500)
+	// have no real routes and are skipped.
+	for i, cvh := range computedVhosts {
+		if cvh.fallback {
+			continue
+		}
+		cfg.VirtualHosts[i] = h.validateStrictRouteBatch(ctx, cvh.in, cvh.out, cvh.routes)
+	}
+
 	return cfg
+}
+
+// computedVirtualHost carries a translated virtual host together with the state needed to validate
+// it later, at the end of ComputeRouteConfiguration -- after every plugin phase that can mutate its
+// routes (vhost plugins and, crucially, RouteConfig-scope plugins) has run. Strict validation is
+// deferred to that point rather than performed inside computeVirtualHost so that route mutations
+// applied by RouteConfig-scope plugins (e.g. TrafficPolicy retry pushed onto routes by
+// applyGatewayLevelPerRouteSettings) are validated rather than bypassing validation.
+type computedVirtualHost struct {
+	in     *ir.VirtualHost
+	out    *envoyroutev3.VirtualHost
+	routes []computedHTTPRoute
+	// fallback is true when a vhost plugin failed and out is already a synthetic 500 vhost; such a
+	// vhost has no real routes and must not be (re)validated.
+	fallback bool
 }
 
 func (h *httpRouteConfigurationTranslator) computeVirtualHosts(
 	ctx context.Context,
 	virtualHosts []*ir.VirtualHost,
-) []*envoyroutev3.VirtualHost {
-	envoyVirtualHosts := make([]*envoyroutev3.VirtualHost, 0, len(virtualHosts))
+) []computedVirtualHost {
+	computed := make([]computedVirtualHost, 0, len(virtualHosts))
 	for _, virtualHost := range virtualHosts {
-		envoyVirtualHosts = append(envoyVirtualHosts, h.computeVirtualHost(ctx, virtualHost))
+		computed = append(computed, h.computeVirtualHost(ctx, virtualHost))
 	}
-	return envoyVirtualHosts
+	return computed
 }
 
 // computeVirtualHost translates one IR virtual host into an Envoy virtual host and
@@ -135,7 +168,7 @@ func (h *httpRouteConfigurationTranslator) computeVirtualHosts(
 func (h *httpRouteConfigurationTranslator) computeVirtualHost(
 	ctx context.Context,
 	virtualHost *ir.VirtualHost,
-) *envoyroutev3.VirtualHost {
+) computedVirtualHost {
 	sanitizedName := utils.SanitizeForEnvoy(ctx, virtualHost.Name, "virtual host")
 
 	var envoyRoutes []*envoyroutev3.Route
@@ -189,12 +222,14 @@ func (h *httpRouteConfigurationTranslator) computeVirtualHost(
 			Message: err.Error(),
 		})
 		// replace the computed vhost with a fallback that preserves the original vhost identity
-		return setFallBackConfig(sanitizedName, domains[0])
+		return computedVirtualHost{in: virtualHost, out: setFallBackConfig(sanitizedName, domains[0]), fallback: true}
 	}
 	out.TypedPerFilterConfig = typedPerFilterConfigRoute.ToAnyMap()
 
-	out = h.validateStrictRouteBatch(ctx, virtualHost, out, computedRoutes)
-	return out
+	// NOTE: strict validation is intentionally NOT run here. It is deferred to the end of
+	// ComputeRouteConfiguration so that RouteConfig-scope plugins, which run after all vhosts are
+	// computed and can still mutate these routes, are covered by validation.
+	return computedVirtualHost{in: virtualHost, out: out, routes: computedRoutes}
 }
 
 // setFallBackConfig creates a synthetic, catch-all virtual host that returns 500 errors
