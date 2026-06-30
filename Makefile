@@ -94,6 +94,14 @@ endif
 
 export ENVOY_IMAGE ?= envoyproxy/envoy:v1.38.1
 
+# Envoy version tag (e.g. v1.38.1) extracted from ENVOY_IMAGE. Exported so goreleaser.yaml and the
+# local *-docker cache-from targets can suffix the registry layer-cache tags with it. The Envoy base
+# is the layer that differs across release lines (main/v2.3.x/v2.2.x each pin a different Envoy), so
+# without this suffix every branch writes the same `*-cache:<arch>` tag and main's frequent pushes
+# constantly evict the release lines' cache -- turning release-branch PR builds into full QEMU rebuilds.
+# Scoping the cache tag per Envoy version gives each release line a cache that survives main churn.
+export ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
+
 # ENVOY_IMAGE is used by some of the *-docker targets which are used by CI e2e tests, so figure out the correct image
 # to use base on GOARCH. This doesn't affect goreleaser
 ifeq ($(GOARCH), arm64)
@@ -749,9 +757,9 @@ CONTROLLER_OUTPUT_DIR=$(OUTPUT_DIR)/pkg/kgateway
 export CONTROLLER_IMAGE_REPO ?= kgateway
 
 # Registry cache repo for controller Docker build (set to enable, e.g., ghcr.io/kgateway-dev/kgateway-cache).
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 CONTROLLER_CACHE_REF ?=
-CONTROLLER_CACHE_FROM := $(if $(CONTROLLER_CACHE_REF),--cache-from type=registry$(comma)ref=$(CONTROLLER_CACHE_REF):$(GOARCH),)
+CONTROLLER_CACHE_FROM := $(if $(CONTROLLER_CACHE_REF),--cache-from type=registry$(comma)ref=$(CONTROLLER_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 # We include the files in K8S_GATEWAY_SOURCES as dependencies to the kgateway build
 # so changes in those directories cause the make target to rebuild
@@ -788,9 +796,9 @@ SDS_OUTPUT_DIR=$(OUTPUT_DIR)/$(SDS_DIR)
 export SDS_IMAGE_REPO ?= sds
 
 # Registry cache repo for sds Docker build (set to enable, e.g., ghcr.io/kgateway-dev/sds-cache).
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 SDS_CACHE_REF ?=
-SDS_CACHE_FROM := $(if $(SDS_CACHE_REF),--cache-from type=registry$(comma)ref=$(SDS_CACHE_REF):$(GOARCH),)
+SDS_CACHE_FROM := $(if $(SDS_CACHE_REF),--cache-from type=registry$(comma)ref=$(SDS_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH): $(SDS_SOURCES)
 	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/sds/...
@@ -825,9 +833,9 @@ export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 # Registry cache for envoyinit Docker build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-wrapper-cache)
 
 # Registry cache-from targets the image goreleaser publishes on main/release.
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 ENVOYINIT_CACHE_REF ?=
-ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH),)
+ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 # Optional local BuildKit cache paths, typically wired to actions/cache in CI
 # so PR runs can read AND write layer cache without needing registry push auth.
