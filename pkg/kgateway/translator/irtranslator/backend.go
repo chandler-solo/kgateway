@@ -121,10 +121,24 @@ func (t *BackendTranslator) TranslateBackend(
 		// Unreachable given the checks above, but keep a defined return.
 		return nil, errors.New("no base cluster translated for " + gk.String())
 	}
+	// Validate the client-independent base once; a failure here is shared by every client.
+	t.ValidateBaseCluster(ctx, base)
 	if base.Err != nil {
 		return base.Cluster, base.Err
 	}
-	return t.ApplyPerClientOverlay(ctx, kctx, ucc, backend, base)
+	out, err := t.ApplyPerClientOverlay(ctx, kctx, ucc, backend, base)
+	if err != nil {
+		return out, err
+	}
+	// Only the per-client residual (a cluster the overlay actually changed) still needs validating;
+	// clusters identical to the base were already covered by ValidateBaseCluster above.
+	if t.StrictValidationEnabled() && out != base.Cluster {
+		if err := t.ValidateClusterConfig(ctx, out); err != nil {
+			logger.Error("cluster failed xDS validation in strict mode", "cluster", out.GetName(), "error", err)
+			return buildBlackholeCluster(backend), err
+		}
+	}
+	return out, nil
 }
 
 // TranslateBackendBase performs the client-independent ("base") translation of a Backend into an
@@ -180,8 +194,9 @@ func (t *BackendTranslator) TranslateBackendBase(
 // ApplyPerClientOverlay layers the per-client concerns onto a copy of the base cluster: the
 // PerClientProcessBackend hooks (e.g. Istio destination rules, waypoint), endpoint plugins, and the
 // inline ClusterLoadAssignment built from the client's locality. The base proto is never mutated.
-// In strict mode the final per-client cluster is validated (the caching validator deduplicates
-// identical content across clients).
+// It performs no Envoy validation: the base is validated once by ValidateBaseCluster, and the
+// per-client residual is validated by the caller (TranslateBackend, or the proxy_syncer cluster
+// collection which batches a client's residuals into one Envoy invocation).
 func (t *BackendTranslator) ApplyPerClientOverlay(
 	ctx context.Context,
 	kctx krt.HandlerContext,
@@ -189,11 +204,12 @@ func (t *BackendTranslator) ApplyPerClientOverlay(
 	backend *ir.BackendObjectIR,
 	base *BackendBaseCluster,
 ) (*envoyclusterv3.Cluster, error) {
-	// Fast path: when nothing varies per client for this cluster and we are not validating,
-	// reuse the shared base proto directly (it is immutable downstream). This is the common case
-	// for EDS clusters when no per-client plugin (destination rule, waypoint) matches this pair --
-	// including every cluster when Istio integration is disabled.
-	if t.Mode != apisettings.ValidationStrict && base.InlineEps == nil && !t.anyPerClientBackendApplies(kctx, ctx, ucc, backend) {
+	// Fast path: when nothing varies per client for this cluster, reuse the shared base proto
+	// directly (it is immutable downstream, and already validated). This is the common case for EDS
+	// clusters when no per-client plugin (destination rule, waypoint) matches this pair -- including
+	// every cluster when Istio integration is disabled. Returning the base by identity lets the
+	// caller skip both re-hashing and re-validating this client's copy.
+	if base.InlineEps == nil && !t.anyPerClientBackendApplies(kctx, ctx, ucc, backend) {
 		return base.Cluster, nil
 	}
 
@@ -202,14 +218,6 @@ func (t *BackendTranslator) ApplyPerClientOverlay(
 		return buildBlackholeCluster(backend), errors.New("failed to clone base cluster")
 	}
 	t.runPerClientPolicies(kctx, ctx, ucc, backend, base.InlineEps, out)
-
-	// In strict mode, validate the final per-client cluster configuration using Envoy.
-	if t.Mode == apisettings.ValidationStrict && t.Validator != nil {
-		if err := t.validateClusterConfig(ctx, out); err != nil {
-			logger.Error("cluster failed xDS validation in strict mode", "cluster", out.GetName(), "error", err)
-			return buildBlackholeCluster(backend), err
-		}
-	}
 
 	return out, nil
 }
@@ -362,12 +370,48 @@ func (t *BackendTranslator) orderedEndpointPlugins() []sdk.EndpointPlugin {
 	return OrderedEndpointPlugins(t.ContributedPolicies)
 }
 
-// validateClusterConfig validates an individual cluster configuration using Envoy's
-// validation. This catches configuration errors that would cause Envoy data plane NACKs,
-// such as invalid cipher suites, invalid TLS parameters, etc.
-func (t *BackendTranslator) validateClusterConfig(ctx context.Context, cluster *envoyclusterv3.Cluster) error {
+// StrictValidationEnabled reports whether translated backend clusters must be validated by Envoy.
+func (t *BackendTranslator) StrictValidationEnabled() bool {
+	return t.Mode == apisettings.ValidationStrict && t.Validator != nil
+}
+
+// ValidateBaseCluster validates the client-independent base cluster once, in strict mode. On
+// failure it converts the base to a blackhole and records the error, so every client that shares
+// the base inherits the blackhole + error without re-validating identical content.
+func (t *BackendTranslator) ValidateBaseCluster(ctx context.Context, base *BackendBaseCluster) {
+	if base == nil || base.Cluster == nil || base.Err != nil || !t.StrictValidationEnabled() {
+		return
+	}
+	if err := t.ValidateClusterConfig(ctx, base.Cluster); err != nil {
+		logger.Error("base cluster failed xDS validation in strict mode", "cluster", base.Cluster.GetName(), "error", err)
+		base.Cluster = BlackholeClusterForName(base.Cluster.GetName())
+		base.Version = utils.HashProto(base.Cluster)
+		base.Err = err
+	}
+}
+
+// ValidateClusterConfig validates a single cluster configuration using Envoy's validation. This
+// catches configuration errors that would cause Envoy data plane NACKs, such as invalid cipher
+// suites, invalid TLS parameters, etc.
+func (t *BackendTranslator) ValidateClusterConfig(ctx context.Context, cluster *envoyclusterv3.Cluster) error {
+	return t.ValidateClusterConfigs(ctx, []*envoyclusterv3.Cluster{cluster})
+}
+
+// ValidateClusterConfigs validates multiple cluster configurations in a single Envoy invocation.
+// Callers must ensure the clusters have distinct names; Envoy rejects a bootstrap with duplicate
+// cluster names. (Per-client variants of one Backend share a name, so they cannot be batched
+// together -- batch across distinct backends instead, e.g. all of one client's clusters.)
+func (t *BackendTranslator) ValidateClusterConfigs(ctx context.Context, clusters []*envoyclusterv3.Cluster) error {
+	if len(clusters) == 0 {
+		return nil
+	}
+	if t.Validator == nil {
+		return errors.New("strict validation requested but no validator configured")
+	}
 	builder := bootstrap.New()
-	builder.AddCluster(cluster)
+	for _, cluster := range clusters {
+		builder.AddCluster(cluster)
+	}
 	bootstrap, err := builder.Build()
 	if err != nil {
 		return err
@@ -509,18 +553,24 @@ func initializeCluster(b *ir.BackendObjectIR) *envoyclusterv3.Cluster {
 }
 
 func buildBlackholeCluster(b *ir.BackendObjectIR) *envoyclusterv3.Cluster {
-	out := &envoyclusterv3.Cluster{
-		Name:     b.ClusterName(),
+	return BlackholeClusterForName(b.ClusterName())
+}
+
+// BlackholeClusterForName returns an inert STATIC cluster with no endpoints. It represents a
+// backend whose translation or validation failed, keeping the cluster name present in xDS without
+// routing traffic to it.
+func BlackholeClusterForName(name string) *envoyclusterv3.Cluster {
+	return &envoyclusterv3.Cluster{
+		Name:     name,
 		Metadata: new(envoycorev3.Metadata),
 		ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 			Type: envoyclusterv3.Cluster_STATIC,
 		},
 		LoadAssignment: &envoyendpointv3.ClusterLoadAssignment{
-			ClusterName: b.ClusterName(),
+			ClusterName: name,
 			Endpoints:   []*envoyendpointv3.LocalityLbEndpoints{},
 		},
 	}
-	return out
 }
 
 func createCommonLbConfig(b *ir.BackendObjectIR) *envoyclusterv3.Cluster_CommonLbConfig {
