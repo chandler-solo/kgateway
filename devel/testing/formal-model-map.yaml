@@ -91,7 +91,7 @@ obligations:
       - ackSkewAdditionBugSystem
       - orderedRemovalStillBrokenBugSystem
     status: divergent
-    note: kgateway ships the default (unordered) server (pkg/kgateway/setup/controlplane.go); PR https://github.com/kgateway-dev/kgateway/pull/14341 adds WithOrderedADS, which closes only the busy-stream window. The ACK-skew and combined-removal windows persist in both modes (probed deterministically against the real server) and need control-plane pacing / a de-reference grace window. Characterization discharged as assumption GCP-A3.
+    note: kgateway ships the default (unordered) server (pkg/kgateway/setup/controlplane.go); the referenced-only discovery EP (PR https://github.com/kgateway-dev/kgateway/pull/14341) evaluates adopting WithOrderedADS, which closes only the busy-stream window, paired with reference-ahead and de-reference grace windows. The ACK-skew and combined-removal windows persist in both modes (probed deterministically against the real server) and need control-plane pacing / a de-reference grace window. Characterization discharged as assumption GCP-A3.
     divergencePins:
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS

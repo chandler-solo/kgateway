@@ -16,7 +16,8 @@ package proxy_syncer
 //      by type; pkg/cache/v3/order.go), with or without WithOrderedADS. The
 //      default server's reflect.Select drain only randomizes when several
 //      watch channels are simultaneously ready (busy streams);
-//      WithOrderedADS (PR #14341) closes that residual window.
+//      WithOrderedADS closes that residual window (adoption evaluated
+//      in the referenced-only discovery EP, PR #14341).
 //   2. ACK SKEW defeats the ordering guarantee in BOTH modes: after a CDS
 //      response is sent, the CDS watch is closed until Envoy ACKs it. If the
 //      next snapshot (new cluster + route retarget) lands in that window,

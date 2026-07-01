@@ -55,8 +55,10 @@ established three facts:
    (`pkg/cache/v3/order.go`). The default server's `reflect.Select`
    drain randomizes only when several per-type channels are ready at
    once (busy streams); `server.WithOrderedADS()` closes that residual
-   addition window (PR
-   https://github.com/kgateway-dev/kgateway/pull/14341).
+   addition window (evaluated as an option by the referenced-only
+   discovery EP, PR
+   https://github.com/kgateway-dev/kgateway/pull/14341; no change
+   adopts it yet).
 2. ACK skew defeats both modes deterministically: after a CDS response
    is sent, that watch is closed until Envoy ACKs it. A snapshot landing
    in that window (new cluster + route retarget) can only answer the
@@ -84,10 +86,12 @@ established three facts:
   `TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate` in
   `pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go`.
 - Remediation state: kgateway does not yet pass `WithOrderedADS()`
-  (`pkg/kgateway/setup/controlplane.go`; PR #14341 adds it — necessary
-  for busy streams but not sufficient: the ACK-skew and removal windows
-  need control-plane pacing/grace, tracked in
-  `devel/testing/formal-model-map.yaml`).
+  (`pkg/kgateway/setup/controlplane.go`). The referenced-only discovery
+  EP (PR #14341) evaluates it and, per these findings, pairs it with
+  reference-ahead and de-reference grace windows — WithOrderedADS alone
+  is necessary for busy streams but not sufficient: the ACK-skew and
+  removal windows need the control-plane graces, tracked in
+  `devel/testing/formal-model-map.yaml`.
 
 ## ENV-A1: Envoy warming and make-before-break
 
