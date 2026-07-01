@@ -2,6 +2,7 @@ package endpoints
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"testing"
 
@@ -79,11 +80,11 @@ func TestLoadBalancingContextHashSoundness(t *testing.T) {
 	for name, inputs := range scenarios {
 		t.Run(name, func(t *testing.T) {
 			hashes := make([]uint64, len(uccs))
-			clas := make([]*envoyendpointv3.ClusterLoadAssignment, len(uccs))
+			claList := make([]*envoyendpointv3.ClusterLoadAssignment, len(uccs))
 			distinctHashes := map[uint64]struct{}{}
 			for i, ucc := range uccs {
 				hashes[i] = LoadBalancingContextHash(ucc, inputs)
-				clas[i] = normalizeCLA(PrioritizeEndpoints(nil, ucc, inputs))
+				claList[i] = normalizeCLA(PrioritizeEndpoints(nil, ucc, inputs))
 				distinctHashes[hashes[i]] = struct{}{}
 			}
 
@@ -91,7 +92,7 @@ func TestLoadBalancingContextHashSoundness(t *testing.T) {
 			for i := range uccs {
 				for j := i + 1; j < len(uccs); j++ {
 					if hashes[i] == hashes[j] {
-						require.True(t, proto.Equal(clas[i], clas[j]),
+						require.True(t, proto.Equal(claList[i], claList[j]),
 							"UCCs %q and %q share hash %d but built different CLAs — hash misses a UCC-dependent input",
 							uccs[i].ResourceName(), uccs[j].ResourceName(), hashes[i])
 					}
@@ -114,9 +115,7 @@ func newUCC(role, region, zone string, extra map[string]string) ir.UniquelyConne
 		corev1.LabelZoneRegion:   region,
 		corev1.LabelTopologyZone: zone,
 	}
-	for k, v := range extra {
-		labels[k] = v
-	}
+	maps.Copy(labels, extra)
 	return ir.NewUniquelyConnectedClient(role, "ns", labels, ir.PodLocality{Region: region, Zone: zone})
 }
 

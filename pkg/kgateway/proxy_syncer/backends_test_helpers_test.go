@@ -23,17 +23,6 @@ func (c *testClusterCols) updateDelta(in uccWithCluster) {
 	})
 }
 
-// updateBase inserts or replaces a base cluster entry. Used by tests that
-// model errored clusters (errors live on base in production).
-func (c *testClusterCols) updateBase(in uccWithCluster) {
-	c.bases.UpdateObject(baseEnvoyCluster{
-		Name:           in.Name,
-		Cluster:        in.Cluster,
-		ClusterVersion: in.ClusterVersion,
-		Error:          in.Error,
-	})
-}
-
 // newTestPerClientClustersRaw builds a PerClientEnvoyClusters directly from
 // base and delta entries, giving tests full control over the merge inputs
 // (e.g. a base and a delta sharing a name). Prefer newTestPerClientClusters
