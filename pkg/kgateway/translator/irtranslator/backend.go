@@ -40,6 +40,7 @@ const (
 type BackendTranslator struct {
 	ContributedBackends map[schema.GroupKind]ir.BackendInit
 	ContributedPolicies map[schema.GroupKind]sdk.PolicyPlugin
+	EndpointPlugins     []sdk.EndpointPlugin
 	CommonCols          *collections.CommonCollections
 	Validator           validator.Validator
 	Mode                apisettings.ValidationMode
@@ -137,6 +138,7 @@ func (t *BackendTranslator) TranslateBackendBase(
 		logger.Error("failed to apply policies to cluster", "cluster", out.GetName(), "error", err)
 		return &BaseCluster{Cluster: buildBlackholeCluster(backend), Error: err}
 	}
+	defaultLocalityConfig(out)
 	if err := applyGatewayBackendClientCertificate(out, backend); err != nil {
 		logger.Error("failed to apply gateway backend client certificate", "cluster", out.GetName(), "error", err)
 		return &BaseCluster{Cluster: buildBlackholeCluster(backend), Error: err}
@@ -152,6 +154,7 @@ func (t *BackendTranslator) TranslateBackendBase(
 	var endpointInputs *endpoints.EndpointsInputs
 	if inlineEps != nil {
 		endpointInputs = &endpoints.EndpointsInputs{EndpointsForBackend: *inlineEps}
+		endpointInputs.EndpointsForBackend.AttachedPolicies = backend.AttachedPolicies
 	}
 
 	return &BaseCluster{
@@ -219,10 +222,8 @@ func (t *BackendTranslator) ApplyPerClient(
 		// PriorityInfo). Work on a copy so we don't mutate the shared
 		// EndpointInputs held by base.
 		epIn := *base.EndpointInputs
-		for _, policyPlugin := range t.ContributedPolicies {
-			if policyPlugin.PerClientProcessEndpoints != nil {
-				policyPlugin.PerClientProcessEndpoints(kctx, ctx, ucc, &epIn)
-			}
+		for _, processEndpoints := range t.orderedEndpointPlugins() {
+			processEndpoints(kctx, ctx, ucc, &epIn)
 		}
 		// Re-check LoadAssignment: an overlay may have set it.
 		if out.GetLoadAssignment() == nil {
@@ -245,6 +246,36 @@ func (t *BackendTranslator) ApplyPerClient(
 	}
 
 	return out, nil
+}
+
+// defaultLocalityConfig keeps traffic evenly distributed across zones for clusters
+// that did not opt into a locality-aware LB mode. The proxy bootstrap always sets
+// cluster_manager.local_cluster_name, and once the gateway fleet spans multiple
+// zones Envoy's implicit zone-aware defaults (routing_enabled 100%,
+// min_cluster_size 6) would otherwise engage with no policy configured.
+func defaultLocalityConfig(c *envoyclusterv3.Cluster) {
+	if c.GetLoadBalancingPolicy() != nil {
+		// Typed load balancing policies carry their own locality_lb_config and
+		// ignore common_lb_config.locality_config_specifier (see the
+		// backendconfigpolicy plugin's buildTypedLocalityLbConfig).
+		return
+	}
+	if c.GetCommonLbConfig().GetLocalityConfigSpecifier() != nil {
+		// A policy plugin already chose a locality mode.
+		return
+	}
+	if c.GetEdsClusterConfig() == nil {
+		// Only kgateway-managed EDS clusters are guaranteed to carry locality
+		// load-balancing weights on their CLAs; leave plugin-provided inline
+		// clusters untouched.
+		return
+	}
+	if c.CommonLbConfig == nil {
+		c.CommonLbConfig = &envoyclusterv3.Cluster_CommonLbConfig{}
+	}
+	c.CommonLbConfig.LocalityConfigSpecifier = &envoyclusterv3.Cluster_CommonLbConfig_LocalityWeightedLbConfig_{
+		LocalityWeightedLbConfig: &envoyclusterv3.Cluster_CommonLbConfig_LocalityWeightedLbConfig{},
+	}
 }
 
 // applyBasePolicies runs only the UCC-invariant ProcessBackend hooks. Per-client
@@ -276,6 +307,13 @@ func (t *BackendTranslator) applyBasePolicies(
 	return errors.Join(errs...)
 }
 
+func (t *BackendTranslator) orderedEndpointPlugins() []sdk.EndpointPlugin {
+	if t.EndpointPlugins != nil {
+		return t.EndpointPlugins
+	}
+	return OrderedEndpointPlugins(t.ContributedPolicies)
+}
+
 // validateClusterConfig validates an individual cluster configuration using Envoy's
 // validation. This catches configuration errors that would cause Envoy data plane NACKs,
 // such as invalid cipher suites, invalid TLS parameters, etc.
@@ -286,7 +324,7 @@ func (t *BackendTranslator) validateClusterConfig(ctx context.Context, cluster *
 	if err != nil {
 		return err
 	}
-	if err := t.Validator.Validate(ctx, bootstrap); err != nil {
+	if err := t.Validator.Validate(validator.WithValidationCaller(ctx, validator.CallerBackend), bootstrap); err != nil {
 		return err
 	}
 	return nil

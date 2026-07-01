@@ -24,8 +24,14 @@ type baseEnvoyCluster struct {
 	// +krtEqualsTodo include full cluster diff in equality
 	Cluster        *envoyclusterv3.Cluster
 	ClusterVersion uint64
-	// +krtEqualsTodo surface translation errors in equality or drop field
+	// Error is the translation error for this backend, if any. Compared by message in
+	// Equals because all errored clusters share one blackhole proto and baseClusterVersion
+	// collapses every error to 0, so ClusterVersion can't tell error states apart.
 	Error error
+	// BackendSource identifies the Backend this cluster was translated from, for status attribution.
+	BackendSource ir.ObjectSource
+	// BackendGeneration is the observed generation of the source Backend.
+	BackendGeneration int64
 	// Base is the rest of the base-translation result, retained so the deltas
 	// collection can build per-client clusters without redoing translation.
 	// Not included in equality — ClusterVersion captures the relevant state.
@@ -39,7 +45,11 @@ type baseEnvoyCluster struct {
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
 
 func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
-	return b.Name == in.Name && b.ClusterVersion == in.ClusterVersion
+	return b.Name == in.Name &&
+		b.ClusterVersion == in.ClusterVersion &&
+		b.BackendSource == in.BackendSource &&
+		b.BackendGeneration == in.BackendGeneration &&
+		errString(b.Error) == errString(in.Error)
 }
 
 // uccClusterDelta is a per-client cluster materialized only when at least one
@@ -72,17 +82,29 @@ func (d uccClusterDelta) Equals(in uccClusterDelta) bool {
 }
 
 // uccWithCluster is the merged view returned by FetchClustersForClient: the
-// resolved cluster (base or delta) along with any base-translation error.
+// resolved cluster (base or delta) along with any translation error and the
+// source Backend identity used for status attribution.
 type uccWithCluster struct {
 	Client         ir.UniquelyConnectedClient
 	Cluster        *envoyclusterv3.Cluster
 	ClusterVersion uint64
 	Name           string
 	Error          error
+	// BackendSource identifies the Backend this cluster was translated from, for status attribution.
+	BackendSource ir.ObjectSource
+	// BackendGeneration is the observed generation of the source Backend.
+	BackendGeneration int64
 }
 
 func (c uccWithCluster) ResourceName() string {
 	return fmt.Sprintf("%s/%s", c.Client.ResourceName(), c.Name)
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // baseClusterVersion returns the equality hash for a base translation result.
@@ -168,25 +190,31 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 			// post-overlay cluster) is the more specific signal — base errors
 			// are caught by the short-circuit in the deltas builder, so reaching
 			// this branch with a base.Error set is impossible in production.
+			// Backend identity always comes from the base, which is where the
+			// source Backend is tracked.
 			derr := d.Error
 			if derr == nil {
 				derr = b.Error
 			}
 			out = append(out, uccWithCluster{
-				Client:         ucc,
-				Cluster:        d.Cluster,
-				ClusterVersion: d.ClusterVersion,
-				Name:           d.Name,
-				Error:          derr,
+				Client:            ucc,
+				Cluster:           d.Cluster,
+				ClusterVersion:    d.ClusterVersion,
+				Name:              d.Name,
+				Error:             derr,
+				BackendSource:     b.BackendSource,
+				BackendGeneration: b.BackendGeneration,
 			})
 			continue
 		}
 		out = append(out, uccWithCluster{
-			Client:         ucc,
-			Cluster:        b.Cluster,
-			ClusterVersion: b.ClusterVersion,
-			Name:           b.Name,
-			Error:          b.Error,
+			Client:            ucc,
+			Cluster:           b.Cluster,
+			ClusterVersion:    b.ClusterVersion,
+			Name:              b.Name,
+			Error:             b.Error,
+			BackendSource:     b.BackendSource,
+			BackendGeneration: b.BackendGeneration,
 		})
 	}
 	// Standalone deltas (no matching base) only arise in tests; production deltas
@@ -208,6 +236,58 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 	return out
 }
 
+// FetchForStatus returns the cluster views needed for fleet-wide Backend status
+// attribution: one entry per base cluster (carrying the source Backend identity and
+// any UCC-invariant translation error) plus one entry per errored per-client delta
+// (carrying the per-client translation error attributed to the same Backend). Only
+// Error, BackendSource, and BackendGeneration are populated — the fields
+// GenerateBackendStatusReport consumes. Non-errored deltas contribute nothing to
+// status and are skipped.
+func (iu *PerClientEnvoyClusters) FetchForStatus(kctx krt.HandlerContext) []uccWithCluster {
+	var bases []baseEnvoyCluster
+	if iu.base != nil {
+		bases = krt.Fetch(kctx, iu.base)
+	}
+	var deltas []uccClusterDelta
+	if iu.deltas != nil {
+		deltas = krt.Fetch(kctx, iu.deltas)
+	}
+
+	baseByName := make(map[string]*baseEnvoyCluster, len(bases))
+	out := make([]uccWithCluster, 0, len(bases)+len(deltas))
+	for i := range bases {
+		b := &bases[i]
+		baseByName[b.Name] = b
+		out = append(out, uccWithCluster{
+			Name:              b.Name,
+			Error:             b.Error,
+			BackendSource:     b.BackendSource,
+			BackendGeneration: b.BackendGeneration,
+		})
+	}
+	for i := range deltas {
+		d := &deltas[i]
+		if d.Error == nil {
+			continue
+		}
+		// Backend identity lives on the base; production deltas always overlay one.
+		var src ir.ObjectSource
+		var gen int64
+		if b, ok := baseByName[d.Name]; ok {
+			src = b.BackendSource
+			gen = b.BackendGeneration
+		}
+		out = append(out, uccWithCluster{
+			Client:            d.Client,
+			Name:              d.Name,
+			Error:             d.Error,
+			BackendSource:     src,
+			BackendGeneration: gen,
+		})
+	}
+	return out
+}
+
 func NewPerClientEnvoyClusters(
 	ctx context.Context,
 	krtopts krtutil.KrtOptions,
@@ -225,13 +305,19 @@ func NewPerClientEnvoyClusters(
 		if baseRes == nil {
 			return nil
 		}
+		var backendGeneration int64
+		if backendObj.Obj != nil {
+			backendGeneration = backendObj.Obj.GetGeneration()
+		}
 		return &baseEnvoyCluster{
-			Name:           baseRes.Cluster.GetName(),
-			Cluster:        baseRes.Cluster,
-			ClusterVersion: baseClusterVersion(baseRes),
-			Error:          baseRes.Error,
-			Base:           baseRes,
-			Backend:        backendObj,
+			Name:              baseRes.Cluster.GetName(),
+			Cluster:           baseRes.Cluster,
+			ClusterVersion:    baseClusterVersion(baseRes),
+			Error:             baseRes.Error,
+			BackendSource:     backendObj.GetObjectSource(),
+			BackendGeneration: backendGeneration,
+			Base:              baseRes,
+			Backend:           backendObj,
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
 

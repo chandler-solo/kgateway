@@ -24,6 +24,7 @@ import (
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/request_id/uuid/v3"
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
+	backendplugin "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/backend"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/version"
 	translatortest "github.com/kgateway-dev/kgateway/v2/test/translator"
@@ -140,12 +141,23 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
-	t.Run("http gateway with per connection buffer limit", func(t *testing.T) {
+	t.Run("frontendtlsconfig with ListenerSet in different namespace", func(t *testing.T) {
 		test(t, translatorTestCase{
-			inputFiles: []string{"gateway-per-conn-buf-lim/gateway.yaml"},
-			outputFile: "gateway-per-conn-buf-lim/proxy.yaml",
+			inputFiles: []string{"frontendtlsconfig/listenerset-cross-ns.yaml"},
+			outputFile: "frontendtlsconfig/listenerset-cross-ns.yaml",
 			gwNN: types.NamespacedName{
-				Namespace: "default",
+				Namespace: "namespace-one",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("frontendtlsconfig with ListenerSet and cross-namespace ReferenceGrant", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"frontendtlsconfig/listenerset-cross-ns-refgrant.yaml"},
+			outputFile: "frontendtlsconfig/listenerset-cross-ns-refgrant.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "namespace-one",
 				Name:      "example-gateway",
 			},
 		})
@@ -653,6 +665,62 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	// ReferenceGrantMode: Off — BackendRef to another namespace allowed without ReferenceGrant
+	t.Run("ReferenceGrantMode Off allows BackendRef to another namespace without ReferenceGrant", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"reference-grant-mode/off-backendref-no-grant.yaml"},
+			outputFile: "reference-grant-mode/off-backendref-no-grant.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.ReferenceGrantMode = apisettings.ReferenceGrantOff
+		})
+	})
+
+	// ReferenceGrantMode: Permissive — ExtensionRef to another namespace allowed without ReferenceGrant
+	t.Run("ReferenceGrantMode Permissive allows cross-namespace ExtensionRef without ReferenceGrant", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"reference-grant-mode/permissive-extensionref-no-grant.yaml"},
+			outputFile: "reference-grant-mode/permissive-extensionref-no-grant.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.ReferenceGrantMode = apisettings.ReferenceGrantPermissive
+		})
+	})
+
+	// ReferenceGrantMode: Strict — ExtensionRef to another namespace rejected when ReferenceGrant is missing
+	t.Run("ReferenceGrantMode Strict rejects cross-namespace ExtensionRef without ReferenceGrant", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"reference-grant-mode/strict-extensionref-no-grant.yaml"},
+			outputFile: "reference-grant-mode/strict-extensionref-no-grant.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.ReferenceGrantMode = apisettings.ReferenceGrantStrict
+		})
+	})
+
+	// ReferenceGrantMode: Strict — ExtensionRef to another namespace allowed when ReferenceGrant is present
+	t.Run("ReferenceGrantMode Strict allows cross-namespace ExtensionRef with ReferenceGrant", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"reference-grant-mode/strict-extensionref-with-grant.yaml"},
+			outputFile: "reference-grant-mode/strict-extensionref-with-grant.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.ReferenceGrantMode = apisettings.ReferenceGrantStrict
+		})
+	})
+
 	t.Run("TrafficPolicy ExtAuth deep merge", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"traffic-policy/extauth-deep-merge.yaml"},
@@ -685,6 +753,39 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"traffic-policy/extproc-overrides.yaml"},
 			outputFile: "traffic-policy/extproc-overrides.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "test",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy ExtProc with configurable filter stage", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/extproc-filter-stage.yaml"},
+			outputFile: "traffic-policy/extproc-filter-stage.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "test",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy ExtProc with after-route stage becomes upstream http filter", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/extproc-after-route-stage.yaml"},
+			outputFile: "traffic-policy/extproc-after-route-stage.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "test",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy ExtProc mixed stages before-AuthN in httpFilters and after-route in upstreamHttpFilters", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/extproc-mixed-stages.yaml"},
+			outputFile: "traffic-policy/extproc-mixed-stages.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "test",
@@ -808,6 +909,28 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"traffic-policy/buffer-route.yaml"},
 			outputFile: "traffic-policy/buffer-route.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy with internal redirect attached to route", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/internal-redirect-route.yaml"},
+			outputFile: "traffic-policy/internal-redirect-route.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("TrafficPolicy internal redirect targeting Gateway with route override", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/internal-redirect-gateway.yaml"},
+			outputFile: "traffic-policy/internal-redirect-gateway.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -1206,6 +1329,53 @@ func TestBasic(t *testing.T) {
 				Namespace: "default",
 				Name:      "example-gateway",
 			},
+		})
+	})
+
+	t.Run("AWS Lambda backend with AssumeRole auth", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backends/aws_lambda_assume_role.yaml"},
+			outputFile: "backends/aws_lambda_assume_role.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("AWS Lambda backend with AssumeRole auth in strict mode", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backends/aws_lambda_assume_role.yaml"},
+			outputFile: "backends/aws_lambda_assume_role_strict.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.ValidationMode = apisettings.ValidationStrict
+		})
+	})
+
+	t.Run("AWS EC2 backend", func(t *testing.T) {
+		restore := backendplugin.SetEc2InstancesForTest([]backendplugin.TestEc2Instance{{
+			InstanceID: "i-1234567890",
+			PrivateIP:  "10.0.0.10",
+			Zone:       "us-east-1a",
+			Tags: map[string]string{
+				"app": "payments",
+			},
+		}})
+		defer restore()
+
+		test(t, translatorTestCase{
+			inputFiles: []string{"backends/aws_ec2.yaml"},
+			outputFile: "backends/aws_ec2.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		}, func(s *apisettings.Settings) {
+			s.EnableAwsEc2Discovery = true
 		})
 	})
 
@@ -1632,6 +1802,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("HTTPListenerPolicy with localReplies", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"httplistenerpolicy/local-reply-config.yaml"},
+			outputFile: "httplistenerpolicy/local-reply-config.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("HTTPListenerPolicy merging", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"httplistenerpolicy/merge.yaml"},
@@ -1907,6 +2088,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("ListenerPolicy with localReplies", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"listener-policy-http/local-reply-config.yaml"},
+			outputFile: "listener-policy-http/local-reply-config.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("ListenerPolicy merging", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"listener-policy-http/merge.yaml"},
@@ -1988,6 +2180,39 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"listener-policy-http/max-requests-per-connection-merge-conflict.yaml"},
 			outputFile: "listener-policy-http/max-requests-per-connection-merge-conflict.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with maxHeadersCount", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"listener-policy-http/max-headers-count.yaml"},
+			outputFile: "listener-policy-http/max-headers-count.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy with maxHeadersCount and maxRequestsPerConnection", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"listener-policy-http/max-headers-count-with-max-requests.yaml"},
+			outputFile: "listener-policy-http/max-headers-count-with-max-requests.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("ListenerPolicy maxHeadersCount merge conflict", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"listener-policy-http/max-headers-count-merge-conflict.yaml"},
+			outputFile: "listener-policy-http/max-headers-count-merge-conflict.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -2182,6 +2407,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("Backend Config Policy with Health Check on Static Backend", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/healthcheck-static-backend.yaml"},
+			outputFile: "backendconfigpolicy/healthcheck-static-backend.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("Backend Config Policy with OutlierDetection", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"backendconfigpolicy/outlierdetection.yaml"},
@@ -2331,6 +2567,61 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"backendconfigpolicy/upstream-proxy-protocol-v2.yaml"},
 			outputFile: "backendconfigpolicy/upstream-proxy-protocol-v2.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("Backend Config Policy with zone-aware prefer local", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/zone-aware-prefer-local.yaml"},
+			outputFile: "backendconfigpolicy/zone-aware-prefer-local.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("Backend Config Policy with upstream proxy protocol and BackendTLSPolicy", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/upstream-proxy-protocol-with-backendtlspolicy.yaml"},
+			outputFile: "backendconfigpolicy/upstream-proxy-protocol-with-backendtlspolicy.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("Backend Config Policy with zone-aware force", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/zone-aware-force.yaml"},
+			outputFile: "backendconfigpolicy/zone-aware-force.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("Backend Config Policy TLS overridden by BackendTLSPolicy", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/tls-overridden-by-backendtlspolicy.yaml"},
+			outputFile: "backendconfigpolicy/tls-overridden-by-backendtlspolicy.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
+	t.Run("Multiple Backend Config Policies merged on same backend", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"backendconfigpolicy/merge-multiple-bcp.yaml"},
+			outputFile: "backendconfigpolicy/merge-multiple-bcp.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "example-gateway",
@@ -2844,6 +3135,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("ListenerPolicy with per-listener mTLS override and merging", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"listener-policy/per-listener-mtls-merge.yaml"},
+			outputFile: "listener-policy/per-listener-mtls-merge.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("ListenerPolicy merge happens in the default and perPort fields", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"listener-policy/deep-merge.yaml"},
@@ -2987,6 +3289,17 @@ func TestBasic(t *testing.T) {
 		})
 	})
 
+	t.Run("JWT Policy using remote JWKS with async fetch and retry policy", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"jwt/remote-jwks-async.yaml"},
+			outputFile: "jwt/remote-jwks-async.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "example-gateway",
+			},
+		})
+	})
+
 	t.Run("JWT Policy with validation mode AllowMissing", func(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"jwt/gateway-validation-mode.yaml"},
@@ -3002,6 +3315,17 @@ func TestBasic(t *testing.T) {
 		test(t, translatorTestCase{
 			inputFiles: []string{"traffic-policy/oauth2.yaml"},
 			outputFile: "traffic-policy/oauth2.yaml",
+			gwNN: types.NamespacedName{
+				Namespace: "default",
+				Name:      "test",
+			},
+		})
+	})
+
+	t.Run("OAuth2 policy with separate JWKS backend", func(t *testing.T) {
+		test(t, translatorTestCase{
+			inputFiles: []string{"traffic-policy/oauth2-jwks-backend.yaml"},
+			outputFile: "traffic-policy/oauth2-jwks-backend.yaml",
 			gwNN: types.NamespacedName{
 				Namespace: "default",
 				Name:      "test",
@@ -3333,12 +3657,6 @@ func TestValidation(t *testing.T) {
 			name:      "BackendConfigPolicy Invalid TLS Files Non-existent",
 			category:  "backendconfigpolicy",
 			inputFile: "invalid-tlsfiles-nonexistent.yaml",
-			minMode:   apisettings.ValidationStandard,
-		},
-		{
-			name:      "BackendConfigPolicy Invalid Outlier Detection Zero Interval",
-			category:  "backendconfigpolicy",
-			inputFile: "invalid-outlier-detection-zero-interval.yaml",
 			minMode:   apisettings.ValidationStandard,
 		},
 		{
