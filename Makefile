@@ -94,12 +94,18 @@ endif
 
 export ENVOY_IMAGE ?= envoyproxy/envoy:v1.38.1
 
-# Envoy version tag (e.g. v1.38.1) extracted from ENVOY_IMAGE. Exported so goreleaser.yaml and the
-# local *-docker cache-from targets can suffix the registry layer-cache tags with it. The Envoy base
-# is the layer that differs across release lines (main/v2.3.x/v2.2.x each pin a different Envoy), so
-# without this suffix every branch writes the same `*-cache:<arch>` tag and main's frequent pushes
-# constantly evict the release lines' cache -- turning release-branch PR builds into full QEMU rebuilds.
-# Scoping the cache tag per Envoy version gives each release line a cache that survives main churn.
+# Envoy version tag (e.g. v1.38.1) extracted from ENVOY_IMAGE, used to suffix the registry
+# layer-cache tags. The Envoy base is the layer that differs across release lines
+# (main/v2.3.x/v2.2.x each pin a different Envoy), so without this suffix every branch writes the
+# same `*-cache:<arch>` tag and main's frequent pushes constantly evict the release lines' cache
+# -- turning release-branch PR builds into full QEMU rebuilds. Scoping the cache tag per Envoy
+# version gives each release line a cache that survives main churn.
+#
+# The local *-docker cache-from targets read this as a make variable ($(ENVOY_VERSION_TAG)); the
+# `release` target additionally passes it into goreleaser's environment explicitly, because GNU
+# Make 4.3 (the ubuntu-22.04 CI runner) does not reliably export a $(shell)-derived variable to
+# child processes -- see the note on the `release` target. The `export` below still helps on
+# make 4.4+ and for any other subprocess.
 export ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
 
 # ENVOY_IMAGE is used by some of the *-docker targets which are used by CI e2e tests, so figure out the correct image
@@ -1013,9 +1019,15 @@ GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
 
+# ENVOY_VERSION_TAG is passed explicitly (not just via `export`) because GNU Make 4.3 -- the
+# version on the ubuntu-22.04 CI runner -- does not reliably export a shell-derived variable to
+# child processes, so goreleaser's `.Env.ENVOY_VERSION_TAG` (used to scope the buildx cache tags
+# in .goreleaser.yaml) ends up unset and the docker build-flag template fails with
+# `map has no entry for key "ENVOY_VERSION_TAG"`. An inline assignment on the command itself is
+# unaffected by that quirk (make 4.4+ exports it fine).
 .PHONY: release
 release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) ENVOY_VERSION_TAG=$(ENVOY_VERSION_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p $(PREVIOUS_TAG) -c $(or $(CURRENT_TAG),HEAD)
