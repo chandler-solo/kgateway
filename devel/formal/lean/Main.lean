@@ -85,6 +85,17 @@ def perClusterExpectations :
     ⟨PerCluster.publishWhileWarmingBugSystem, PerCluster.invariantList,
       some "FlipWasGated"⟩ ]
 
+def orderedADSExpectations :
+    List (Expectation OrderedADS.OAState OrderedADS.OAAction) :=
+  -- WithOrderedADS makes additions drop-free; the default random-order server
+  -- does not. Ordered ADS does NOT help removals — only a grace window does.
+  [ ⟨OrderedADS.orderedAdditionSystem, OrderedADS.invariantList, none⟩,
+    ⟨OrderedADS.unorderedAdditionBugSystem, OrderedADS.invariantList,
+      some "ActiveRouteHasCluster"⟩,
+    ⟨OrderedADS.gracefulRemovalSystem, OrderedADS.invariantList, none⟩,
+    ⟨OrderedADS.orderedRemovalStillBrokenBugSystem, OrderedADS.invariantList,
+      some "ActiveRouteHasCluster"⟩ ]
+
 def runModelCheck : IO UInt32 := do
   IO.println "xdsspec: model-checking the per-client xDS convergence spec"
   IO.println "(Lean port of devel/formal/tla/XdsPerClientConvergence.tla)"
@@ -125,6 +136,11 @@ def runModelCheck : IO UInt32 := do
     (expectStuck := true)
     PerCluster.truthLagsA PerCluster.truthPublishedA
     "TruthLagsA ~> TruthPublishedA") && ok
+  IO.println ""
+  IO.println "ADS wire-delivery ordering model (WithOrderedADS)"
+  IO.println ""
+  for e in orderedADSExpectations do
+    ok := (← runSafetyExpectation e) && ok
   IO.println ""
   if ok then
     IO.println "all model-check expectations held"

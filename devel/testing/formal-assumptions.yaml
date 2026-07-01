@@ -44,6 +44,15 @@ assumptions:
     dischargedBy:
       - file: pkg/kgateway/proxy_syncer/perclient_version_property_test.go
         test: TestFilterEndpointResourcesForClusters_VersionDigestProperties
+  - id: GCP-A3
+    summary: ADS additions are drop-free (no transient 503 NC) only when resource types are delivered in dependency order (CDS before RDS), i.e. the server is built WithOrderedADS; removals still need the de-reference grace window
+    status: open
+    plannedDischarge: add server.WithOrderedADS() to xdsserver.NewServer in pkg/kgateway/setup/controlplane.go (PR https://github.com/kgateway-dev/kgateway/pull/14341); list its route-addition drop-free e2e here when it lands. Removal side is covered by GCP-A2.
+    specFile: devel/formal/lean/XdsSpec/OrderedADS.lean
+    specAnchors:
+      - orderedAdditionSystem
+      - unorderedAdditionBugSystem
+      - activeRouteHasCluster
   - id: KRT-A1
     summary: per-client collections eventually reflect current clients x backends (no permanently dropped fan-out events)
     status: open

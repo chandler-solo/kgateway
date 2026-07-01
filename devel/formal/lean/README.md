@@ -115,9 +115,13 @@ the toolchain is pinned by `lean-toolchain`. CI runs all of this in the
 - `XdsSpec/PerClusterReadiness.lean` — the guard-#3 granularity model:
   per-cluster make-before-break, with both rejected gate variants as
   counterexamples.
+- `XdsSpec/OrderedADS.lean` — the ADS wire-delivery ordering layer
+  (`WithOrderedADS`): ordered addition is drop-free, unordered addition
+  503-NCs, and ordered ADS is shown insufficient for removals (which
+  need the grace window). Behind assumption GCP-A3.
 - `XdsSpec/TraceCheck.lean` — the JSONL trace conformance checker.
 - `ASSUMPTIONS.md` — the assumption ledger (including the open KRT-A1
-  liveness assumption and its planned discharge).
+  and GCP-A3 assumptions and their planned discharges).
 
 ## Relation to the TLA+ models
 

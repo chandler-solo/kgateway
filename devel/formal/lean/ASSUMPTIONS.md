@@ -42,6 +42,32 @@ proxy_syncer's xDS subscriber is a no-op).
 - Discharged by: `TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache`
   in `pkg/kgateway/proxy_syncer/perclient_test.go`.
 
+## GCP-A3: ADS additions are drop-free only under ordered delivery (OPEN)
+
+A route addition reaches Envoy without a transient `503 NC` only if the
+ADS server delivers resource types in dependency order (CDS before RDS).
+The default go-control-plane server buffers each type on its own channel
+and drains them with `reflect.Select` (uniformly at random), so RDS can
+reach the wire before CDS even for a fully consistent snapshot;
+`server.WithOrderedADS()` routes all types through one FIFO so the
+cache's ordered sends arrive in order. WithOrderedADS fixes additions
+but not removals: its fixed CDS-before-RDS order removes a cluster
+before the route that references it, so removals still require the
+de-reference grace window (the defer/last-good window of GCP-A2).
+
+- Spec reliance: `XdsSpec/OrderedADS.lean`. `orderedAdditionSystem`
+  keeps `ActiveRouteHasCluster`; `unorderedAdditionBugSystem` violates
+  it (RDS before CDS). `gracefulRemovalSystem` keeps it via the grace
+  window; `orderedRemovalStillBrokenBugSystem` shows ordered ADS alone
+  does not (it removes CDS before RDS).
+- Status: **open**. kgateway builds the server with
+  `xdsserver.NewServer(ctx, snapshotCache, allCallbacks)` and does not
+  pass `WithOrderedADS()` (`pkg/kgateway/setup/controlplane.go`). The
+  discharging change adds `WithOrderedADS()` there (PR
+  https://github.com/kgateway-dev/kgateway/pull/14341); when it lands,
+  list its route-addition drop-free e2e as the discharge and flip this
+  entry to discharged. The removal side is already covered by GCP-A2.
+
 ## ENV-A1: Envoy warming and make-before-break
 
 Envoy activates a route/listener against a cluster only after the

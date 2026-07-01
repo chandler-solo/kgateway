@@ -5,3 +5,4 @@ import XdsSpec.Proofs
 import XdsSpec.MultiClient
 import XdsSpec.Liveness
 import XdsSpec.PerClusterReadiness
+import XdsSpec.OrderedADS

@@ -83,3 +83,11 @@ obligations:
       - stuck_client_converges
     status: open
     note: proven sufficient in the spec; the Go mechanism is the defer watchdog (fix/defer-watchdog branch). Discharge tracked as assumption KRT-A1 in formal-assumptions.yaml.
+  - id: ordered-ADS-additions-drop-free
+    summary: the xDS server must deliver resource types in dependency order (CDS before RDS) so route additions do not transiently 503 NC; removals still need the de-reference grace window
+    specFile: devel/formal/lean/XdsSpec/OrderedADS.lean
+    specAnchors:
+      - orderedAdditionSystem
+      - orderedRemovalStillBrokenBugSystem
+    status: open
+    note: pkg/kgateway/setup/controlplane.go builds xdsserver.NewServer WITHOUT WithOrderedADS(); adding it is tracked by PR https://github.com/kgateway-dev/kgateway/pull/14341. Discharge tracked as assumption GCP-A3 in formal-assumptions.yaml.
