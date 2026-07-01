@@ -92,6 +92,8 @@ def orderedADSExpectations :
   [ ⟨OrderedADS.orderedAdditionSystem, OrderedADS.invariantList, none⟩,
     ⟨OrderedADS.unorderedAdditionBugSystem, OrderedADS.invariantList,
       some "ActiveRouteHasCluster"⟩,
+    ⟨OrderedADS.ackSkewAdditionBugSystem, OrderedADS.invariantList,
+      some "ActiveRouteHasCluster"⟩,
     ⟨OrderedADS.gracefulRemovalSystem, OrderedADS.invariantList, none⟩,
     ⟨OrderedADS.orderedRemovalStillBrokenBugSystem, OrderedADS.invariantList,
       some "ActiveRouteHasCluster"⟩ ]

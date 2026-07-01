@@ -7,19 +7,30 @@ them sits a layer neither captures: the order in which go-control-plane hands a
 snapshot's resource types to Envoy on the ADS stream.
 
 Even a fully consistent snapshot (CDS carries cluster C, RDS carries route R
-which references C) is delivered type-by-type. The default server buffers each
-type on its own channel and drains them with reflect.Select — uniformly at
-random — so Envoy can apply RDS (route R) before CDS (cluster C) and briefly
-serve 503 NC (no cluster) for R until CDS arrives. server.WithOrderedADS()
-routes all types through one FIFO so the cache's ordered sends reach the wire
-in dependency order (CDS before RDS), making additions drop-free.
+which references C) is delivered type-by-type, and empirical probes against
+the real server (xds_delivery_order_probe_test.go in proxy_syncer) pin three
+facts this model encodes:
 
-WithOrderedADS fixes additions but NOT removals: its fixed CDS-before-RDS order
-is the *wrong* order for a removal, which must drop the route (RDS) before the
-cluster (CDS). Safe removal instead needs a de-reference grace window — the same
-defer/last-good window the convergence spec relies on for GCP-A2.
+  1. On a QUIET stream, additions arrive CDS before RDS in both server modes,
+     because the cache itself writes responses in type order (SetSnapshot
+     sorts response watches; go-control-plane pkg/cache/v3/order.go). The
+     default server's reflect.Select drain randomizes only when several
+     per-type channels are ready at once — busy streams — which is the
+     residual window `deliverRDSUnordered` models and WithOrderedADS closes.
+  2. ACK SKEW defeats both modes deterministically: after a CDS response is
+     sent, that watch is closed until Envoy ACKs. A snapshot landing in that
+     window (new cluster + route retarget) can only answer the open RDS
+     watch, so the route referencing the new cluster reaches the wire before
+     any CDS carrying it — `deliverRDSAckSkew`. SotW answers only open
+     watches; no server option can close this. Avoiding it needs
+     control-plane pacing or Envoy-side tolerance.
+  3. WithOrderedADS fixes nothing about removals: its fixed CDS-before-RDS
+     order is the *wrong* order for a removal, which must drop the route
+     (RDS) before the cluster (CDS). Safe removal instead needs a
+     de-reference grace window — the same defer/last-good window the
+     convergence spec relies on for GCP-A2.
 
-The single safety invariant across both is ActiveRouteHasCluster: a route Envoy
+The single safety invariant throughout is ActiveRouteHasCluster: a route Envoy
 has applied must reference a cluster Envoy has applied (no 503 NC).
 
 Maps to the code at pkg/kgateway/setup/controlplane.go (the xdsserver.NewServer
@@ -45,9 +56,16 @@ inductive OAAction
   /-- Envoy applies the RDS update. WithOrderedADS: only after CDS, because the
   single FIFO delivers CDS first. -/
   | deliverRDSOrdered
-  /-- Envoy applies the RDS update with no ordering — the default reflect.Select
-  server can deliver RDS before CDS. -/
+  /-- Envoy applies the RDS update with no ordering — the default
+  reflect.Select server can deliver RDS before CDS when several per-type
+  channels are ready at once (busy streams). -/
   | deliverRDSUnordered
+  /-- Envoy applies the RDS update while the CDS update carrying the
+  referenced cluster is held behind an outstanding CDS ACK. SotW answers only
+  open watches, so this happens in ordered and unordered mode alike —
+  deterministically probed by
+  TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS. -/
+  | deliverRDSAckSkew
   /-- Envoy drops the route (RDS update no longer carries R). Always safe: a
   route that references nothing cannot 503-NC. -/
   | removeRDS
@@ -65,6 +83,7 @@ def step (s : OAState) : OAAction → Option OAState
   | .deliverRDSOrdered =>
     if s.clusterPresent then some { s with routeActive := true } else none
   | .deliverRDSUnordered => some { s with routeActive := true }
+  | .deliverRDSAckSkew => some { s with routeActive := true }
   | .removeRDS => some { s with routeActive := false }
   | .removeCDSGuarded =>
     if !s.routeActive then some { s with clusterPresent := false } else none
@@ -74,6 +93,7 @@ def describe : OAAction → String
   | .deliverCDS => "deliverCDS"
   | .deliverRDSOrdered => "deliverRDS(ordered)"
   | .deliverRDSUnordered => "deliverRDS(unordered)"
+  | .deliverRDSAckSkew => "deliverRDS(ack-skew)"
   | .removeRDS => "removeRDS"
   | .removeCDSGuarded => "removeCDS(grace-window)"
   | .removeCDSFirst => "removeCDS(first)"
@@ -104,10 +124,17 @@ applied before its cluster. Drop-free. -/
 def orderedAdditionSystem : System OAState OAAction :=
   mkSystem "OrderedADS-Addition" addInit [.deliverCDS, .deliverRDSOrdered]
 
-/-- The default reflect.Select server: RDS may beat CDS to the wire, so Envoy
-applies the route before its cluster — a transient 503 NC. -/
+/-- The default reflect.Select server under load: with several per-type
+channels ready at once, RDS may beat CDS to the wire, so Envoy applies the
+route before its cluster — a transient 503 NC. -/
 def unorderedAdditionBugSystem : System OAState OAAction :=
   mkSystem "UnorderedADS-AdditionBug" addInit [.deliverCDS, .deliverRDSUnordered]
+
+/-- ACK skew: the CDS update is held behind an outstanding ACK, so the route
+retarget reaches the wire first — in ordered and unordered mode alike. The
+one addition window WithOrderedADS cannot close. -/
+def ackSkewAdditionBugSystem : System OAState OAAction :=
+  mkSystem "AckSkewAdditionBug" addInit [.deliverCDS, .deliverRDSAckSkew]
 
 /-- A removal with a de-reference grace window: the route (RDS) is dropped
 before the cluster (CDS), so no active route ever references a gone cluster. -/

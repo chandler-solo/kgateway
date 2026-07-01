@@ -116,12 +116,16 @@ the toolchain is pinned by `lean-toolchain`. CI runs all of this in the
   per-cluster make-before-break, with both rejected gate variants as
   counterexamples.
 - `XdsSpec/OrderedADS.lean` — the ADS wire-delivery ordering layer
-  (`WithOrderedADS`): ordered addition is drop-free, unordered addition
-  503-NCs, and ordered ADS is shown insufficient for removals (which
-  need the grace window). Behind assumption GCP-A3.
+  (`WithOrderedADS`): quiet-stream additions are CDS-first either way
+  (cache type ordering), busy-stream randomization is closed by
+  WithOrderedADS, ACK skew delivers RDS-first in both modes, and
+  removals ship in the wrong order in both modes (they need the grace
+  window). Assumption GCP-A3; probed deterministically against the real
+  server in `pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go`.
 - `XdsSpec/TraceCheck.lean` — the JSONL trace conformance checker.
 - `ASSUMPTIONS.md` — the assumption ledger (including the open KRT-A1
-  and GCP-A3 assumptions and their planned discharges).
+  liveness assumption and GCP-A3's probe-discharged delivery-ordering
+  characterization).
 
 ## Relation to the TLA+ models
 

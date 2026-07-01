@@ -42,31 +42,52 @@ proxy_syncer's xDS subscriber is a no-op).
 - Discharged by: `TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache`
   in `pkg/kgateway/proxy_syncer/perclient_test.go`.
 
-## GCP-A3: ADS additions are drop-free only under ordered delivery (OPEN)
+## GCP-A3: ADS wire-delivery ordering windows
 
-A route addition reaches Envoy without a transient `503 NC` only if the
-ADS server delivers resource types in dependency order (CDS before RDS).
-The default go-control-plane server buffers each type on its own channel
-and drains them with `reflect.Select` (uniformly at random), so RDS can
-reach the wire before CDS even for a fully consistent snapshot;
-`server.WithOrderedADS()` routes all types through one FIFO so the
-cache's ordered sends arrive in order. WithOrderedADS fixes additions
-but not removals: its fixed CDS-before-RDS order removes a cluster
-before the route that references it, so removals still require the
-de-reference grace window (the defer/last-good window of GCP-A2).
+Snapshot coherence is not wire coherence: go-control-plane delivers each
+resource type as its own DiscoveryResponse, and the order decides
+whether Envoy transiently applies a route whose cluster it does not have
+(`503 NC`). Probing the real `server.StreamAggregatedResources`
+established three facts:
+
+1. On a quiet stream, additions arrive CDS before RDS in both server
+   modes, because the cache itself writes responses in type order
+   (`pkg/cache/v3/order.go`). The default server's `reflect.Select`
+   drain randomizes only when several per-type channels are ready at
+   once (busy streams); `server.WithOrderedADS()` closes that residual
+   addition window (PR
+   https://github.com/kgateway-dev/kgateway/pull/14341).
+2. ACK skew defeats both modes deterministically: after a CDS response
+   is sent, that watch is closed until Envoy ACKs it. A snapshot landing
+   in that window (new cluster + route retarget) can only answer the
+   open RDS watch, so the route reaches the wire before the CDS carrying
+   its cluster. SotW answers only open watches; no server option closes
+   this. In kgateway this is reachable whenever a route is retargeted to
+   a new backend while an earlier CDS-only update is still un-ACKed
+   (CDS churns on any backend change for the client).
+3. Removals are delivered in the WRONG order in both modes: a combined
+   de-reference + cluster-removal snapshot ships the CDS change first
+   (cache type order; cemented by WithOrderedADS), so the still-applied
+   route briefly references a removed cluster. Only a control-plane
+   grace window — de-reference in one snapshot, remove the cluster in a
+   later one — is safe; kgateway computes combined snapshots in a single
+   KRT recompute and has no such window today.
 
 - Spec reliance: `XdsSpec/OrderedADS.lean`. `orderedAdditionSystem`
-  keeps `ActiveRouteHasCluster`; `unorderedAdditionBugSystem` violates
-  it (RDS before CDS). `gracefulRemovalSystem` keeps it via the grace
-  window; `orderedRemovalStillBrokenBugSystem` shows ordered ADS alone
-  does not (it removes CDS before RDS).
-- Status: **open**. kgateway builds the server with
-  `xdsserver.NewServer(ctx, snapshotCache, allCallbacks)` and does not
-  pass `WithOrderedADS()` (`pkg/kgateway/setup/controlplane.go`). The
-  discharging change adds `WithOrderedADS()` there (PR
-  https://github.com/kgateway-dev/kgateway/pull/14341); when it lands,
-  list its route-addition drop-free e2e as the discharge and flip this
-  entry to discharged. The removal side is already covered by GCP-A2.
+  keeps `ActiveRouteHasCluster`; `unorderedAdditionBugSystem` (busy
+  streams), `ackSkewAdditionBugSystem`, and
+  `orderedRemovalStillBrokenBugSystem` each violate it;
+  `gracefulRemovalSystem` keeps it via the grace window.
+- Discharged by (characterization, against the real server):
+  `TestADSAdditionOnQuietStreamIsClusterFirst`,
+  `TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS`, and
+  `TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate` in
+  `pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go`.
+- Remediation state: kgateway does not yet pass `WithOrderedADS()`
+  (`pkg/kgateway/setup/controlplane.go`; PR #14341 adds it — necessary
+  for busy streams but not sufficient: the ACK-skew and removal windows
+  need control-plane pacing/grace, tracked in
+  `devel/testing/formal-model-map.yaml`).
 
 ## ENV-A1: Envoy warming and make-before-break
 

@@ -83,11 +83,17 @@ obligations:
       - stuck_client_converges
     status: open
     note: proven sufficient in the spec; the Go mechanism is the defer watchdog (fix/defer-watchdog branch). Discharge tracked as assumption KRT-A1 in formal-assumptions.yaml.
-  - id: ordered-ADS-additions-drop-free
-    summary: the xDS server must deliver resource types in dependency order (CDS before RDS) so route additions do not transiently 503 NC; removals still need the de-reference grace window
+  - id: ordered-ADS-delivery-windows
+    summary: route updates must never reach the wire before the CDS carrying their cluster, and cluster removals must never reach the wire before the RDS de-referencing them; three real windows exist (busy-stream randomization, ACK skew, combined removals)
     specFile: devel/formal/lean/XdsSpec/OrderedADS.lean
     specAnchors:
       - orderedAdditionSystem
+      - ackSkewAdditionBugSystem
       - orderedRemovalStillBrokenBugSystem
-    status: open
-    note: pkg/kgateway/setup/controlplane.go builds xdsserver.NewServer WITHOUT WithOrderedADS(); adding it is tracked by PR https://github.com/kgateway-dev/kgateway/pull/14341. Discharge tracked as assumption GCP-A3 in formal-assumptions.yaml.
+    status: divergent
+    note: kgateway ships the default (unordered) server (pkg/kgateway/setup/controlplane.go); PR https://github.com/kgateway-dev/kgateway/pull/14341 adds WithOrderedADS, which closes only the busy-stream window. The ACK-skew and combined-removal windows persist in both modes (probed deterministically against the real server) and need control-plane pacing / a de-reference grace window. Characterization discharged as assumption GCP-A3.
+    divergencePins:
+      - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
+        test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS
+      - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
+        test: TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate
