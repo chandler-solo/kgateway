@@ -264,22 +264,34 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		},
 	)
 
+	// Everything the transform emits is resolved per cluster and published
+	// through the real syncXds into a real snapshot cache; the oracle then
+	// checks what a client would actually be served — including the held-flip
+	// and carry-forward compositions.
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	nodeID := ucc.ResourceName()
+
 	var (
 		haveLast bool
 		lastSig  string
 		lastVer  string
 	)
-	// checkPublished samples the currently-published snapshot and asserts the
-	// safety invariants. Called repeatedly during the settle window so even a
-	// transient incoherent publish is caught.
+	// checkPublished samples the currently-served cache snapshot and asserts
+	// the safety invariants. Called repeatedly during the settle window so
+	// even a transient incoherent publish is caught.
 	checkPublished := func(stepDesc string) {
-		snap := eventuallyCurrentSnapshot(snapshots)
-		if snap == nil {
+		resourceSnapshot, err := cache.GetSnapshot(nodeID)
+		if err != nil {
+			return // nothing published yet (cold start withhold)
+		}
+		snap, ok := resourceSnapshot.(*envoycache.Snapshot)
+		if !ok {
 			return
 		}
 		findings := xdscheck.ErrorFindings(xdscheck.CheckSnapshot(context.Background(), xdsCheckSnapshotFromCache(t, snap)))
 		if len(findings) > 0 {
-			t.Fatalf("seed=%d: published snapshot violates spec after %q\nfindings: %+v\njournal:\n  %s",
+			t.Fatalf("seed=%d: served snapshot violates spec after %q\nfindings: %+v\njournal:\n  %s",
 				seed, stepDesc, findings, joinJournal(w.journal))
 		}
 		sig := edsContentSignature(snap)
@@ -348,11 +360,21 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		w.applyRefs()
 	}
 	driveCoherent()
-	waitPublished := func(d time.Duration) *envoycache.Snapshot {
+	// A coherent end state must produce a coherent, non-deferred wrapper AND
+	// a served snapshot whose routes are the coherent routes (the held flip,
+	// if any, must be released).
+	waitServedCoherent := func(d time.Duration) *envoycache.Snapshot {
 		deadline := time.Now().Add(d)
 		for {
-			if snap := eventuallyCurrentSnapshot(snapshots); snap != nil {
-				return snap
+			list := snapshots.List()
+			if len(list) == 1 && !list[0].deferred {
+				wantRoutes := list[0].snap.Resources[envoycachetypes.Route].Version
+				if resourceSnapshot, err := cache.GetSnapshot(nodeID); err == nil {
+					if snap, ok := resourceSnapshot.(*envoycache.Snapshot); ok &&
+						snap.Resources[envoycachetypes.Route].Version == wantRoutes {
+						return snap
+					}
+				}
 			}
 			if time.Now().After(deadline) {
 				return nil
@@ -370,21 +392,20 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 	// fresh events; coherent inputs publish on some round.
 	var snap *envoycache.Snapshot
 	for range 12 {
-		if snap = waitPublished(400 * time.Millisecond); snap != nil {
+		if snap = waitServedCoherent(400 * time.Millisecond); snap != nil {
 			break
 		}
 		driveCoherent()
 	}
 	if snap == nil {
-		t.Fatalf("seed=%d: coherent inputs never produced a published snapshot across repeated nudges (liveness)\nrefs=%v\njournal:\n  %s",
+		t.Fatalf("seed=%d: coherent inputs never produced a served coherent snapshot across repeated nudges (liveness)\nrefs=%v\njournal:\n  %s",
 			seed, w.referencedList(), joinJournal(w.journal))
 	}
 	findings := xdscheck.ErrorFindings(xdscheck.CheckSnapshot(context.Background(), xdsCheckSnapshotFromCache(t, snap)))
 	if len(findings) > 0 {
-		t.Fatalf("seed=%d: coherent-state snapshot violates spec\nfindings: %+v\njournal:\n  %s",
+		t.Fatalf("seed=%d: coherent-state served snapshot violates spec\nfindings: %+v\njournal:\n  %s",
 			seed, findings, joinJournal(w.journal))
 	}
-	return
 }
 
 func joinJournal(journal []string) string {

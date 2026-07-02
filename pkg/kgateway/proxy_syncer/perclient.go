@@ -216,42 +216,35 @@ func snapshotPerClient(
 			clusterResources.Version = fmt.Sprintf("%d", clustersForUcc.clustersHash^listenerRouteSnapshot.ClustersHash)
 			clusterResources.Items = clustersProto
 		}
-		if missingClusters := findMissingReferencedClusters(
+		// Per-cluster readiness (spec: devel/formal/lean/XdsSpec/PerClusterReadiness.lean).
+		// A referenced cluster that is missing from CDS or has no usable
+		// endpoint no longer defers the whole snapshot; the gaps are recorded
+		// on the wrapper and syncXds resolves them per cluster against the
+		// currently-published snapshot: carry forward what was published
+		// before (make-before-break), publish the truth for previously-
+		// referenced clusters that scaled to zero, and hold only a route flip
+		// onto a newly-referenced not-yet-ready cluster.
+		missingClusters := findMissingReferencedClusters(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
 			clustersForUcc.erroredClusters,
-		); len(missingClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced clusters are ready",
-				"client", ucc.ResourceName(),
-				"missing_clusters", missingClusters,
-			)
-			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferMissingClusters,
-				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-				clusterResources, clientEndpointResources.endpoints)
-			return nil
-		}
+		)
 		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
 		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
 		// longer present in CDS can make go-control-plane suppress ADS responses.
 		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
-		if missingEndpointClusters := findMissingReferencedEndpointResources(
+		// Post-synthesis every EDS cluster has a CLA, so this reports exactly
+		// the referenced clusters whose CLA has no usable endpoint.
+		unusableClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
 			endpointRes.Items,
 			clustersForUcc.erroredClusters,
-		); len(missingEndpointClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced EDS resources are ready",
-				"client", ucc.ResourceName(),
-				"missing_endpoint_clusters", missingEndpointClusters,
-			)
-			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferMissingEndpoints,
-				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-				clusterResources, endpointRes)
-			return nil
-		}
+		)
 
+		snap.deferred = len(missingClusters) > 0 || len(unusableClusters) > 0
+		snap.missingReferenced = missingClusters
+		snap.unusableReferenced = unusableClusters
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
@@ -262,9 +255,21 @@ func snapshotPerClient(
 		snapshot.Resources[envoycachetypes.Secret] = listenerRouteSnapshot.Secrets
 		// envoycache.NewResources(version, resource)
 		snap.snap = snapshot
-		emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionPublish,
-			listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-			clusterResources, endpointRes)
+		if snap.deferred {
+			logger.Info(
+				"snapshot has unready referenced clusters; syncXds will resolve per cluster",
+				"client", ucc.ResourceName(),
+				"missing_clusters", missingClusters,
+				"unusable_clusters", unusableClusters,
+			)
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferFlip,
+				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+				clusterResources, endpointRes)
+		} else {
+			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionPublish,
+				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
+				clusterResources, endpointRes)
+		}
 		logger.Debug("snapshots", "proxy_key", snap.proxyKey,
 			"listeners", resourcesStringer(listenerRouteSnapshot.Listeners).String(),
 			"clusters", resourcesStringer(clusterResources).String(),

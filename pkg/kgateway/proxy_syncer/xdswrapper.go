@@ -29,6 +29,22 @@ type XdsSnapWrapper struct {
 	erroredClusters []string
 	// +noKrtEquals
 	proxyKey string
+	// deferred marks a snapshot built while some referenced cluster was not
+	// ready (see snapshotPerClient's guards). syncXds resolves it per cluster
+	// against the currently-published snapshot: previously-published clusters
+	// are carried forward, previously-referenced clusters with no usable
+	// endpoints publish their truth (scale-to-zero), and only a route flip
+	// onto a newly-referenced not-yet-ready cluster is held back.
+	// +noKrtEquals (derived from snapshot contents whose per-type versions Equals compares)
+	deferred bool
+	// missingReferenced lists referenced clusters absent from this snapshot's
+	// CDS (translation lagging, or the backend is gone). Sorted.
+	// +noKrtEquals (derived: a change implies a CDS or RDS/LDS version change)
+	missingReferenced []string
+	// unusableReferenced lists referenced EDS clusters whose CLA carries no
+	// usable endpoint. Sorted.
+	// +noKrtEquals (derived: a change implies an EDS version change)
+	unusableReferenced []string
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
