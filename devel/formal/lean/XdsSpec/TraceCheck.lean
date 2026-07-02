@@ -106,7 +106,15 @@ structure Violation where
   rule : String
   detail : String
 
-def checkPublish (e : TraceEvent) : List (String × String) := Id.run do
+/-- Check a publish event. `requireUsable` distinguishes the two publish
+kinds: a coherent transform publish ("publish") requires every referenced
+EDS cluster to carry a usable endpoint; a per-cluster resolution
+("publish-resolved", emitted by syncXds) only requires the CLA to exist —
+a previously-referenced cluster legitimately publishes an empty CLA when
+its endpoints scale to zero (spec case C2), and held-flip compositions gate
+usability upstream in the unit tests. -/
+def checkPublish (e : TraceEvent) (requireUsable : Bool) :
+    List (String × String) := Id.run do
   let mut violations := []
   let cdsNames := e.clusters.map (·.name)
   let required := e.referenced.filter (fun r => !e.exempt.contains r)
@@ -114,7 +122,8 @@ def checkPublish (e : TraceEvent) : List (String × String) := Id.run do
   unless NameSet.subset required cdsNames do
     violations := violations ++ [("publish-closure",
       s!"referenced clusters {required} not all present in CDS {cdsNames}")]
-  -- EDS readiness: every referenced EDS cluster has a usable CLA.
+  -- EDS readiness: every referenced EDS cluster has a CLA (and, for coherent
+  -- transform publishes, one with a usable endpoint).
   for c in e.clusters do
     if c.eds && required.contains c.name then
       match e.endpoints.find? (·.name == c.edsName) with
@@ -122,7 +131,7 @@ def checkPublish (e : TraceEvent) : List (String × String) := Id.run do
         violations := violations ++ [("eds-readiness",
           s!"EDS cluster {c.name} has no CLA named {c.edsName}")]
       | some ep =>
-        unless ep.usable do
+        unless ep.usable || !requireUsable do
           violations := violations ++ [("eds-readiness",
             s!"EDS cluster {c.name} CLA {c.edsName} has no usable endpoint")]
   -- No orphan CLAs (issue 14184): every CLA is induced by an EDS cluster.
@@ -150,9 +159,9 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
     | .error err => return .error s!"line {lineNumber}: malformed trace event: {err}"
     | .ok e =>
       summary := { summary with events := summary.events + 1 }
-      if e.decision == "publish" then
+      if e.decision == "publish" || e.decision == "publish-resolved" then
         summary := { summary with publishes := summary.publishes + 1 }
-        let found := checkPublish e
+        let found := checkPublish e (requireUsable := e.decision == "publish")
         summary := { summary with
           violations := summary.violations ++ found.map fun (rule, detail) =>
             { lineNumber, client := e.client, rule, detail } }

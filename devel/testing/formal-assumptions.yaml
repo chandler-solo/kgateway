@@ -22,7 +22,7 @@ assumptions:
       - deleteRetainsLastGood
     dischargedBy:
       - file: pkg/kgateway/proxy_syncer/perclient_test.go
-        test: TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache
+        test: TestSnapshotPerClientClientRemovalRetainsServedCache
   - id: ENV-A1
     summary: Envoy activates routes/listeners only after CDS ACK and a usable ClusterLoadAssignment (make-before-break)
     specFile: devel/formal/lean/XdsSpec/Spec.lean

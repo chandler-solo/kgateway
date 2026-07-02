@@ -27,11 +27,11 @@ obligations:
     specAnchors:
       - publishA
       - truthPublishedA
-    status: divergent
-    note: snapshotPerClient is the spec's wholeSnapshotDeferBugSystem here - the empty CLA can never pass guard #3, so Envoy keeps routing to endpoints that no longer exist (the original incident complaint). The fix is the per-cluster synthesis; see the spec module docs.
-    divergencePins:
-      - file: pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go
-        test: TestSnapshotPerClientScaleToZeroCurrentlyDefersInsteadOfPublishingEmptyCLA
+    status: covered
+    note: implemented by the per-cluster resolution in syncXds (resolveDeferredPerCluster) - a previously-referenced cluster with no usable endpoints publishes its truth instead of deferring the snapshot.
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+        test: TestSnapshotPerClientScaleToZeroPublishesEmptyCLA
   - id: C3-flip-gated-on-usable-endpoint
     summary: the route flip onto a newly-referenced cluster waits for a CLA with a usable endpoint (make-before-break, no 503 window)
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
@@ -52,11 +52,11 @@ obligations:
     specAnchors:
       - truthLagsA
       - truthPublishedA
-    status: divergent
-    note: the whole-snapshot gate strands every update for the client behind one perpetually-unready backend (the probe-backend livelock). Same fix as C2.
-    divergencePins:
-      - file: pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go
-        test: TestSnapshotPerClientWarmingClusterCurrentlyBlocksUnrelatedEndpointUpdates
+    status: covered
+    note: implemented by the held-flip composition in syncXds - routes/listeners/secrets stay at their published versions while the warming cluster and all unrelated updates keep flowing (which also gives the flip the reference-ahead shape).
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+        test: TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip
   - id: C4-removed-cluster-prunes-cla
     summary: a cluster removed from CDS takes its CLA with it (EDS subset, named-watch respondability)
     specFile: devel/formal/lean/XdsSpec/Spec.lean

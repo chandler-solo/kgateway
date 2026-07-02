@@ -48,14 +48,16 @@ cluster) are covered by the convergence spec's `CacheSnapshotClosed`
 and the trace checker's no-orphan-cla rule.
 
 Connection to the implementation: every obligation here is mapped to
-the Go test that discharges it — or to a characterization test that
-pins the current divergence — in devel/testing/formal-model-map.yaml,
-gated by TestFormalModelMap. As of this writing `snapshotPerClient` IS
-the `wholeSnapshotDeferBugSystem`: the C2 and C3-isolation divergences
-are pinned by the tests in
-pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go,
-which assert the current behavior on purpose and must be flipped when
-the per-cluster synthesis lands.
+the Go test that discharges it in devel/testing/formal-model-map.yaml,
+gated by TestFormalModelMap. The safe system is implemented: the
+transform records per-cluster gaps on the wrapper instead of deferring
+the snapshot, and syncXds resolves them against the currently-published
+snapshot (resolveDeferredPerCluster in kube_gw_translator_syncer.go) —
+truth publishes for previously-referenced clusters (C2), only the flip
+onto a newly-referenced unready cluster is held (C3), and carried
+clusters always travel with their CLAs (C5). The C2/C3 behaviors are
+covered by pkg/kgateway/proxy_syncer/perclient_percluster_test.go and
+fuzzed against the served cache by the randomized property test.
 -/
 import XdsSpec.Checker
 

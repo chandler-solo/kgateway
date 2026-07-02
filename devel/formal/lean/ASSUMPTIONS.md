@@ -39,7 +39,7 @@ proxy_syncer's xDS subscriber is a no-op).
 - Spec reliance: `deferPartialInput` leaves `cache` and `lastGood`
   untouched; the `DeleteRetainsLastGood` invariant asserts the defer
   window serves last-good config.
-- Discharged by: `TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache`
+- Discharged by: `TestSnapshotPerClientClientRemovalRetainsServedCache`
   in `pkg/kgateway/proxy_syncer/perclient_test.go`.
 
 ## GCP-A3: ADS wire-delivery ordering windows
