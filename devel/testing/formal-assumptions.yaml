@@ -59,6 +59,17 @@ assumptions:
         test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate
+  - id: GCP-A4
+    summary: go-control-plane dispatches OnStreamRequest/OnStreamClosed for one stream strictly sequentially, and OnStreamClosed still fires when OnStreamRequest returns an error
+    specFile: devel/formal/lean/XdsSpec/ClientIdentity.lean
+    specAnchors:
+      - safeSystem
+      - countsMatchStreams
+    dischargedBy:
+      - file: pkg/kgateway/proxy_syncer/xds_callback_serialization_probe_test.go
+        test: TestADSCallbacksAreSerializedPerStream
+      - file: pkg/kgateway/proxy_syncer/xds_callback_serialization_probe_test.go
+        test: TestADSStreamClosedFiresAfterRequestError
   - id: KRT-A1
     summary: per-client collections eventually reflect current clients x backends (no permanently dropped fan-out events)
     status: open

@@ -93,6 +93,37 @@ established three facts:
   removal windows need the control-plane graces, tracked in
   `devel/testing/formal-model-map.yaml`.
 
+## GCP-A4: per-stream callback serialization and error-path close
+
+The xDS client-identity bookkeeping (`pkg/krtcollections/uniqueclients.go`,
+per-request re-derivation from PR
+https://github.com/kgateway-dev/kgateway/pull/14244) relies on two
+go-control-plane contracts that hold by construction in v0.14.0 but are
+not documented API guarantees:
+
+1. `OnStreamRequest` and `OnStreamClosed` for ONE stream are dispatched
+   strictly sequentially (the sotw `process`/`processADS` loop consumes
+   requests in a single goroutine; `OnStreamClosed` runs in that
+   goroutine's deferred `shutdown`). The PR's `add()` reads the
+   per-stream entry under `RLock`, derives the identity with NO lock
+   held, and mutates the shared maps under `Lock` — a check-then-act
+   that is only sound under this serialization. Parallel per-stream
+   dispatch would double-add a stream's identity (leaked refcount →
+   a stale UniqlyConnectedClient forever) and race `del` against `add`.
+2. When `OnStreamRequest` returns an error (how a drifted identity
+   closes the stream), the stream terminates AND `OnStreamClosed` still
+   fires — the only place the old identity's refcount is released.
+
+- Spec reliance: `XdsSpec/ClientIdentity.lean` — actions are atomic
+  (`safeSystem`), and `countsMatchStreams` treats every drift close as
+  paired with exactly one refcount release.
+- Discharged by (characterization, against the real server):
+  `TestADSCallbacksAreSerializedPerStream` and
+  `TestADSStreamClosedFiresAfterRequestError` in
+  `pkg/kgateway/proxy_syncer/xds_callback_serialization_probe_test.go`.
+  A go-control-plane upgrade that breaks either contract fails these
+  probes, not production.
+
 ## ENV-A1: Envoy warming and make-before-break
 
 Envoy activates a route/listener against a cluster only after the

@@ -98,6 +98,19 @@ def orderedADSExpectations :
     ⟨OrderedADS.orderedRemovalStillBrokenBugSystem, OrderedADS.invariantList,
       some "ActiveRouteHasCluster"⟩ ]
 
+def clientIdentityExpectations :
+    List (Expectation ClientIdentity.CIState ClientIdentity.CIAction) :=
+  -- Only the miscounting drift close corrupts the refcount algebra; every
+  -- other bug system fails as a liveness violation below while keeping the
+  -- counts sound.
+  [ ⟨ClientIdentity.safeSystem, ClientIdentity.invariantList, none⟩,
+    ⟨ClientIdentity.frozenIdentityBugSystem, ClientIdentity.invariantList, none⟩,
+    ⟨ClientIdentity.reaugmentFalseCloseBugSystem, ClientIdentity.invariantList, none⟩,
+    ⟨ClientIdentity.quietStreamStuckBugSystem, ClientIdentity.invariantList, none⟩,
+    ⟨ClientIdentity.blipCloseBugSystem, ClientIdentity.invariantList, none⟩,
+    ⟨ClientIdentity.driftMiscountBugSystem, ClientIdentity.invariantList,
+      some "CountsMatchStreams"⟩ ]
+
 def runModelCheck : IO UInt32 := do
   IO.println "xdsspec: model-checking the per-client xDS convergence spec"
   IO.println "(Lean port of devel/formal/tla/XdsPerClientConvergence.tla)"
@@ -146,6 +159,40 @@ def runModelCheck : IO UInt32 := do
     (expectStuck := true)
     PerCluster.truthLagsA PerCluster.truthPublishedA
     "TruthLagsA ~> TruthPublishedA") && ok
+  IO.println ""
+  IO.println "client-identity re-derivation model (PR #14244)"
+  IO.println ""
+  for e in clientIdentityExpectations do
+    ok := (← runSafetyExpectation e) && ok
+  -- The startup race heals: a stream serving under a connect-time stale
+  -- identity re-identifies once the informer surfaces the pod's true state
+  -- (drift close → reconnect → fresh derivation).
+  ok := (← runLiveness ClientIdentity.safeSystem (expectStuck := false)
+    ClientIdentity.staleServing1 ClientIdentity.s1Fresh
+    "StaleServing ~> FreshIdentity") && ok
+  -- No reconnect storm: every established stream can reach a clean ACK
+  -- (re-derivation matching the established identity).
+  ok := (← runLiveness ClientIdentity.safeSystem (expectStuck := false)
+    ClientIdentity.s1Established ClientIdentity.s1CleanAck
+    "Established ~> CleanAck") && ok
+  -- Pre-PR: the frozen identity never heals.
+  ok := (← runLiveness ClientIdentity.frozenIdentityBugSystem (expectStuck := true)
+    ClientIdentity.staleServing1 ClientIdentity.s1Fresh
+    "StaleServing ~> FreshIdentity") && ok
+  -- Without the pinned original role: every ACK false-closes the stream.
+  ok := (← runLiveness ClientIdentity.reaugmentFalseCloseBugSystem (expectStuck := true)
+    ClientIdentity.s1Established ClientIdentity.s1CleanAck
+    "Established ~> CleanAck") && ok
+  -- Disclosed limitation: a stream that receives no DiscoveryRequests never
+  -- re-derives, so its stale identity never heals.
+  ok := (← runLiveness ClientIdentity.quietStreamStuckBugSystem (expectStuck := true)
+    ClientIdentity.staleServing1 ClientIdentity.s1Fresh
+    "StaleServing ~> FreshIdentity") && ok
+  -- Rejected design: closing on a transient derivation failure makes a
+  -- permanent pod-record absence a permanent outage.
+  ok := (← runLiveness ClientIdentity.blipCloseBugSystem (expectStuck := true)
+    ClientIdentity.disconnectedNoView1 ClientIdentity.s1Established
+    "Disconnected ~> Established") && ok
   IO.println ""
   IO.println "ADS wire-delivery ordering model (WithOrderedADS)"
   IO.println ""

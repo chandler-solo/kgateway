@@ -97,6 +97,20 @@ obligations:
         test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate
+  - id: client-identity-heals-on-drift
+    summary: a connected client's identity (role~hash(AugmentedLabels)~ns) is re-derived from current pod state on every stream request; genuine drift closes the stream so the client re-identifies, transient derivation failures keep the established identity, and re-derivation starts from the pinned original role so it never false-closes on the server's own node augmentation
+    specFile: devel/formal/lean/XdsSpec/ClientIdentity.lean
+    specAnchors:
+      - safeSystem
+      - frozenIdentityBugSystem
+      - reaugmentFalseCloseBugSystem
+      - quietStreamStuckBugSystem
+      - countsMatchStreams
+    status: divergent
+    note: the current uniqueclients.go derives the identity ONCE, on the stream's first request (the spec's frozenIdentityBugSystem) - a first request racing the pod/node informers freezes a stale identity for the stream's lifetime. PR https://github.com/kgateway-dev/kgateway/pull/14244 implements the safe system (per-request re-derivation, close on drift, keep on transient failure, pinned original role); its unit tests (TestUniqueClientsReidentifyOnPodChange, TestUniqueClientsFollowUpWithReusedAugmentedNode) and e2e suite (test/e2e/features/xdsidentityrace) discharge the safe-system obligations when it lands. Note the safe system still has the quietStreamStuckBugSystem hole - the heal needs a DiscoveryRequest to arrive, so on a quiet stream staleness is bounded only by the next config push (disclosed non-goal in the PR; a server-side request source such as the KRT-A1 watchdog or gRPC MaxConnectionAge would close it). The refcount algebra relies on assumption GCP-A4 (per-stream callback serialization + error-path OnStreamClosed).
+    divergencePins:
+      - file: pkg/krtcollections/uniqueclients_test.go
+        test: TestUniqueClientsIdentityFrozenAtFirstRequest
   - id: errored-cluster-fails-closed
     summary: an errored cluster (e.g. invalid BackendTLSPolicy) leaves the served CDS so its routes 5xx, and is never carried forward from a previous snapshot - even while a route flip is held for an unrelated cluster
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
