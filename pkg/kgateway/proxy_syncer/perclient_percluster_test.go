@@ -19,6 +19,7 @@ package proxy_syncer
 // devel/testing/formal-model-map.yaml.
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -209,4 +210,96 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	g.Expect(heldServed.Resources[envoycachetypes.Route].Version).To(gomega.Equal(initialRouteVersion),
 		"held routes keep their published version")
 	assertNoXDSCheckErrors(t, heldServed)
+}
+
+// TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip pins the
+// fail-closed rule for errored clusters: even while a route flip is held for
+// an unrelated warming cluster, a previously-referenced cluster whose current
+// translation is errored is dropped from the served CDS instead of being
+// carried forward from the published snapshot. Serving it with its stale
+// (pre-error) config would silently bypass the policy whose failure errored
+// it — Gateway API conformance requires requests to a backend targeted by an
+// invalid BackendTLSPolicy to receive a 5xx
+// (BackendTLSPolicyInvalidCACertificateRef); the fail-open variant was
+// rejected in PR #13976.
+func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	clusterOld := edsClusterForClient(ucc, "cluster-old", 1)
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOld})
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{
+		endpointsForClient(ucc, "cluster-old", 2),
+	})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		PerClientEnvoyClusters{
+			clusters: clusterCol,
+			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
+				return []string{cluster.Client.ResourceName()}
+			}),
+		},
+	)
+
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	nodeID := ucc.ResourceName()
+
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
+
+	// Simultaneously: routes retarget to additionally reference cluster-new
+	// (which never becomes ready, so the flip is held), and cluster-old's
+	// translation goes errored (e.g. its BackendTLSPolicy became invalid).
+	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
+	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 4))
+	erroredOld := clusterOld
+	erroredOld.Error = errors.New("backend tls policy references a nonexistent ca certificate")
+	clusterCol.UpdateObject(erroredOld)
+
+	// Fail closed: the errored cluster must leave the served CDS (its held
+	// routes 5xx) even though the flip is held for cluster-new; the warming
+	// cluster still reaches the served CDS. The served snapshot legitimately
+	// contains a route to the dropped errored cluster, so no xdscheck
+	// assertion applies here.
+	var heldServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		clusters := heldServed.Resources[envoycachetypes.Cluster].Items
+		return hasResource(clusters, "cluster-new") && !hasResource(clusters, "cluster-old")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"the errored cluster must not be carried forward; the warming cluster still publishes")
+	g.Expect(heldServed.Resources[envoycachetypes.Endpoint].Items).ToNot(gomega.HaveKey("cluster-old"),
+		"the errored cluster's CLA leaves with it")
+	g.Expect(snapshotReferencesCluster(heldServed, "cluster-old")).To(gomega.BeTrue(),
+		"the held routes still name the errored cluster, which now 5xxes (fail closed)")
+	g.Expect(snapshotReferencesCluster(heldServed, "cluster-new")).To(gomega.BeFalse(),
+		"the flip onto the warming cluster remains held")
 }

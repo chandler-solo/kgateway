@@ -178,11 +178,24 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 	newClusters := composed.Resources[envoycachetypes.Cluster]
 	newEndpoints := composed.Resources[envoycachetypes.Endpoint]
 	oldEndpoints := published.GetResourcesAndTTL(envoyresourcev3.EndpointType)
+	erroredSet := stringSet(snapWrap.erroredClusters)
 	var carried []string
 	clusterItems := newClusters.Items
 	endpointItems := newEndpoints.Items
 	for name := range carryRefs {
 		if name == wellknown.BlackholeClusterName {
+			continue
+		}
+		if _, errored := erroredSet[name]; errored {
+			// Fail closed: a cluster whose current translation is errored is
+			// never resurrected from the published snapshot, even while a flip
+			// is held for an unrelated cluster. Serving it with its stale
+			// (pre-error) config would silently bypass the very policy whose
+			// failure errored it — e.g. an invalid BackendTLSPolicy must 5xx
+			// (Gateway API conformance
+			// BackendTLSPolicyInvalidCACertificateRef), not keep serving with
+			// the previous TLS configuration. See PR #13976 for the rejected
+			// fail-open variant.
 			continue
 		}
 		if _, ok := clusterItems[name]; ok {
