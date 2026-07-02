@@ -306,3 +306,80 @@ func TestNormalizeGatewayRole(t *testing.T) {
 		})
 	}
 }
+
+// TestUniqueClientsIdentityFrozenAtFirstRequest is a DIVERGENCE PIN
+// (devel/testing/formal-model-map.yaml, obligation
+// client-identity-heals-on-drift): it asserts the CURRENT behavior, which is
+// the formal spec's frozenIdentityBugSystem
+// (devel/formal/lean/XdsSpec/ClientIdentity.lean).
+//
+// A stream's identity (role~hash(AugmentedLabels)~ns) is derived from a
+// point-in-time pod lookup outside KRT dependency tracking, ONCE, on the
+// stream's first request. If that request races the pod/node informers
+// (controller start is exactly when every Envoy reconnects), the stream
+// serves under an identity built from stale labels/locality for its whole
+// lifetime — nothing re-derives it. PR
+// https://github.com/kgateway-dev/kgateway/pull/14244 fixes this by
+// re-deriving the identity on every request and closing the stream on
+// genuine drift so the client re-identifies. When that lands, the follow-up
+// request below WILL return an error and the served identity will heal —
+// this pin then fails and must be rewritten to assert the safe-system
+// behavior (see the PR's TestUniqueClientsReidentifyOnPodChange), and the
+// map entry flips to covered.
+func TestUniqueClientsIdentityFrozenAtFirstRequest(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	role := wellknown.GatewayApiProxyValue + "~best-proxy-role"
+	staleLabels := map[string]string{"a": "b"}
+	freshLabels := map[string]string{"a": "b", corev1.LabelTopologyZone: "zone-1"}
+
+	pods := krt.NewStaticCollection[LocalityPod](nil, []LocalityPod{{
+		Named:           krt.Named{Name: "podname", Namespace: "ns"},
+		AugmentedLabels: staleLabels,
+	}})
+
+	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
+	ucc.WaitUntilSynced(ctx.Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(role),
+				},
+			},
+		},
+	}
+	cloneReq := func() *envoy_service_discovery_v3.DiscoveryRequest {
+		return proto.Clone(req).(*envoy_service_discovery_v3.DiscoveryRequest)
+	}
+	staleName := fmt.Sprintf("%s~%d~ns", role, utils.HashLabels(staleLabels))
+
+	// First contact freezes the identity derived from current (stale) data.
+	g.Expect(cb.OnStreamRequest(1, cloneReq())).To(Succeed())
+	g.Eventually(func() []ir.UniquelyConnectedClient { return ucc.List() }, "1s").Should(HaveLen(1))
+	g.Expect(ucc.List()[0].ResourceName()).To(Equal(staleName))
+
+	// The pod's augmented data catches up while the stream is open.
+	pods.UpdateObject(LocalityPod{
+		Named:           krt.Named{Name: "podname", Namespace: "ns"},
+		AugmentedLabels: freshLabels,
+	})
+
+	// CURRENT behavior: follow-up requests on the established stream do NOT
+	// re-derive the identity — they succeed, and the collection keeps serving
+	// the stale identity indefinitely. This is the frozenIdentityBugSystem
+	// liveness violation (StaleServing ~> FreshIdentity).
+	for range 3 {
+		g.Expect(cb.OnStreamRequest(1, cloneReq())).To(Succeed(),
+			"divergence pin: today an established stream's identity is frozen; "+
+				"if this errors, per-request re-derivation (PR #14244) has landed - "+
+				"rewrite this pin to assert the heal and flip the map entry to covered")
+	}
+	g.Consistently(func() []ir.UniquelyConnectedClient { return ucc.List() }, "300ms", "50ms").Should(HaveLen(1))
+	g.Expect(ucc.List()[0].ResourceName()).To(Equal(staleName),
+		"the stale identity keeps serving for the stream's whole lifetime")
+}
