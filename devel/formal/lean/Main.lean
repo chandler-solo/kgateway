@@ -138,6 +138,14 @@ def runModelCheck : IO UInt32 := do
     (expectStuck := true)
     PerCluster.truthLagsA PerCluster.truthPublishedA
     "TruthLagsA ~> TruthPublishedA") && ok
+  -- The rejected PR #13976 design fails open: an errored cluster keeps
+  -- serving from last-good config, so its truth (absence) never publishes —
+  -- the fail-closed 5xx that Gateway API BackendTLSPolicy conformance
+  -- requires never happens.
+  ok := (← runLiveness PerCluster.erroredRestoreBugSystem
+    (expectStuck := true)
+    PerCluster.truthLagsA PerCluster.truthPublishedA
+    "TruthLagsA ~> TruthPublishedA") && ok
   IO.println ""
   IO.println "ADS wire-delivery ordering model (WithOrderedADS)"
   IO.println ""

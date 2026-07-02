@@ -97,3 +97,17 @@ obligations:
         test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate
+  - id: errored-cluster-fails-closed
+    summary: an errored cluster (e.g. invalid BackendTLSPolicy) leaves the served CDS so its routes 5xx, and is never carried forward from a previous snapshot - even while a route flip is held for an unrelated cluster
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - errorA
+      - buggyServeErroredA
+      - truthPublishedA
+    status: covered
+    note: fail-closed is the Gateway API conformance requirement (BackendTLSPolicyInvalidCACertificateRef / BackendTLSPolicyInvalidKind require "receive a 5xx"); the fail-open last-good restore was rejected in PR 13976 after those conformance failures and is kept as the ErroredRestoreBug liveness counterexample. Coherent publishes drop errored clusters (gate exemption) and resolveDeferredPerCluster excludes them from held-flip carry.
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_test.go
+        test: TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+        test: TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip

@@ -91,6 +91,12 @@ structure PCState where
   activate routes onto a cluster whose warming completed on an empty
   CLA. -/
   flipGated : Bool
+  /-- Cluster A's translation is errored (e.g. its BackendTLSPolicy became
+  invalid). An errored cluster must FAIL CLOSED: it leaves the published
+  CDS so its routes 5xx, and is never resurrected from a previous
+  snapshot — Gateway API conformance requires requests to a backend
+  targeted by an invalid BackendTLSPolicy to receive a 5xx. -/
+  aErrored : Bool
   deriving DecidableEq, Repr, Hashable
 
 def init : PCState where
@@ -104,6 +110,7 @@ def init : PCState where
   actA := some .usable
   actB := none
   flipGated := true
+  aErrored := false
 
 inductive PCAction
   /-- Cluster A's Service scales to zero (or all endpoints go
@@ -115,9 +122,17 @@ inductive PCAction
   | deployB
   /-- The routes are retargeted to additionally reference B. -/
   | retargetRoutes
-  /-- C1/C2: publish A's current truth — unconditionally, empty
-  included. -/
+  /-- Cluster A's translation goes errored (its BackendTLSPolicy becomes
+  invalid, a plugin fails, ...). There is deliberately no un-error action:
+  the model must fail closed without assuming the operator fixes the
+  policy. -/
+  | errorA
+  /-- C1/C2: publish A's current truth — unconditionally, empty included;
+  when A's translation is errored, its truth is ABSENCE (fail closed). -/
   | publishA
+  /-- The rejected PR #13976 design: keep serving an errored cluster from
+  its last-good config instead of dropping it. -/
+  | buggyServeErroredA
   /-- B's cluster and CLA enter the snapshot together (C5) once B is
   referenced; CDS/EDS may advance ahead of the route flip. -/
   | publishB
@@ -145,8 +160,12 @@ def step (s : PCState) : PCAction → Option PCState
     if s.bTruth == .empty then some { s with bTruth := .usable } else none
   | .retargetRoutes =>
     if !s.routesDesired then some { s with routesDesired := true } else none
+  | .errorA =>
+    if !s.aErrored then some { s with aErrored := true } else none
   | .publishA =>
-    some { s with pubA := some s.aTruth }
+    some { s with pubA := if s.aErrored then none else some s.aTruth }
+  | .buggyServeErroredA =>
+    if s.aErrored then some { s with pubA := some s.aTruth } else none
   | .publishB =>
     if s.routesDesired then some { s with pubB := some s.bTruth } else none
   | .flipRoutes =>
@@ -175,7 +194,9 @@ def describe : PCAction → String
   | .scaleDownA => "ScaleDownA"
   | .deployB => "DeployB"
   | .retargetRoutes => "RetargetRoutes"
+  | .errorA => "ErrorA"
   | .publishA => "PublishA"
+  | .buggyServeErroredA => "BuggyServeErroredA"
   | .publishB => "PublishB"
   | .flipRoutes => "FlipRoutes"
   | .envoySyncA => "EnvoySyncA"
@@ -216,14 +237,16 @@ def invariantList : List (String × (PCState → Bool)) :=
 
 -- MARK: liveness predicates
 
-/-- A's published CLA lags its truth (e.g. Envoy still holds endpoints
-that no longer exist). -/
-def truthLagsA (s : PCState) : Bool :=
-  s.pubA != some s.aTruth
-
-/-- A's published CLA reflects its truth. -/
+/-- A's published state reflects A's truth: its current endpoints while the
+translation is healthy, and ABSENCE when it is errored (fail closed — the
+Gateway API BackendTLSPolicy conformance semantics). -/
 def truthPublishedA (s : PCState) : Bool :=
-  s.pubA == some s.aTruth
+  if s.aErrored then s.pubA.isNone else s.pubA == some s.aTruth
+
+/-- A's published state lags its truth (Envoy still holds endpoints that no
+longer exist, or still holds a cluster whose translation is errored). -/
+def truthLagsA (s : PCState) : Bool :=
+  !truthPublishedA s
 
 /-- The retargeted routes are ready to go live: B deployed. -/
 def flipPending (s : PCState) : Bool :=
@@ -238,7 +261,7 @@ def flipDone (s : PCState) : Bool :=
 per-cluster form. -/
 def safeSystem : System PCState PCAction :=
   mkSystem "PerClusterSafe"
-    [ .scaleDownA, .deployB, .retargetRoutes,
+    [ .scaleDownA, .errorA, .deployB, .retargetRoutes,
       .publishA, .publishB, .flipRoutes,
       .envoySyncA, .envoySyncB, .envoyFlipRoutes ]
 
@@ -259,5 +282,16 @@ def publishWhileWarmingBugSystem : System PCState PCAction :=
   mkSystem "PublishWhileWarmingBug"
     [ .retargetRoutes, .publishB, .buggyFlipRoutesUngated,
       .envoySyncB, .envoyFlipRoutes ]
+
+/-- The rejected fail-open design (PR #13976): an errored cluster keeps
+serving from its last-good config, so the served state never reflects the
+error. The same liveness failure shape as the whole-snapshot defer — truth
+(here: absence) never publishes — with a security consequence: the policy
+whose failure errored the cluster is silently bypassed. Gateway API
+conformance caught it (BackendTLSPolicyInvalidCACertificateRef requires a
+5xx). Caught here as a liveness violation of TruthLagsA ~> TruthPublishedA. -/
+def erroredRestoreBugSystem : System PCState PCAction :=
+  mkSystem "ErroredRestoreBug"
+    [ .errorA, .buggyServeErroredA, .envoySyncA ]
 
 end XdsSpec.PerCluster
