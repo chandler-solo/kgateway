@@ -243,8 +243,11 @@ func (x *callbacksCollection) deriveClientIdentity(r *envoy_service_discovery_v3
 		k := krt.Named{Name: peer.podRef.Name, Namespace: peer.podRef.Namespace}.ResourceName()
 		pod := x.augmentedPods.GetKey(k)
 		if pod == nil {
-			// we need to use the pod locality info, so it's an error if we can't get the pod
-			return nil, fmt.Errorf("pod not found for node %v", r.GetNode())
+			// we need to use the pod locality info, so it's an error if we can't get the pod.
+			// Only the node id goes in the message: this error is constructed on
+			// every request while the pod is absent (and discarded on established
+			// streams), so formatting the full Node proto here would be pure waste.
+			return nil, fmt.Errorf("pod not found for node %q", r.GetNode().GetId())
 		}
 		locality = pod.Locality
 		ns = pod.Namespace
@@ -318,7 +321,15 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 		// outside a request event; bounding worst-case staleness server-side
 		// (e.g. gRPC keepalive/MaxConnectionAge) is a deliberate non-goal of
 		// this change.
-		if derr == nil && c.uniqueClientName != ucc.ResourceName() {
+		if derr != nil {
+			// Keep serving (see above), but leave a trace: without it, a pod
+			// that stays missing (force delete, node lost, discovery-namespace
+			// change) is indistinguishable from a healthy request.
+			x.logger.Debug("xds client identity re-derivation failed; keeping established identity",
+				"client", c.uniqueClientName, "error", derr)
+			return c.uniqueClientName, false, nil
+		}
+		if c.uniqueClientName != ucc.ResourceName() {
 			x.logger.Info("xds client identity changed; closing stream so the client re-identifies",
 				"old", c.uniqueClientName, "new", ucc.ResourceName())
 			return "", false, fmt.Errorf("xds client identity changed from %q to %q", c.uniqueClientName, ucc.ResourceName())
@@ -326,11 +337,16 @@ func (x *callbacksCollection) add(sid int64, r *envoy_service_discovery_v3.Disco
 		return c.uniqueClientName, false, nil
 	}
 
-	if derr != nil {
-		return "", false, derr
-	}
+	// The version gate runs before derivation errors are surfaced: during
+	// informer lag (controller start) the pod lookup fails for every reconnect
+	// attempt, and the actionable incompatibility error — and the "envoy proxy
+	// connected" log — must not be masked behind generic "pod not found"
+	// rejections.
 	if err := logAndCheckEnvoyVersion(x.logger, r.GetNode()); err != nil {
 		return "", false, err
+	}
+	if derr != nil {
+		return "", false, derr
 	}
 	x.logger.Debug("adding xds client", "locality", ucc.Locality, "ns", ucc.Namespace, "labels", ucc.Labels, "role", ucc.Role)
 	// peer.role is the raw, pre-augmentation role from this first request
@@ -451,18 +467,11 @@ func (x *callbacksCollection) fetchRequest(_ context.Context, r *envoy_service_d
 		return nil
 	}
 
-	var pod *LocalityPod
 	podRef := getRef(r.GetNode())
-	k := krt.Named{Name: podRef.Name, Namespace: podRef.Namespace}.ResourceName()
-	pod = x.augmentedPods.GetKey(k)
-	if pod == nil {
-		return fmt.Errorf("pod not found for node %v", r.GetNode())
+	ucc, err := x.deriveClientIdentity(r, peerInfo{role: roleFromRequest(r), podRef: &podRef})
+	if err != nil {
+		return err
 	}
-
-	role := roleFromRequest(r)
-	role = NormalizeGatewayRole(role, pod.Namespace, pod.AugmentedLabels)
-
-	ucc := ir.NewUniqlyConnectedClient(role, pod.Namespace, pod.AugmentedLabels, pod.Locality)
 
 	nodeMd := r.GetNode().GetMetadata()
 	if nodeMd == nil {

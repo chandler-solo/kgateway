@@ -369,7 +369,7 @@ func TestUniqueClientsFollowUpWithReusedAugmentedNode(t *testing.T) {
 		Named:           krt.Named{Name: "podname", Namespace: "ns"},
 		AugmentedLabels: driftedLabels,
 	})
-	g.Expect(cb.OnStreamRequest(1, req)).To(HaveOccurred(),
+	g.Expect(cb.OnStreamRequest(1, req)).To(MatchError(ContainSubstring("xds client identity changed")),
 		"real label drift must still close the stream even with a reused node")
 }
 
@@ -421,7 +421,8 @@ func TestUniqueClientsReidentifyOnPodChange(t *testing.T) {
 	// The next request on the SAME stream re-derives identity, detects the
 	// drift, and rejects the stream so the client re-identifies.
 	err := cb.OnStreamRequest(1, cloneReq())
-	g.Expect(err).To(HaveOccurred(), "a drifted identity must close the stream")
+	g.Expect(err).To(MatchError(fmt.Sprintf("xds client identity changed from %q to %q", staleName, freshName)),
+		"a drifted identity must close the stream")
 
 	// The reconnect (new stream id) identifies against fresh data.
 	cb.OnStreamClosed(1, nil)
@@ -433,4 +434,65 @@ func TestUniqueClientsReidentifyOnPodChange(t *testing.T) {
 		}
 		return names
 	}, "1s").Should(Equal(sets.New(freshName)), "the reconnected stream must carry the fresh identity and the stale one must be gone")
+}
+
+// A derivation failure on an ESTABLISHED stream (pod record absent from the
+// collection: informer blip, force-deleted pod, node lost) must not close the
+// stream — the client keeps serving under its established identity until
+// derivation succeeds again. This pins the derr-tolerated branch in add(); a
+// reorder that surfaces derr before the established-stream check would turn
+// every informer blip into cluster-wide stream churn.
+func TestUniqueClientsKeepIdentityWhenPodLookupFails(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	role := wellknown.GatewayApiProxyValue + "~best-proxy-role"
+	labels := map[string]string{"a": "b"}
+
+	pods := krt.NewStaticCollection[LocalityPod](nil, []LocalityPod{{
+		Named:           krt.Named{Name: "podname", Namespace: "ns"},
+		AugmentedLabels: labels,
+	}})
+
+	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
+	ucc.WaitUntilSynced(ctx.Done())
+
+	req := &envoy_service_discovery_v3.DiscoveryRequest{
+		Node: &envoycorev3.Node{
+			Id: "podname.ns",
+			Metadata: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					xds.RoleKey: structpb.NewStringValue(role),
+				},
+			},
+		},
+	}
+	cloneReq := func() *envoy_service_discovery_v3.DiscoveryRequest {
+		return proto.Clone(req).(*envoy_service_discovery_v3.DiscoveryRequest)
+	}
+
+	uniqueName := fmt.Sprintf("%s~%d~ns", role, utils.HashLabels(labels))
+
+	// Establish the stream while the pod is resolvable.
+	g.Expect(cb.OnStreamRequest(1, cloneReq())).To(Succeed(), "first contact with the pod present must succeed")
+	g.Eventually(func() []ir.UniqlyConnectedClient { return ucc.List() }, "1s").Should(HaveLen(1),
+		"the client must be registered")
+
+	// The pod record disappears while the stream stays open.
+	pods.DeleteObject(krt.Named{Name: "podname", Namespace: "ns"}.ResourceName())
+
+	// Follow-ups keep serving under the established identity instead of
+	// churning the stream.
+	for range 3 {
+		g.Expect(cb.OnStreamRequest(1, cloneReq())).To(Succeed(),
+			"a pod-lookup failure on an established stream must not close it")
+	}
+	g.Expect(ucc.List()).To(HaveLen(1), "the established client must remain registered")
+	g.Expect(ucc.List()[0].ResourceName()).To(Equal(uniqueName), "the established identity must be retained")
+
+	// A NEW stream during the same outage is still rejected (no identity to
+	// fall back on).
+	g.Expect(cb.OnStreamRequest(2, cloneReq())).To(MatchError(ContainSubstring("pod not found for node")),
+		"a first request without a resolvable pod must be rejected")
 }

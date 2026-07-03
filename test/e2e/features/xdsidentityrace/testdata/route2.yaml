@@ -15,5 +15,7 @@ spec:
             type: PathPrefix
             value: /route2
       backendRefs:
-        - name: xdsrace-backend
-          port: 8080
+        # The shared backend deployed by the base TestKgateway setup in
+        # kgateway-base; this route only exists to force xDS pushes.
+        - name: backend
+          port: 80
