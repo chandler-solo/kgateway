@@ -13,16 +13,6 @@ type testClusterCols struct {
 	deltas krt.StaticCollection[uccClusterDelta]
 }
 
-// updateDelta inserts or replaces a per-client delta entry.
-func (c *testClusterCols) updateDelta(in uccWithCluster) {
-	c.deltas.UpdateObject(uccClusterDelta{
-		Client:         in.Client,
-		Name:           in.Name,
-		Cluster:        in.Cluster,
-		ClusterVersion: in.ClusterVersion,
-	})
-}
-
 // newTestPerClientClustersRaw builds a PerClientEnvoyClusters directly from
 // base and delta entries, giving tests full control over the merge inputs
 // (e.g. a base and a delta sharing a name). Prefer newTestPerClientClusters

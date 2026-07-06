@@ -143,13 +143,16 @@ func (g *firstPublishGate) firePending(
 	if hasPriorXDSVersion != nil && hasPriorXDSVersion(proxyKey) {
 		logger.Warn("first-publish budget expired, but client reported a prior xDS version; withholding deferred snapshot",
 			"proxy_key", proxyKey, "missing_clusters", st.missing, "unusable_clusters", st.unusable)
+		recordDeferredWithheld(proxyKey)
 		return
 	}
 	logger.Warn("first-publish budget expired; publishing deferred snapshot so the client can start",
 		"proxy_key", proxyKey, "missing_clusters", st.missing, "unusable_clusters", st.unusable)
 	if err := cache.SetSnapshot(ctx, proxyKey, snap); err != nil {
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+		return
 	}
+	recordBoundedPublish(proxyKey)
 }
 
 // clientDeparted cancels any pending bounded first publish for a client whose
