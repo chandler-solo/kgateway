@@ -198,7 +198,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		Listeners:          listeners,
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, clusterCol := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
@@ -218,19 +218,14 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Consistently(func() int {
 		return len(snapshots.List())
 	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
 
-	clusterCol.UpdateObject(uccWithCluster{
+	clusterCol.updateDelta(uccWithCluster{
 		Client:         ucc,
 		Name:           "cluster-b",
 		Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
@@ -281,7 +276,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		Listeners:          listeners,
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client: ucc,
 			Name:   "cluster-a",
@@ -306,12 +301,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Consistently(func() int {
@@ -378,7 +368,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 		Listeners:          listeners,
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
@@ -405,12 +395,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
@@ -612,7 +597,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
 
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
@@ -632,12 +617,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
@@ -687,7 +667,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 	}
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
 
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
@@ -707,12 +687,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
@@ -812,7 +787,7 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 	// No per-client clusters at all for this UCC — simulates a deployment with
 	// only redirect-only routes and no Service-backed backends contributing
 	// clusters. clusterSnapshot's collection handler returns nil for this UCC.
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, nil)
+	pcc, _ := newTestPerClientClusters(nil)
 	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, nil)
 
 	snapshots := snapshotPerClient(
@@ -825,12 +800,7 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
