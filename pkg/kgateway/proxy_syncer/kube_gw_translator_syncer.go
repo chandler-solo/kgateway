@@ -29,6 +29,7 @@ func (s *ProxyTranslator) syncXds(
 	logger.Log(ctx, logging.LevelTrace, "syncing xds snapshot", "proxy_key", proxyKey)
 
 	if snapWrap.deferred {
+		recordSnapshotDefer(proxyKey, snapWrap.missingReferenced, snapWrap.unusableReferenced)
 		// Per-cluster readiness resolution. The snapshot was built while some
 		// referenced cluster was not ready; decide per cluster against the
 		// currently-published snapshot instead of withholding everything:
@@ -150,6 +151,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 			"proxy_key", snapWrap.proxyKey,
 			"flip_blocking", flipBlocking,
 		)
+		recordFlipHeld(snapWrap.proxyKey)
 		for name := range publishedRefs {
 			carryRefs[name] = struct{}{}
 		}
@@ -223,6 +225,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 			"proxy_key", snapWrap.proxyKey,
 			"carried", carried,
 		)
+		recordCarriedClusters(snapWrap.proxyKey, len(carried))
 	}
 
 	return composed

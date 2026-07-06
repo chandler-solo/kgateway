@@ -165,9 +165,9 @@ func TestSettings(t *testing.T) {
 						Namespace: new(gwv1.Namespace("infra")),
 					},
 				},
-				EnableAuthMetadata: true,
+				EnableAuthMetadata:     true,
 				PerClientPublishBudget: 90 * time.Second,
-				ReferenceGrantMode: ReferenceGrantStrict,
+				ReferenceGrantMode:     ReferenceGrantStrict,
 			},
 		},
 		{

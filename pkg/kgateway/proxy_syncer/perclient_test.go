@@ -851,7 +851,6 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 	assertSnapshotCoherent(t, readyServed)
 }
 
-
 func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *testing.T) {
 	g := gomega.NewWithT(t)
 
@@ -1853,6 +1852,7 @@ func mustMessageToAny(t *testing.T, msg proto.Message) *anypb.Any {
 	}
 	return out
 }
+
 func eventuallyDeferredWrapper(t *testing.T, snapshots krt.Collection[XdsSnapWrapper]) XdsSnapWrapper {
 	t.Helper()
 
@@ -1869,6 +1869,7 @@ func eventuallyDeferredWrapper(t *testing.T, snapshots krt.Collection[XdsSnapWra
 		"expected a single wrapper marked deferred")
 	return wrap
 }
+
 func eventuallyCoherentWrapper(t *testing.T, snapshots krt.Collection[XdsSnapWrapper]) XdsSnapWrapper {
 	t.Helper()
 
