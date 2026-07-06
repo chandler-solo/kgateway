@@ -633,7 +633,7 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -731,7 +731,7 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -809,7 +809,7 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -1095,7 +1095,7 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	translator := NewProxyTranslator(cache)
+	translator := NewProxyTranslator(cache, nil, 0)
 	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
 		for _, event := range events {
 			if event.Event == controllers.EventDelete {

@@ -47,15 +47,16 @@ func (s *ProxyTranslator) syncXds(
 		//     that uses it.
 		published, err := s.xdsCache.GetSnapshot(proxyKey)
 		if err != nil {
-			// Never-published client: there is no last-good to hold or carry.
-			// Publishing an incoherent snapshot would 503 the unready routes,
-			// so withhold until the referenced clusters are ready (cold-start
-			// make-before-break, unchanged from the whole-snapshot gate).
-			logger.Info("withholding first publish until referenced clusters are ready",
-				"proxy_key", proxyKey,
-				"missing_clusters", snapWrap.missingReferenced,
-				"unusable_clusters", snapWrap.unusableReferenced,
-			)
+			// Never-published client: there is no last-good to hold or carry,
+			// and publishing an incoherent snapshot would 503 the unready
+			// routes — so withhold (cold-start make-before-break, unchanged
+			// from the whole-snapshot gate), but only up to the first-publish
+			// budget: a pod with no config at all never goes Ready and
+			// crash-loops, so past the budget the latest deferred snapshot is
+			// published anyway (see firstPublishGate). Clients that reported a
+			// prior accepted xDS version stay withheld — they are warm, not
+			// cold.
+			s.firstPublish.offerCold(ctx, s.xdsCache, snapWrap, s.hasPriorXDSVersion)
 			return
 		}
 		snap = resolveDeferredPerCluster(snapWrap, published)
@@ -66,12 +67,21 @@ func (s *ProxyTranslator) syncXds(
 	// EDS clusters that have no CLA yet (see filterEndpointResourcesForClusters),
 	// and the per-cluster resolution above only carries cluster/CLA pairs —
 	// so we do not rely on a post-hoc MakeConsistent() pass, which would also
-	// have mutated the snapshot shared with the krt cache.
-	if err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+	// have mutated the snapshot shared with the krt cache. Publication goes
+	// through the first-publish gate so it cancels any pending bounded publish
+	// and cannot race an expiring budget timer.
+	if err := s.firstPublish.publish(ctx, s.xdsCache, proxyKey, snap); err != nil {
 		// A rejected snapshot leaves the client on its previous config; surface
 		// it rather than silently dropping the update.
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 	}
+}
+
+// hasPriorXDSVersion reports whether the client reported a prior accepted xDS
+// version on connect — i.e. it may already be serving traffic even though this
+// controller has no local snapshot for it (reconnect / controller restart).
+func (s *ProxyTranslator) hasPriorXDSVersion(proxyKey string) bool {
+	return s.xdsClientState != nil && s.xdsClientState.HasPriorXDSVersion(proxyKey)
 }
 
 // publishedReferencedClusters returns the dataplane-referenced cluster set of

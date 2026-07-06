@@ -75,7 +75,7 @@ func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -156,7 +156,7 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -243,7 +243,7 @@ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T)
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
