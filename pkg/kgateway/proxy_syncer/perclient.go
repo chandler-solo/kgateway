@@ -138,8 +138,8 @@ func snapshotPerClient(
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
 		clientEndpointResources := krt.FetchOne(kctx, endpointResources, krt.FilterKey(ucc.ResourceName()))
 
-		// Defer publishing a per-client snapshot until its per-client inputs
-		// are coherent. Three guards:
+		// Build the snapshot and record, per cluster, whether its referenced
+		// inputs are ready. One transform-level guard remains:
 		//
 		//  1. If per-client endpoints haven't been derived yet for this UCC,
 		//     return nil. This handler can fire before the per-client
@@ -157,35 +157,34 @@ func snapshotPerClient(
 		//     Substituting an empty resource set keeps the function honest
 		//     against narrow edge cases (a freshly started controller before
 		//     Service informers have synced, or a configuration whose only
-		//     backends are non-K8s and all fail translation) without
-		//     weakening guards 2 and 3, which still defer if any specific
-		//     cluster reference is missing.
+		//     backends are non-K8s and all fail translation).
 		//
-		//  2. If any cluster referenced as a dataplane routing target
-		//     (RouteAction / TcpProxy) is not yet present or explicitly
-		//     errored, return nil (see findMissingReferencedClusters below).
-		//     Publishing before then would emit a partial CDS referenced by
-		//     listeners/routes and cause Envoy to return 500/NC on routes
-		//     whose clusters just happen to be in the same CDS response.
+		// The two former whole-snapshot readiness guards are now per-cluster
+		// annotations on the wrapper instead of reasons to withhold the row:
 		//
-		//  3. If any referenced EDS cluster has no matching ready
-		//     ClusterLoadAssignment in the EDS resources that would be sent,
-		//     return nil. A CLA with zero usable endpoints is not ready for
-		//     make-before-break publication: publishing CDS/RDS/LDS before EDS
-		//     catches up can make Envoy drop all hosts for a route that was
-		//     healthy before the update.
+		//  2. A cluster referenced as a dataplane routing target
+		//     (RouteAction / TcpProxy) that is not present or is explicitly
+		//     errored is recorded in missingReferenced (see
+		//     findMissingReferencedClusters below). Publishing a route that
+		//     names such a cluster would cause Envoy to return 500/NC.
 		//
-		// Returning nil removes this UCC's entry from the output collection,
-		// which surfaces as a Delete event in proxy_syncer.go's xDS
-		// subscriber. That Delete branch is intentionally a no-op so the
-		// xDS snapshot cache retains the last-published Snapshot for this
-		// client. Envoy therefore keeps serving its previous, coherent
-		// config until a new coherent snapshot overwrites it. This is what
-		// prevents an unresolvable reference — a user BackendRef typo, a
-		// plugin bug — from stranding Envoy: there is no error response on
-		// valid traffic during the defer window, only continuity.
+		//  3. A referenced EDS cluster whose ClusterLoadAssignment carries no
+		//     usable endpoint is recorded in unusableReferenced. Flipping a
+		//     route onto such a cluster before its EDS catches up would drop
+		//     all hosts for a route that was healthy before the update.
 		//
-		// BackendRef typos never reach this gate as real cluster names:
+		// A wrapper with either list non-empty is marked deferred, and
+		// syncXds resolves it per cluster against the currently-published
+		// snapshot: previously-published clusters are carried forward
+		// (make-before-break), previously-referenced clusters that scaled to
+		// zero publish their truth (the empty CLA), and only a route flip
+		// onto a newly-referenced not-yet-ready cluster is held back —
+		// everything else in the snapshot keeps flowing. An unresolvable
+		// reference — a user BackendRef typo, a plugin bug — therefore
+		// degrades only the routes that name it, instead of freezing every
+		// update for the client.
+		//
+		// BackendRef typos never reach these checks as real cluster names:
 		// IR-time resolution substitutes wellknown.BlackholeClusterName,
 		// which findMissingReferencedClusters explicitly skips.
 		//
@@ -215,36 +214,27 @@ func snapshotPerClient(
 			clusterResources.Version = fmt.Sprintf("%d", clustersForUcc.clustersHash^listenerRouteSnapshot.ClustersHash)
 			clusterResources.Items = clustersProto
 		}
-		if missingClusters := findMissingReferencedClusters(
+		missingClusters := findMissingReferencedClusters(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
 			clustersForUcc.erroredClusters,
-		); len(missingClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced clusters are ready",
-				"client", ucc.ResourceName(),
-				"missing_clusters", missingClusters,
-			)
-			return nil
-		}
+		)
 		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
 		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
 		// longer present in CDS can make go-control-plane suppress ADS responses.
 		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
-		if missingEndpointClusters := findMissingReferencedEndpointResources(
+		// Post-synthesis every EDS cluster has a CLA, so this reports exactly
+		// the referenced clusters whose CLA has no usable endpoint.
+		unusableClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
 			endpointRes.Items,
 			clustersForUcc.erroredClusters,
-		); len(missingEndpointClusters) > 0 {
-			logger.Info(
-				"defer building snapshot until all referenced EDS resources are ready",
-				"client", ucc.ResourceName(),
-				"missing_endpoint_clusters", missingEndpointClusters,
-			)
-			return nil
-		}
+		)
 
+		snap.deferred = len(missingClusters) > 0 || len(unusableClusters) > 0
+		snap.missingReferenced = missingClusters
+		snap.unusableReferenced = unusableClusters
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
@@ -255,6 +245,14 @@ func snapshotPerClient(
 		snapshot.Resources[envoycachetypes.Secret] = listenerRouteSnapshot.Secrets
 		// envoycache.NewResources(version, resource)
 		snap.snap = snapshot
+		if snap.deferred {
+			logger.Info(
+				"snapshot has unready referenced clusters; syncXds will resolve per cluster",
+				"client", ucc.ResourceName(),
+				"missing_clusters", missingClusters,
+				"unusable_clusters", unusableClusters,
+			)
+		}
 		logger.Debug("snapshots", "proxy_key", snap.proxyKey,
 			"listeners", resourcesStringer(listenerRouteSnapshot.Listeners).String(),
 			"clusters", resourcesStringer(clusterResources).String(),

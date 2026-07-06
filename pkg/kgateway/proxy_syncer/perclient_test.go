@@ -261,7 +261,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		Listeners:          listeners,
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
-	pcc, clusterCol := newTestPerClientClusters([]uccWithCluster{
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
@@ -281,26 +281,26 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		pcc,
+		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	g.Consistently(func() int {
-		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	// The wrapper is built immediately but marked deferred: cluster-b is
+	// referenced and missing, so syncXds holds the route flip (or withholds
+	// entirely for a never-published client).
+	wrap := eventuallyDeferredWrapper(t, snapshots)
+	g.Expect(wrap.missingReferenced).To(gomega.ConsistOf("cluster-b"),
+		"the missing referenced cluster must be recorded for syncXds to resolve")
+	g.Expect(mapKeys(wrap.snap.Resources[envoycachetypes.Cluster].Items)).To(gomega.ConsistOf("cluster-a"))
 
-	clusterCol.updateDelta(uccWithCluster{
+	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
 		Name:           "cluster-b",
 		Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
 		ClusterVersion: 2,
 	})
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(mapKeys(snap.Resources[envoycachetypes.Cluster].Items)).To(gomega.ConsistOf("cluster-a", "cluster-b"),
+	wrap = eventuallyCoherentWrapper(t, snapshots)
+	g.Expect(mapKeys(wrap.snap.Resources[envoycachetypes.Cluster].Items)).To(gomega.ConsistOf("cluster-a", "cluster-b"),
 		"published CDS names must exactly match the current coherent per-client cluster inputs")
 }
 
@@ -339,7 +339,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		Listeners:          listeners,
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}})
-	pcc, _ := newTestPerClientClusters([]uccWithCluster{
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
 		{
 			Client: ucc,
 			Name:   "cluster-a",
@@ -364,21 +364,20 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		pcc,
+		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	g.Consistently(func() int {
-		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0))
+	// Deferred: the referenced EDS cluster has no usable endpoint yet. Its
+	// CLA is a synthesized empty so the snapshot stays EDS-consistent.
+	wrap := eventuallyDeferredWrapper(t, snapshots)
+	g.Expect(wrap.unusableReferenced).To(gomega.ConsistOf("cluster-a"))
+	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"),
+		"the unready EDS cluster gets a synthesized empty CLA")
 
 	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-a", 3))
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
-	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
+	wrap = eventuallyCoherentWrapper(t, snapshots)
+	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"))
 }
 
 func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *testing.T) {
@@ -633,9 +632,14 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	initialSnap := eventuallySingleSnapshot(t, snapshots)
-	g.Expect(initialSnap.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
-	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	nodeID := ucc.ResourceName()
+
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
+	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	assertSnapshotCoherent(t, initialServed)
 
 	updatedRoutes := routeResourcesForClusters("cluster-new")
 	updated := initial
@@ -644,43 +648,48 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(clusterNew)
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
-		"the route update to cluster-new must be deferred until the matching EDS resource exists")
+	// The flip onto cluster-new is held while its EDS is absent: the served
+	// routes keep targeting cluster-old, but cluster-new already enters the
+	// served CDS (with a synthesized empty CLA) so it can warm — the
+	// reference-ahead shape.
+	var heldServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(heldServed, "cluster-old") &&
+			!snapshotReferencesCluster(heldServed, "cluster-new") &&
+			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"the route flip must be held while cluster-new warms in the served CDS")
+	assertSnapshotCoherent(t, heldServed)
 
 	endpointCol.UpdateObject(endpointNew)
 
-	var warmedSnap *envoycache.Snapshot
+	var warmedServed *envoycache.Snapshot
 	g.Eventually(func() bool {
-		warmedSnap = eventuallyCurrentSnapshot(snapshots)
-		if warmedSnap == nil {
-			return false
-		}
-		return snapshotReferencesCluster(warmedSnap, "cluster-new") &&
-			hasResource(warmedSnap.Resources[envoycachetypes.Cluster].Items, "cluster-new") &&
-			hasResource(warmedSnap.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+		warmedServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(warmedServed, "cluster-new") &&
+			hasResource(warmedServed.Resources[envoycachetypes.Cluster].Items, "cluster-new") &&
+			hasResource(warmedServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"once CDS and EDS for cluster-new are present, the route update can publish")
+		"once CDS and EDS for cluster-new are ready, the held route flip publishes")
+	assertSnapshotCoherent(t, warmedServed)
 
 	clusterCol.DeleteObject(clusterOld.ResourceName())
 	endpointCol.DeleteObject(endpointOld.ResourceName())
 
-	var finalSnap *envoycache.Snapshot
+	var finalServed *envoycache.Snapshot
 	g.Eventually(func() bool {
-		finalSnap = eventuallyCurrentSnapshot(snapshots)
-		if finalSnap == nil {
-			return false
-		}
-		clusters := finalSnap.Resources[envoycachetypes.Cluster].Items
-		endpoints := finalSnap.Resources[envoycachetypes.Endpoint].Items
-		return snapshotReferencesCluster(finalSnap, "cluster-new") &&
+		finalServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		clusters := finalServed.Resources[envoycachetypes.Cluster].Items
+		endpoints := finalServed.Resources[envoycachetypes.Endpoint].Items
+		return snapshotReferencesCluster(finalServed, "cluster-new") &&
 			hasResource(clusters, "cluster-new") &&
 			!hasResource(clusters, "cluster-old") &&
 			hasResource(endpoints, "cluster-new") &&
 			!hasResource(endpoints, "cluster-old")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
 		"old cluster resources should be removable after the active route has moved to the warmed cluster")
+	assertSnapshotCoherent(t, finalServed)
 }
 
 func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint(t *testing.T) {
@@ -721,9 +730,14 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	initialSnap := eventuallySingleSnapshot(t, snapshots)
-	g.Expect(snapshotReferencesCluster(initialSnap, "cluster-old")).To(gomega.BeTrue())
-	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	nodeID := ucc.ResourceName()
+
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	assertSnapshotCoherent(t, initialServed)
 
 	updatedRoutes := routeResourcesForClusters("cluster-new")
 	updated := initial
@@ -733,23 +747,28 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 	clusterCol.UpdateObject(clusterNew)
 	endpointCol.UpdateObject(endpointNewEmpty)
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
-		"an empty CLA must not publish a route update to the new cluster")
+	// The empty CLA is not usable, so the flip onto cluster-new is held:
+	// served routes keep targeting cluster-old while cluster-new warms.
+	var heldServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(heldServed, "cluster-old") &&
+			!snapshotReferencesCluster(heldServed, "cluster-new") &&
+			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"an empty CLA must not flip the served route onto the new cluster")
+	assertSnapshotCoherent(t, heldServed)
 
 	endpointCol.UpdateObject(endpointNewReady)
 
-	var readySnap *envoycache.Snapshot
+	var readyServed *envoycache.Snapshot
 	g.Eventually(func() bool {
-		readySnap = eventuallyCurrentSnapshot(snapshots)
-		if readySnap == nil {
-			return false
-		}
-		return snapshotReferencesCluster(readySnap, "cluster-new") &&
-			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+		readyServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(readyServed, "cluster-new") &&
+			hasResource(readyServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"once the CLA contains a usable endpoint, the route update can publish")
+		"once the CLA contains a usable endpoint, the held route flip publishes")
+	assertSnapshotCoherent(t, readyServed)
 }
 
 func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T) {
@@ -789,9 +808,14 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	initialSnap := eventuallySingleSnapshot(t, snapshots)
-	g.Expect(snapshotReferencesCluster(initialSnap, "cluster-old")).To(gomega.BeTrue())
-	g.Expect(initialSnap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	registerSyncXds(snapshots, NewProxyTranslator(cache))
+	nodeID := ucc.ResourceName()
+
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
+	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
+	assertSnapshotCoherent(t, initialServed)
 
 	updatedRoutes := weightedRouteResourcesForClusters("cluster-old", "cluster-new")
 	updated := initial
@@ -800,116 +824,33 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(clusterNew)
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
-		"the weighted route update must be deferred until every referenced EDS cluster has a usable endpoint")
+	// The weighted split is held while cluster-new has no usable endpoints:
+	// the served routes keep sending 100% to cluster-old while cluster-new
+	// warms in the served CDS.
+	var heldServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(heldServed, "cluster-old") &&
+			!snapshotReferencesCluster(heldServed, "cluster-new") &&
+			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"the weighted split must be held until every referenced EDS cluster has a usable endpoint")
+	assertSnapshotCoherent(t, heldServed)
 
 	endpointCol.UpdateObject(endpointNew)
 
-	var readySnap *envoycache.Snapshot
+	var readyServed *envoycache.Snapshot
 	g.Eventually(func() bool {
-		readySnap = eventuallyCurrentSnapshot(snapshots)
-		if readySnap == nil {
-			return false
-		}
-		return snapshotReferencesCluster(readySnap, "cluster-old") &&
-			snapshotReferencesCluster(readySnap, "cluster-new") &&
-			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-old") &&
-			hasResource(readySnap.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+		readyServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(readyServed, "cluster-old") &&
+			snapshotReferencesCluster(readyServed, "cluster-new") &&
+			hasResource(readyServed.Resources[envoycachetypes.Endpoint].Items, "cluster-old") &&
+			hasResource(readyServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"once both weighted route CLAs contain usable endpoints, the weighted route update can publish")
+		"once both weighted route CLAs contain usable endpoints, the weighted split publishes")
+	assertSnapshotCoherent(t, readyServed)
 }
 
-func TestSnapshotPerClientDeleteDuringPartialUpdateRetainsServedCache(t *testing.T) {
-	g := gomega.NewWithT(t)
-
-	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
-	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
-	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
-
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
-	initialRoutes := routeResourcesForClusters("cluster-old")
-	initial := GatewayXdsResources{
-		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
-		Routes:             initialRoutes,
-		Listeners:          listeners,
-		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
-	}
-	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
-
-	clusterOld := edsClusterForClient(ucc, "cluster-old", 1)
-	clusterNew := edsClusterForClient(ucc, "cluster-new", 2)
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterOld})
-	endpointOld := endpointsForClient(ucc, "cluster-old", 3)
-	endpointNew := endpointsForClient(ucc, "cluster-new", 4)
-	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{endpointOld})
-
-	snapshots := snapshotPerClient(
-		krtutil.KrtOptions{},
-		uccs,
-		mostXdsSnapshots,
-		PerClientEnvoyEndpoints{
-			endpoints: endpointCol,
-			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
-				return []string{ep.Client.ResourceName()}
-			}),
-		},
-		newTestPerClientClustersFromCol(clusterCol),
-	)
-
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	translator := NewProxyTranslator(cache)
-	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
-		for _, event := range events {
-			if event.Event == controllers.EventDelete {
-				continue
-			}
-			translator.syncXds(context.Background(), event.Latest())
-		}
-	}, true)
-
-	nodeID := ucc.ResourceName()
-	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
-	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
-	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
-	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"))
-	initialClusterVersion := initialServed.Resources[envoycachetypes.Cluster].Version
-	initialEndpointVersion := initialServed.Resources[envoycachetypes.Endpoint].Version
-
-	updatedRoutes := routeResourcesForClusters("cluster-new")
-	updated := initial
-	updated.Routes = updatedRoutes
-	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
-	mostXdsSnapshots.UpdateObject(updated)
-	clusterCol.UpdateObject(clusterNew)
-
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(0),
-		"partial update should surface as a per-client delete/defer event")
-
-	retainedServed := eventuallyCacheSnapshot(t, cache, nodeID)
-	g.Expect(snapshotReferencesCluster(retainedServed, "cluster-old")).To(gomega.BeTrue(),
-		"served cache must retain the old coherent route during the defer window")
-	g.Expect(snapshotReferencesCluster(retainedServed, "cluster-new")).To(gomega.BeFalse(),
-		"partial route must not overwrite the served cache before EDS is ready")
-	g.Expect(retainedServed.Resources[envoycachetypes.Cluster].Version).To(gomega.Equal(initialClusterVersion))
-	g.Expect(retainedServed.Resources[envoycachetypes.Endpoint].Version).To(gomega.Equal(initialEndpointVersion))
-
-	endpointCol.UpdateObject(endpointNew)
-
-	var coherentServed *envoycache.Snapshot
-	g.Eventually(func() bool {
-		coherentServed = eventuallyCacheSnapshot(t, cache, nodeID)
-		return snapshotReferencesCluster(coherentServed, "cluster-new") &&
-			hasResource(coherentServed.Resources[envoycachetypes.Cluster].Items, "cluster-new") &&
-			hasResource(coherentServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
-	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"coherent input should overwrite the retained cache once EDS catches up")
-	g.Expect(coherentServed.Resources[envoycachetypes.Cluster].Version).ToNot(gomega.Equal(initialClusterVersion))
-	g.Expect(coherentServed.Resources[envoycachetypes.Endpoint].Version).ToNot(gomega.Equal(initialEndpointVersion))
-}
 
 func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *testing.T) {
 	g := gomega.NewWithT(t)
@@ -919,7 +860,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *tes
 
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
 	routes := routeResourcesForClusters("cluster-a")
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
 		Routes:             routes,
@@ -944,20 +885,20 @@ func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *tes
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	g.Consistently(func() int {
-		return len(snapshots.List())
-	}, 200*time.Millisecond, 20*time.Millisecond).Should(gomega.Equal(0),
-		"cluster EDS service_name should defer until that CLA exists")
+	// Deferred: the referenced EDS cluster resolves its CLA by service_name,
+	// which has no usable endpoint yet (synthesized empty).
+	wrap := eventuallyDeferredWrapper(t, snapshots)
+	g.Expect(wrap.unusableReferenced).To(gomega.ConsistOf("cluster-a"))
+	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"),
+		"the synthesized empty CLA must use the EDS service_name")
 
 	endpointCol.UpdateObject(endpointsForClient(ucc, "backend-service", 3))
 
-	g.Eventually(func() int {
-		return len(snapshots.List())
-	}, time.Second, 20*time.Millisecond).Should(gomega.Equal(1))
-
-	snap := snapshots.List()[0].snap
+	wrap = eventuallyCoherentWrapper(t, snapshots)
+	snap := wrap.snap
 	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"))
 	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).ToNot(gomega.HaveKey("cluster-a"))
+	assertSnapshotCoherent(t, snap)
 }
 
 func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved(t *testing.T) {
@@ -1911,4 +1852,75 @@ func mustMessageToAny(t *testing.T, msg proto.Message) *anypb.Any {
 		t.Fatalf("marshal Any: %v", err)
 	}
 	return out
+}
+func eventuallyDeferredWrapper(t *testing.T, snapshots krt.Collection[XdsSnapWrapper]) XdsSnapWrapper {
+	t.Helper()
+
+	g := gomega.NewWithT(t)
+	var wrap XdsSnapWrapper
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 {
+			return false
+		}
+		wrap = list[0]
+		return wrap.deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"expected a single wrapper marked deferred")
+	return wrap
+}
+func eventuallyCoherentWrapper(t *testing.T, snapshots krt.Collection[XdsSnapWrapper]) XdsSnapWrapper {
+	t.Helper()
+
+	g := gomega.NewWithT(t)
+	var wrap XdsSnapWrapper
+	g.Eventually(func() bool {
+		list := snapshots.List()
+		if len(list) != 1 {
+			return false
+		}
+		wrap = list[0]
+		return !wrap.deferred
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"expected a single coherent (non-deferred) wrapper")
+	return wrap
+}
+
+// registerSyncXds wires a test ProxyTranslator to the wrapper collection the
+// way proxy_syncer does in production: every non-delete event is pushed
+// through syncXds against the translator's snapshot cache.
+func registerSyncXds(snapshots krt.Collection[XdsSnapWrapper], translator ProxyTranslator) {
+	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			if event.Event == controllers.EventDelete {
+				continue
+			}
+			translator.syncXds(context.Background(), event.Latest())
+		}
+	}, true)
+}
+
+// assertSnapshotCoherent verifies the published snapshot's internal
+// invariants: go-control-plane consistency (every EDS cluster has exactly one
+// CLA, no CLA without a cluster) and reference closure (every route/listener-
+// referenced cluster exists in CDS, so Envoy cannot 500/NC on a published
+// route).
+func assertSnapshotCoherent(t *testing.T, snap *envoycache.Snapshot) {
+	t.Helper()
+	if err := snap.Consistent(); err != nil {
+		t.Fatalf("snapshot not consistent: %v", err)
+	}
+	refs := collectReferencedClusters(
+		snap.Resources[envoycachetypes.Route],
+		snap.Resources[envoycachetypes.Listener],
+	)
+	clusters := snap.Resources[envoycachetypes.Cluster].Items
+	for name := range refs {
+		if name == wellknown.BlackholeClusterName {
+			continue
+		}
+		if _, ok := clusters[name]; !ok {
+			t.Fatalf("route/listener references cluster %q absent from CDS", name)
+		}
+	}
 }
