@@ -92,12 +92,7 @@ func TestSnapshotPerClientPublishesConsistentSnapshotForUnreferencedEDSClusterWi
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(c uccWithCluster) []string {
-				return []string{c.Client.ResourceName()}
-			}),
-		},
+		newTestPerClientClustersFromCol(clusterCol),
 	)
 
 	snap := eventuallySingleSnapshot(t, snapshots)
