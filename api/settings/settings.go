@@ -332,6 +332,18 @@ type Settings struct {
 	// Enables setting the `dev.kgateway.auth_policy:auth_succeeded=true` dynamic metadata on successfully-authenticated routes.
 	EnableAuthMetadata bool `split_words:"true" default:"false"`
 
+	// PerClientPublishBudget bounds how long a per-client xDS snapshot is
+	// withheld from a client that has NEVER been published one, while its
+	// referenced clusters are not yet ready. When the budget expires the
+	// latest deferred snapshot is published as-is (it is always internally
+	// consistent) so a freshly scheduled gateway pod binds its listeners and
+	// becomes Ready instead of crash-looping; routes to still-unready
+	// clusters return 503 until they cohere. Clients that reported a prior
+	// accepted xDS version on connect are treated as warm and stay withheld.
+	// A value of 0 disables the bound: never-published clients wait for
+	// coherence with no deadline.
+	PerClientPublishBudget time.Duration `split_words:"true" default:"15s"`
+
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
 	// Supported values are:
 	// - "OFF": No ReferenceGrant validation. All cross-namespace references are permitted.

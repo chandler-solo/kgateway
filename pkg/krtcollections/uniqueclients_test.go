@@ -189,7 +189,7 @@ func TestUniqueClients(t *testing.T) {
 				pods.WaitUntilSynced(context.Background().Done())
 			}
 
-			cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+			cb, uccBuilder, _ := NewUniquelyConnectedClients(nil, false)
 			ucc := uccBuilder(context.Background(), krtutil.KrtOptions{}, pods)
 			ucc.WaitUntilSynced(context.Background().Done())
 
@@ -334,7 +334,7 @@ func TestUniqueClientsFollowUpWithReusedAugmentedNode(t *testing.T) {
 		AugmentedLabels: labels,
 	}})
 
-	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	cb, uccBuilder, _ := NewUniquelyConnectedClients(nil, false)
 	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
 	ucc.WaitUntilSynced(ctx.Done())
 
@@ -386,7 +386,7 @@ func TestUniqueClientsReidentifyOnPodChange(t *testing.T) {
 		AugmentedLabels: staleLabels,
 	}})
 
-	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	cb, uccBuilder, _ := NewUniquelyConnectedClients(nil, false)
 	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
 	ucc.WaitUntilSynced(ctx.Done())
 
@@ -454,7 +454,7 @@ func TestUniqueClientsKeepIdentityWhenPodLookupFails(t *testing.T) {
 		AugmentedLabels: labels,
 	}})
 
-	cb, uccBuilder := NewUniquelyConnectedClients(nil, false)
+	cb, uccBuilder, _ := NewUniquelyConnectedClients(nil, false)
 	ucc := uccBuilder(ctx, krtutil.KrtOptions{}, pods)
 	ucc.WaitUntilSynced(ctx.Done())
 
