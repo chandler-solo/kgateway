@@ -257,7 +257,8 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		krtopts,
 		s.uniqueClients,
 		newFinalBackendEndpoints(krtopts, finalBackends, allEndpoints),
-		s.translator.TranslateEndpoints,
+		s.translator.ResolveEndpoints,
+		s.translator.BuildClusterLoadAssignment,
 	)
 	localClusterEpPerClient := NewPerClientLocalClusterEndpoints(
 		krtopts,
@@ -313,7 +314,7 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 		if kgwBackendCol != nil {
 			kgwBackends = krt.Fetch(kctx, kgwBackendCol)
 		}
-		clusters := krt.Fetch(kctx, clustersPerClient.clusters)
+		clusters := clustersPerClient.FetchForStatus(kctx)
 		var extraConditions []ir.BackendObjectStatus
 		if kgwBackendExtraConditions != nil {
 			extraConditions = krt.Fetch(kctx, kgwBackendExtraConditions)

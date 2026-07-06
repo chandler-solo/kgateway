@@ -34,17 +34,31 @@ type (
 	) uint64
 )
 
-// TODO: consider changing PerClientProcessBackend to look like this:
-// PerClientProcessBackend  func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR)
-// so that it only attaches the policy to the backend, and doesn't modify the backend (except for attached policies) or the cluster itself.
-// leaving as is for now as this requires better understanding of how krt would handle this.
-type PerClientProcessBackend func(
+// ClusterOverlay carries per-client cluster mutations.
+//
+// The framework only retains an overlay entry when the plugin returns a
+// non-nil value. The plugin is therefore responsible for performing the
+// cheap up-front check (e.g. "does this UCC even have the relevant label?")
+// and returning nil for the common case where no mutation applies. This is
+// what lets the per-client cluster collection stay sparse: with N UCCs and
+// M backends, only the K pairs that genuinely vary materialize an entry,
+// rather than N*M.
+//
+// Mutate is invoked exactly once with a fresh clone of the base cluster. It
+// must not retain a reference to its argument after returning.
+type ClusterOverlay struct {
+	Mutate func(out *envoyclusterv3.Cluster)
+}
+
+// PerClientClusterOverlay is the per-client cluster mutation hook.
+// Returning nil means "this (ucc, backend) pair needs no per-client cluster
+// changes from this plugin". See [ClusterOverlay].
+type PerClientClusterOverlay func(
 	kctx krt.HandlerContext,
 	ctx context.Context,
 	ucc ir.UniquelyConnectedClient,
 	in ir.BackendObjectIR,
-	out *envoyclusterv3.Cluster,
-)
+) *ClusterOverlay
 
 type (
 	// GetPolicyStatusFn is a type that plugins can implement to get the PolicyStatus for the given policy
@@ -61,7 +75,7 @@ type PolicyPlugin struct {
 
 	// Backend processing for envoy proxy
 	ProcessBackend            ProcessBackend
-	PerClientProcessBackend   PerClientProcessBackend
+	PerClientClusterOverlay   PerClientClusterOverlay
 	PerClientProcessEndpoints EndpointPlugin
 
 	Policies krt.Collection[ir.PolicyWrapper]
