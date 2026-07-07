@@ -188,17 +188,19 @@ type priorXDSVersionReader interface {
 type ProxyTranslator struct {
 	xdsCache       envoycache.SnapshotCache
 	xdsClientState priorXDSVersionReader
-	// firstPublish bounds how long a never-published client waits for its
-	// referenced clusters to become ready (see firstpublish.go). Pointer so
-	// the state is shared across ProxyTranslator copies.
-	firstPublish *firstPublishGate
+	// gate bounds how long publication may be withheld from a client while
+	// its referenced clusters are unready — the first publish for a
+	// never-published client and the release of a held route flip (see
+	// publish_gate.go). Pointer so the state is shared across ProxyTranslator
+	// copies.
+	gate *publishGate
 }
 
-func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader, firstPublishBudget time.Duration) ProxyTranslator {
+func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader, publishBudget time.Duration) ProxyTranslator {
 	return ProxyTranslator{
 		xdsCache:       xdsCache,
 		xdsClientState: xdsClientState,
-		firstPublish:   newFirstPublishGate(firstPublishBudget),
+		gate:           newPublishGate(publishBudget),
 	}
 }
 
@@ -438,15 +440,15 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 				// readiness deferral no longer removes rows (deferred
 				// wrappers stay present, annotated), a Delete now means the
 				// client departed or a transform-level input briefly
-				// vanished; cancel any pending bounded first publish so a
-				// timer cannot fire for a client that is gone (a live client
-				// re-arms it with its next deferred wrapper).
+				// vanished; cancel any pending bounded first publish or flip
+				// release so a timer cannot fire for a client that is gone (a
+				// live client re-arms it with its next deferred wrapper).
 				//
 				// Known leak: the SnapshotCache entry for a departed UCC is
 				// never cleared and accumulates over the controller's
 				// lifetime. Pre-existing behavior; reclaiming these entries
 				// is a separate follow-up (#14307).
-				s.proxyTranslator.firstPublish.clientDeparted(e.Latest().ResourceName())
+				s.proxyTranslator.gate.clientDeparted(e.Latest().ResourceName())
 			}
 
 			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{

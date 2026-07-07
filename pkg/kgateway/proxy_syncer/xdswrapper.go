@@ -34,19 +34,24 @@ type XdsSnapWrapper struct {
 	// deferred marks a snapshot built while some referenced cluster was not
 	// ready (see snapshotPerClient's guards). syncXds resolves it per cluster
 	// against the currently-published snapshot: previously-published clusters
-	// are carried forward, previously-referenced clusters with no usable
-	// endpoints publish their truth (scale-to-zero), and only a route flip
-	// onto a newly-referenced not-yet-ready cluster is held back.
+	// are carried forward, previously-referenced clusters whose CLA row
+	// vanished publish the synthesized empty (their slices are gone — that is
+	// the truth), and a route flip onto a newly-referenced not-yet-derived
+	// cluster is held back for at most the publish budget (see publishGate).
 	// +noKrtEquals (derived from snapshot contents whose per-type versions Equals compares)
 	deferred bool
 	// missingReferenced lists referenced clusters absent from this snapshot's
 	// CDS (translation lagging, or the backend is gone). Sorted.
 	// +noKrtEquals (derived: a change implies a CDS or RDS/LDS version change)
 	missingReferenced []string
-	// unusableReferenced lists referenced EDS clusters whose CLA carries no
-	// usable endpoint. Sorted.
+	// missingEndpointsReferenced lists referenced EDS clusters whose CLA was
+	// not derived by the per-client endpoints collection; a synthesized empty
+	// stands in for it in the snapshot, and whether the backend has endpoints
+	// is unknown (derivation lag, or ExternalName which never produces
+	// EndpointSlices). A derived-but-empty CLA is the backend's known truth
+	// and is NOT listed (#14352). Sorted.
 	// +noKrtEquals (derived: a change implies an EDS version change)
-	unusableReferenced []string
+	missingEndpointsReferenced []string
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {

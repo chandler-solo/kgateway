@@ -6,12 +6,13 @@ package proxy_syncer
 // cluster is not ready; syncXds resolves the gaps per cluster against the
 // currently-published snapshot:
 //
-//   - a previously-referenced cluster whose endpoints scale to zero
-//     publishes its truth — the empty CLA — so Envoy stops routing to
-//     endpoints that no longer exist;
-//   - a newly-referenced cluster that is not yet ready holds only the route
-//     flip; every other update (other clusters' endpoints, the warming
-//     cluster's own CDS entry) keeps publishing.
+//   - a cluster whose CLA row was derived publishes that row as the
+//     backend's truth even when it is empty (scale-to-zero, #14352) — such
+//     a snapshot is not deferred at all;
+//   - a newly-referenced cluster whose CLA has NOT been derived holds only
+//     the route flip (bounded by the publish budget); every other update
+//     (other clusters' endpoints, the warming cluster's own CDS entry)
+//     keeps publishing.
 
 import (
 	"errors"
@@ -36,8 +37,10 @@ import (
 // TestSnapshotPerClientScaleToZeroPublishesEmptyCLA: when a previously-active
 // cluster's Service scales to zero, the now-empty ClusterLoadAssignment
 // publishes so Envoy stops routing to dead endpoints (the original "traffic
-// to upstream endpoints which no longer exist" complaint, #14184). The old
-// whole-snapshot gate deferred this forever.
+// to upstream endpoints which no longer exist" complaint, #14184). The
+// derived-but-empty row is the backend's truth: the wrapper is not even
+// deferred, so it publishes on the plain path with no resolution or budget
+// involved (#14352).
 func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
 	g := gomega.NewWithT(t)
 
@@ -113,11 +116,13 @@ func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
 }
 
 // TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip covers the isolation
-// half of the flip hold: while a newly-referenced cluster is warming (a probe
-// backend that sits at zero endpoints indefinitely), only the route flip is
-// held. The warming cluster's CDS entry and every unrelated update keep
-// publishing — the old whole-snapshot gate stranded them all behind the one
-// unready backend.
+// half of the flip hold: while a newly-referenced cluster's CLA has not been
+// derived (a backend that never produces EndpointSlices, or derivation that
+// has not caught up), only the route flip is held. The warming cluster's CDS
+// entry and every unrelated update keep publishing — the old whole-snapshot
+// gate stranded them all behind the one unready backend. (These tests run
+// with budget 0, so the hold itself is unbounded here; the flip-release
+// bound is covered in publish_gate_test.go.)
 func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	g := gomega.NewWithT(t)
 
@@ -164,17 +169,17 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	initialEndpointVersion := initialServed.Resources[envoycachetypes.Endpoint].Version
 	initialRouteVersion := initialServed.Resources[envoycachetypes.Route].Version
 
-	// Routes now additionally reference cluster-new (a probe backend that
-	// will sit at zero endpoints indefinitely). Its cluster and empty CLA
-	// arrive; the cluster never becomes usable. Meanwhile cluster-old's
-	// endpoints change.
+	// Routes now additionally reference cluster-new, a backend whose CLA is
+	// never derived (an ExternalName-like backend with no EndpointSlices, or
+	// derivation that has not caught up). Its cluster arrives; a synthesized
+	// empty CLA stands in indefinitely. Meanwhile cluster-old's endpoints
+	// change.
 	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
 	updated := initial
 	updated.Routes = updatedRoutes
 	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
-	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 4))
 	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-old", 5))
 
 	// C3 isolation: only the flip onto cluster-new is held. The warming
@@ -250,7 +255,7 @@ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T)
 	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
 
 	// Simultaneously: routes retarget to additionally reference cluster-new
-	// (which never becomes ready, so the flip is held), and cluster-old's
+	// (whose CLA is never derived, so the flip is held), and cluster-old's
 	// translation goes errored (e.g. its BackendTLSPolicy became invalid).
 	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
 	updated := initial
@@ -258,7 +263,6 @@ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T)
 	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
-	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 4))
 	erroredOld := clusterOld
 	erroredOld.Error = errors.New("backend tls policy references a nonexistent ca certificate")
 	// Mirror production versioning: baseClusterVersion returns 0 for an

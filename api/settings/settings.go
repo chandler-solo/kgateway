@@ -332,16 +332,28 @@ type Settings struct {
 	// Enables setting the `dev.kgateway.auth_policy:auth_succeeded=true` dynamic metadata on successfully-authenticated routes.
 	EnableAuthMetadata bool `split_words:"true" default:"false"`
 
-	// PerClientPublishBudget bounds how long a per-client xDS snapshot is
-	// withheld from a client that has NEVER been published one, while its
-	// referenced clusters are not yet ready. When the budget expires the
-	// latest deferred snapshot is published as-is (it is always internally
-	// consistent) so a freshly scheduled gateway pod binds its listeners and
-	// becomes Ready instead of crash-looping; routes to still-unready
-	// clusters return 503 until they cohere. Clients that reported a prior
-	// accepted xDS version on connect are treated as warm and stay withheld.
-	// A value of 0 disables the bound: never-published clients wait for
-	// coherence with no deadline.
+	// PerClientPublishBudget bounds how long per-client xDS publication may
+	// be withheld while referenced clusters are not yet ready. It governs:
+	//
+	//   - first publish: a client that has NEVER been published a snapshot
+	//     receives the latest deferred snapshot at expiry (it is always
+	//     internally consistent), so a freshly scheduled gateway pod binds
+	//     its listeners and becomes Ready instead of crash-looping; routes
+	//     to still-unready clusters return 503 until they cohere. Clients
+	//     that reported a prior accepted xDS version on connect are warm:
+	//     they stay withheld while referenced clusters are missing from CDS,
+	//     but publish at expiry when the only gaps are clusters whose
+	//     endpoints were never derived (that is the backends' steady state,
+	//     e.g. an ExternalName Service, not a transient race).
+	//   - flip release: a route flip held because it targets a
+	//     newly-referenced cluster with no derived endpoints is published at
+	//     expiry, so a reference that never becomes ready cannot pin the
+	//     client's route/listener/secret updates indefinitely.
+	//
+	// Keep the budget well below the gateway proxy's startup probe window
+	// (60s by default): a first publish bounded above the probe window
+	// recreates the crash loop the bound exists to prevent. A value of 0
+	// disables all bounds: clients wait for coherence with no deadline.
 	PerClientPublishBudget time.Duration `split_words:"true" default:"15s"`
 
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.

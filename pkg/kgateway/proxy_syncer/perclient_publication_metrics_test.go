@@ -32,7 +32,7 @@ func TestPublicationMetrics_DeferAndBoundedPublish(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	pt := newFirstPublishTestTranslator(false, 30*time.Millisecond)
+	pt := newPublishGateTestTranslator(false, 30*time.Millisecond)
 	pt.syncXds(ctx, deferredWrapperV("v1"))
 	require.Eventually(t, func() bool {
 		_, ok := publishedListenerVersion(t, pt)
@@ -56,15 +56,39 @@ func TestPublicationMetrics_DeferAndBoundedPublish(t *testing.T) {
 	})
 }
 
+// A held route flip released at budget expiry increments
+// bounded_publishes_total{flip_release}.
+func TestPublicationMetrics_FlipRelease(t *testing.T) {
+	ResetMetrics()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	pt := newPublishGateTestTranslator(false, 30*time.Millisecond)
+	_, flipWrap := flipHoldFixture(t, pt)
+	pt.syncXds(ctx, flipWrap)
+	require.Eventually(t, func() bool {
+		return snapshotReferencesCluster(servedSnapshot(t, pt), "cluster-new")
+	}, 2*time.Second, 5*time.Millisecond)
+
+	g := metricstest.MustGatherMetricsContext(ctx, t,
+		"kgateway_xds_snapshot_perclient_bounded_publishes_total")
+	g.AssertMetricsInclude("kgateway_xds_snapshot_perclient_bounded_publishes_total", []metricstest.ExpectMetric{
+		&metricstest.ExpectedMetricValueTest{
+			Labels: labelsWith("mode", boundedPublishFlipRelease),
+			Test:   metricstest.Equal(1),
+		},
+	})
+}
+
 // A warm client published at budget expiry because its only gaps were
-// endpoint-less clusters increments bounded_publishes_total{warm_truth}.
+// clusters with no derived CLA increments bounded_publishes_total{warm_truth}.
 func TestPublicationMetrics_WarmTruthBoundedPublish(t *testing.T) {
 	ResetMetrics()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	pt := newFirstPublishTestTranslator(true, 30*time.Millisecond)
-	pt.syncXds(ctx, deferredUnusableWrapperV("v1"))
+	pt := newPublishGateTestTranslator(true, 30*time.Millisecond)
+	pt.syncXds(ctx, deferredMissingEndpointsWrapperV("v1"))
 	require.Eventually(t, func() bool {
 		_, ok := publishedListenerVersion(t, pt)
 		return ok
@@ -87,7 +111,7 @@ func TestPublicationMetrics_DeferredWithheld(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	pt := newFirstPublishTestTranslator(true, 30*time.Millisecond)
+	pt := newPublishGateTestTranslator(true, 30*time.Millisecond)
 	pt.syncXds(ctx, deferredWrapperV("v1"))
 	time.Sleep(150 * time.Millisecond) // past the budget; withheld, not published
 
@@ -108,7 +132,7 @@ func TestPublicationMetrics_CarriedClusters(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	pt := newFirstPublishTestTranslator(false, 0)
+	pt := newPublishGateTestTranslator(false, 0)
 
 	// Publish a coherent snapshot containing cluster-missing, then a deferred
 	// build that lost it: resolution carries it forward.

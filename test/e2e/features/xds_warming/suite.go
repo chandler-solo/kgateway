@@ -40,6 +40,9 @@ var (
 	backendNewManifest          = filepath.Join(fsutils.MustGetThisDir(), "testdata", "backend-new.yaml")
 	startupServiceRouteManifest = filepath.Join(fsutils.MustGetThisDir(), "testdata", "startup-service-route.yaml")
 	startupBackendManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "startup-backend.yaml")
+	emptyRouteManifest          = filepath.Join(fsutils.MustGetThisDir(), "testdata", "empty-route.yaml")
+	canaryRouteManifest         = filepath.Join(fsutils.MustGetThisDir(), "testdata", "canary-route.yaml")
+	postrestartRouteManifest    = filepath.Join(fsutils.MustGetThisDir(), "testdata", "postrestart-route.yaml")
 
 	setup = base.TestCase{
 		Manifests: []string{
@@ -49,9 +52,10 @@ var (
 	}
 
 	testCases = map[string]*base.TestCase{
-		"TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic": {},
-		"TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic": {},
-		"TestInitialRouteWaitsForEDSBeforeBecomingActive":       {},
+		"TestRouteUpdateToEmptyBackendPublishesTruth":          {},
+		"TestWeightedRouteToEmptyBackendServesMixedTruth":      {},
+		"TestInitialRouteToEmptyBackendServes503UntilReady":    {},
+		"TestSteadyStateEmptyBackendSurvivesControllerRestart": {},
 	}
 )
 
@@ -103,6 +107,9 @@ func (s *testingSuite) AfterTest(suiteName, testName string) {
 		backendNewManifest,
 		startupBackendManifest,
 		startupServiceRouteManifest,
+		emptyRouteManifest,
+		canaryRouteManifest,
+		postrestartRouteManifest,
 	} {
 		err := s.TestInstallation.Actions.Kubectl().DeleteFileSafe(s.Ctx, manifest)
 		s.Require().NoError(err, "can clean up %s", manifest)
@@ -112,7 +119,14 @@ func (s *testingSuite) AfterTest(suiteName, testName string) {
 	s.Require().NoError(err, "can restore baseline warming route")
 }
 
-func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
+// TestRouteUpdateToEmptyBackendPublishesTruth pins stock-parity presence
+// semantics (#14352): retargeting a route to a Service whose EndpointSlice
+// exists but is empty publishes the flip as the backend's truth — the route
+// answers 503 until endpoints arrive, and it must NOT pin route/listener/
+// secret updates behind the empty backend, because "empty forever, on
+// purpose" (scale-to-zero, ExternalName shapes) is a production-proven
+// steady state.
+func (s *testingSuite) TestRouteUpdateToEmptyBackendPublishesTruth() {
 	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteCondition(
 		s.Ctx,
 		routeName,
@@ -125,10 +139,13 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeNewManifest)
 	s.Require().NoError(err, "can retarget route to new service before endpoints exist")
-	s.eventuallyRouteObserved(routeName, gatewayNamespace)
+	s.eventuallyRouteObserved(routeName)
 
-	s.assertActiveClusterIsPresent(oldClusterName)
-	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
+	// The flip publishes: the new cluster reaches the served CDS and the
+	// route answers 503 (no healthy upstream) — the truthful state of an
+	// endpoint-less backend, not an indefinite hold.
+	s.assertActiveClusterIsPresent(newClusterName)
+	s.assertGatewayEventuallyStatus(hostName, http.StatusServiceUnavailable, time.Minute, 500*time.Millisecond)
 
 	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
 	s.Require().NoError(err, "can create delayed new backend deployment")
@@ -144,12 +161,16 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 		500*time.Millisecond,
 	)
 
-	s.assertActiveClusterIsPresent(newClusterName)
 	s.assertGatewayEventuallyServes(hostName, newBody)
 	s.assertGatewayServesConsistently(hostName, newBody, 5*time.Second, time.Second)
 }
 
-func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
+// TestWeightedRouteToEmptyBackendServesMixedTruth pins stock-parity presence
+// semantics for a weighted split where one target's EndpointSlice exists but
+// is empty: the split publishes immediately, so requests weighted to the
+// empty target answer 503 while the rest keep serving the old backend —
+// accurate per-target degradation instead of an indefinite hold (#14352).
+func (s *testingSuite) TestWeightedRouteToEmptyBackendServesMixedTruth() {
 	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteCondition(
 		s.Ctx,
 		routeName,
@@ -162,10 +183,13 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeWeightedManifest)
 	s.Require().NoError(err, "can update route to weighted old/new backends before new endpoints exist")
-	s.eventuallyRouteObserved(routeName, gatewayNamespace)
+	s.eventuallyRouteObserved(routeName)
 
-	s.assertActiveClusterIsPresent(oldClusterName)
-	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
+	// The split publishes: the empty target's cluster reaches the served CDS
+	// and its share of requests answers 503 while the old backend's share
+	// keeps serving.
+	s.assertActiveClusterIsPresent(newClusterName)
+	s.assertGatewayEventuallyMixes(hostName, oldBody, http.StatusServiceUnavailable, time.Minute, time.Second)
 
 	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
 	s.Require().NoError(err, "can create delayed new backend deployment")
@@ -185,12 +209,17 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 	s.assertGatewayEventuallyServesAll(hostName, []string{oldBody, newBody}, 30*time.Second, time.Second)
 }
 
-func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
+// TestInitialRouteToEmptyBackendServes503UntilReady pins stock-parity
+// presence semantics for a brand-new route whose Service exists with no
+// endpoints: the route publishes and answers 503 (the backend's truth) until
+// endpoints arrive — it does not stay invisible behind a hold (#14352).
+func (s *testingSuite) TestInitialRouteToEmptyBackendServes503UntilReady() {
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, startupServiceRouteManifest)
 	s.Require().NoError(err, "can publish startup route and service before endpoints exist")
-	s.eventuallyRouteObserved(startupRouteName, gatewayNamespace)
+	s.eventuallyRouteObserved(startupRouteName)
 
-	s.assertGatewayStatusConsistently(startupHostName, http.StatusNotFound, 10*time.Second, 500*time.Millisecond)
+	s.assertActiveClusterIsPresent(startupClusterName)
+	s.assertGatewayEventuallyStatus(startupHostName, http.StatusServiceUnavailable, time.Minute, 500*time.Millisecond)
 
 	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, startupBackendManifest)
 	s.Require().NoError(err, "can create delayed startup backend deployment")
@@ -211,15 +240,112 @@ func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 	s.assertGatewayServesConsistently(startupHostName, startupBody, 5*time.Second, time.Second)
 }
 
-func (s *testingSuite) eventuallyRouteObserved(routeName, routeNamespace string) {
+// TestSteadyStateEmptyBackendSurvivesControllerRestart reproduces #14352:
+// a shared gateway that references a backend which legitimately never has
+// endpoints (scale-to-zero / ExternalName shape — here, a Service with no
+// Deployment). The emptiness is a steady state, not a transient race, so the
+// publication path must treat it as truth everywhere:
+//
+//  1. a new route to the empty backend publishes and answers 503 — it never
+//     pins route/listener/secret updates behind the empty backend;
+//  2. unrelated route updates keep flowing while the empty reference exists;
+//  3. after a CONTROLLER restart, warm proxies resume receiving updates
+//     (pre-fix they were withheld indefinitely, freezing all config
+//     changes);
+//  4. a gateway rollout after the restart brings up a fresh proxy pod that
+//     goes Ready (pre-fix it received no snapshot at all and crash-looped at
+//     "cm init: initializing cds").
+func (s *testingSuite) TestSteadyStateEmptyBackendSurvivesControllerRestart() {
+	s.assertGatewayEventuallyServes(hostName, oldBody)
+
+	// A route to the permanently-empty backend publishes as truth: 503 (no
+	// healthy upstream), not an indefinite hold.
+	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, emptyRouteManifest)
+	s.Require().NoError(err, "can create route to permanently-empty backend")
+	s.eventuallyRouteObserved("xds-warming-empty")
+	s.assertGatewayEventuallyStatus("xds-warming-empty.example.com", http.StatusServiceUnavailable, time.Minute, time.Second)
+
+	// Unrelated route updates must keep flowing despite the steady-state
+	// empty reference.
+	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, canaryRouteManifest)
+	s.Require().NoError(err, "can create canary route while empty-backend route exists")
+	s.assertGatewayEventuallyServes("xds-warming-canary.example.com", oldBody)
+
+	// Controller restart: the snapshot cache starts empty and every rebuild
+	// carries the steady-state empty gap, so warm clients depend on the
+	// budget-bounded truth publish to ever receive config again.
+	err = s.TestInstallation.Actions.Kubectl().RestartDeploymentAndWait(s.Ctx, "kgateway",
+		"-n", s.TestInstallation.Metadata.InstallNamespace)
+	s.Require().NoError(err, "can restart the kgateway controller")
+
+	// Existing traffic is never interrupted (Envoy keeps its last config).
+	s.assertGatewayEventuallyServes(hostName, oldBody)
+
+	// The hole-1 regression check: a route change applied AFTER the restart
+	// must become effective. Pre-fix, the warm client was withheld forever
+	// and this route never appeared.
+	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, postrestartRouteManifest)
+	s.Require().NoError(err, "can create route after controller restart")
+	s.eventuallyRouteObserved("xds-warming-postrestart")
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		statusCode, body, err := s.gatewayResponse("xds-warming-postrestart.example.com")
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
+		g.Expect(statusCode).To(gomega.Equal(http.StatusOK), "gateway returned body: %s", body)
+		g.Expect(body).To(gomega.ContainSubstring(oldBody))
+	}).WithContext(s.Ctx).WithTimeout(2*time.Minute).WithPolling(time.Second).Should(gomega.Succeed(),
+		"a route created after a controller restart must become effective despite a steady-state empty reference")
+
+	// The #14352 crashloop check: a fresh proxy pod (gateway rollout) must
+	// receive a snapshot and go Ready. Pre-fix it starved at cds init and
+	// the rollout never completed.
+	err = s.TestInstallation.Actions.Kubectl().RestartDeploymentAndWait(s.Ctx, gatewayName,
+		"-n", gatewayNamespace)
+	s.Require().NoError(err, "a fresh gateway proxy pod must go Ready despite a steady-state empty reference")
+	s.assertGatewayEventuallyServes(hostName, oldBody)
+}
+
+func (s *testingSuite) assertGatewayEventuallyStatus(host string, status int, timeout, poll time.Duration) {
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		statusCode, body, err := s.gatewayResponse(host)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
+		g.Expect(statusCode).To(gomega.Equal(status), "gateway returned body: %s", body)
+	}).WithContext(s.Ctx).WithTimeout(timeout).WithPolling(poll).Should(gomega.Succeed())
+}
+
+// assertGatewayEventuallyMixes asserts that, within a burst of requests, the
+// gateway serves bodySubstring on some and answers status on others — the
+// signature of a weighted split where one target is legitimately empty.
+func (s *testingSuite) assertGatewayEventuallyMixes(host, bodySubstring string, status int, timeout, poll time.Duration) {
+	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+		var sawBody, sawStatus bool
+		observed := make([]string, 0, 12)
+		for range 12 {
+			statusCode, body, err := s.gatewayResponse(host)
+			g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
+			observed = append(observed, fmt.Sprintf("%d:%s", statusCode, body))
+			if statusCode == http.StatusOK && strings.Contains(body, bodySubstring) {
+				sawBody = true
+			}
+			if statusCode == status {
+				sawStatus = true
+			}
+			if sawBody && sawStatus {
+				return
+			}
+		}
+		g.Expect(sawBody && sawStatus).To(gomega.BeTrue(), "observed responses: %v", observed)
+	}).WithContext(s.Ctx).WithTimeout(timeout).WithPolling(poll).Should(gomega.Succeed())
+}
+
+func (s *testingSuite) eventuallyRouteObserved(routeName string) {
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 		route := &gwv1.HTTPRoute{}
 		err := s.TestInstallation.ClusterContext.Client.Get(
 			s.Ctx,
-			types.NamespacedName{Name: routeName, Namespace: routeNamespace},
+			types.NamespacedName{Name: routeName, Namespace: gatewayNamespace},
 			route,
 		)
-		g.Expect(err).NotTo(gomega.HaveOccurred(), "can get HTTPRoute %s/%s", routeNamespace, routeName)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "can get HTTPRoute %s/%s", gatewayNamespace, routeName)
 
 		generation := route.GetGeneration()
 		g.Expect(route.Status.Parents).NotTo(gomega.BeEmpty(), "HTTPRoute should have parent status")
@@ -230,7 +356,7 @@ func (s *testingSuite) eventuallyRouteObserved(routeName, routeNamespace string)
 			}
 		}
 		g.Expect(false).To(gomega.BeTrue(), "HTTPRoute %s/%s has not observed generation %d; status: %+v",
-			routeNamespace, routeName, generation, route.Status)
+			gatewayNamespace, routeName, generation, route.Status)
 	}).WithContext(s.Ctx).WithTimeout(time.Minute).WithPolling(500 * time.Millisecond).Should(gomega.Succeed())
 }
 
@@ -304,22 +430,6 @@ func (s *testingSuite) assertGatewayEventuallyServesAll(host string, bodySubstri
 		}
 		g.Expect(missing).To(gomega.BeEmpty(), "observed bodies: %v", observedBodies)
 	}).WithContext(s.Ctx).WithTimeout(timeout).WithPolling(poll).Should(gomega.Succeed())
-}
-
-func (s *testingSuite) assertGatewayStatusConsistently(host string, status int, window, poll time.Duration) {
-	s.assertGatewayStatusOnce(host, status)
-
-	s.TestInstallation.AssertionsT(s.T()).Gomega.Consistently(func(g gomega.Gomega) {
-		statusCode, body, err := s.gatewayResponse(host)
-		g.Expect(err).NotTo(gomega.HaveOccurred(), "gateway request should complete")
-		g.Expect(statusCode).To(gomega.Equal(status), "gateway returned body: %s", body)
-	}).WithContext(s.Ctx).WithTimeout(window).WithPolling(poll).Should(gomega.Succeed())
-}
-
-func (s *testingSuite) assertGatewayStatusOnce(host string, status int) {
-	statusCode, body, err := s.gatewayResponse(host)
-	s.Require().NoError(err)
-	s.Require().Equal(status, statusCode, "gateway returned body: %s", body)
 }
 
 func (s *testingSuite) gatewayResponse(host string) (int, string, error) {

@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
@@ -168,21 +167,39 @@ func snapshotPerClient(
 		//     findMissingReferencedClusters below). Publishing a route that
 		//     names such a cluster would cause Envoy to return 500/NC.
 		//
-		//  3. A referenced EDS cluster whose ClusterLoadAssignment carries no
-		//     usable endpoint is recorded in unusableReferenced. Flipping a
-		//     route onto such a cluster before its EDS catches up would drop
-		//     all hosts for a route that was healthy before the update.
+		//  3. A referenced EDS cluster whose ClusterLoadAssignment was NOT
+		//     derived by the per-client endpoints collection — a synthesized
+		//     empty stands in — is recorded in missingEndpointsReferenced.
+		//     An absent CLA means the derivation has not caught up (a
+		//     just-added backend) or never will (an ExternalName Service has
+		//     no EndpointSlices); flipping a route onto it now could drop all
+		//     hosts for a backend that actually has some. PRESENCE, not
+		//     contents, is the test: a derived CLA that is empty (or all
+		//     unhealthy) is the backend's TRUTH — "route-referenced backends
+		//     that are empty forever, on purpose" is a config shape proven in
+		//     production on the pre-per-cluster gates, whose guard was also
+		//     an existence check — so it never marks the wrapper deferred,
+		//     never taxes cold pods with the publish budget, and never holds
+		//     a route flip; routes to such a backend fail until it has
+		//     endpoints, exactly as they do today (#14352). Holding flips
+		//     onto derived-but-empty clusters (make-before-break for an A->B
+		//     retarget whose pods are still starting) is deliberately
+		//     surrendered for stock parity; it can return later as an OPT-IN
+		//     budget-bounded hold without revisiting this classification.
 		//
 		// A wrapper with either list non-empty is marked deferred, and
 		// syncXds resolves it per cluster against the currently-published
 		// snapshot: previously-published clusters are carried forward
-		// (make-before-break), previously-referenced clusters that scaled to
-		// zero publish their truth (the empty CLA), and only a route flip
-		// onto a newly-referenced not-yet-ready cluster is held back —
-		// everything else in the snapshot keeps flowing. An unresolvable
-		// reference — a user BackendRef typo, a plugin bug — therefore
-		// degrades only the routes that name it, instead of freezing every
-		// update for the client.
+		// (make-before-break), previously-referenced clusters whose CLA row
+		// vanished publish the synthesized empty (their slices are gone —
+		// that is the truth), and only a route flip onto a newly-referenced
+		// not-yet-derived cluster is held back — bounded by the publish
+		// budget (see publishGate), after which the flip goes out and routes
+		// to still-unready clusters fail until they become ready. An
+		// unresolvable reference — a plugin bug, a backend that never derives
+		// endpoints — therefore degrades only the routes that name it: other
+		// updates keep flowing, except route/listener/secret updates, which a
+		// held flip pins for at most one budget.
 		//
 		// BackendRef typos never reach these checks as real cluster names:
 		// IR-time resolution substitutes wellknown.BlackholeClusterName,
@@ -222,19 +239,20 @@ func snapshotPerClient(
 		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
 		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
 		// longer present in CDS can make go-control-plane suppress ADS responses.
-		endpointRes := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
-		// Post-synthesis every EDS cluster has a CLA, so this reports exactly
-		// the referenced clusters whose CLA has no usable endpoint.
-		unusableClusters := findMissingReferencedEndpointResources(
+		endpointRes, synthesizedEndpoints := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints)
+		// Post-synthesis every EDS cluster has a CLA; the synthesized set
+		// identifies exactly the referenced clusters whose CLA was not
+		// derived (a derived-but-empty CLA is truth, not a gap).
+		missingEndpointClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
-			endpointRes.Items,
+			synthesizedEndpoints,
 			clustersForUcc.erroredClusters,
 		)
 
-		snap.deferred = len(missingClusters) > 0 || len(unusableClusters) > 0
+		snap.deferred = len(missingClusters) > 0 || len(missingEndpointClusters) > 0
 		snap.missingReferenced = missingClusters
-		snap.unusableReferenced = unusableClusters
+		snap.missingEndpointsReferenced = missingEndpointClusters
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snapshot := &envoycache.Snapshot{}
@@ -250,7 +268,7 @@ func snapshotPerClient(
 				"snapshot has unready referenced clusters; syncXds will resolve per cluster",
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
-				"unusable_clusters", unusableClusters,
+				"missing_endpoint_clusters", missingEndpointClusters,
 			)
 		}
 		logger.Debug("snapshots", "proxy_key", snap.proxyKey,
@@ -395,10 +413,22 @@ func findMissingReferencedClusters(
 	return missingClusters
 }
 
+// findMissingReferencedEndpointResources reports the referenced EDS clusters
+// whose ClusterLoadAssignment was not derived by the per-client endpoints
+// collection — i.e. their CLA in the snapshot is a synthesized empty
+// placeholder (see filterEndpointResourcesForClusters). Whether such a
+// backend has endpoints is UNKNOWN (derivation lag, or an ExternalName
+// Service that never produces EndpointSlices), which is what warrants
+// deferral. PRESENCE, not contents, is the test: a derived CLA with zero
+// usable endpoints is the backend's known truth (scale-to-zero and
+// crashlooping backends are steady states, not races — #14352) and must not
+// defer the snapshot; this matches the existence semantics of the
+// whole-snapshot gate this replaced, the behavior production configs are
+// built against.
 func findMissingReferencedEndpointResources(
 	referencedClusters map[string]struct{},
 	clusters map[string]envoycachetypes.ResourceWithTTL,
-	endpoints map[string]envoycachetypes.ResourceWithTTL,
+	synthesizedEndpoints map[string]struct{},
 	erroredClusters []string,
 ) []string {
 	erroredClusterSet := stringSet(erroredClusters)
@@ -420,8 +450,7 @@ func findMissingReferencedEndpointResources(
 		if !requiresEndpointResource {
 			continue
 		}
-		endpointResource, ok := endpoints[endpointResourceName]
-		if ok && clusterLoadAssignmentHasUsableEndpoint(endpointResource) {
+		if _, synthesized := synthesizedEndpoints[endpointResourceName]; !synthesized {
 			continue
 		}
 		missingEndpointClusters = append(missingEndpointClusters, name)
@@ -429,24 +458,6 @@ func findMissingReferencedEndpointResources(
 	sort.Strings(missingEndpointClusters)
 
 	return missingEndpointClusters
-}
-
-func clusterLoadAssignmentHasUsableEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
-	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
-	if !ok {
-		return false
-	}
-	for _, locality := range cla.GetEndpoints() {
-		for _, lbEndpoint := range locality.GetLbEndpoints() {
-			if lbEndpoint.GetHealthStatus() == envoycorev3.HealthStatus_UNHEALTHY {
-				continue
-			}
-			if lbEndpoint.GetEndpoint() != nil {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
@@ -578,17 +589,21 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 // clusters and for EDS clusters no longer in CDS (Envoy requests EDS resources
 // from CDS, so a stale CLA can make the ADS cache refuse named EDS responses),
 // and it synthesizes an empty ClusterLoadAssignment for any EDS cluster that
-// has no CLA yet. The result keeps the published snapshot EDS-consistent —
+// has no derived CLA. The result keeps the published snapshot EDS-consistent —
 // every EDS cluster has exactly one CLA and there are no CLAs without a
 // cluster (go-control-plane's Snapshot.Consistent() invariant) — rather than
 // relying on the cache tolerating a dangling EDS cluster, and it lets Envoy
 // treat such a cluster as active-with-no-hosts immediately instead of stalling
 // its warming on an absent EDS resource until the initial-fetch timeout.
-// Referenced clusters whose only CLA is a synthesized empty are still deferred
-// upstream by findMissingReferencedEndpointResources, which requires a usable
-// endpoint, so synthesized empties only ever reach Envoy for clusters no route
-// targets.
-func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) envoycache.Resources {
+//
+// The second return value is the set of endpoint resource names that were
+// synthesized. Referenced clusters backed by a synthesized CLA mark the
+// wrapper deferred (classifyReferencedEndpointResources) so a route flip
+// does not land on a cluster whose endpoints simply have not been derived
+// yet; synthesized empties still reach Envoy for clusters no route targets,
+// and on the bounded publish paths (publishGate), where active-with-no-hosts
+// is the correct interim state.
+func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources) (envoycache.Resources, map[string]struct{}) {
 	requiredEndpointNames := make(map[string]struct{})
 	for _, item := range clusters.Items {
 		if endpointName, requiresEndpointResource := endpointResourceNameForCluster(item); requiresEndpointResource {
@@ -610,9 +625,9 @@ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints
 		covered[cla.GetClusterName()] = struct{}{}
 		resourcesHash ^= utils.HashProto(cla)
 	}
-	// Synthesize empty assignments for EDS clusters that have no CLA yet so the
-	// published snapshot stays EDS-consistent.
-	synthesized := 0
+	// Synthesize empty assignments for EDS clusters that have no derived CLA
+	// so the published snapshot stays EDS-consistent.
+	synthesized := make(map[string]struct{})
 	for name := range requiredEndpointNames {
 		if _, ok := covered[name]; ok {
 			continue
@@ -620,10 +635,10 @@ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints
 		empty := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
 		filteredEndpoints = append(filteredEndpoints, envoycachetypes.ResourceWithTTL{Resource: empty})
 		resourcesHash ^= utils.HashProto(empty)
-		synthesized++
+		synthesized[name] = struct{}{}
 	}
-	if synthesized == 0 && len(filteredEndpoints) == len(endpoints.Items) {
-		return endpoints
+	if len(synthesized) == 0 && len(filteredEndpoints) == len(endpoints.Items) {
+		return endpoints, nil
 	}
-	return envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", resourcesHash), filteredEndpoints)
+	return envoycache.NewResourcesWithTTL(fmt.Sprintf("%d", resourcesHash), filteredEndpoints), synthesized
 }
