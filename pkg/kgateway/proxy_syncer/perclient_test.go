@@ -51,7 +51,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaticClusterCLAs(t *testing.
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-cluster"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -76,7 +76,7 @@ func TestFilterEndpointResourcesForClusters_ReturnsOriginalWhenNoFiltering(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-only"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -97,7 +97,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersAndEndpoints(t *testing
 	emptyClusters := envoycache.NewResourcesWithTTL("v1", nil)
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints)
+	out, _ := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -110,7 +110,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersNonEmptyEndpoints(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "any"}},
 	})
 
-	out := filterEndpointResourcesForClusters(emptyClusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(emptyClusters, endpoints)
 
 	if len(out.Items) != 0 {
 		t.Fatalf("expected no endpoint resources when no EDS clusters are emitted, got %d", len(out.Items))
@@ -123,7 +123,7 @@ func TestFilterEndpointResourcesForClusters_EmptyEndpoints(t *testing.T) {
 	})
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(clusters, emptyEndpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, emptyEndpoints)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -145,7 +145,7 @@ func TestFilterEndpointResourcesForClusters_MixedStaticAndNonStatic(t *testing.T
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 2 {
 		t.Fatalf("expected 2 endpoint resources (eds-a, eds-b), got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -173,7 +173,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaleClusterLoadAssignments(t
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "cluster-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -206,7 +206,7 @@ func TestFilterEndpointResourcesForClusters_UsesEDSServiceName(t *testing.T) {
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "service-a"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the service-name CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -370,7 +370,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 	// Deferred: the referenced EDS cluster has no usable endpoint yet. Its
 	// CLA is a synthesized empty so the snapshot stays EDS-consistent.
 	wrap := eventuallyDeferredWrapper(t, snapshots)
-	g.Expect(wrap.unusableReferenced).To(gomega.ConsistOf("cluster-a"))
+	g.Expect(wrap.missingEndpointsReferenced).To(gomega.ConsistOf("cluster-a"))
 	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"),
 		"the unready EDS cluster gets a synthesized empty CLA")
 
@@ -692,7 +692,16 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 	assertSnapshotCoherent(t, finalServed)
 }
 
-func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint(t *testing.T) {
+// TestSnapshotPerClientRetargetToDerivedBackend pins the two phases of a
+// route retarget onto a brand-new backend under presence semantics: while
+// the new cluster's CLA has not been derived (the per-client endpoints
+// collection has no row for it), the flip is held at the published routes;
+// once a CLA row is derived — even an EMPTY one — it is the backend's truth
+// (presence, not contents, gates deferral: "empty forever, on purpose" is a
+// production-proven config shape, #14352) and the flip publishes, with the
+// route failing until endpoints arrive, exactly as the whole-snapshot
+// existence gate this replaced behaved.
+func TestSnapshotPerClientRetargetToDerivedBackend(t *testing.T) {
 	g := gomega.NewWithT(t)
 
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
@@ -745,10 +754,10 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(clusterNew)
-	endpointCol.UpdateObject(endpointNewEmpty)
 
-	// The empty CLA is not usable, so the flip onto cluster-new is held:
-	// served routes keep targeting cluster-old while cluster-new warms.
+	// Phase 1: no CLA row has been derived for cluster-new (only a
+	// synthesized empty stands in), so the flip is held: served routes keep
+	// targeting cluster-old while cluster-new warms in the served CDS.
 	var heldServed *envoycache.Snapshot
 	g.Eventually(func() bool {
 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
@@ -756,18 +765,39 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 			!snapshotReferencesCluster(heldServed, "cluster-new") &&
 			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"an empty CLA must not flip the served route onto the new cluster")
+		"an underived CLA must not flip the served route onto the new cluster")
 	assertSnapshotCoherent(t, heldServed)
+
+	// Phase 2: a derived-but-EMPTY CLA row appears (the EndpointSlice exists
+	// with no ready endpoints). Presence is truth: the flip publishes and the
+	// route fails until endpoints arrive — it must not stay pinned (#14352).
+	endpointCol.UpdateObject(endpointNewEmpty)
+
+	var flippedServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		flippedServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(flippedServed, "cluster-new") &&
+			hasResource(flippedServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"a derived-but-empty CLA is the backend's truth; the flip must publish")
+	assertSnapshotCoherent(t, flippedServed)
 
 	endpointCol.UpdateObject(endpointNewReady)
 
 	var readyServed *envoycache.Snapshot
 	g.Eventually(func() bool {
 		readyServed = eventuallyCacheSnapshot(t, cache, nodeID)
-		return snapshotReferencesCluster(readyServed, "cluster-new") &&
-			hasResource(readyServed.Resources[envoycachetypes.Endpoint].Items, "cluster-new")
+		if !snapshotReferencesCluster(readyServed, "cluster-new") {
+			return false
+		}
+		item, ok := readyServed.Resources[envoycachetypes.Endpoint].Items["cluster-new"]
+		if !ok {
+			return false
+		}
+		cla, ok := item.Resource.(*envoyendpointv3.ClusterLoadAssignment)
+		return ok && len(cla.GetEndpoints()) > 0
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"once the CLA contains a usable endpoint, the held route flip publishes")
+		"once endpoints arrive, the served CLA carries them")
 	assertSnapshotCoherent(t, readyServed)
 }
 
@@ -834,7 +864,7 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 			!snapshotReferencesCluster(heldServed, "cluster-new") &&
 			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
-		"the weighted split must be held until every referenced EDS cluster has a usable endpoint")
+		"the weighted split must be held while a referenced cluster's CLA is underived")
 	assertSnapshotCoherent(t, heldServed)
 
 	endpointCol.UpdateObject(endpointNew)
@@ -887,7 +917,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *tes
 	// Deferred: the referenced EDS cluster resolves its CLA by service_name,
 	// which has no usable endpoint yet (synthesized empty).
 	wrap := eventuallyDeferredWrapper(t, snapshots)
-	g.Expect(wrap.unusableReferenced).To(gomega.ConsistOf("cluster-a"))
+	g.Expect(wrap.missingEndpointsReferenced).To(gomega.ConsistOf("cluster-a"))
 	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"),
 		"the synthesized empty CLA must use the EDS service_name")
 
