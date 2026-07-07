@@ -29,10 +29,26 @@ import (
 // One exception: a client that reported a prior accepted xDS version on
 // connect is warm — an Envoy that reconnected (or outlived a controller
 // restart) and is still serving config from its previous stream. Publishing
-// an incomplete state-of-the-world snapshot would replace that working
-// config, so warm clients stay withheld until coherence (the #13868
+// a snapshot whose routes name clusters absent from its CDS would replace
+// that working config with one that NCs those routes, so warm clients stay
+// withheld while any referenced cluster is MISSING (the #13868
 // make-before-break property). A controller-local cache miss alone cannot
 // prove a client is cold; the client-reported version can.
+//
+// The warm withhold deliberately does NOT extend to gaps that are only
+// endpoint-less clusters (unusableReferenced). Incoherence can be steady
+// state, not just transient (#14352): an ExternalName Service never has
+// EndpointSlices, and a scale-to-zero backend's zero endpoints IS its truth.
+// syncXds events only fire after the informer chain has synced (krt
+// registration semantics), so a CLA still empty a full budget later is the
+// backend's steady state, not propagation lag. Withholding on it would
+// freeze the warm client forever after a controller restart — no route
+// change, cert rotation, or endpoint update would ever reach it — and would
+// starve any cold pod that shares its UCC key (the prior-version mark is
+// key-level). So at expiry, if every referenced cluster is present in CDS,
+// the snapshot publishes as the current truth; in the rare case the
+// emptiness was lag, the very next build repairs it through per-cluster
+// resolution (the cache is populated from here on).
 //
 // All snapshot-cache mutations for gated clients go through the gate's lock,
 // so an expiring timer can never overwrite a newer coherent publish.
@@ -116,9 +132,12 @@ func (g *firstPublishGate) offerCold(
 }
 
 // firePending runs at budget expiry: publish the latest deferred snapshot,
-// unless a coherent snapshot won the race or the client reported a prior xDS
-// version (warm reconnect — nothing to carry forward, and an incomplete SotW
-// publish would replace config the proxy is serving). The check and publish
+// unless a coherent snapshot won the race, or the client reported a prior xDS
+// version (warm reconnect) AND some referenced cluster is missing from CDS —
+// publishing that would NC routes the proxy is still serving. A warm client
+// whose only gaps are endpoint-less clusters publishes anyway: by expiry that
+// emptiness is the backends' steady state (#14352), and withholding would
+// freeze the client indefinitely (see the type comment). The check and publish
 // happen under the gate lock, so they cannot interleave with publish().
 func (g *firstPublishGate) firePending(
 	ctx context.Context,
@@ -140,19 +159,30 @@ func (g *firstPublishGate) firePending(
 	if _, err := cache.GetSnapshot(proxyKey); err == nil {
 		return // a coherent snapshot was published while the timer was in flight
 	}
+	mode := boundedPublishFirstPublish
 	if hasPriorXDSVersion != nil && hasPriorXDSVersion(proxyKey) {
-		logger.Warn("first-publish budget expired, but client reported a prior xDS version; withholding deferred snapshot",
+		if len(st.missing) > 0 {
+			logger.Warn("first-publish budget expired, but client reported a prior xDS version and referenced clusters are missing; withholding deferred snapshot",
+				"proxy_key", proxyKey, "missing_clusters", st.missing, "unusable_clusters", st.unusable)
+			recordDeferredWithheld(proxyKey)
+			return
+		}
+		// Warm client, but every referenced cluster is present in CDS and the
+		// only gaps are endpoint-less clusters: by now that is the backends'
+		// steady state (ExternalName, scale-to-zero — #14352), not lag, and
+		// withholding would freeze this client's config indefinitely.
+		mode = boundedPublishWarmTruth
+		logger.Warn("first-publish budget expired for warm client; remaining gaps are endpoint-less clusters, publishing their current truth",
+			"proxy_key", proxyKey, "unusable_clusters", st.unusable)
+	} else {
+		logger.Warn("first-publish budget expired; publishing deferred snapshot so the client can start",
 			"proxy_key", proxyKey, "missing_clusters", st.missing, "unusable_clusters", st.unusable)
-		recordDeferredWithheld(proxyKey)
-		return
 	}
-	logger.Warn("first-publish budget expired; publishing deferred snapshot so the client can start",
-		"proxy_key", proxyKey, "missing_clusters", st.missing, "unusable_clusters", st.unusable)
 	if err := cache.SetSnapshot(ctx, proxyKey, snap); err != nil {
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 		return
 	}
-	recordBoundedPublish(proxyKey)
+	recordBoundedPublish(proxyKey, mode)
 }
 
 // clientDeparted cancels any pending bounded first publish for a client whose

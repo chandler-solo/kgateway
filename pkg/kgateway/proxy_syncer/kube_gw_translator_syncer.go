@@ -55,8 +55,11 @@ func (s *ProxyTranslator) syncXds(
 			// budget: a pod with no config at all never goes Ready and
 			// crash-loops, so past the budget the latest deferred snapshot is
 			// published anyway (see firstPublishGate). Clients that reported a
-			// prior accepted xDS version stay withheld — they are warm, not
-			// cold.
+			// prior accepted xDS version are warm, not cold: they stay
+			// withheld at expiry only while clusters are missing from CDS;
+			// when the only gaps are endpoint-less clusters, that is the
+			// backends' steady state (#14352) and the snapshot publishes as
+			// their truth rather than freezing the client indefinitely.
 			s.firstPublish.offerCold(ctx, s.xdsCache, snapWrap, s.hasPriorXDSVersion)
 			return
 		}

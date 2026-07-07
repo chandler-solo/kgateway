@@ -56,8 +56,32 @@ func TestPublicationMetrics_DeferAndBoundedPublish(t *testing.T) {
 	})
 }
 
-// A warm (prior-xDS-version) client withheld at budget expiry increments
-// deferred_withheld_total{prior_xds_version}.
+// A warm client published at budget expiry because its only gaps were
+// endpoint-less clusters increments bounded_publishes_total{warm_truth}.
+func TestPublicationMetrics_WarmTruthBoundedPublish(t *testing.T) {
+	ResetMetrics()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	pt := newFirstPublishTestTranslator(true, 30*time.Millisecond)
+	pt.syncXds(ctx, deferredUnusableWrapperV("v1"))
+	require.Eventually(t, func() bool {
+		_, ok := publishedListenerVersion(t, pt)
+		return ok
+	}, 2*time.Second, 5*time.Millisecond)
+
+	g := metricstest.MustGatherMetricsContext(ctx, t,
+		"kgateway_xds_snapshot_perclient_bounded_publishes_total")
+	g.AssertMetricsInclude("kgateway_xds_snapshot_perclient_bounded_publishes_total", []metricstest.ExpectMetric{
+		&metricstest.ExpectedMetricValueTest{
+			Labels: labelsWith("mode", boundedPublishWarmTruth),
+			Test:   metricstest.Equal(1),
+		},
+	})
+}
+
+// A warm (prior-xDS-version) client withheld at budget expiry (missing
+// clusters) increments deferred_withheld_total{prior_xds_version}.
 func TestPublicationMetrics_DeferredWithheld(t *testing.T) {
 	ResetMetrics()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
