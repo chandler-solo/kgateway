@@ -20,8 +20,10 @@ import (
 // read-only on the consumer side, and per-client mutations clone it before
 // modifying. This is the change that lets the per-client collection stay sparse.
 type baseEnvoyCluster struct {
-	Name                string
-	BackendResourceName string
+	// Name is both the Envoy cluster name and the KRT key; translation always
+	// names the cluster (blackhole included) after BackendObjectIR.ClusterName(),
+	// which is how the deltas builder looks bases up.
+	Name string
 	// +krtEqualsTodo include full cluster diff in equality
 	Cluster        *envoyclusterv3.Cluster
 	ClusterVersion uint64
@@ -44,7 +46,6 @@ func (b baseEnvoyCluster) ResourceName() string { return b.Name }
 
 func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
 	return b.Name == in.Name &&
-		b.BackendResourceName == in.BackendResourceName &&
 		b.ClusterVersion == in.ClusterVersion &&
 		b.BackendSource == in.BackendSource &&
 		b.BackendGeneration == in.BackendGeneration &&
@@ -113,11 +114,19 @@ func errString(err error) string {
 // the base would not re-publish when endpoints change — leaving clients pinned
 // to stale LoadAssignments for non-EDS backends (e.g. ServiceEntry-style).
 //
+// The attached-policy hash is folded in for the same reason: EndpointInputs
+// carries the backend's AttachedPolicies, which PerClientProcessEndpoints hooks
+// consume when building the per-client CLA. KRT keeps the OLD stored object when
+// Equals returns true, so any Base state consumed downstream but missing from
+// this version would be served stale forever. This mirrors the EDS path, which
+// folds backendEndpointVersionHash into LbEpsEqualityHash in
+// newFinalBackendEndpoints.
+//
 // For EDS clusters EndpointInputs may also be non-nil, but those endpoints feed
 // the separate EDS pipeline and are not used by ApplyPerClient; gating on
 // SupportsInlineCLA keeps the version stable for the EDS case so equivalent
 // translations do not churn the snapshot.
-func baseClusterVersion(b *irtranslator.BaseCluster) uint64 {
+func baseClusterVersion(backend *ir.BackendObjectIR, b *irtranslator.BaseCluster) uint64 {
 	if b.Error != nil {
 		return 0
 	}
@@ -125,6 +134,7 @@ func baseClusterVersion(b *irtranslator.BaseCluster) uint64 {
 	utils.HashProtoWithHasher(hasher, b.Cluster)
 	if b.SupportsInlineCLA && b.EndpointInputs != nil {
 		utils.HashUint64(hasher, b.EndpointInputs.EndpointsForBackend.LbEpsEqualityHash)
+		utils.HashUint64(hasher, backendEndpointVersionHash(backend))
 	}
 	return hasher.Sum64()
 }
@@ -204,6 +214,17 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				BackendSource:     b.BackendSource,
 				BackendGeneration: b.BackendGeneration,
 			})
+			continue
+		}
+		if b.Base.NeedsInlineCLA() {
+			// This base is incomplete without a per-client CLA (nil
+			// LoadAssignment), and ApplyPerClient always materializes a delta
+			// for it, so a missing delta means the deltas collection simply
+			// hasn't caught up for this UCC yet. Publishing the CLA-less base
+			// would send Envoy a host-less STRICT_DNS/STATIC cluster (503s);
+			// withholding it instead lets the snapshot's referenced-cluster
+			// deferral hold the publish until the delta lands, matching the
+			// pre-split behavior where the row was absent until translated.
 			continue
 		}
 		out = append(out, uccWithCluster{
@@ -309,19 +330,15 @@ func NewPerClientEnvoyClusters(
 			backendGeneration = backendObj.Obj.GetGeneration()
 		}
 		return &baseEnvoyCluster{
-			Name:                baseRes.Cluster.GetName(),
-			BackendResourceName: backendObj.ResourceName(),
-			Cluster:             baseRes.Cluster,
-			ClusterVersion:      baseClusterVersion(baseRes),
-			Error:               baseRes.Error,
-			BackendSource:       backendObj.GetObjectSource(),
-			BackendGeneration:   backendGeneration,
-			Base:                baseRes,
+			Name:              baseRes.Cluster.GetName(),
+			Cluster:           baseRes.Cluster,
+			ClusterVersion:    baseClusterVersion(backendObj, baseRes),
+			Error:             baseRes.Error,
+			BackendSource:     backendObj.GetObjectSource(),
+			BackendGeneration: backendGeneration,
+			Base:              baseRes,
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
-	baseByBackend := krtpkg.UnnamedIndex(base, func(b baseEnvoyCluster) []string {
-		return []string{b.BackendResourceName}
-	})
 
 	// Per-client deltas: only emitted for (ucc, backend) pairs that genuinely
 	// vary — at least one PerClientClusterOverlay returned non-nil, or the
@@ -336,7 +353,9 @@ func NewPerClientEnvoyClusters(
 		if backendObj == nil {
 			return nil
 		}
-		baseObj := krt.FetchOne(kctx, base, krt.FilterIndex(baseByBackend, backendObj.ResourceName()))
+		// Base rows are keyed by cluster name, which translation always derives
+		// from the backend's memoized ClusterName (blackhole included).
+		baseObj := krt.FetchOne(kctx, base, krt.FilterKey(backendObj.ClusterName()))
 		if baseObj == nil {
 			return nil
 		}

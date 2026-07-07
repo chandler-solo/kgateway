@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/endpoints"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
@@ -112,4 +114,49 @@ func TestFetchClustersForClient_FiltersByClient(t *testing.T) {
 	require.Len(t, gotB, 1)
 	require.Same(t, base, gotB[0].Cluster)
 	require.Equal(t, uint64(1), gotB[0].ClusterVersion)
+}
+
+// TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives pins the
+// publish-atomicity guard: a base whose CLA is built per client (nil
+// LoadAssignment on an inline-CLA cluster type) must NOT be surfaced for a UCC
+// that has no delta yet — base and deltas are separate KRT collections, so the
+// base can be visible first. Publishing it would send Envoy a host-less
+// STRICT_DNS/STATIC cluster (503s until the delta lands); withholding lets the
+// snapshot's referenced-cluster deferral hold the publish, matching the
+// pre-split behavior where the row was absent until fully translated.
+func TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives(t *testing.T) {
+	ucc := ir.NewUniquelyConnectedClient("role", "ns", map[string]string{"k": "a"}, ir.PodLocality{})
+
+	inlineBase := &envoyclusterv3.Cluster{
+		Name:                 "inline",
+		ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_STRICT_DNS},
+	}
+	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "", "")
+	bases := []baseEnvoyCluster{{
+		Name:           "inline",
+		Cluster:        inlineBase,
+		ClusterVersion: 1,
+		Base: &irtranslator.BaseCluster{
+			Cluster:           inlineBase,
+			EndpointInputs:    &endpoints.EndpointsInputs{EndpointsForBackend: *ir.NewEndpointsForBackend(us)},
+			SupportsInlineCLA: true,
+		},
+	}}
+
+	// No delta yet: the incomplete base must be withheld entirely.
+	pcc := newTestPerClientClustersRaw(bases, nil)
+	waitSynced(t, pcc)
+	got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+	require.Empty(t, got, "a CLA-less inline-CLA base must be withheld until its per-client delta arrives")
+
+	// Delta present: the merged per-client cluster is surfaced.
+	withCLA := clusterNamed("inline")
+	pcc = newTestPerClientClustersRaw(bases, []uccClusterDelta{
+		{Client: ucc, Name: "inline", Cluster: withCLA, ClusterVersion: 7},
+	})
+	waitSynced(t, pcc)
+	got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+	require.Len(t, got, 1)
+	require.Same(t, withCLA, got[0].Cluster)
+	require.Equal(t, uint64(7), got[0].ClusterVersion)
 }

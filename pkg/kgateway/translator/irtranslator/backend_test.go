@@ -620,3 +620,67 @@ func TestApplyPerClient_StrictModePassesValidOverlay(t *testing.T) {
 	assert.Equal(t, 2, validatorCalls,
 		"strict mode must invoke the validator a second time on the post-overlay cluster")
 }
+
+// TestTranslateBackendBase_StrictModeDefersValidationForInlineCLA is a
+// regression test for strict-mode validation of CLA-built-per-client backends
+// (e.g. ServiceEntry DNS/STATIC resolution). The base cluster carries no
+// LoadAssignment — the CLA is attached per client in ApplyPerClient — and Envoy
+// rejects some CLA-less clusters outright (logical-DNS semantics require exactly
+// one endpoint). Validating the incomplete base would blackhole a perfectly
+// valid backend for every client, so TranslateBackendBase must defer validation
+// to ApplyPerClient, which validates the complete per-client cluster.
+func TestTranslateBackendBase_StrictModeDefersValidationForInlineCLA(t *testing.T) {
+	backendIR := ir.NewBackendObjectIR(ir.ObjectSource{
+		Group:     "core",
+		Kind:      "Service",
+		Name:      "svc",
+		Namespace: "ns",
+	}, 80, "", "")
+	backendIR.AttachedPolicies = ir.AttachedPolicies{
+		Policies: map[schema.GroupKind][]ir.PolicyAtt{},
+	}
+	backend := &backendIR
+
+	var validatedClusters []*envoyclusterv3.Cluster
+	var bt irtranslator.BackendTranslator
+	bt.ContributedBackends = map[schema.GroupKind]ir.BackendInit{
+		{Group: "core", Kind: "Service"}: {
+			InitEnvoyBackend: func(ctx context.Context, in ir.BackendObjectIR, out *envoyclusterv3.Cluster) *ir.EndpointsForBackend {
+				out.ClusterDiscoveryType = &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_STRICT_DNS}
+				eps := ir.NewEndpointsForBackend(in)
+				eps.Add(ir.PodLocality{}, ir.EndpointWithMd{LbEndpoint: pipeEndpoint("a")})
+				return eps
+			},
+		},
+	}
+	bt.ContributedPolicies = map[schema.GroupKind]sdk.PolicyPlugin{}
+	bt.Mode = apisettings.ValidationStrict
+	// Mimics Envoy's logical-DNS check: any cluster without a load_assignment
+	// is rejected. A valid ServiceEntry-style backend passed this on main only
+	// because validation ran after the CLA was attached.
+	bt.Validator = &mockValidator{
+		validateFunc: func(ctx context.Context, config *envoybootstrapv3.Bootstrap) error {
+			for _, c := range config.GetStaticResources().GetClusters() {
+				validatedClusters = append(validatedClusters, c)
+				if c.GetLoadAssignment() == nil {
+					return errors.New("clusters must have a load_assignment")
+				}
+			}
+			return nil
+		},
+	}
+
+	ctx := context.Background()
+	base := bt.TranslateBackendBase(ctx, backend)
+	require.NotNil(t, base)
+	require.NoError(t, base.Error,
+		"the CLA-less base must not be validated (and so must not error) — its CLA is built per client")
+	require.Empty(t, validatedClusters, "validation must be deferred until the per-client CLA exists")
+
+	ucc := ir.NewUniquelyConnectedClient("role", "ns", nil, ir.PodLocality{})
+	perClient, err := bt.ApplyPerClient(krt.TestingDummyContext{}, ctx, ucc, backend, base)
+	require.NoError(t, err, "the complete per-client cluster must pass validation")
+	require.NotNil(t, perClient)
+	require.NotNil(t, perClient.GetLoadAssignment(), "per-client cluster must carry the built CLA")
+	require.Len(t, validatedClusters, 1, "strict mode must validate the complete per-client cluster exactly once")
+}

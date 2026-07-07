@@ -26,7 +26,17 @@ var ErrNotFound = errors.New("not found")
 type (
 	EndpointsInputs = endpoints.EndpointsInputs
 	ProcessBackend  func(ctx context.Context, pol ir.PolicyIR, in ir.BackendObjectIR, out *envoyclusterv3.Cluster)
-	EndpointPlugin  func(
+	// EndpointPlugin mutates the per-client EndpointsInputs before the
+	// ClusterLoadAssignment is built for (ucc, backend).
+	//
+	// CONTRACT: the returned hash MUST capture every per-UCC effect this plugin
+	// has on the inputs (everything that could change the resulting CLA for
+	// this client). It is not merely a change-detection hint: the framework
+	// interns CLAs across UCCs keyed on this hash combined with the endpoint
+	// and load-balancing-context hashes, so two UCCs whose hashes collide are
+	// served ONE shared CLA. A hash that under-captures the plugin's mutation
+	// silently routes one client with another client's load assignment.
+	EndpointPlugin func(
 		kctx krt.HandlerContext,
 		ctx context.Context,
 		ucc ir.UniquelyConnectedClient,

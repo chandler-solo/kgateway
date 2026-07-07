@@ -3,6 +3,7 @@ package irtranslator
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -67,6 +68,19 @@ type BaseCluster struct {
 	// via PrioritizeEndpoints and so cannot live on the shared base.
 	SupportsInlineCLA bool
 	Error             error
+}
+
+// NeedsInlineCLA reports whether this base cluster is incomplete without a
+// per-client ClusterLoadAssignment: the cluster type takes an inline CLA, the
+// backend produced inline endpoints, and no plugin already set a LoadAssignment.
+// For such clusters ApplyPerClient always materializes a per-client cluster, and
+// the CLA-less base proto must be neither validated nor published as-is.
+func (b *BaseCluster) NeedsInlineCLA() bool {
+	return b != nil &&
+		b.Error == nil &&
+		b.SupportsInlineCLA &&
+		b.EndpointInputs != nil &&
+		b.Cluster.GetLoadAssignment() == nil
 }
 
 // TranslateBackend translates a BackendObjectIR to an Envoy Cluster. If we encounter any
@@ -144,24 +158,32 @@ func (t *BackendTranslator) TranslateBackendBase(
 		return &BaseCluster{Cluster: buildBlackholeCluster(backend), Error: err}
 	}
 
-	if t.Mode == apisettings.ValidationStrict && t.Validator != nil {
-		if err := t.validateClusterConfig(ctx, out); err != nil {
-			logger.Error("cluster failed xDS validation in strict mode", "cluster", out.GetName(), "error", err)
-			return &BaseCluster{Cluster: buildBlackholeCluster(backend), Error: err}
-		}
-	}
-
 	var endpointInputs *endpoints.EndpointsInputs
 	if inlineEps != nil {
 		endpointInputs = &endpoints.EndpointsInputs{EndpointsForBackend: *inlineEps}
 		endpointInputs.EndpointsForBackend.AttachedPolicies = backend.AttachedPolicies
 	}
 
-	return &BaseCluster{
+	result := &BaseCluster{
 		Cluster:           out,
 		EndpointInputs:    endpointInputs,
 		SupportsInlineCLA: clusterSupportsInlineCLA(out),
 	}
+
+	// Skip strict-mode validation when the CLA is built per client: the base
+	// proto has no LoadAssignment yet, and Envoy rejects some CLA-less clusters
+	// outright (e.g. logical-DNS semantics require exactly one endpoint), which
+	// would blackhole a valid backend for every client. ApplyPerClient always
+	// materializes for these clusters and validates the complete per-client
+	// cluster, so nothing escapes validation.
+	if t.Mode == apisettings.ValidationStrict && t.Validator != nil && !result.NeedsInlineCLA() {
+		if err := t.validateClusterConfig(ctx, out); err != nil {
+			logger.Error("cluster failed xDS validation in strict mode", "cluster", out.GetName(), "error", err)
+			return &BaseCluster{Cluster: buildBlackholeCluster(backend), Error: err}
+		}
+	}
+
+	return result
 }
 
 // ApplyPerClient computes per-client cluster mutations on top of base. Returns nil
@@ -183,20 +205,36 @@ func (t *BackendTranslator) ApplyPerClient(
 
 	// Gather overlays. Each plugin must self-determine applicability and return
 	// nil in the common case; this keeps the per-client cluster collection sparse.
-	var overlays []*sdk.ClusterOverlay
-	for _, policyPlugin := range t.ContributedPolicies {
+	type overlayEntry struct {
+		gk schema.GroupKind
+		ov *sdk.ClusterOverlay
+	}
+	var overlays []overlayEntry
+	for gk, policyPlugin := range t.ContributedPolicies {
 		if policyPlugin.PerClientClusterOverlay == nil {
 			continue
 		}
 		if ov := policyPlugin.PerClientClusterOverlay(kctx, ctx, ucc, *backend); ov != nil {
-			overlays = append(overlays, ov)
+			overlays = append(overlays, overlayEntry{gk: gk, ov: ov})
 		}
+	}
+	// ContributedPolicies is a map, so gathering order is nondeterministic. When
+	// more than one overlay applies, apply in GroupKind order so the mutated proto
+	// (and therefore its version hash, which drives KRT equality and interning) is
+	// byte-stable across recomputes.
+	if len(overlays) > 1 {
+		sort.Slice(overlays, func(i, j int) bool {
+			if overlays[i].gk.Group != overlays[j].gk.Group {
+				return overlays[i].gk.Group < overlays[j].gk.Group
+			}
+			return overlays[i].gk.Kind < overlays[j].gk.Kind
+		})
 	}
 
 	// Determine whether we need to build an inline CLA. Even with no overlays,
 	// inline-CLA clusters need a per-client CLA because PrioritizeEndpoints is
 	// UCC-dependent (locality, labels). This depends only on the base, not the UCC.
-	needsInlineCLA := base.SupportsInlineCLA && base.EndpointInputs != nil && base.Cluster.GetLoadAssignment() == nil
+	needsInlineCLA := base.NeedsInlineCLA()
 
 	if len(overlays) == 0 && !needsInlineCLA {
 		return nil, nil
@@ -209,9 +247,9 @@ func (t *BackendTranslator) ApplyPerClient(
 		return nil, errors.New("failed to clone base cluster")
 	}
 
-	for _, ov := range overlays {
-		if ov.Mutate != nil {
-			ov.Mutate(out)
+	for _, entry := range overlays {
+		if entry.ov.Mutate != nil {
+			entry.ov.Mutate(out)
 		}
 	}
 
@@ -231,9 +269,11 @@ func (t *BackendTranslator) ApplyPerClient(
 		}
 	}
 
-	// Strict-mode validation on the post-overlay cluster. The base was already
-	// validated in TranslateBackendBase, but overlays (destrule, waypoint, …)
-	// run here and can produce invalid configs that Envoy would NACK at runtime.
+	// Strict-mode validation on the post-overlay cluster. Non-inline-CLA bases
+	// were already validated in TranslateBackendBase (inline-CLA bases defer
+	// validation to here, where the CLA exists), but overlays (destrule,
+	// waypoint, …) run here and can produce invalid configs that Envoy would
+	// NACK at runtime.
 	// We must reject them at translation time when the user opted into strict
 	// validation. Returning the blackhole keeps the same shape as base errors,
 	// so the snapshot consumer's erroredClusters tracking still works.
