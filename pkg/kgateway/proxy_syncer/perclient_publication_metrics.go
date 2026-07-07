@@ -15,6 +15,11 @@ const (
 	deferReasonUnusableEndpoints = "unusable_endpoints"
 
 	boundedPublishFirstPublish = "first_publish"
+	// boundedPublishWarmTruth marks a bounded publish to a warm
+	// (prior-xDS-version) client whose only remaining gaps were endpoint-less
+	// referenced clusters — their steady-state truth, not propagation lag
+	// (#14352). Warm clients with clusters missing from CDS stay withheld.
+	boundedPublishWarmTruth = "warm_truth"
 
 	withheldReasonPriorXDSVersion = "prior_xds_version"
 )
@@ -58,10 +63,13 @@ var (
 			Subsystem: snapshotSubsystem,
 			Name:      "perclient_bounded_publishes_total",
 			Help: "Total deferred snapshots published because the first-publish " +
-				"budget (KGW_PER_CLIENT_PUBLISH_BUDGET) expired: a never-published " +
-				"client started on incomplete-but-consistent config instead of " +
-				"waiting indefinitely. Nonzero means a gateway pod would otherwise " +
-				"have crash-looped (#14184).",
+				"budget (KGW_PER_CLIENT_PUBLISH_BUDGET) expired. " +
+				"mode=first_publish: a never-published client started on " +
+				"incomplete-but-consistent config instead of waiting indefinitely " +
+				"(it would otherwise have crash-looped, #14184). mode=warm_truth: " +
+				"a warm client's only gaps were endpoint-less referenced clusters " +
+				"— steady state, not lag — and withholding would have frozen its " +
+				"config indefinitely (#14352).",
 		},
 		[]string{gatewayLabel, namespaceLabel, publicationModeLabel},
 	)
@@ -71,9 +79,12 @@ var (
 			Name:      "perclient_deferred_withheld_total",
 			Help: "Total deferred snapshots withheld at first-publish budget expiry " +
 				"because the client may already be serving traffic (it reported a " +
-				"prior accepted xDS version on connect). Kgateway preserved " +
-				"last-good config after a reconnect or controller restart instead " +
-				"of risking a partial state-of-the-world publish (#13868).",
+				"prior accepted xDS version on connect) and some referenced cluster " +
+				"was missing from CDS. Kgateway preserved last-good config after a " +
+				"reconnect or controller restart instead of publishing routes that " +
+				"would NC (#13868). Warm clients whose only gaps are endpoint-less " +
+				"clusters are published instead (bounded_publishes_total, " +
+				"mode=warm_truth).",
 		},
 		[]string{gatewayLabel, namespaceLabel, publicationReasonLabel},
 	)
@@ -126,8 +137,10 @@ func recordFlipHeld(proxyKey string) {
 	)
 }
 
-// recordBoundedPublish counts a deferred snapshot published at budget expiry.
-func recordBoundedPublish(proxyKey string) {
+// recordBoundedPublish counts a deferred snapshot published at budget expiry,
+// by mode (first_publish for cold clients, warm_truth for warm clients whose
+// only gaps were endpoint-less clusters).
+func recordBoundedPublish(proxyKey string, mode string) {
 	if !metrics.Active() {
 		return
 	}
@@ -135,7 +148,7 @@ func recordBoundedPublish(proxyKey string) {
 	snapshotPerClientBoundedPublishesTotal.Inc(
 		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
-		metrics.Label{Name: publicationModeLabel, Value: boundedPublishFirstPublish},
+		metrics.Label{Name: publicationModeLabel, Value: mode},
 	)
 }
 
