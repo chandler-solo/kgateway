@@ -20,7 +20,8 @@ import (
 // read-only on the consumer side, and per-client mutations clone it before
 // modifying. This is the change that lets the per-client collection stay sparse.
 type baseEnvoyCluster struct {
-	Name string
+	Name                string
+	BackendResourceName string
 	// +krtEqualsTodo include full cluster diff in equality
 	Cluster        *envoyclusterv3.Cluster
 	ClusterVersion uint64
@@ -37,15 +38,13 @@ type baseEnvoyCluster struct {
 	// Not included in equality — ClusterVersion captures the relevant state.
 	// +noKrtEquals
 	Base *irtranslator.BaseCluster
-	// Backend pointer for per-client overlay plugins that take BackendObjectIR.
-	// +noKrtEquals
-	Backend *ir.BackendObjectIR
 }
 
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
 
 func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
 	return b.Name == in.Name &&
+		b.BackendResourceName == in.BackendResourceName &&
 		b.ClusterVersion == in.ClusterVersion &&
 		b.BackendSource == in.BackendSource &&
 		b.BackendGeneration == in.BackendGeneration &&
@@ -310,26 +309,39 @@ func NewPerClientEnvoyClusters(
 			backendGeneration = backendObj.Obj.GetGeneration()
 		}
 		return &baseEnvoyCluster{
-			Name:              baseRes.Cluster.GetName(),
-			Cluster:           baseRes.Cluster,
-			ClusterVersion:    baseClusterVersion(baseRes),
-			Error:             baseRes.Error,
-			BackendSource:     backendObj.GetObjectSource(),
-			BackendGeneration: backendGeneration,
-			Base:              baseRes,
-			Backend:           backendObj,
+			Name:                baseRes.Cluster.GetName(),
+			BackendResourceName: backendObj.ResourceName(),
+			Cluster:             baseRes.Cluster,
+			ClusterVersion:      baseClusterVersion(baseRes),
+			Error:               baseRes.Error,
+			BackendSource:       backendObj.GetObjectSource(),
+			BackendGeneration:   backendGeneration,
+			Base:                baseRes,
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
+	baseByBackend := krtpkg.UnnamedIndex(base, func(b baseEnvoyCluster) []string {
+		return []string{b.BackendResourceName}
+	})
 
 	// Per-client deltas: only emitted for (ucc, backend) pairs that genuinely
 	// vary — at least one PerClientClusterOverlay returned non-nil, or the
 	// cluster requires a UCC-dependent inline CLA. Most pairs emit nothing,
 	// which is what keeps the collection sparse.
 	//
-	// Driven off the base collection (not finalBackends) so a UCC churn does
-	// not re-translate the base — we reuse the already-computed BaseCluster.
-	deltas := krt.NewManyCollection(base, func(kctx krt.HandlerContext, b baseEnvoyCluster) []uccClusterDelta {
-		if b.Error != nil || b.Base == nil || b.Backend == nil {
+	// Driven off finalBackends so backend metadata-only updates (for example
+	// Service labels consumed by an overlay) recompute deltas even when the
+	// shared base cluster remains equal. The already-computed base is fetched
+	// and reused, so UCC churn still does not re-translate base clusters.
+	deltas := krt.NewManyCollection(finalBackends, func(kctx krt.HandlerContext, backendObj *ir.BackendObjectIR) []uccClusterDelta {
+		if backendObj == nil {
+			return nil
+		}
+		baseObj := krt.FetchOne(kctx, base, krt.FilterIndex(baseByBackend, backendObj.ResourceName()))
+		if baseObj == nil {
+			return nil
+		}
+		b := *baseObj
+		if b.Error != nil || b.Base == nil {
 			// Errored base: every UCC sees the same blackhole, no per-client
 			// variation possible.
 			return nil
@@ -346,7 +358,7 @@ func NewPerClientEnvoyClusters(
 		// are read-only on the consumer side, so aliasing is safe.
 		internByVersion := map[uint64]*envoyclusterv3.Cluster{}
 		for _, ucc := range clients {
-			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, b.Backend, b.Base)
+			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, backendObj, b.Base)
 			if err != nil {
 				// Emit a delta entry that carries the error so the snapshot
 				// tracks this cluster as errored for THIS UCC only. Falling
