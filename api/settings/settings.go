@@ -339,8 +339,9 @@ type Settings struct {
 	//     that reported a prior accepted xDS version on connect are warm:
 	//     they stay withheld while referenced clusters are missing from CDS,
 	//     but publish at expiry when the only gaps are clusters whose
-	//     endpoints were never derived (that is the backends' steady state,
-	//     e.g. an ExternalName Service, not a transient race).
+	//     endpoints were never derived (by then that is translation backlog
+	//     or a plugin gap with no convergence guarantee, and withholding
+	//     longer would freeze the client's config indefinitely).
 	//   - flip release: a route flip held because it targets a
 	//     newly-referenced cluster with no derived endpoints is published at
 	//     expiry, so a reference that never becomes ready cannot pin the

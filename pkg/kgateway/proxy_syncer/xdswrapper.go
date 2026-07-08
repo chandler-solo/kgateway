@@ -47,9 +47,10 @@ type XdsSnapWrapper struct {
 	// missingEndpointsReferenced lists referenced EDS clusters whose CLA was
 	// not derived by the per-client endpoints collection; a synthesized empty
 	// stands in for it in the snapshot, and whether the backend has endpoints
-	// is unknown (derivation lag, or ExternalName which never produces
-	// EndpointSlices). A derived-but-empty CLA is the backend's known truth
-	// and is NOT listed (#14352). Sorted.
+	// is unknown (per-client derivation lag, or a plugin that contributed an
+	// EDS cluster without an endpoints row; kube Services always derive a
+	// row, even sliceless ones like ExternalName). A derived-but-empty CLA
+	// is the backend's known truth and is NOT listed (#14352). Sorted.
 	// +noKrtEquals (derived: a change implies an EDS version change)
 	missingEndpointsReferenced []string
 }

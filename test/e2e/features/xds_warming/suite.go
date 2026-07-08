@@ -250,21 +250,23 @@ func (s *testingSuite) TestInitialRouteToEmptyBackendServes503UntilReady() {
 	s.assertGatewayServesConsistently(startupHostName, startupBody, 5*time.Second, time.Second)
 }
 
-// TestSteadyStateEmptyBackendSurvivesControllerRestart reproduces #14352:
-// a shared gateway that references a backend which legitimately never has
-// endpoints (scale-to-zero / ExternalName shape — here, a Service with no
-// Deployment). The emptiness is a steady state, not a transient race, so the
-// publication path must treat it as truth everywhere:
+// TestSteadyStateEmptyBackendSurvivesControllerRestart pins the #14352
+// failure shape end to end: a shared gateway referencing a backend that
+// legitimately never has endpoints (scale-to-zero / ExternalName shape —
+// here, a Service with no Deployment). The emptiness is a steady state, not
+// a transient race, and the publication path must treat it as truth
+// everywhere — in particular it must never enter a withhold that only
+// converges if the backend gains endpoints:
 //
 //  1. a new route to the empty backend publishes and answers 503 — it never
 //     pins route/listener/secret updates behind the empty backend;
 //  2. unrelated route updates keep flowing while the empty reference exists;
-//  3. after a CONTROLLER restart, warm proxies resume receiving updates
-//     (pre-fix they were withheld indefinitely, freezing all config
-//     changes);
+//  3. after a CONTROLLER restart (empty snapshot cache, every client warm
+//     and re-gated at once), proxies resume receiving updates within the
+//     publish budget;
 //  4. a gateway rollout after the restart brings up a fresh proxy pod that
-//     goes Ready (pre-fix it received no snapshot at all and crash-looped at
-//     "cm init: initializing cds").
+//     goes Ready instead of starving at "cm init: initializing cds" — the
+//     crash-loop symptom reported in #14352.
 func (s *testingSuite) TestSteadyStateEmptyBackendSurvivesControllerRestart() {
 	s.assertGatewayEventuallyServes(hostName, oldBody)
 

@@ -9,11 +9,12 @@ import (
 )
 
 // publishGate bounds how long per-client publication may be withheld while
-// referenced clusters are unready. Incoherence can be steady state, not just
-// transient (#14352) — an ExternalName Service never has EndpointSlices, and
-// a scale-to-zero backend's zero endpoints IS its truth — so every withhold
-// needs a bound. The gate owns two, governed by the same budget
-// (KGW_PER_CLIENT_PUBLISH_BUDGET; 0 disables both):
+// referenced clusters are unready. Unreadiness is not guaranteed to converge
+// (#14352) — a plugin can contribute an EDS cluster whose endpoints row
+// never appears, and translation backlog can stretch "briefly behind" past
+// any probe window — so every withhold needs a bound. The gate owns two,
+// governed by the same budget (KGW_PER_CLIENT_PUBLISH_BUDGET; 0 disables
+// both):
 //
 //   - first publish (offerCold/firePending): how long a client that has
 //     NEVER been published a snapshot waits for its referenced clusters to
@@ -48,24 +49,25 @@ import (
 // The warm withhold deliberately does NOT extend to gaps that are only
 // underived CLAs (missingEndpointsReferenced). syncXds events only fire
 // after the informer chain has synced (krt registration semantics), so a CLA
-// still underived a full budget later is the backend's steady state (an
-// ExternalName Service never produces EndpointSlices), not propagation lag.
-// Withholding on it would freeze the warm client forever after a controller
-// restart — no route change, cert rotation, or endpoint update would ever
-// reach it — and would starve any cold pod that shares its UCC key (the
-// prior-version mark is key-level). So at expiry, if every referenced
-// cluster is present in CDS, the snapshot publishes as the current truth; in
-// the rare case the gap was lag, the very next build repairs it through
-// per-cluster resolution (the cache is populated from here on).
+// still underived a full budget later is either pathological backlog or a
+// plugin that never derives endpoints for its EDS cluster — states with no
+// convergence guarantee. Withholding on them would freeze the warm client
+// indefinitely after a controller restart — no route change, cert rotation,
+// or endpoint update would ever reach it — and would starve any cold pod
+// that shares its UCC key (the prior-version mark is key-level). So at
+// expiry, if every referenced cluster is present in CDS, the snapshot
+// publishes with the synthesized empties as the best-known state; if the gap
+// was lag after all, the very next build repairs it through per-cluster
+// resolution (the cache is populated from here on).
 //
 // Flip release: resolveDeferredPerCluster holds routes/listeners/secrets at
 // their published versions while a route flip targets a newly-referenced
 // cluster that is not yet ready. The hold is per resource type, so while it
 // lasts EVERY route/listener/secret update for the client is pinned — fine
 // for a backend whose translation or endpoints catch up in seconds, but a
-// reference that never resolves (an ExternalName Service never derives
-// endpoints; a plugin bug never produces the cluster) would pin them
-// forever. So the first held publish of an episode arms a release timer; if
+// reference that never resolves (a plugin that contributes an EDS cluster
+// with no endpoints source; a cluster that never reaches CDS) would pin
+// them forever. So the first held publish of an episode arms a release timer; if
 // the client is still holding at expiry, the latest held wrapper is
 // re-resolved with holds disabled and published: the flip goes out, routes
 // to still-unready clusters fail until those clusters become ready — the
@@ -230,9 +232,9 @@ func (g *publishGate) firePending(
 			return
 		}
 		// Warm client, but every referenced cluster is present in CDS and
-		// the only gaps are clusters with underived CLAs: by now that is the
-		// backends' steady state (ExternalName — #14352), not lag, and
-		// withholding would freeze this client's config indefinitely.
+		// the only gaps are clusters with underived CLAs: by now that is
+		// backlog or a plugin gap with no convergence guarantee (#14352),
+		// and withholding would freeze this client's config indefinitely.
 		mode = boundedPublishWarmTruth
 		logger.Warn("first-publish budget expired for warm client; remaining gaps are clusters with no derived endpoints, publishing their current truth",
 			"proxy_key", proxyKey, "missing_endpoint_clusters", st.missingEndpoints)

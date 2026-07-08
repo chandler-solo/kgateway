@@ -170,22 +170,28 @@ func snapshotPerClient(
 		//  3. A referenced EDS cluster whose ClusterLoadAssignment was NOT
 		//     derived by the per-client endpoints collection — a synthesized
 		//     empty stands in — is recorded in missingEndpointsReferenced.
-		//     An absent CLA means the derivation has not caught up (a
-		//     just-added backend) or never will (an ExternalName Service has
-		//     no EndpointSlices); flipping a route onto it now could drop all
-		//     hosts for a backend that actually has some. PRESENCE, not
-		//     contents, is the test: a derived CLA that is empty (or all
-		//     unhealthy) is the backend's TRUTH — "route-referenced backends
-		//     that are empty forever, on purpose" is a config shape proven in
-		//     production on the pre-per-cluster gates, whose guard was also
-		//     an existence check — so it never marks the wrapper deferred,
-		//     never taxes cold pods with the publish budget, and never holds
-		//     a route flip; routes to such a backend fail until it has
-		//     endpoints, exactly as they do today (#14352). Holding flips
-		//     onto derived-but-empty clusters (make-before-break for an A->B
-		//     retarget whose pods are still starting) is deliberately
-		//     surrendered for stock parity; it can return later as an OPT-IN
-		//     budget-bounded hold without revisiting this classification.
+		//     For kube Service backends this can only be derivation lag: the
+		//     endpoints transform emits a row for every resolvable Service
+		//     port even with zero EndpointSlices (see NewK8sEndpoints), so an
+		//     absent CLA means the per-client endpoints derivation has not
+		//     caught up with the cluster (a just-added backend, a rebuild).
+		//     The persistent variant is a plugin gap: a plugin contributing
+		//     an EDS cluster without a matching endpoints-collection row.
+		//     Flipping a route onto such a cluster now could drop all hosts
+		//     for a backend that actually has some. PRESENCE, not contents,
+		//     is the test: a derived CLA that is empty (or all unhealthy) is
+		//     the backend's TRUTH — "route-referenced backends that are empty
+		//     forever, on purpose" (ExternalName, scale-to-zero) is a config
+		//     shape proven in production on the pre-per-cluster gates, whose
+		//     guard was also an existence check — so it never marks the
+		//     wrapper deferred, never taxes cold pods with the publish
+		//     budget, and never holds a route flip; routes to such a backend
+		//     fail until it has endpoints, exactly as they do today (#14352).
+		//     Holding flips onto derived-but-empty clusters
+		//     (make-before-break for an A->B retarget whose pods are still
+		//     starting) is deliberately surrendered for stock parity; it can
+		//     return later as an OPT-IN budget-bounded hold without
+		//     revisiting this classification.
 		//
 		// A wrapper with either list non-empty is marked deferred, and
 		// syncXds resolves it per cluster against the currently-published
@@ -417,12 +423,14 @@ func findMissingReferencedClusters(
 // whose ClusterLoadAssignment was not derived by the per-client endpoints
 // collection — i.e. their CLA in the snapshot is a synthesized empty
 // placeholder (see filterEndpointResourcesForClusters). Whether such a
-// backend has endpoints is UNKNOWN (derivation lag, or an ExternalName
-// Service that never produces EndpointSlices), which is what warrants
-// deferral. PRESENCE, not contents, is the test: a derived CLA with zero
-// usable endpoints is the backend's known truth (scale-to-zero and
-// crashlooping backends are steady states, not races — #14352) and must not
-// defer the snapshot; this matches the existence semantics of the
+// backend has endpoints is UNKNOWN — per-client derivation lag for kube
+// Services (whose endpoints transform emits a row for every resolvable
+// port, even sliceless ones like ExternalName), or a plugin that
+// contributed an EDS cluster without an endpoints row — which is what
+// warrants deferral. PRESENCE, not contents, is the test: a derived CLA
+// with zero usable endpoints is the backend's known truth (scale-to-zero
+// and crashlooping backends are steady states, not races — #14352) and must
+// not defer the snapshot; this matches the existence semantics of the
 // whole-snapshot gate this replaced, the behavior production configs are
 // built against.
 func findMissingReferencedEndpointResources(
