@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -86,15 +87,15 @@ func TestNewPerClientEnvoyClusters_SparseOverlayWiring(t *testing.T) {
 
 	// Declined client: shared base proto, no mutation.
 	require.NoError(t, gotOther[0].Error)
-	assert.Nil(t, gotOther[0].Cluster.GetOutlierDetection(), "declined client must see the un-overlaid base")
+	assert.Nil(t, gotOther[0].Cluster.Clone().GetOutlierDetection(), "declined client must see the un-overlaid base")
 
 	// Matched client: distinct proto carrying the overlay mutation.
 	require.NoError(t, gotA[0].Error)
-	assert.NotNil(t, gotA[0].Cluster.GetOutlierDetection(), "matched client must see the overlay mutation")
-	assert.NotSame(t, gotOther[0].Cluster, gotA[0].Cluster, "matched client must not share the base proto")
+	assert.NotNil(t, gotA[0].Cluster.Clone().GetOutlierDetection(), "matched client must see the overlay mutation")
+	assert.False(t, sharedproto.Same(gotOther[0].Cluster, gotA[0].Cluster), "matched client must not share the base proto")
 
 	// Interning: equivalent matched clients share one delta proto.
-	assert.Same(t, gotA[0].Cluster, gotB[0].Cluster,
+	assert.True(t, sharedproto.Same(gotA[0].Cluster, gotB[0].Cluster),
 		"clients whose overlay output is byte-identical must share one interned proto")
 }
 
@@ -153,7 +154,7 @@ func TestNewPerClientEnvoyClusters_BackendMetadataUpdateRecomputesDeltas(t *test
 
 	require.Eventually(t, func() bool {
 		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
-		return len(got) == 1 && got[0].Cluster.GetOutlierDetection() == nil
+		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() == nil
 	}, 2*time.Second, 20*time.Millisecond)
 
 	updated := backend
@@ -169,6 +170,6 @@ func TestNewPerClientEnvoyClusters_BackendMetadataUpdateRecomputesDeltas(t *test
 
 	require.Eventually(t, func() bool {
 		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
-		return len(got) == 1 && got[0].Cluster.GetOutlierDetection() != nil
+		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() != nil
 	}, 2*time.Second, 20*time.Millisecond)
 }

@@ -7,6 +7,7 @@ import (
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -16,15 +17,12 @@ import (
 
 type UccWithEndpoints struct {
 	Client ir.UniquelyConnectedClient
+	// Endpoints is wrapped so consumers cannot mutate the CLA interned across
+	// every UCC that resolved identically; see package sharedproto.
 	// +krtEqualsTodo compare load assignments when equality matters
-	Endpoints     *envoyendpointv3.ClusterLoadAssignment
+	Endpoints     sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]
 	EndpointsHash uint64
 	endpointsName string
-	// assertProtoHash is the creation-time content hash of Endpoints, captured
-	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
-	// Derived from Endpoints, so excluded from equality.
-	// +noKrtEquals
-	assertProtoHash uint64
 }
 
 func (c UccWithEndpoints) ResourceName() string {
@@ -60,30 +58,22 @@ func NewPerClientEnvoyEndpoints(
 		// client only through PrioritizeEndpoints (locality, labels) and the
 		// plugin-applied PriorityInfo; UCCs sharing those hashes get one shared
 		// read-only proto instead of a freshly built copy each.
-		sharedClas := map[uint64]*envoyendpointv3.ClusterLoadAssignment{}
-		// Creation-time content hashes for the tripwire, keyed like sharedClas;
-		// nil (all lookups return 0 = "not captured") unless assertions are on.
-		var sharedClaAsserts map[uint64]uint64
-		if assertSharedProtos {
-			sharedClaAsserts = map[uint64]uint64{}
-		}
+		sharedClas := map[uint64]sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]{}
 		for _, ucc := range uccs {
 			resolved := resolveEndpoints(kctx, ucc, ep)
 			endpointsHash := combineEndpointHash(ep.LbEpsEqualityHash, resolved.AdditionalHash, resolved.LoadBalancingHash)
 			cla, ok := sharedClas[endpointsHash]
 			if !ok {
-				cla = buildClusterLoadAssignment(ucc, resolved)
+				// Wrap captures the tripwire hash once per distinct CLA; rows
+				// that reuse the interned CLA copy the wrapper.
+				cla = sharedproto.Wrap(buildClusterLoadAssignment(ucc, resolved))
 				sharedClas[endpointsHash] = cla
-				if assertSharedProtos {
-					sharedClaAsserts[endpointsHash] = utils.HashProto(cla)
-				}
 			}
 			u := UccWithEndpoints{
-				Client:          ucc,
-				Endpoints:       cla,
-				EndpointsHash:   endpointsHash,
-				endpointsName:   ep.ResourceName(),
-				assertProtoHash: sharedClaAsserts[endpointsHash],
+				Client:        ucc,
+				Endpoints:     cla,
+				EndpointsHash: endpointsHash,
+				endpointsName: ep.ResourceName(),
 			}
 			uccWithEndpointsRet = append(uccWithEndpointsRet, u)
 		}

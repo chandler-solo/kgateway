@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
@@ -42,7 +43,7 @@ func NewPerClientLocalClusterEndpoints(
 		cla := buildLocalClusterLoadAssignment(localClusterName, gatewayName, gatewayNamespace, krt.Fetch(kctx, localityPods))
 		return &UccWithEndpoints{
 			Client:        ucc,
-			Endpoints:     cla,
+			Endpoints:     sharedproto.Wrap(cla),
 			EndpointsHash: hashLocalClusterLoadAssignment(cla),
 			endpointsName: localClusterName,
 		}

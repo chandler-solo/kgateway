@@ -8,6 +8,7 @@ import (
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -24,8 +25,10 @@ type baseEnvoyCluster struct {
 	// names the cluster (blackhole included) after BackendObjectIR.ClusterName(),
 	// which is how the deltas builder looks bases up.
 	Name string
+	// Cluster is wrapped so consumers cannot mutate the proto shared across
+	// every client snapshot; see package sharedproto.
 	// +krtEqualsTodo include full cluster diff in equality
-	Cluster        *envoyclusterv3.Cluster
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	// Error is the translation error for this backend, if any. Compared by message in
 	// Equals because all errored clusters share one blackhole proto and baseClusterVersion
@@ -40,11 +43,6 @@ type baseEnvoyCluster struct {
 	// Not included in equality — ClusterVersion captures the relevant state.
 	// +noKrtEquals
 	Base *irtranslator.BaseCluster
-	// assertProtoHash is the creation-time content hash of Cluster, captured
-	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
-	// Derived from Cluster, so excluded from equality.
-	// +noKrtEquals
-	assertProtoHash uint64
 }
 
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
@@ -71,16 +69,13 @@ func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
 type uccClusterDelta struct {
 	Client ir.UniquelyConnectedClient
 	Name   string
+	// Cluster is wrapped so consumers cannot mutate the proto interned across
+	// UCCs; see package sharedproto.
 	// +krtEqualsTodo include full cluster diff in equality
-	Cluster        *envoyclusterv3.Cluster
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	// +krtEqualsTodo surface translation errors in equality or drop field
 	Error error
-	// assertProtoHash is the creation-time content hash of Cluster, captured
-	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
-	// Derived from Cluster, so excluded from equality.
-	// +noKrtEquals
-	assertProtoHash uint64
 }
 
 func (d uccClusterDelta) ResourceName() string {
@@ -95,8 +90,11 @@ func (d uccClusterDelta) Equals(in uccClusterDelta) bool {
 // resolved cluster (base or delta) along with any translation error and the
 // source Backend identity used for status attribution.
 type uccWithCluster struct {
-	Client         ir.UniquelyConnectedClient
-	Cluster        *envoyclusterv3.Cluster
+	Client ir.UniquelyConnectedClient
+	// Cluster is wrapped so snapshot assembly cannot mutate the proto shared
+	// with other clients; the only exits are ResourceWithTTL (into the
+	// envoycache snapshot, tripwire-verified) and Clone.
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	Name           string
 	Error          error
@@ -104,10 +102,6 @@ type uccWithCluster struct {
 	BackendSource ir.ObjectSource
 	// BackendGeneration is the observed generation of the source Backend.
 	BackendGeneration int64
-	// assertProtoHash is the creation-time content hash of Cluster (0 when
-	// shared-proto assertions are disabled or the row came from a test
-	// fixture); snapshotPerClient verifies against it before publishing.
-	assertProtoHash uint64
 }
 
 func (c uccWithCluster) ResourceName() string {
@@ -227,7 +221,6 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				Error:             derr,
 				BackendSource:     b.BackendSource,
 				BackendGeneration: b.BackendGeneration,
-				assertProtoHash:   d.assertProtoHash,
 			})
 			continue
 		}
@@ -250,7 +243,6 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 			Error:             b.Error,
 			BackendSource:     b.BackendSource,
 			BackendGeneration: b.BackendGeneration,
-			assertProtoHash:   b.assertProtoHash,
 		})
 	}
 	// Standalone deltas (no matching base) only arise in tests; production deltas
@@ -261,12 +253,11 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				continue
 			}
 			out = append(out, uccWithCluster{
-				Client:          ucc,
-				Cluster:         deltas[i].Cluster,
-				ClusterVersion:  deltas[i].ClusterVersion,
-				Name:            deltas[i].Name,
-				Error:           deltas[i].Error,
-				assertProtoHash: deltas[i].assertProtoHash,
+				Client:         ucc,
+				Cluster:        deltas[i].Cluster,
+				ClusterVersion: deltas[i].ClusterVersion,
+				Name:           deltas[i].Name,
+				Error:          deltas[i].Error,
 			})
 		}
 	}
@@ -348,13 +339,12 @@ func NewPerClientEnvoyClusters(
 		}
 		return &baseEnvoyCluster{
 			Name:              baseRes.Cluster.GetName(),
-			Cluster:           baseRes.Cluster,
+			Cluster:           sharedproto.Wrap(baseRes.Cluster),
 			ClusterVersion:    baseClusterVersion(backendObj, baseRes),
 			Error:             baseRes.Error,
 			BackendSource:     backendObj.GetObjectSource(),
 			BackendGeneration: backendGeneration,
 			Base:              baseRes,
-			assertProtoHash:   captureSharedProtoHash(baseRes.Cluster),
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
 
@@ -393,7 +383,7 @@ func NewPerClientEnvoyClusters(
 		// inputs (e.g. the same locality) produce byte-identical clusters; sharing
 		// one proto instead of N clones cuts allocations to O(distinct). The protos
 		// are read-only on the consumer side, so aliasing is safe.
-		internByVersion := map[uint64]*envoyclusterv3.Cluster{}
+		internByVersion := map[uint64]sharedproto.Shared[*envoyclusterv3.Cluster]{}
 		for _, ucc := range clients {
 			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, backendObj, b.Base)
 			if err != nil {
@@ -409,9 +399,11 @@ func NewPerClientEnvoyClusters(
 					name = perClient.GetName()
 				}
 				out = append(out, uccClusterDelta{
-					Client:         ucc,
-					Name:           name,
-					Cluster:        perClient,
+					Client: ucc,
+					Name:   name,
+					// Hash 0: errored rows are never published, so they opt
+					// out of tripwire verification.
+					Cluster:        sharedproto.WrapPrehashed(perClient, 0),
 					ClusterVersion: utils.HashString(err.Error()),
 					Error:          err,
 				})
@@ -423,18 +415,17 @@ func NewPerClientEnvoyClusters(
 				continue
 			}
 			clusterVersion := utils.HashProto(perClient)
-			if shared, ok := internByVersion[clusterVersion]; ok {
-				perClient = shared
-			} else {
-				internByVersion[clusterVersion] = perClient
+			shared, ok := internByVersion[clusterVersion]
+			if !ok {
+				// clusterVersion IS the content hash, so tripwire capture is free.
+				shared = sharedproto.WrapPrehashed(perClient, clusterVersion)
+				internByVersion[clusterVersion] = shared
 			}
 			out = append(out, uccClusterDelta{
 				Client:         ucc,
 				Name:           perClient.GetName(),
-				Cluster:        perClient,
+				Cluster:        shared,
 				ClusterVersion: clusterVersion,
-				// clusterVersion IS the content hash, so capture is free here.
-				assertProtoHash: sharedProtoAssertValue(clusterVersion),
 			})
 		}
 		return out
