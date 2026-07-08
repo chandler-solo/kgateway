@@ -121,10 +121,12 @@ func (s *testingSuite) AfterTest(suiteName, testName string) {
 	}
 
 	// Every test in this suite drives the per-client publication engine, so
-	// after each one verify the controller never published a snapshot that
-	// failed go-control-plane's Snapshot.Consistent() invariant (the install
-	// runs with KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK enabled).
-	s.assertNoInconsistentSnapshots()
+	// after each one verify the xDS invariants held: the controller never
+	// published a snapshot that failed go-control-plane's
+	// Snapshot.Consistent() (the install runs with
+	// KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK enabled), and no client ever NACKed
+	// a published response.
+	s.assertNoXdsInvariantViolations()
 }
 
 // TestRouteUpdateToEmptyBackendPublishesTruth pins stock-parity presence
@@ -312,11 +314,17 @@ func (s *testingSuite) TestSteadyStateEmptyBackendSurvivesControllerRestart() {
 	s.assertGatewayEventuallyServes(hostName, oldBody)
 }
 
-// assertNoInconsistentSnapshots scrapes the controller's metrics endpoint and
-// fails if any per-client snapshot was published despite failing
-// Snapshot.Consistent() (see KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK). The counter
-// only materializes on the first violation, so absence passes.
-func (s *testingSuite) assertNoInconsistentSnapshots() {
+// assertNoXdsInvariantViolations scrapes the controller's metrics endpoint
+// and fails if either xDS invariant counter recorded a violation:
+//
+//   - kgateway_xds_snapshot_perclient_inconsistent_snapshots_total: a
+//     published snapshot failed Snapshot.Consistent() (recorded because the
+//     install runs with KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK);
+//   - kgateway_xds_nacks_total: a client rejected a published response and is
+//     serving older config than the control plane believes.
+//
+// Both counters only materialize on the first violation, so absence passes.
+func (s *testingSuite) assertNoXdsInvariantViolations() {
 	metricsService := metav1.ObjectMeta{
 		Name:      "kgateway-metrics",
 		Namespace: s.TestInstallation.Metadata.InstallNamespace,
@@ -336,16 +344,22 @@ func (s *testingSuite) assertNoInconsistentSnapshots() {
 	body, err := io.ReadAll(response.Body)
 	s.Require().NoError(err, "can read controller metrics body")
 
+	violations := map[string]string{
+		"kgateway_xds_snapshot_perclient_inconsistent_snapshots_total": "the controller published a snapshot that failed Snapshot.Consistent()",
+		"kgateway_xds_nacks_total":                                     "a client NACKed a published xDS response and is serving older config",
+	}
 	for line := range strings.SplitSeq(string(body), "\n") {
-		if !strings.HasPrefix(line, "kgateway_xds_snapshot_perclient_inconsistent_snapshots_total") {
-			continue
+		for metric, description := range violations {
+			if !strings.HasPrefix(line, metric) {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 || fields[len(fields)-1] == "0" {
+				continue
+			}
+			s.Require().Failf("xds invariant violated",
+				"%s; this is a kgateway bug: %s", description, line)
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 || fields[len(fields)-1] == "0" {
-			continue
-		}
-		s.Require().Failf("inconsistent snapshot published",
-			"the controller published a snapshot that failed Snapshot.Consistent(); this is a kgateway bug: %s", line)
 	}
 }
 
