@@ -356,6 +356,17 @@ type Settings struct {
 	// disables all bounds: clients wait for coherence with no deadline.
 	PerClientPublishBudget time.Duration `split_words:"true" default:"15s"`
 
+	// XdsSnapshotConsistencyCheck runs go-control-plane's Snapshot.Consistent()
+	// on every per-client xDS snapshot immediately before it is published,
+	// recording violations in the
+	// kgateway_xds_snapshot_perclient_inconsistent_snapshots_total counter and
+	// the error log. The snapshot is still published either way: the check is
+	// an invariant monitor for test and CI environments (any increment is a
+	// kgateway bug worth reporting), never a gate — withholding on
+	// inconsistency would reintroduce the unbounded withholds the publication
+	// engine removed. Off by default; enabled in e2e and conformance runs.
+	XdsSnapshotConsistencyCheck bool `split_words:"true" default:"false"`
+
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
 	// Supported values are:
 	// - "OFF": No ReferenceGrant validation. All cross-namespace references are permitted.

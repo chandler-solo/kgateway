@@ -29,11 +29,12 @@ type stubPriorXDS struct{ has bool }
 
 func (s stubPriorXDS) HasPriorXDSVersion(string) bool { return s.has }
 
-func newPublishGateTestTranslator(prior bool, budget time.Duration) *ProxyTranslator {
+func newPublishGateTestTranslator(t *testing.T, prior bool, budget time.Duration) *ProxyTranslator {
 	pt := NewProxyTranslator(
-		envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil),
+		newTestSnapshotCache(t),
 		stubPriorXDS{has: prior},
 		budget,
+		true,
 	)
 	return &pt
 }
@@ -85,7 +86,7 @@ func publishedListenerVersion(t *testing.T, pt *ProxyTranslator) (string, bool) 
 // A cold, never-published client is withheld within the budget and published
 // at expiry so the pod can start.
 func TestFirstPublish_ColdClientPublishesAtBudget(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 50*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredWrapperV("v1"))
 
@@ -102,7 +103,7 @@ func TestFirstPublish_ColdClientPublishesAtBudget(t *testing.T) {
 
 // The latest deferred snapshot is the one published at budget expiry.
 func TestFirstPublish_LatestDeferredWins(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 80*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 80*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredWrapperV("v1"))
 	pt.syncXds(context.Background(), deferredWrapperV("v2"))
@@ -120,7 +121,7 @@ func TestFirstPublish_LatestDeferredWins(t *testing.T) {
 // routes to absent clusters would NC config it is already serving), but a
 // coherent snapshot still publishes immediately.
 func TestFirstPublish_PriorXDSVersionClientStaysWithheld(t *testing.T) {
-	pt := newPublishGateTestTranslator(true, 40*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, true, 40*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredWrapperV("v1"))
 
@@ -141,7 +142,7 @@ func TestFirstPublish_PriorXDSVersionClientStaysWithheld(t *testing.T) {
 // #14352), and withholding would freeze the client's config indefinitely
 // after a controller restart.
 func TestFirstPublish_WarmClientPublishesEndpointTruthAtBudget(t *testing.T) {
-	pt := newPublishGateTestTranslator(true, 50*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, true, 50*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredMissingEndpointsWrapperV("v1"))
 
@@ -160,7 +161,7 @@ func TestFirstPublish_WarmClientPublishesEndpointTruthAtBudget(t *testing.T) {
 // A warm client with BOTH missing and underived-CLA gaps stays withheld: the
 // missing clusters dominate (publishing would NC their routes).
 func TestFirstPublish_WarmClientMixedGapsStaysWithheld(t *testing.T) {
-	pt := newPublishGateTestTranslator(true, 40*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, true, 40*time.Millisecond)
 
 	wrapper := deferredWrapperV("v1")
 	wrapper.missingEndpointsReferenced = []string{"cluster-underived"}
@@ -176,7 +177,7 @@ func TestFirstPublish_WarmClientMixedGapsStaysWithheld(t *testing.T) {
 // A coherent snapshot supersedes a pending bounded publish, and the canceled
 // timer must never overwrite it.
 func TestFirstPublish_CoherentSupersedesPending(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 100*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 100*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredWrapperV("deferred"))
 	pt.syncXds(context.Background(), coherentWrapperV("coherent"))
@@ -192,7 +193,7 @@ func TestFirstPublish_CoherentSupersedesPending(t *testing.T) {
 
 // A departed client's pending bounded publish must not fire.
 func TestFirstPublish_DepartureCancelsPending(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 50*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
 
 	pt.syncXds(context.Background(), deferredWrapperV("v1"))
 	pt.gate.clientDeparted(publishGateTestClient)
@@ -205,7 +206,7 @@ func TestFirstPublish_DepartureCancelsPending(t *testing.T) {
 // KGW_PER_CLIENT_PUBLISH_BUDGET=0 is the conservative opt-out: never-published
 // clients are withheld with no deadline.
 func TestFirstPublish_BudgetZeroDisablesBound(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 0)
+	pt := newPublishGateTestTranslator(t, false, 0)
 
 	pt.syncXds(context.Background(), deferredWrapperV("v1"))
 
@@ -281,7 +282,7 @@ func servedSnapshot(t *testing.T, pt *ProxyTranslator) *envoycache.Snapshot {
 // the still-unready cluster's routes fail until it becomes ready, instead of
 // pinning every route/listener/secret update forever (#14352).
 func TestFlipRelease_HeldFlipPublishesAtBudget(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 50*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
 
 	pt.syncXds(context.Background(), flipWrap)
@@ -304,7 +305,7 @@ func TestFlipRelease_HeldFlipPublishesAtBudget(t *testing.T) {
 // A build that resolves the flip (endpoints derived, snapshot coherent)
 // cancels the pending release; the expired timer must not overwrite it.
 func TestFlipRelease_ResolvedFlipCancelsPending(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 100*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 100*time.Millisecond)
 	_, flipWrap := flipHoldFixture(t, pt)
 
 	pt.syncXds(context.Background(), flipWrap)
@@ -330,7 +331,7 @@ func TestFlipRelease_ResolvedFlipCancelsPending(t *testing.T) {
 
 // A departed client's pending flip release must not fire.
 func TestFlipRelease_DepartureCancelsPending(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 50*time.Millisecond)
+	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
 
 	pt.syncXds(context.Background(), flipWrap)
@@ -344,7 +345,7 @@ func TestFlipRelease_DepartureCancelsPending(t *testing.T) {
 // KGW_PER_CLIENT_PUBLISH_BUDGET=0 also disables the flip-release bound: the
 // hold lasts until the flip resolves.
 func TestFlipRelease_BudgetZeroDisablesBound(t *testing.T) {
-	pt := newPublishGateTestTranslator(false, 0)
+	pt := newPublishGateTestTranslator(t, false, 0)
 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
 
 	pt.syncXds(context.Background(), flipWrap)

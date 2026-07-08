@@ -1251,6 +1251,15 @@ conformance-%:  ## Run only the specified Gateway API conformance test by ShortN
 all-conformance: conformance ## Run all conformance test suites
 	@echo "All conformance suites have completed."
 
+# Verify that the controller never published a per-client xDS snapshot that
+# failed go-control-plane's Snapshot.Consistent(). Meaningful when the install
+# has KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK=true on the controller (the script
+# warns and passes otherwise, so it is safe to chain after any run).
+# Example: make conformance xds-consistency-check
+.PHONY: xds-consistency-check
+xds-consistency-check: ## Fail if the controller published inconsistent per-client xDS snapshots
+	INSTALL_NAMESPACE=$(INSTALL_NAMESPACE) ./hack/xds-consistency-check.sh
+
 #----------------------------------------------------------------------------------
 # Dependency Bumping
 #----------------------------------------------------------------------------------

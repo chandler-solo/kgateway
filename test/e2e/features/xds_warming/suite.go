@@ -43,11 +43,13 @@ var (
 	emptyRouteManifest          = filepath.Join(fsutils.MustGetThisDir(), "testdata", "empty-route.yaml")
 	canaryRouteManifest         = filepath.Join(fsutils.MustGetThisDir(), "testdata", "canary-route.yaml")
 	postrestartRouteManifest    = filepath.Join(fsutils.MustGetThisDir(), "testdata", "postrestart-route.yaml")
+	metricsServiceManifest      = filepath.Join(fsutils.MustGetThisDir(), "testdata", "metrics-service.yaml")
 
 	setup = base.TestCase{
 		Manifests: []string{
 			testdefaults.CurlPodManifest,
 			setupManifest,
+			metricsServiceManifest,
 		},
 	}
 
@@ -99,24 +101,30 @@ func (s *testingSuite) TearDownSuite() {
 func (s *testingSuite) AfterTest(suiteName, testName string) {
 	s.BaseTestingSuite.AfterTest(suiteName, testName)
 
-	if testutils.ShouldSkipCleanup(s.T()) {
-		return
+	if !testutils.ShouldSkipCleanup(s.T()) {
+		// Cleanup must run before any assertion below: an assertion failure
+		// aborts AfterTest, and leftover backends would poison the next test.
+		for _, manifest := range []string{
+			backendNewManifest,
+			startupBackendManifest,
+			startupServiceRouteManifest,
+			emptyRouteManifest,
+			canaryRouteManifest,
+			postrestartRouteManifest,
+		} {
+			err := s.TestInstallation.Actions.Kubectl().DeleteFileSafe(s.Ctx, manifest)
+			s.Require().NoError(err, "can clean up %s", manifest)
+		}
+
+		err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, setupManifest)
+		s.Require().NoError(err, "can restore baseline warming route")
 	}
 
-	for _, manifest := range []string{
-		backendNewManifest,
-		startupBackendManifest,
-		startupServiceRouteManifest,
-		emptyRouteManifest,
-		canaryRouteManifest,
-		postrestartRouteManifest,
-	} {
-		err := s.TestInstallation.Actions.Kubectl().DeleteFileSafe(s.Ctx, manifest)
-		s.Require().NoError(err, "can clean up %s", manifest)
-	}
-
-	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, setupManifest)
-	s.Require().NoError(err, "can restore baseline warming route")
+	// Every test in this suite drives the per-client publication engine, so
+	// after each one verify the controller never published a snapshot that
+	// failed go-control-plane's Snapshot.Consistent() invariant (the install
+	// runs with KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK enabled).
+	s.assertNoInconsistentSnapshots()
 }
 
 // TestRouteUpdateToEmptyBackendPublishesTruth pins stock-parity presence
@@ -302,6 +310,43 @@ func (s *testingSuite) TestSteadyStateEmptyBackendSurvivesControllerRestart() {
 		"-n", gatewayNamespace)
 	s.Require().NoError(err, "a fresh gateway proxy pod must go Ready despite a steady-state empty reference")
 	s.assertGatewayEventuallyServes(hostName, oldBody)
+}
+
+// assertNoInconsistentSnapshots scrapes the controller's metrics endpoint and
+// fails if any per-client snapshot was published despite failing
+// Snapshot.Consistent() (see KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK). The counter
+// only materializes on the first violation, so absence passes.
+func (s *testingSuite) assertNoInconsistentSnapshots() {
+	metricsService := metav1.ObjectMeta{
+		Name:      "kgateway-metrics",
+		Namespace: s.TestInstallation.Metadata.InstallNamespace,
+	}
+	curlResponse, err := s.TestInstallation.ClusterContext.Cli.CurlFromPod(
+		s.Ctx,
+		testdefaults.CurlPodExecOpt,
+		curl.WithHost(kubeutils.ServiceFQDN(metricsService)),
+		curl.WithPort(9092),
+		curl.WithPath("/metrics"),
+		curl.WithConnectionTimeout(5),
+	)
+	s.Require().NoError(err, "can scrape controller metrics")
+
+	response := transforms.WithCurlResponse(curlResponse)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	s.Require().NoError(err, "can read controller metrics body")
+
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if !strings.HasPrefix(line, "kgateway_xds_snapshot_perclient_inconsistent_snapshots_total") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[len(fields)-1] == "0" {
+			continue
+		}
+		s.Require().Failf("inconsistent snapshot published",
+			"the controller published a snapshot that failed Snapshot.Consistent(); this is a kgateway bug: %s", line)
+	}
 }
 
 func (s *testingSuite) assertGatewayEventuallyStatus(host string, status int, timeout, poll time.Duration) {
