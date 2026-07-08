@@ -91,6 +91,12 @@ func snapshotPerClient(
 				erroredClustersHash ^= utils.HashString(c.Name)
 				continue
 			}
+			if assertSharedProtos {
+				// Tripwire for the shared-proto invariant: this proto is aliased
+				// into other clients' snapshots and the KRT store; any mutation
+				// since creation is corruption. See shared_proto_assert.go.
+				verifySharedProtoHash("cluster", c.Name, ucc.ResourceName(), c.Cluster, c.assertProtoHash)
+			}
 			clustersProto = append(clustersProto, envoycachetypes.ResourceWithTTL{Resource: c.Cluster})
 			clustersHash ^= c.ClusterVersion
 		}
@@ -115,6 +121,11 @@ func snapshotPerClient(
 		endpointsProto := make([]envoycachetypes.ResourceWithTTL, 0, len(endpointsForUcc))
 		var endpointsHash uint64
 		for _, ep := range endpointsForUcc {
+			if assertSharedProtos {
+				// Same tripwire as the cluster loop: interned CLAs are shared
+				// across every UCC that resolved identically.
+				verifySharedProtoHash("endpoints", ep.Endpoints.GetClusterName(), ucc.ResourceName(), ep.Endpoints, ep.assertProtoHash)
+			}
 			endpointsProto = append(endpointsProto, envoycachetypes.ResourceWithTTL{Resource: ep.Endpoints})
 			endpointsHash ^= ep.EndpointsHash
 		}

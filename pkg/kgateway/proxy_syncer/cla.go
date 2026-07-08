@@ -20,6 +20,11 @@ type UccWithEndpoints struct {
 	Endpoints     *envoyendpointv3.ClusterLoadAssignment
 	EndpointsHash uint64
 	endpointsName string
+	// assertProtoHash is the creation-time content hash of Endpoints, captured
+	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
+	// Derived from Endpoints, so excluded from equality.
+	// +noKrtEquals
+	assertProtoHash uint64
 }
 
 func (c UccWithEndpoints) ResourceName() string {
@@ -56,6 +61,12 @@ func NewPerClientEnvoyEndpoints(
 		// plugin-applied PriorityInfo; UCCs sharing those hashes get one shared
 		// read-only proto instead of a freshly built copy each.
 		sharedClas := map[uint64]*envoyendpointv3.ClusterLoadAssignment{}
+		// Creation-time content hashes for the tripwire, keyed like sharedClas;
+		// nil (all lookups return 0 = "not captured") unless assertions are on.
+		var sharedClaAsserts map[uint64]uint64
+		if assertSharedProtos {
+			sharedClaAsserts = map[uint64]uint64{}
+		}
 		for _, ucc := range uccs {
 			resolved := resolveEndpoints(kctx, ucc, ep)
 			endpointsHash := combineEndpointHash(ep.LbEpsEqualityHash, resolved.AdditionalHash, resolved.LoadBalancingHash)
@@ -63,12 +74,16 @@ func NewPerClientEnvoyEndpoints(
 			if !ok {
 				cla = buildClusterLoadAssignment(ucc, resolved)
 				sharedClas[endpointsHash] = cla
+				if assertSharedProtos {
+					sharedClaAsserts[endpointsHash] = utils.HashProto(cla)
+				}
 			}
 			u := UccWithEndpoints{
-				Client:        ucc,
-				Endpoints:     cla,
-				EndpointsHash: endpointsHash,
-				endpointsName: ep.ResourceName(),
+				Client:          ucc,
+				Endpoints:       cla,
+				EndpointsHash:   endpointsHash,
+				endpointsName:   ep.ResourceName(),
+				assertProtoHash: sharedClaAsserts[endpointsHash],
 			}
 			uccWithEndpointsRet = append(uccWithEndpointsRet, u)
 		}

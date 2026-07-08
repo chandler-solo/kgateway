@@ -40,6 +40,11 @@ type baseEnvoyCluster struct {
 	// Not included in equality — ClusterVersion captures the relevant state.
 	// +noKrtEquals
 	Base *irtranslator.BaseCluster
+	// assertProtoHash is the creation-time content hash of Cluster, captured
+	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
+	// Derived from Cluster, so excluded from equality.
+	// +noKrtEquals
+	assertProtoHash uint64
 }
 
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
@@ -71,6 +76,11 @@ type uccClusterDelta struct {
 	ClusterVersion uint64
 	// +krtEqualsTodo surface translation errors in equality or drop field
 	Error error
+	// assertProtoHash is the creation-time content hash of Cluster, captured
+	// only when shared-proto assertions are enabled (see shared_proto_assert.go).
+	// Derived from Cluster, so excluded from equality.
+	// +noKrtEquals
+	assertProtoHash uint64
 }
 
 func (d uccClusterDelta) ResourceName() string {
@@ -94,6 +104,10 @@ type uccWithCluster struct {
 	BackendSource ir.ObjectSource
 	// BackendGeneration is the observed generation of the source Backend.
 	BackendGeneration int64
+	// assertProtoHash is the creation-time content hash of Cluster (0 when
+	// shared-proto assertions are disabled or the row came from a test
+	// fixture); snapshotPerClient verifies against it before publishing.
+	assertProtoHash uint64
 }
 
 func (c uccWithCluster) ResourceName() string {
@@ -213,6 +227,7 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				Error:             derr,
 				BackendSource:     b.BackendSource,
 				BackendGeneration: b.BackendGeneration,
+				assertProtoHash:   d.assertProtoHash,
 			})
 			continue
 		}
@@ -235,6 +250,7 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 			Error:             b.Error,
 			BackendSource:     b.BackendSource,
 			BackendGeneration: b.BackendGeneration,
+			assertProtoHash:   b.assertProtoHash,
 		})
 	}
 	// Standalone deltas (no matching base) only arise in tests; production deltas
@@ -245,11 +261,12 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				continue
 			}
 			out = append(out, uccWithCluster{
-				Client:         ucc,
-				Cluster:        deltas[i].Cluster,
-				ClusterVersion: deltas[i].ClusterVersion,
-				Name:           deltas[i].Name,
-				Error:          deltas[i].Error,
+				Client:          ucc,
+				Cluster:         deltas[i].Cluster,
+				ClusterVersion:  deltas[i].ClusterVersion,
+				Name:            deltas[i].Name,
+				Error:           deltas[i].Error,
+				assertProtoHash: deltas[i].assertProtoHash,
 			})
 		}
 	}
@@ -337,6 +354,7 @@ func NewPerClientEnvoyClusters(
 			BackendSource:     backendObj.GetObjectSource(),
 			BackendGeneration: backendGeneration,
 			Base:              baseRes,
+			assertProtoHash:   captureSharedProtoHash(baseRes.Cluster),
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
 
@@ -415,6 +433,8 @@ func NewPerClientEnvoyClusters(
 				Name:           perClient.GetName(),
 				Cluster:        perClient,
 				ClusterVersion: clusterVersion,
+				// clusterVersion IS the content hash, so capture is free here.
+				assertProtoHash: sharedProtoAssertValue(clusterVersion),
 			})
 		}
 		return out
