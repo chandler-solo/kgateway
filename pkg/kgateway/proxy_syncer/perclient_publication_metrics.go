@@ -87,6 +87,20 @@ var (
 		},
 		[]string{gatewayLabel, namespaceLabel, publicationModeLabel},
 	)
+	snapshotPerClientInconsistentTotal = metrics.NewCounter(
+		metrics.CounterOpts{
+			Subsystem: snapshotSubsystem,
+			Name:      "perclient_inconsistent_snapshots_total",
+			Help: "Total per-client snapshots that failed go-control-plane's " +
+				"Snapshot.Consistent() check immediately before publication. " +
+				"Only recorded when KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK is " +
+				"enabled (test/CI environments); the snapshot is still " +
+				"published. The publication paths maintain consistency by " +
+				"construction, so any increment is a kgateway bug — please " +
+				"report it with the accompanying error log line.",
+		},
+		[]string{gatewayLabel, namespaceLabel},
+	)
 	snapshotPerClientDeferredWithheldTotal = metrics.NewCounter(
 		metrics.CounterOpts{
 			Subsystem: snapshotSubsystem,
@@ -163,6 +177,18 @@ func recordBoundedPublish(proxyKey string, mode string) {
 		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
 		metrics.Label{Name: publicationModeLabel, Value: mode},
+	)
+}
+
+// recordInconsistentSnapshot counts a pre-publication Consistent() violation.
+func recordInconsistentSnapshot(proxyKey string) {
+	if !metrics.Active() {
+		return
+	}
+	cd := getDetailsFromXDSClientResourceName(proxyKey)
+	snapshotPerClientInconsistentTotal.Inc(
+		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
+		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
 	)
 }
 

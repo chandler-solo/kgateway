@@ -507,7 +507,7 @@ func TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClust
 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
 
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	initialRoutes := routeResourcesForClusters("cluster-a", "cluster-b")
 	initial := GatewayXdsResources{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
@@ -563,7 +563,7 @@ func TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClust
 	updatedEndpointVersion := updatedSnap.Resources[envoycachetypes.Endpoint].Version
 	g.Expect(updatedEndpointVersion).ToNot(gomega.Equal(initialEndpointVersion))
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	cache := newTestSnapshotCache(t)
 	nodeID := ucc.ResourceName()
 	g.Expect(cache.SetSnapshot(context.Background(), nodeID, updatedSnap)).ToNot(gomega.HaveOccurred())
 
@@ -632,8 +632,8 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
+	cache := newTestSnapshotCache(t)
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -739,8 +739,8 @@ func TestSnapshotPerClientRetargetToDerivedBackend(t *testing.T) {
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
+	cache := newTestSnapshotCache(t)
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -838,8 +838,8 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0))
+	cache := newTestSnapshotCache(t)
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -937,7 +937,7 @@ func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterCl
 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
 
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	initialRoutes := routeResourcesForClusters("cluster-a", "cluster-b")
 	initial := GatewayXdsResources{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
@@ -993,7 +993,7 @@ func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterCl
 	updatedEndpointVersion := updatedSnap.Resources[envoycachetypes.Endpoint].Version
 	g.Expect(updatedEndpointVersion).ToNot(gomega.Equal(initialEndpointVersion))
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	cache := newTestSnapshotCache(t)
 	nodeID := ucc.ResourceName()
 	g.Expect(cache.SetSnapshot(context.Background(), nodeID, updatedSnap)).ToNot(gomega.HaveOccurred())
 
@@ -1090,7 +1090,7 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 	clientB := ir.NewUniquelyConnectedClient(role, "pod-ns", map[string]string{"client": "b"}, ir.PodLocality{})
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{clientA, clientB})
 
-	listeners := sliceToResources([]*envoylistenerv3.Listener{{Name: "listener"}})
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	initialRoutes := routeResourcesForClusters("cluster-old")
 	initial := GatewayXdsResources{
 		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
@@ -1123,8 +1123,8 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 		newTestPerClientClustersFromCol(clusterCol),
 	)
 
-	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
-	translator := NewProxyTranslator(cache, nil, 0)
+	cache := newTestSnapshotCache(t)
+	translator := NewProxyTranslator(cache, nil, 0, true)
 	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
 		for _, event := range events {
 			if event.Event == controllers.EventDelete {

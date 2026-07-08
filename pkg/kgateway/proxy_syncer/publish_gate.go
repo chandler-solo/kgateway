@@ -80,6 +80,11 @@ type publishGate struct {
 	// before its bounded publish; 0 disables both bounds (withhold/hold until
 	// coherent, with no deadline). Written once at construction.
 	budget time.Duration
+	// checkConsistency runs Snapshot.Consistent() on every publish, recording
+	// (never withholding on) violations — an invariant monitor for test/CI
+	// environments (KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK). Written once at
+	// construction.
+	checkConsistency bool
 
 	mu           sync.Mutex
 	pending      map[string]*pendingFirstPublish
@@ -106,12 +111,31 @@ type pendingFlipRelease struct {
 	timer    *time.Timer
 }
 
-func newPublishGate(budget time.Duration) *publishGate {
+func newPublishGate(budget time.Duration, checkConsistency bool) *publishGate {
 	return &publishGate{
-		budget:       budget,
-		pending:      make(map[string]*pendingFirstPublish),
-		pendingFlips: make(map[string]*pendingFlipRelease),
+		budget:           budget,
+		checkConsistency: checkConsistency,
+		pending:          make(map[string]*pendingFirstPublish),
+		pendingFlips:     make(map[string]*pendingFlipRelease),
 	}
+}
+
+// setSnapshot is the single funnel through which the gate writes to the
+// snapshot cache. With checkConsistency enabled it verifies go-control-plane's
+// Snapshot.Consistent() invariant — every EDS resource matched to a CDS
+// reference and every RDS resource to an LDS reference — which the publication
+// paths maintain by construction; a violation is recorded and logged but the
+// snapshot is still published (a publish-blocking check would reintroduce
+// unbounded withholds).
+func (g *publishGate) setSnapshot(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, snap *envoycache.Snapshot) error {
+	if g.checkConsistency {
+		if err := snap.Consistent(); err != nil {
+			logger.Error("BUG: per-client snapshot failed consistency check before publish; publishing anyway",
+				"proxy_key", proxyKey, "error", err)
+			recordInconsistentSnapshot(proxyKey)
+		}
+	}
+	return cache.SetSnapshot(ctx, proxyKey, snap)
 }
 
 // publish publishes a coherent (or per-cluster-resolved, no-hold) snapshot
@@ -128,7 +152,7 @@ func (g *publishGate) publish(ctx context.Context, cache envoycache.SnapshotCach
 		delete(g.pending, proxyKey)
 	}
 	g.cancelFlipReleaseLocked(proxyKey)
-	return cache.SetSnapshot(ctx, proxyKey, snap)
+	return g.setSnapshot(ctx, cache, proxyKey, snap)
 }
 
 // offerCold records the latest deferred snapshot for a never-published client
@@ -216,7 +240,7 @@ func (g *publishGate) firePending(
 		logger.Warn("first-publish budget expired; publishing deferred snapshot so the client can start",
 			"proxy_key", proxyKey, "missing_clusters", st.missing, "missing_endpoint_clusters", st.missingEndpoints)
 	}
-	if err := cache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+	if err := g.setSnapshot(ctx, cache, proxyKey, snap); err != nil {
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 		return
 	}
@@ -241,7 +265,7 @@ func (g *publishGate) publishHeld(
 	proxyKey := snapWrap.proxyKey
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if err := cache.SetSnapshot(ctx, proxyKey, held); err != nil {
+	if err := g.setSnapshot(ctx, cache, proxyKey, held); err != nil {
 		return err
 	}
 	if g.budget <= 0 {
@@ -283,7 +307,7 @@ func (g *publishGate) fireFlipRelease(ctx context.Context, cache envoycache.Snap
 	released, _ := resolveDeferredPerCluster(pf.wrap, published, false)
 	logger.Warn("flip-hold budget expired; publishing held route flip, routes to still-unready clusters will fail until they become ready",
 		"proxy_key", proxyKey, "flip_blocking", pf.blocking)
-	if err := cache.SetSnapshot(ctx, proxyKey, released); err != nil {
+	if err := g.setSnapshot(ctx, cache, proxyKey, released); err != nil {
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 		return
 	}

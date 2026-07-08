@@ -166,7 +166,7 @@ func NewProxySyncer(
 		commonCols:               commonCols,
 		mgr:                      mgr,
 		apiClient:                client,
-		proxyTranslator:          NewProxyTranslator(xdsCache, xdsClientState, commonCols.Settings.PerClientPublishBudget),
+		proxyTranslator:          NewProxyTranslator(xdsCache, xdsClientState, commonCols.Settings.PerClientPublishBudget, commonCols.Settings.XdsSnapshotConsistencyCheck),
 		uniqueClients:            uniqueClients,
 		translator:               translator.NewCombinedTranslator(ctx, mergedPlugins, commonCols, validator),
 		plugins:                  mergedPlugins,
@@ -196,11 +196,11 @@ type ProxyTranslator struct {
 	gate *publishGate
 }
 
-func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader, publishBudget time.Duration) ProxyTranslator {
+func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState priorXDSVersionReader, publishBudget time.Duration, checkSnapshotConsistency bool) ProxyTranslator {
 	return ProxyTranslator{
 		xdsCache:       xdsCache,
 		xdsClientState: xdsClientState,
-		gate:           newPublishGate(publishBudget),
+		gate:           newPublishGate(publishBudget, checkSnapshotConsistency),
 	}
 }
 
