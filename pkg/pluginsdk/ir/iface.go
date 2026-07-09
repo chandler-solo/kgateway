@@ -298,6 +298,9 @@ func (c PolicyWrapper) ResourceName() string {
 }
 
 func versionEquals(a, b metav1.Object) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
 	var versionEquals bool
 	if a.GetGeneration() != 0 && b.GetGeneration() != 0 {
 		versionEquals = a.GetGeneration() == b.GetGeneration()

@@ -34,22 +34,34 @@ type baseEnvoyCluster struct {
 	BackendGeneration int64
 	// Base is the rest of the base-translation result, retained so the deltas
 	// collection can build per-client clusters without redoing translation.
-	// Not included in equality — ClusterVersion captures the relevant state.
+	// Not included in equality — it is derived deterministically from Backend,
+	// whose equality is checked.
 	// +noKrtEquals
 	Base *irtranslator.BaseCluster
 	// Backend pointer for per-client overlay plugins that take BackendObjectIR.
-	// +noKrtEquals
+	// Included in equality: overlay plugins self-determine applicability from
+	// backend state that can change without changing the translated base proto,
+	// its generation, or its error — e.g. the waypoint plugin reads the
+	// Service's ingress-use-waypoint label, and label edits do not bump
+	// metadata.generation. Suppressing such updates here would leave the deltas
+	// collection evaluating overlays against a stale Backend forever.
 	Backend *ir.BackendObjectIR
 }
 
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
 
 func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
-	return b.Name == in.Name &&
+	if !(b.Name == in.Name &&
 		b.ClusterVersion == in.ClusterVersion &&
 		b.BackendSource == in.BackendSource &&
 		b.BackendGeneration == in.BackendGeneration &&
-		errString(b.Error) == errString(in.Error)
+		errString(b.Error) == errString(in.Error)) {
+		return false
+	}
+	if b.Backend == nil || in.Backend == nil {
+		return b.Backend == in.Backend
+	}
+	return b.Backend.Equals(*in.Backend)
 }
 
 // uccClusterDelta is a per-client cluster materialized only when at least one
