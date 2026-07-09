@@ -3,6 +3,7 @@ package proxy_syncer
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	udpaannontations "github.com/cncf/xds/go/udpa/annotations"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -38,11 +39,10 @@ type XdsSnapWrapper struct {
 	// vanished publish the synthesized empty (their slices are gone — that is
 	// the truth), and a route flip onto a newly-referenced not-yet-derived
 	// cluster is held back for at most the publish budget (see publishGate).
-	// +noKrtEquals (derived from snapshot contents whose per-type versions Equals compares)
+	// +noKrtEquals (derived: true iff either missing list below is non-empty, and Equals compares both)
 	deferred bool
 	// missingReferenced lists referenced clusters absent from this snapshot's
 	// CDS (translation lagging, or the backend is gone). Sorted.
-	// +noKrtEquals (derived: a change implies a CDS or RDS/LDS version change)
 	missingReferenced []string
 	// missingEndpointsReferenced lists referenced EDS clusters whose CLA was
 	// not derived by the per-client endpoints collection; a synthesized empty
@@ -51,7 +51,6 @@ type XdsSnapWrapper struct {
 	// EDS cluster without an endpoints row; kube Services always derive a
 	// row, even sliceless ones like ExternalName). A derived-but-empty CLA
 	// is the backend's known truth and is NOT listed (#14352). Sorted.
-	// +noKrtEquals (derived: a change implies an EDS version change)
 	missingEndpointsReferenced []string
 }
 
@@ -69,7 +68,20 @@ func (p XdsSnapWrapper) Equals(in XdsSnapWrapper) bool {
 			return false
 		}
 	}
-	return true
+	// The gap classification must be compared explicitly: the per-type
+	// versions cannot distinguish a synthesized empty CLA from a derived-but-
+	// empty one (they are byte-identical protos, so the recomputed EDS version
+	// hash is unchanged when one replaces the other). Without this, a wrapper
+	// can transition deferred->ready with every version equal, KRT suppresses
+	// the event, and syncXds keeps holding a route flip whose blocking cluster
+	// has already derived its (empty) truth — unbounded when the publish
+	// budget is disabled. The same applies to a referenced cluster arriving
+	// errored-from-birth (missingReferenced shrinks, no version changes).
+	// erroredClusters needs no comparison: membership changes always change
+	// the CDS version (an errored cluster leaves/enters the cluster items and
+	// hash), and error-text-only changes are deliberately suppressed.
+	return slices.Equal(p.missingReferenced, in.missingReferenced) &&
+		slices.Equal(p.missingEndpointsReferenced, in.missingEndpointsReferenced)
 }
 
 func (p XdsSnapWrapper) ResourceName() string {

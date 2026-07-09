@@ -70,7 +70,9 @@ func snapshotPerClient(
 	clusterSnapshot := krt.NewCollection(uccCol, func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient) *clustersWithErrors {
 		clustersForUcc := clusters.FetchClustersForClient(kctx, ucc)
 		if len(clustersForUcc) == 0 {
-			logger.Info("no perclient clusters; defer building snapshot", "client", ucc.ResourceName())
+			// Returning nil leaves no row for this UCC; the snapshot transform
+			// below substitutes an empty cluster set and still publishes.
+			logger.Info("no perclient clusters for client", "client", ucc.ResourceName())
 			return nil
 		}
 		logger.Debug("found perclient clusters", "client", ucc.ResourceName(), "clusters", len(clustersForUcc))

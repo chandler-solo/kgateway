@@ -16,16 +16,17 @@ import (
 // governed by the same budget (KGW_PER_CLIENT_PUBLISH_BUDGET; 0 disables
 // both):
 //
-//   - first publish (offerCold/firePending): how long a client that has
-//     NEVER been published a snapshot waits for its referenced clusters to
-//     become ready;
-//   - flip release (publishHeld/fireFlipRelease): how long a held route flip
-//     may pin the client's route/listener/secret updates at their published
-//     versions while a newly-referenced cluster stays unready.
+//   - first publish (offerColdLocked/firePending): how long a client that
+//     has NEVER been published a snapshot waits for its referenced clusters
+//     to become ready;
+//   - flip release (publishHeldLocked/fireFlipRelease): how long a held
+//     route flip may pin the client's route/listener/secret updates at their
+//     published versions while a newly-referenced cluster stays unready.
 //
-// First publish: the per-cluster resolution in syncXds withholds a deferred
-// snapshot from a never-published client — there is no last-good config to
-// hold or carry, and publishing routes to unready clusters would 503 them.
+// First publish: the per-cluster resolution (resolveDeferred) withholds a
+// deferred snapshot from a never-published client — there is no last-good
+// config to hold or carry, and publishing routes to unready clusters would
+// 503 them.
 // That is correct for the brief converging case, but with no bound a
 // permanently-unready reference leaves the pod with no listeners at all — it
 // never reports Ready and crash-loops, and each restart reconnects as a new
@@ -147,6 +148,10 @@ func (g *publishGate) setSnapshot(ctx context.Context, cache envoycache.Snapshot
 func (g *publishGate) publish(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, snap *envoycache.Snapshot) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	return g.publishLocked(ctx, cache, proxyKey, snap)
+}
+
+func (g *publishGate) publishLocked(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, snap *envoycache.Snapshot) error {
 	if st := g.pending[proxyKey]; st != nil {
 		if st.timer != nil {
 			st.timer.Stop()
@@ -157,11 +162,55 @@ func (g *publishGate) publish(ctx context.Context, cache envoycache.SnapshotCach
 	return g.setSnapshot(ctx, cache, proxyKey, snap)
 }
 
-// offerCold records the latest deferred snapshot for a never-published client
-// and arms the budget timer once per episode; the timer publishes whatever is
-// latest unless the client turns out to be warm (prior xDS version) with
-// clusters missing from CDS, or a coherent publish got there first.
-func (g *publishGate) offerCold(
+// resolveDeferred decides how a deferred wrapper publishes. The cache read,
+// the per-cluster resolution, and the resulting publish all happen under one
+// lock acquisition so an expiring budget timer cannot interleave: a
+// first-publish timer firing between an unlocked cache check and the cold
+// offer would strand the newest deferred snapshot unpublished until the next
+// build event, and a flip-release timer firing between an unlocked cache read
+// and the held publish would be overwritten by a hold composed against the
+// pre-release snapshot (re-pinning the just-released routes for another full
+// budget).
+func (g *publishGate) resolveDeferred(
+	ctx context.Context,
+	cache envoycache.SnapshotCache,
+	snapWrap XdsSnapWrapper,
+	hasPriorXDSVersion func(string) bool,
+) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	published, err := cache.GetSnapshot(snapWrap.proxyKey)
+	if err != nil {
+		// Never-published client: there is no last-good to hold or carry,
+		// and publishing an incoherent snapshot would 503 the unready
+		// routes — so withhold (cold-start make-before-break, unchanged
+		// from the whole-snapshot gate), but only up to the first-publish
+		// budget: a pod with no config at all never goes Ready and
+		// crash-loops, so past the budget the latest deferred snapshot is
+		// published anyway. Clients that reported a prior accepted xDS
+		// version are warm, not cold: they stay withheld at expiry only
+		// while clusters are missing from CDS; when the only gaps are
+		// underived CLAs, that is the backends' steady state (#14352) and
+		// the snapshot publishes as their truth rather than freezing the
+		// client indefinitely.
+		g.offerColdLocked(ctx, cache, snapWrap, hasPriorXDSVersion)
+		return nil
+	}
+	resolved, heldBlocking := resolveDeferredPerCluster(snapWrap, published, true)
+	if len(heldBlocking) > 0 {
+		// The held snapshot still publishes (CDS/EDS keep flowing); the
+		// gate additionally arms the flip-release bound for the episode.
+		return g.publishHeldLocked(ctx, cache, snapWrap, resolved, heldBlocking)
+	}
+	return g.publishLocked(ctx, cache, snapWrap.proxyKey, resolved)
+}
+
+// offerColdLocked records the latest deferred snapshot for a never-published
+// client and arms the budget timer once per episode; the timer publishes
+// whatever is latest unless the client turns out to be warm (prior xDS
+// version) with clusters missing from CDS, or a coherent publish got there
+// first. Callers must hold g.mu.
+func (g *publishGate) offerColdLocked(
 	ctx context.Context,
 	cache envoycache.SnapshotCache,
 	snapWrap XdsSnapWrapper,
@@ -171,8 +220,6 @@ func (g *publishGate) offerCold(
 		return // bound disabled: withhold until coherent
 	}
 	proxyKey := snapWrap.proxyKey
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	st := g.pending[proxyKey]
 	if st == nil {
 		st = &pendingFirstPublish{}
@@ -195,9 +242,10 @@ func (g *publishGate) offerCold(
 }
 
 // firePending runs at budget expiry: publish the latest deferred snapshot,
-// unless a coherent snapshot won the race, or the client reported a prior xDS
-// version (warm reconnect) AND some referenced cluster is missing from CDS —
-// publishing that would NC routes the proxy is still serving. A warm client
+// unless the pending entry was canceled or drained, or the client reported a
+// prior xDS version (warm reconnect) AND some referenced cluster is missing
+// from CDS — publishing that would NC routes the proxy is still serving. A
+// warm client
 // whose only gaps are clusters with no derived CLA publishes anyway: by
 // expiry that gap is the backends' steady state (#14352), and withholding
 // would freeze the client indefinitely (see the type comment). The check and
@@ -221,7 +269,11 @@ func (g *publishGate) firePending(
 	st.snap = nil
 	st.timer = nil
 	if _, err := cache.GetSnapshot(proxyKey); err == nil {
-		return // a coherent snapshot was published while the timer was in flight
+		// Defensive: every publish path deletes or resolves the pending entry
+		// under this same lock, so a published snapshot alongside a pending
+		// snap should be unreachable — but publishing over it would regress a
+		// newer snapshot, so bail.
+		return
 	}
 	mode := boundedPublishFirstPublish
 	if hasPriorXDSVersion != nil && hasPriorXDSVersion(proxyKey) {
@@ -249,15 +301,15 @@ func (g *publishGate) firePending(
 	recordBoundedPublish(proxyKey, mode)
 }
 
-// publishHeld publishes a snapshot whose route flip is held at the published
-// versions and arms the flip-release bound once per episode. If the client is
-// still holding at budget expiry, fireFlipRelease publishes the latest held
-// wrapper re-resolved with holds disabled, so a newly-referenced cluster that
-// never becomes ready (a steady-state-empty backend, #14352) pins the
-// client's route/listener/secret updates for at most one budget instead of
-// forever. budget<=0 disables the bound: the hold lasts until the flip
-// resolves.
-func (g *publishGate) publishHeld(
+// publishHeldLocked publishes a snapshot whose route flip is held at the
+// published versions and arms the flip-release bound once per episode. If the
+// client is still holding at budget expiry, fireFlipRelease publishes the
+// latest held wrapper re-resolved with holds disabled, so a newly-referenced
+// cluster that never becomes ready (a steady-state-empty backend, #14352)
+// pins the client's route/listener/secret updates for at most one budget
+// instead of forever. budget<=0 disables the bound: the hold lasts until the
+// flip resolves. Callers must hold g.mu.
+func (g *publishGate) publishHeldLocked(
 	ctx context.Context,
 	cache envoycache.SnapshotCache,
 	snapWrap XdsSnapWrapper,
@@ -265,8 +317,6 @@ func (g *publishGate) publishHeld(
 	blocking []string,
 ) error {
 	proxyKey := snapWrap.proxyKey
-	g.mu.Lock()
-	defer g.mu.Unlock()
 	if err := g.setSnapshot(ctx, cache, proxyKey, held); err != nil {
 		return err
 	}
@@ -293,7 +343,7 @@ func (g *publishGate) publishHeld(
 // publish it. The flip goes out; routes to still-unready clusters fail until
 // those clusters become ready, which is the truthful steady-state answer —
 // and pinned route/listener/secret updates resume flowing. Runs under the
-// gate lock, so it cannot interleave with publish()/publishHeld().
+// gate lock, so it cannot interleave with publish() or resolveDeferred().
 func (g *publishGate) fireFlipRelease(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

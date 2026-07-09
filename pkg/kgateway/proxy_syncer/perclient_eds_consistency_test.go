@@ -7,8 +7,9 @@ package proxy_syncer
 // EDS cluster has exactly one CLA and there are no CLAs without a cluster.
 // filterEndpointResourcesForClusters drops stale/STATIC CLAs and synthesizes
 // empty assignments for EDS clusters that have no CLA yet; referenced clusters
-// whose only CLA would be a synthesized empty are still deferred by the
-// usable-endpoint gate, so empties only reach Envoy for unreferenced clusters.
+// backed by a synthesized empty mark the wrapper deferred (presence, not
+// contents), and the empties reach Envoy for unreferenced clusters and on the
+// bounded publish paths (see publishGate).
 
 import (
 	"testing"

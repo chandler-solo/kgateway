@@ -201,6 +201,101 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	assertSnapshotCoherent(t, heldServed)
 }
 
+// TestSnapshotPerClientFlipReleasesOnByteIdenticalDerivedEmptyCLA pins the
+// hardest release trigger for a held flip: the blocking cluster's CLA derives
+// EMPTY, which is byte-identical to the synthesized placeholder already in
+// the snapshot, so every per-type version — including the recomputed EDS
+// version, which hashes CLA protos — is unchanged. The only observable
+// change is the wrapper's gap classification, so if Equals does not compare
+// it, KRT suppresses the event and the flip stays held forever (the test
+// runs with budget 0, so no timer can mask the miss).
+//
+// The errored cluster exists to keep filterEndpointResourcesForClusters on
+// its recomputed-version branch in BOTH builds (its derived CLA is dropped
+// every time because the errored cluster is excluded from CDS); without it
+// the post-derivation build takes the returns-original branch, whose version
+// string comes from a different hash scheme and changes incidentally.
+func TestSnapshotPerClientFlipReleasesOnByteIdenticalDerivedEmptyCLA(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+
+	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	initialRoutes := routeResourcesForClusters("cluster-old")
+	initial := GatewayXdsResources{
+		NamespacedName:     types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:             initialRoutes,
+		Listeners:          listeners,
+		ReferencedClusters: collectReferencedClusters(initialRoutes, listeners),
+	}
+	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
+
+	erroredCluster := edsClusterForClient(ucc, "cluster-err", 0)
+	erroredCluster.Error = errors.New("translation failed")
+	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+		edsClusterForClient(ucc, "cluster-old", 1),
+		erroredCluster,
+	})
+	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{
+		endpointsForClient(ucc, "cluster-old", 2),
+		// The errored cluster's derived CLA: dropped by the EDS filter on
+		// every build, pinning the recomputed-version branch.
+		endpointsForClient(ucc, "cluster-err", 3),
+	})
+
+	snapshots := snapshotPerClient(
+		krtutil.KrtOptions{},
+		uccs,
+		mostXdsSnapshots,
+		PerClientEnvoyEndpoints{
+			endpoints: endpointCol,
+			index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string {
+				return []string{ep.Client.ResourceName()}
+			}),
+		},
+		newTestPerClientClustersFromCol(clusterCol),
+	)
+
+	cache := newTestSnapshotCache(t)
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true))
+	nodeID := ucc.ResourceName()
+
+	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
+
+	// The flip: routes retarget onto cluster-new, whose CLA has not been
+	// derived, so resolution holds the served routes at cluster-old.
+	updatedRoutes := routeResourcesForClusters("cluster-new")
+	updated := initial
+	updated.Routes = updatedRoutes
+	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
+	mostXdsSnapshots.UpdateObject(updated)
+	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 4))
+
+	var heldServed *envoycache.Snapshot
+	g.Eventually(func() bool {
+		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(heldServed, "cluster-old") &&
+			!snapshotReferencesCluster(heldServed, "cluster-new") &&
+			hasResource(heldServed.Resources[envoycachetypes.Cluster].Items, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"the flip onto the underived cluster must be held")
+
+	// cluster-new's CLA derives, empty — byte-identical to the synthesized
+	// placeholder, so no per-type version changes. The classification change
+	// alone must release the flip.
+	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 5))
+
+	g.Eventually(func() bool {
+		released := eventuallyCacheSnapshot(t, cache, nodeID)
+		return snapshotReferencesCluster(released, "cluster-new")
+	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+		"a derived-but-empty CLA is the backend's truth; the held flip must release even though no snapshot version changed")
+	assertSnapshotCoherent(t, eventuallyCacheSnapshot(t, cache, nodeID))
+}
+
 // TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip pins the
 // fail-closed rule for errored clusters: even while a route flip is held for
 // an unrelated warming cluster, a previously-referenced cluster whose current

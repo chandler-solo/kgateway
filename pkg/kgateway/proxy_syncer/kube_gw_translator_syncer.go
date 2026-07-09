@@ -34,6 +34,8 @@ func (s *ProxyTranslator) syncXds(
 		// referenced cluster was not ready; decide per cluster against the
 		// currently-published snapshot instead of withholding everything:
 		//
+		//   - a never-published client is withheld up to the first-publish
+		//     budget (see publishGate);
 		//   - previously-published clusters that vanished from the build are
 		//     carried forward with their CLAs (make-before-break);
 		//   - previously-referenced clusters whose CLA row vanished publish
@@ -49,41 +51,21 @@ func (s *ProxyTranslator) syncXds(
 		//     updates forever (#14352). The hold also gives the flip a
 		//     reference-ahead shape: the CDS carrying a new cluster is
 		//     published in an earlier snapshot than the RDS that uses it.
-		published, err := s.xdsCache.GetSnapshot(proxyKey)
-		if err != nil {
-			// Never-published client: there is no last-good to hold or carry,
-			// and publishing an incoherent snapshot would 503 the unready
-			// routes — so withhold (cold-start make-before-break, unchanged
-			// from the whole-snapshot gate), but only up to the first-publish
-			// budget: a pod with no config at all never goes Ready and
-			// crash-loops, so past the budget the latest deferred snapshot is
-			// published anyway (see publishGate). Clients that reported a
-			// prior accepted xDS version are warm, not cold: they stay
-			// withheld at expiry only while clusters are missing from CDS;
-			// when the only gaps are underived CLAs, that is the backends'
-			// steady state (#14352) and the snapshot publishes as their truth
-			// rather than freezing the client indefinitely.
-			s.gate.offerCold(ctx, s.xdsCache, snapWrap, s.hasPriorXDSVersion)
-			return
+		//
+		// The whole decision runs under the gate lock so it cannot race the
+		// gate's expiring budget timers (see resolveDeferred).
+		if err := s.gate.resolveDeferred(ctx, s.xdsCache, snapWrap, s.hasPriorXDSVersion); err != nil {
+			logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 		}
-		resolved, heldBlocking := resolveDeferredPerCluster(snapWrap, published, true)
-		if len(heldBlocking) > 0 {
-			// The held snapshot still publishes (CDS/EDS keep flowing); the
-			// gate additionally arms the flip-release bound for the episode.
-			if err := s.gate.publishHeld(ctx, s.xdsCache, snapWrap, resolved, heldBlocking); err != nil {
-				logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
-			}
-			return
-		}
-		snap = resolved
+		return
 	}
 
 	// The snapshot is EDS-consistent by construction: snapshotPerClient drops
 	// CLAs for clusters absent from CDS and synthesizes empty assignments for
 	// EDS clusters that have no CLA yet (see filterEndpointResourcesForClusters),
-	// and the per-cluster resolution above only carries cluster/CLA pairs —
-	// so we do not rely on a post-hoc MakeConsistent() pass, which would also
-	// have mutated the snapshot shared with the krt cache. Publication goes
+	// and the per-cluster resolution only carries cluster/CLA pairs — so we do
+	// not rely on a post-hoc MakeConsistent() pass, which would also have
+	// mutated the snapshot shared with the krt cache. Publication goes
 	// through the publish gate so it cancels any pending bounded publish or
 	// flip release and cannot race an expiring budget timer.
 	if err := s.gate.publish(ctx, s.xdsCache, proxyKey, snap); err != nil {
@@ -191,6 +173,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 	oldEndpoints := published.GetResourcesAndTTL(envoyresourcev3.EndpointType)
 	erroredSet := stringSet(snapWrap.erroredClusters)
 	var carried []string
+	var carryHash uint64
 	clusterItems := newClusters.Items
 	endpointItems := newEndpoints.Items
 	for name := range carryRefs {
@@ -222,20 +205,23 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		}
 		clusterItems[name] = old
 		carried = append(carried, name)
+		// The hash folds in the carried CONTENT, not just the names: the same
+		// carried set over the same new-build version can otherwise reproduce
+		// an identical version string around a vanish/return/vanish cycle
+		// whose carried protos differ, and a client reconnecting with that
+		// version as last-accepted would never be resent the newer content.
+		carryHash ^= utils.HashString(name) ^ utils.HashProto(old.Resource)
 		claName, requiresEndpointResource := endpointResourceNameForCluster(old)
 		if !requiresEndpointResource {
 			continue
 		}
 		if oldCla, ok := oldEndpoints[claName]; ok {
 			endpointItems[claName] = oldCla
+			carryHash ^= utils.HashProto(oldCla.Resource)
 		}
 	}
 	if len(carried) > 0 {
 		sort.Strings(carried)
-		var carryHash uint64
-		for _, name := range carried {
-			carryHash ^= utils.HashString(name)
-		}
 		composed.Resources[envoycachetypes.Cluster] = envoycache.Resources{
 			Version: fmt.Sprintf("%s-carry-%d", newClusters.Version, carryHash),
 			Items:   clusterItems,
