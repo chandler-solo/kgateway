@@ -395,8 +395,8 @@ func (x *callbacksCollection) fetchRequest(_ context.Context, r *envoy_service_d
 // backward-compatible with older control planes, so we enforce a floor here to prevent a broken
 // state during helm upgrades.
 const (
-	minEnvoyMinorVersion = 37
-	minEnvoyPatchVersion = 2
+	minEnvoyMinorVersion = 38
+	minEnvoyPatchVersion = 0
 )
 
 func logAndCheckEnvoyVersion(logger *slog.Logger, node *envoycorev3.Node) error {
