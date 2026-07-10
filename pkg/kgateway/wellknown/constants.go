@@ -40,6 +40,10 @@ const (
 // the upstream proxy protocol wrapper.
 const TransportSocketUpstreamProxyProtocol = "envoy.transport_sockets.upstream_proxy_protocol"
 
+// BlackholeClusterName is the sentinel cluster name referenced by routes whose
+// backend could not be resolved. It is never materialized in the xDS snapshot.
+const BlackholeClusterName = "blackhole-cluster"
+
 const (
 	SetMetadataFilterName = "envoy.filters.http.set_filter_state"
 	ExtprocFilterName     = "envoy.filters.http.ext_proc"
