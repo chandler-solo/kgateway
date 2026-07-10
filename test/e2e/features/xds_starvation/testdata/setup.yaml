@@ -54,7 +54,7 @@ spec:
   rules:
     - backendRefs:
         - name: nginx
-          namespace: nginx-shared
+          namespace: nginx
           port: 8080
 ---
 # Authorizes this suite's default-namespace HTTPRoutes to reference the shared nginx
@@ -62,7 +62,7 @@ apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
 metadata:
   name: xds-starvation-allow-default-httproutes
-  namespace: nginx-shared
+  namespace: nginx
 spec:
   from:
     - group: gateway.networking.k8s.io

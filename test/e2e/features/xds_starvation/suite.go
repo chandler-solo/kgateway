@@ -41,6 +41,7 @@ var (
 	setup = base.TestCase{
 		Manifests: []string{
 			testdefaults.CurlPodManifest,
+			testdefaults.NginxPodManifest,
 			setupManifest,
 		},
 	}
