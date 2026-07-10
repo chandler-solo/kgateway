@@ -12,5 +12,5 @@ spec:
   rules:
     - backendRefs:
         - name: nginx
-          namespace: nginx-shared
+          namespace: nginx
           port: 8080

@@ -41,6 +41,11 @@ var (
 	setup = base.TestCase{
 		Manifests: []string{
 			testdefaults.CurlPodManifest,
+			// The valid/postrestart routes reference the nginx Service in the
+			// "nginx" namespace, so it must exist before setupManifest applies
+			// the ReferenceGrant into it. (v2.3.x has no shared nginx-shared
+			// backend, so this suite provisions its own.)
+			testdefaults.NginxPodManifest,
 			setupManifest,
 		},
 	}
