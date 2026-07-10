@@ -7,6 +7,7 @@ import "time"
 // The underlying value is atomic, so the override and restore cannot race
 // stream goroutines from a live test server that are still running.
 func SetXdsFirstConnectDelayForTest(d time.Duration) (restore func()) {
-	prev := xdsFirstConnectDelay.Swap(int64(d))
-	return func() { xdsFirstConnectDelay.Store(prev) }
+	xdsFirstConnectDelay() // force the lazy env read so restore semantics are stable
+	prev := xdsFirstConnectDelayNanos.Swap(int64(d))
+	return func() { xdsFirstConnectDelayNanos.Store(prev) }
 }

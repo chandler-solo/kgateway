@@ -38,22 +38,31 @@ import (
 // reconnecting warm Envoy keeps serving its existing config meanwhile.
 //
 // Stored as nanoseconds in an atomic so the test override cannot race the
-// stream goroutines that read it. Override with KGW_XDS_FIRST_CONNECT_DELAY
-// (Go duration, e.g. "2s"; "0" or negative disables).
-var xdsFirstConnectDelay = func() *atomic.Int64 {
-	d := time.Second
-	if v := os.Getenv("KGW_XDS_FIRST_CONNECT_DELAY"); v != "" {
-		parsed, err := time.ParseDuration(v)
-		if err == nil {
-			d = parsed
-		} else {
-			slog.Warn("invalid KGW_XDS_FIRST_CONNECT_DELAY; using default", "value", v, "default", time.Second, "error", err)
+// stream goroutines that read it, and initialized lazily on first use so
+// test binaries can set the environment variable from TestMain (package
+// initialization would otherwise read the environment before any test code
+// runs). Override with KGW_XDS_FIRST_CONNECT_DELAY (Go duration, e.g. "2s";
+// "0" or negative disables).
+var (
+	xdsFirstConnectDelayNanos atomic.Int64
+	xdsFirstConnectDelayInit  sync.Once
+)
+
+func xdsFirstConnectDelay() time.Duration {
+	xdsFirstConnectDelayInit.Do(func() {
+		d := time.Second
+		if v := os.Getenv("KGW_XDS_FIRST_CONNECT_DELAY"); v != "" {
+			parsed, err := time.ParseDuration(v)
+			if err == nil {
+				d = parsed
+			} else {
+				slog.Warn("invalid KGW_XDS_FIRST_CONNECT_DELAY; using default", "value", v, "default", time.Second, "error", err)
+			}
 		}
-	}
-	var a atomic.Int64
-	a.Store(int64(d))
-	return &a
-}()
+		xdsFirstConnectDelayNanos.Store(int64(d))
+	})
+	return time.Duration(xdsFirstConnectDelayNanos.Load())
+}
 
 type ConnectedClient struct {
 	uniqueClientName string
@@ -348,7 +357,7 @@ func (x *callbacksCollection) newStream(sid int64, r *envoy_service_discovery_v3
 	if isNewUCC {
 		x.trigger.TriggerRecomputation()
 	}
-	if delay := time.Duration(xdsFirstConnectDelay.Load()); isNewStream && delay > 0 {
+	if delay := xdsFirstConnectDelay(); isNewStream && delay > 0 {
 		// See xdsFirstConnectDelay: give per-client translation a head start
 		// before go-control-plane creates this stream's first watch.
 		time.Sleep(delay)
