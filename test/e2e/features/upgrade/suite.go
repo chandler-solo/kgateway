@@ -8,13 +8,19 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kgateway "github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmdutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
@@ -23,6 +29,7 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
+	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
@@ -118,6 +125,50 @@ func (s *testingSuite) updateTransformationHeader(value string) {
 	s.Require().NoError(err, "failed to update upgrade TrafficPolicy")
 }
 
+// envoyVersionRe extracts the major.minor.patch semantic version from Envoy's server_info version
+// string, which has the form "<sha>/<version>/<clean|modified>/<RELEASE|DEBUG>/<ssl>".
+var envoyVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+
+// releasedDataPlaneSupportsSkew reports whether the released proxy's Envoy build is new enough for
+// the upgraded control plane to serve it xDS. The control plane refuses connections from Envoy
+// older than the minimum supported version (see krtcollections.EnvoyVersionSupported), so
+// upgrading the control plane ahead of such a data plane is outside the supported version-skew
+// window and the intermediate skew assertion must be skipped.
+//
+// It queries the currently-running proxy (still on the released image at this point), so it must be
+// called after the control plane is upgraded but before the data plane is upgraded.
+func (s *testingSuite) releasedDataPlaneSupportsSkew() bool {
+	s.T().Helper()
+
+	supported := false
+	s.TestInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(
+		s.Ctx,
+		metav1.ObjectMeta{Name: "gateway", Namespace: proxyNamespace},
+		func(ctx context.Context, adminClient *admincli.Client) {
+			var versionStr string
+			s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+				info, err := adminClient.GetServerInfo(ctx)
+				g.Expect(err).NotTo(gomega.HaveOccurred(), "can get envoy server_info")
+				versionStr = info.GetVersion()
+				g.Expect(versionStr).NotTo(gomega.BeEmpty(), "server_info version present")
+			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(time.Second).Should(gomega.Succeed())
+
+			m := envoyVersionRe.FindStringSubmatch(versionStr)
+			s.Require().Len(m, 4, "could not parse envoy version from %q", versionStr)
+			major, err := strconv.ParseUint(m[1], 10, 32)
+			s.Require().NoError(err, "parse envoy major version")
+			minor, err := strconv.ParseUint(m[2], 10, 32)
+			s.Require().NoError(err, "parse envoy minor version")
+			patch, err := strconv.ParseUint(m[3], 10, 32)
+			s.Require().NoError(err, "parse envoy patch version")
+
+			s.T().Logf("released data plane Envoy version: %d.%d.%d", major, minor, patch)
+			supported = krtcollections.EnvoyVersionSupported(uint32(major), uint32(minor), uint32(patch))
+		},
+	)
+	return supported
+}
+
 func (s *testingSuite) localChartValuesFiles() []string {
 	return []string{
 		s.TestInstallation.Metadata.ProfileValuesManifestFile,
@@ -177,12 +228,27 @@ func (s *testingSuite) TestUpgrade() {
 	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsHaveImageVersion(s.Ctx, proxyNamespace, proxyLabelSelector, s.fromVersion)
 	s.T().Logf(" ok")
 
-	// Change the policy after the control-plane rollout. Observing the new header proves that
-	// the released proxy accepted a freshly translated snapshot from the new control plane.
+	// Determine whether the released data plane's Envoy is within the control plane's supported
+	// version-skew window before forcing a new translation against the released proxy.
+	skewSupported := s.releasedDataPlaneSupportsSkew()
+
+	// Change the policy after the control-plane rollout. The new header is verified against the
+	// released proxy only when it is within the supported skew window; either way it is verified
+	// again after the data-plane upgrade below.
 	s.updateTransformationHeader(skewedTransformationValue)
-	s.T().Logf("checking released data plane against the upgraded control plane...")
-	s.verifyRequestWithTransformation(skewedTransformationValue)
-	s.T().Logf(" ok")
+	if skewSupported {
+		// Observing the new header proves the released proxy accepted a freshly translated
+		// snapshot from the new control plane.
+		s.T().Logf("checking released data plane against the upgraded control plane...")
+		s.verifyRequestWithTransformation(skewedTransformationValue)
+		s.T().Logf(" ok")
+	} else {
+		// The control plane intentionally refuses xDS to Envoy older than its minimum supported
+		// version, so this skew is unsupported; skip the intermediate check and rely on the
+		// post-data-plane-upgrade verification below.
+		s.T().Logf("skipping version-skew check: released data plane Envoy predates the control plane minimum 1.%d.%d",
+			krtcollections.MinEnvoyMinorVersion, krtcollections.MinEnvoyPatchVersion)
+	}
 
 	// Remove the version skew by upgrading the default data-plane image to the local build.
 	s.upgradeDataPlane()

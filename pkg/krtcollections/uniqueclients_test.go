@@ -306,3 +306,27 @@ func TestNormalizeGatewayRole(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvoyVersionSupported(t *testing.T) {
+	// The floor is 1.<MinEnvoyMinorVersion>.<MinEnvoyPatchVersion>; these cases pin the boundary
+	// behavior that the xDS connection gate and the upgrade e2e both rely on.
+	testCases := []struct {
+		name                string
+		major, minor, patch uint32
+		expected            bool
+	}{
+		{name: "major below one is unsupported", major: 0, minor: 99, patch: 0, expected: false},
+		{name: "future major is supported", major: 2, minor: 0, patch: 0, expected: true},
+		{name: "older minor is unsupported", major: 1, minor: MinEnvoyMinorVersion - 1, patch: 99, expected: false},
+		{name: "exact minimum is supported", major: 1, minor: MinEnvoyMinorVersion, patch: MinEnvoyPatchVersion, expected: true},
+		{name: "newer patch on minimum minor is supported", major: 1, minor: MinEnvoyMinorVersion, patch: MinEnvoyPatchVersion + 1, expected: true},
+		{name: "newer minor is supported", major: 1, minor: MinEnvoyMinorVersion + 1, patch: 0, expected: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(EnvoyVersionSupported(tc.major, tc.minor, tc.patch)).To(Equal(tc.expected))
+		})
+	}
+}

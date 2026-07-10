@@ -390,14 +390,37 @@ func (x *callbacksCollection) fetchRequest(_ context.Context, r *envoy_service_d
 	return nil
 }
 
-// minEnvoy{Minor,Patch}Version is the minimum Envoy version (under major 1) required to connect.
+// MinEnvoy{Minor,Patch}Version is the minimum Envoy version (under major 1) required to connect.
 // Old Envoy is not forward-compatible with newer control plane xDS schemas; new Envoy is
 // backward-compatible with older control planes, so we enforce a floor here to prevent a broken
-// state during helm upgrades.
+// state during helm upgrades. These are exported so tests (e.g. the upgrade e2e) can reason about
+// the supported version-skew window without duplicating the floor.
 const (
-	minEnvoyMinorVersion = 38
-	minEnvoyPatchVersion = 0
+	MinEnvoyMinorVersion = 38
+	MinEnvoyPatchVersion = 0
 )
+
+// EnvoyVersionSupported reports whether an Envoy of the given version is compatible with this
+// control plane, i.e. at or above the minimum supported version. It is the shared predicate used
+// both by the xDS connection gate (logAndCheckEnvoyVersion) and by tests reasoning about the
+// supported version-skew window.
+func EnvoyVersionSupported(major, minor, patch uint32) bool {
+	if major < 1 {
+		return false
+	}
+	if major > 1 {
+		return true
+	}
+	// major == 1
+	if minor < MinEnvoyMinorVersion {
+		return false
+	}
+	if minor > MinEnvoyMinorVersion {
+		return true
+	}
+	// minor == MinEnvoyMinorVersion
+	return patch >= MinEnvoyPatchVersion
+}
 
 func logAndCheckEnvoyVersion(logger *slog.Logger, node *envoycorev3.Node) error {
 	if node == nil {
@@ -428,9 +451,9 @@ func logAndCheckEnvoyVersion(logger *slog.Logger, node *envoycorev3.Node) error 
 		return nil
 	}
 
-	if major < 1 || (major == 1 && minor < minEnvoyMinorVersion) || (major == 1 && minor == minEnvoyMinorVersion && patch < minEnvoyPatchVersion) {
+	if !EnvoyVersionSupported(major, minor, patch) {
 		return fmt.Errorf("envoy version %s is not compatible with this control plane: minimum required version is 1.%d.%d; upgrade envoy before upgrading the control plane",
-			versionStr, minEnvoyMinorVersion, minEnvoyPatchVersion)
+			versionStr, MinEnvoyMinorVersion, MinEnvoyPatchVersion)
 	}
 	return nil
 }
