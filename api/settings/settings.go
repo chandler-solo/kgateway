@@ -272,7 +272,7 @@ type Settings struct {
 	// randomized drain, closing the busy-stream reordering window on additions.
 	// It does not change ACK-skew or removal ordering, because those depend on
 	// when resource-type watches are open.
-	EnableOrderedAds bool `split_words:"true"`
+	EnableOrderedAds bool `split_words:"true" default:"false"`
 
 	// DisableStatsOnProxy disables the stats/metrics server on the Envoy proxy.
 	// When true, port 9091 is no longer reserved and listeners may use it.
