@@ -107,7 +107,9 @@ func newADSHarness(t *testing.T, ordered bool) *adsHarness {
 		cancel()
 		select {
 		case err := <-h.done:
-			require.NoError(t, err)
+			if err != nil {
+				require.ErrorIs(t, err, context.Canceled)
+			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("ADS stream did not stop after test cancellation")
 		}
