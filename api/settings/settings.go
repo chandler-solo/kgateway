@@ -274,10 +274,6 @@ type Settings struct {
 	// when resource-type watches are open.
 	EnableOrderedAds bool `split_words:"true" default:"false"`
 
-	// DisableStatsOnProxy disables the stats/metrics server on the Envoy proxy.
-	// When true, port 9091 is no longer reserved and listeners may use it.
-	DisableStatsOnProxy bool `split_words:"true" default:"false"`
-
 	// WeightedRoutePrecedence enables routes with a larger weight to take precedence over routes with a smaller weight.
 	// If two routes have the same weight, Gateway API route precedence rules apply.
 	// When enabled, the default weight for a route is 0.
