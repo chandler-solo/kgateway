@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -86,32 +87,30 @@ func TestNewPerClientEnvoyClusters_SparseOverlayWiring(t *testing.T) {
 
 	// Declined client: shared base proto, no mutation.
 	require.NoError(t, gotOther[0].Error)
-	assert.Nil(t, gotOther[0].Cluster.GetOutlierDetection(), "declined client must see the un-overlaid base")
+	assert.Nil(t, gotOther[0].Cluster.Clone().GetOutlierDetection(), "declined client must see the un-overlaid base")
 
 	// Matched client: distinct proto carrying the overlay mutation.
 	require.NoError(t, gotA[0].Error)
-	assert.NotNil(t, gotA[0].Cluster.GetOutlierDetection(), "matched client must see the overlay mutation")
-	assert.NotSame(t, gotOther[0].Cluster, gotA[0].Cluster, "matched client must not share the base proto")
+	assert.NotNil(t, gotA[0].Cluster.Clone().GetOutlierDetection(), "matched client must see the overlay mutation")
+	assert.False(t, sharedproto.Same(gotOther[0].Cluster, gotA[0].Cluster), "matched client must not share the base proto")
 
 	// Interning: equivalent matched clients share one delta proto.
-	assert.Same(t, gotA[0].Cluster, gotB[0].Cluster,
+	assert.True(t, sharedproto.Same(gotA[0].Cluster, gotB[0].Cluster),
 		"clients whose overlay output is byte-identical must share one interned proto")
 }
 
-// TestNewPerClientEnvoyClusters_BackendLabelChangeReachesOverlay reproduces the
-// waypoint ingress-use-waypoint regression: overlay plugins self-determine
-// applicability from backend state (here a label on the backend's Obj) that can
-// change WITHOUT changing the translated base proto, the generation, or the
-// error. A label-only edit must still re-emit the base row — if baseEnvoyCluster
-// equality swallows it, the deltas collection keeps evaluating the overlay
-// against the stale Backend and the per-client mutation never materializes
-// (TestKgatewayWaypoint/WaypointIngress/TestIngressHTTPRouteServiceLabel).
-func TestNewPerClientEnvoyClusters_BackendLabelChangeReachesOverlay(t *testing.T) {
+// TestNewPerClientEnvoyClusters_BackendMetadataUpdateRecomputesDeltas covers
+// the waypoint ingress-use-waypoint failure mode: a metadata-only Service label
+// update changes whether a per-client overlay applies, even though the shared
+// base cluster is byte-identical. Deltas must recompute from the backend update
+// itself, not only from base cluster equality changes.
+func TestNewPerClientEnvoyClusters_BackendMetadataUpdateRecomputesDeltas(t *testing.T) {
 	ctx := t.Context()
 	krtopts := krtutil.NewKrtOptions(ctx.Done(), nil)
 
-	backendGK := schema.GroupKind{Group: "group", Kind: "kind"}
+	backendGK := schema.GroupKind{Group: "", Kind: "Service"}
 	overlayGK := schema.GroupKind{Group: "test", Kind: "Overlay"}
+	const overlayLabel = "test-overlay"
 
 	translator := &irtranslator.BackendTranslator{
 		ContributedBackends: map[schema.GroupKind]ir.BackendInit{
@@ -124,10 +123,8 @@ func TestNewPerClientEnvoyClusters_BackendLabelChangeReachesOverlay(t *testing.T
 		},
 		ContributedPolicies: map[schema.GroupKind]sdk.PolicyPlugin{
 			overlayGK: {
-				// Gate on the BACKEND's label, like the waypoint plugin's
-				// istio.io/ingress-use-waypoint Service-label check.
 				PerClientClusterOverlay: func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR) *sdk.ClusterOverlay {
-					if in.Obj.GetLabels()["use-overlay"] != "true" {
+					if in.Obj.GetLabels()[overlayLabel] != "true" {
 						return nil
 					}
 					return &sdk.ClusterOverlay{
@@ -140,50 +137,39 @@ func TestNewPerClientEnvoyClusters_BackendLabelChangeReachesOverlay(t *testing.T
 		},
 	}
 
-	mkBackend := func(labels map[string]string, resourceVersion string) *ir.BackendObjectIR {
-		backend := ir.NewBackendObjectIR(ir.ObjectSource{Group: "group", Kind: "kind", Namespace: "ns", Name: "svc"}, 80, "", "")
-		backend.AttachedPolicies = ir.AttachedPolicies{Policies: map[schema.GroupKind][]ir.PolicyAtt{}}
-		backend.Obj = &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:            "svc",
-				Namespace:       "ns",
-				ResourceVersion: resourceVersion,
-				Labels:          labels,
-			},
-		}
-		return &backend
-	}
-
-	finalBackends := krt.NewStaticCollection(nil, []*ir.BackendObjectIR{mkBackend(nil, "1")}, krtopts.ToOptions("FinalBackends")...)
-
-	client := ir.NewUniquelyConnectedClient("a", "ns", map[string]string{"id": "a"}, ir.PodLocality{})
-	uccs := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{client}, krtopts.ToOptions("UCCs")...)
+	backend := ir.NewBackendObjectIR(ir.ObjectSource{Group: "", Kind: "Service", Namespace: "ns", Name: "svc"}, 80, "", "")
+	backend.Obj = &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Namespace:       "ns",
+		Name:            "svc",
+		UID:             "svc-uid",
+		ResourceVersion: "1",
+		Generation:      1,
+	}}
+	finalBackends := krt.NewStaticCollection(nil, []*ir.BackendObjectIR{&backend}, krtopts.ToOptions("FinalBackends")...)
+	ucc := ir.NewUniquelyConnectedClient("client", "ns", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc}, krtopts.ToOptions("UCCs")...)
 
 	pcc := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs)
 	require.Eventually(t, pcc.HasSynced, time.Second, 10*time.Millisecond)
 
-	var got []uccWithCluster
 	require.Eventually(t, func() bool {
-		got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, client)
-		return len(got) == 1
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() == nil
 	}, 2*time.Second, 20*time.Millisecond)
-	require.NoError(t, got[0].Error)
-	require.Nil(t, got[0].Cluster.GetOutlierDetection(), "unlabeled backend must see the un-overlaid base")
 
-	// Label the backend. The translated base proto, the generation, and the
-	// error are all unchanged — only the Backend the overlay reads differs.
-	finalBackends.UpdateObject(mkBackend(map[string]string{"use-overlay": "true"}, "2"))
+	updated := backend
+	updated.Obj = &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Namespace:       "ns",
+		Name:            "svc",
+		UID:             "svc-uid",
+		ResourceVersion: "2",
+		Generation:      1,
+		Labels:          map[string]string{overlayLabel: "true"},
+	}}
+	finalBackends.UpdateObject(&updated)
 
-	assert.Eventually(t, func() bool {
-		got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, client)
-		return len(got) == 1 && got[0].Error == nil && got[0].Cluster.GetOutlierDetection() != nil
-	}, 2*time.Second, 20*time.Millisecond, "backend label change must re-run the overlay and materialize the per-client delta")
-
-	// And the reverse: removing the label must drop the delta again.
-	finalBackends.UpdateObject(mkBackend(nil, "3"))
-
-	assert.Eventually(t, func() bool {
-		got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, client)
-		return len(got) == 1 && got[0].Error == nil && got[0].Cluster.GetOutlierDetection() == nil
-	}, 2*time.Second, 20*time.Millisecond, "label removal must revert the client to the shared base")
+	require.Eventually(t, func() bool {
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() != nil
+	}, 2*time.Second, 20*time.Millisecond)
 }

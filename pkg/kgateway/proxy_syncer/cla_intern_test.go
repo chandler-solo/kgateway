@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/endpoints"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -101,10 +102,12 @@ func TestNewPerClientEnvoyEndpointsSharesClaAcrossEquivalentContexts(t *testing.
 	}, time.Second, 20*time.Millisecond)
 
 	// A and B share a locality -> same CLA proto, same hash, built once.
-	require.Same(t, fetchedA[0].Endpoints, fetchedB[0].Endpoints)
+	require.True(t, sharedproto.Same(fetchedA[0].Endpoints, fetchedB[0].Endpoints),
+		"equivalent contexts must share one interned CLA proto")
 	require.Equal(t, fetchedA[0].EndpointsHash, fetchedB[0].EndpointsHash)
 	// C is in a different zone -> distinct CLA and hash.
-	require.NotSame(t, fetchedA[0].Endpoints, fetchedC[0].Endpoints)
+	require.False(t, sharedproto.Same(fetchedA[0].Endpoints, fetchedC[0].Endpoints),
+		"distinct contexts must not share a CLA proto")
 	require.NotEqual(t, fetchedA[0].EndpointsHash, fetchedC[0].EndpointsHash)
 	// Two distinct load-balancing contexts -> exactly two builds across three UCCs.
 	require.Equal(t, 2, buildCalls)

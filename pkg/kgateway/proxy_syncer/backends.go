@@ -8,6 +8,7 @@ import (
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -20,9 +21,14 @@ import (
 // read-only on the consumer side, and per-client mutations clone it before
 // modifying. This is the change that lets the per-client collection stay sparse.
 type baseEnvoyCluster struct {
+	// Name is both the Envoy cluster name and the KRT key; translation always
+	// names the cluster (blackhole included) after BackendObjectIR.ClusterName(),
+	// which is how the deltas builder looks bases up.
 	Name string
+	// Cluster is wrapped so consumers cannot mutate the proto shared across
+	// every client snapshot; see package sharedproto.
 	// +krtEqualsTodo include full cluster diff in equality
-	Cluster        *envoyclusterv3.Cluster
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	// Error is the translation error for this backend, if any. Compared by message in
 	// Equals because all errored clusters share one blackhole proto and baseClusterVersion
@@ -34,34 +40,19 @@ type baseEnvoyCluster struct {
 	BackendGeneration int64
 	// Base is the rest of the base-translation result, retained so the deltas
 	// collection can build per-client clusters without redoing translation.
-	// Not included in equality — it is derived deterministically from Backend,
-	// whose equality is checked.
+	// Not included in equality — ClusterVersion captures the relevant state.
 	// +noKrtEquals
 	Base *irtranslator.BaseCluster
-	// Backend pointer for per-client overlay plugins that take BackendObjectIR.
-	// Included in equality: overlay plugins self-determine applicability from
-	// backend state that can change without changing the translated base proto,
-	// its generation, or its error — e.g. the waypoint plugin reads the
-	// Service's ingress-use-waypoint label, and label edits do not bump
-	// metadata.generation. Suppressing such updates here would leave the deltas
-	// collection evaluating overlays against a stale Backend forever.
-	Backend *ir.BackendObjectIR
 }
 
 func (b baseEnvoyCluster) ResourceName() string { return b.Name }
 
 func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
-	if !(b.Name == in.Name &&
+	return b.Name == in.Name &&
 		b.ClusterVersion == in.ClusterVersion &&
 		b.BackendSource == in.BackendSource &&
 		b.BackendGeneration == in.BackendGeneration &&
-		errString(b.Error) == errString(in.Error)) {
-		return false
-	}
-	if b.Backend == nil || in.Backend == nil {
-		return b.Backend == in.Backend
-	}
-	return b.Backend.Equals(*in.Backend)
+		errString(b.Error) == errString(in.Error)
 }
 
 // uccClusterDelta is a per-client cluster materialized only when at least one
@@ -78,8 +69,10 @@ func (b baseEnvoyCluster) Equals(in baseEnvoyCluster) bool {
 type uccClusterDelta struct {
 	Client ir.UniquelyConnectedClient
 	Name   string
+	// Cluster is wrapped so consumers cannot mutate the proto interned across
+	// UCCs; see package sharedproto.
 	// +krtEqualsTodo include full cluster diff in equality
-	Cluster        *envoyclusterv3.Cluster
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	// +krtEqualsTodo surface translation errors in equality or drop field
 	Error error
@@ -97,8 +90,11 @@ func (d uccClusterDelta) Equals(in uccClusterDelta) bool {
 // resolved cluster (base or delta) along with any translation error and the
 // source Backend identity used for status attribution.
 type uccWithCluster struct {
-	Client         ir.UniquelyConnectedClient
-	Cluster        *envoyclusterv3.Cluster
+	Client ir.UniquelyConnectedClient
+	// Cluster is wrapped so snapshot assembly cannot mutate the proto shared
+	// with other clients; the only exits are ResourceWithTTL (into the
+	// envoycache snapshot, tripwire-verified) and Clone.
+	Cluster        sharedproto.Shared[*envoyclusterv3.Cluster]
 	ClusterVersion uint64
 	Name           string
 	Error          error
@@ -126,11 +122,19 @@ func errString(err error) string {
 // the base would not re-publish when endpoints change — leaving clients pinned
 // to stale LoadAssignments for non-EDS backends (e.g. ServiceEntry-style).
 //
+// The attached-policy hash is folded in for the same reason: EndpointInputs
+// carries the backend's AttachedPolicies, which PerClientProcessEndpoints hooks
+// consume when building the per-client CLA. KRT keeps the OLD stored object when
+// Equals returns true, so any Base state consumed downstream but missing from
+// this version would be served stale forever. This mirrors the EDS path, which
+// folds backendEndpointVersionHash into LbEpsEqualityHash in
+// newFinalBackendEndpoints.
+//
 // For EDS clusters EndpointInputs may also be non-nil, but those endpoints feed
 // the separate EDS pipeline and are not used by ApplyPerClient; gating on
 // SupportsInlineCLA keeps the version stable for the EDS case so equivalent
 // translations do not churn the snapshot.
-func baseClusterVersion(b *irtranslator.BaseCluster) uint64 {
+func baseClusterVersion(backend *ir.BackendObjectIR, b *irtranslator.BaseCluster) uint64 {
 	if b.Error != nil {
 		return 0
 	}
@@ -138,6 +142,7 @@ func baseClusterVersion(b *irtranslator.BaseCluster) uint64 {
 	utils.HashProtoWithHasher(hasher, b.Cluster)
 	if b.SupportsInlineCLA && b.EndpointInputs != nil {
 		utils.HashUint64(hasher, b.EndpointInputs.EndpointsForBackend.LbEpsEqualityHash)
+		utils.HashUint64(hasher, backendEndpointVersionHash(backend))
 	}
 	return hasher.Sum64()
 }
@@ -217,6 +222,17 @@ func (iu *PerClientEnvoyClusters) FetchClustersForClient(kctx krt.HandlerContext
 				BackendSource:     b.BackendSource,
 				BackendGeneration: b.BackendGeneration,
 			})
+			continue
+		}
+		if b.Base.NeedsInlineCLA() {
+			// This base is incomplete without a per-client CLA (nil
+			// LoadAssignment), and ApplyPerClient always materializes a delta
+			// for it, so a missing delta means the deltas collection simply
+			// hasn't caught up for this UCC yet. Publishing the CLA-less base
+			// would send Envoy a host-less STRICT_DNS/STATIC cluster (503s);
+			// withholding it instead lets the snapshot's referenced-cluster
+			// deferral hold the publish until the delta lands, matching the
+			// pre-split behavior where the row was absent until translated.
 			continue
 		}
 		out = append(out, uccWithCluster{
@@ -323,13 +339,12 @@ func NewPerClientEnvoyClusters(
 		}
 		return &baseEnvoyCluster{
 			Name:              baseRes.Cluster.GetName(),
-			Cluster:           baseRes.Cluster,
-			ClusterVersion:    baseClusterVersion(baseRes),
+			Cluster:           sharedproto.Wrap(baseRes.Cluster),
+			ClusterVersion:    baseClusterVersion(backendObj, baseRes),
 			Error:             baseRes.Error,
 			BackendSource:     backendObj.GetObjectSource(),
 			BackendGeneration: backendGeneration,
 			Base:              baseRes,
-			Backend:           backendObj,
 		}
 	}, krtopts.ToOptions("BaseEnvoyClusters")...)
 
@@ -338,10 +353,22 @@ func NewPerClientEnvoyClusters(
 	// cluster requires a UCC-dependent inline CLA. Most pairs emit nothing,
 	// which is what keeps the collection sparse.
 	//
-	// Driven off the base collection (not finalBackends) so a UCC churn does
-	// not re-translate the base — we reuse the already-computed BaseCluster.
-	deltas := krt.NewManyCollection(base, func(kctx krt.HandlerContext, b baseEnvoyCluster) []uccClusterDelta {
-		if b.Error != nil || b.Base == nil || b.Backend == nil {
+	// Driven off finalBackends so backend metadata-only updates (for example
+	// Service labels consumed by an overlay) recompute deltas even when the
+	// shared base cluster remains equal. The already-computed base is fetched
+	// and reused, so UCC churn still does not re-translate base clusters.
+	deltas := krt.NewManyCollection(finalBackends, func(kctx krt.HandlerContext, backendObj *ir.BackendObjectIR) []uccClusterDelta {
+		if backendObj == nil {
+			return nil
+		}
+		// Base rows are keyed by cluster name, which translation always derives
+		// from the backend's memoized ClusterName (blackhole included).
+		baseObj := krt.FetchOne(kctx, base, krt.FilterKey(backendObj.ClusterName()))
+		if baseObj == nil {
+			return nil
+		}
+		b := *baseObj
+		if b.Error != nil || b.Base == nil {
 			// Errored base: every UCC sees the same blackhole, no per-client
 			// variation possible.
 			return nil
@@ -356,9 +383,9 @@ func NewPerClientEnvoyClusters(
 		// inputs (e.g. the same locality) produce byte-identical clusters; sharing
 		// one proto instead of N clones cuts allocations to O(distinct). The protos
 		// are read-only on the consumer side, so aliasing is safe.
-		internByVersion := map[uint64]*envoyclusterv3.Cluster{}
+		internByVersion := map[uint64]sharedproto.Shared[*envoyclusterv3.Cluster]{}
 		for _, ucc := range clients {
-			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, b.Backend, b.Base)
+			perClient, err := translator.ApplyPerClient(kctx, ctx, ucc, backendObj, b.Base)
 			if err != nil {
 				// Emit a delta entry that carries the error so the snapshot
 				// tracks this cluster as errored for THIS UCC only. Falling
@@ -372,9 +399,11 @@ func NewPerClientEnvoyClusters(
 					name = perClient.GetName()
 				}
 				out = append(out, uccClusterDelta{
-					Client:         ucc,
-					Name:           name,
-					Cluster:        perClient,
+					Client: ucc,
+					Name:   name,
+					// Hash 0: errored rows are never published, so they opt
+					// out of tripwire verification.
+					Cluster:        sharedproto.WrapPrehashed(perClient, 0),
 					ClusterVersion: utils.HashString(err.Error()),
 					Error:          err,
 				})
@@ -386,15 +415,16 @@ func NewPerClientEnvoyClusters(
 				continue
 			}
 			clusterVersion := utils.HashProto(perClient)
-			if shared, ok := internByVersion[clusterVersion]; ok {
-				perClient = shared
-			} else {
-				internByVersion[clusterVersion] = perClient
+			shared, ok := internByVersion[clusterVersion]
+			if !ok {
+				// clusterVersion IS the content hash, so tripwire capture is free.
+				shared = sharedproto.WrapPrehashed(perClient, clusterVersion)
+				internByVersion[clusterVersion] = shared
 			}
 			out = append(out, uccClusterDelta{
 				Client:         ucc,
 				Name:           perClient.GetName(),
-				Cluster:        perClient,
+				Cluster:        shared,
 				ClusterVersion: clusterVersion,
 			})
 		}

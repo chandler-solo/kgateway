@@ -238,10 +238,10 @@ func flipHoldFixture(t *testing.T, pt *ProxyTranslator) (heldRouteVersion string
 	published.Resources[envoycachetypes.Listener] = listeners
 	published.Resources[envoycachetypes.Route] = routeResourcesForClusters("cluster-old")
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("cds-old", []envoycachetypes.ResourceWithTTL{
-		{Resource: oldCluster.Cluster},
+		oldCluster.Cluster.ResourceWithTTL(),
 	})
 	published.Resources[envoycachetypes.Endpoint] = envoycache.NewResourcesWithTTL("eds-old", []envoycachetypes.ResourceWithTTL{
-		{Resource: oldCLA.Endpoints},
+		oldCLA.Endpoints.ResourceWithTTL(),
 	})
 	require.NoError(t, pt.gate.publish(context.Background(), pt.xdsCache, publishGateTestClient, published))
 
@@ -251,12 +251,12 @@ func flipHoldFixture(t *testing.T, pt *ProxyTranslator) (heldRouteVersion string
 	flipSnap.Resources[envoycachetypes.Listener] = listeners
 	flipSnap.Resources[envoycachetypes.Route] = routeResourcesForClusters("cluster-new")
 	flipSnap.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("cds-new", []envoycachetypes.ResourceWithTTL{
-		{Resource: oldCluster.Cluster},
-		{Resource: newCluster.Cluster},
+		oldCluster.Cluster.ResourceWithTTL(),
+		newCluster.Cluster.ResourceWithTTL(),
 	})
 	flipSnap.Resources[envoycachetypes.Endpoint] = envoycache.NewResourcesWithTTL("eds-new", []envoycachetypes.ResourceWithTTL{
-		{Resource: oldCLA.Endpoints},
-		{Resource: emptyEndpointsForClient(newTestUcc(publishGateTestClient), "cluster-new", 4).Endpoints},
+		oldCLA.Endpoints.ResourceWithTTL(),
+		emptyEndpointsForClient(newTestUcc(publishGateTestClient), "cluster-new", 4).Endpoints.ResourceWithTTL(),
 	})
 	flipWrap = XdsSnapWrapper{
 		snap:     flipSnap,
@@ -317,8 +317,8 @@ func TestFlipRelease_ResolvedFlipCancelsPending(t *testing.T) {
 	resolvedSnap := &envoycache.Snapshot{}
 	*resolvedSnap = *flipWrap.snap
 	resolvedSnap.Resources[envoycachetypes.Endpoint] = envoycache.NewResourcesWithTTL("eds-ready", []envoycachetypes.ResourceWithTTL{
-		{Resource: endpointsForClient(newTestUcc(publishGateTestClient), "cluster-old", 5).Endpoints},
-		{Resource: endpointsForClient(newTestUcc(publishGateTestClient), "cluster-new", 6).Endpoints},
+		endpointsForClient(newTestUcc(publishGateTestClient), "cluster-old", 5).Endpoints.ResourceWithTTL(),
+		endpointsForClient(newTestUcc(publishGateTestClient), "cluster-new", 6).Endpoints.ResourceWithTTL(),
 	})
 	resolved.snap = resolvedSnap
 	pt.syncXds(context.Background(), resolved)

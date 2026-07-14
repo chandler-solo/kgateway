@@ -9,6 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/endpoints"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/irtranslator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
@@ -42,12 +45,12 @@ func TestFetchClustersForClient_Merge(t *testing.T) {
 	standalone := clusterNamed("standalone")
 
 	bases := []baseEnvoyCluster{
-		{Name: "base-only", Cluster: baseOnly, ClusterVersion: 1},
-		{Name: "overlaid", Cluster: overlaidBase, ClusterVersion: 2},
+		{Name: "base-only", Cluster: sharedproto.Wrap(baseOnly), ClusterVersion: 1},
+		{Name: "overlaid", Cluster: sharedproto.Wrap(overlaidBase), ClusterVersion: 2},
 	}
 	deltas := []uccClusterDelta{
-		{Client: ucc, Name: "overlaid", Cluster: overlaidDelta, ClusterVersion: 99},
-		{Client: ucc, Name: "standalone", Cluster: standalone, ClusterVersion: 7},
+		{Client: ucc, Name: "overlaid", Cluster: sharedproto.Wrap(overlaidDelta), ClusterVersion: 99},
+		{Client: ucc, Name: "standalone", Cluster: sharedproto.Wrap(standalone), ClusterVersion: 7},
 	}
 
 	pcc := newTestPerClientClustersRaw(bases, deltas)
@@ -57,15 +60,15 @@ func TestFetchClustersForClient_Merge(t *testing.T) {
 	require.Len(t, got, 3)
 
 	// base with no delta passes through unchanged
-	require.Same(t, baseOnly, got["base-only"].Cluster)
+	require.True(t, got["base-only"].Cluster.Is(baseOnly), "base with no delta must alias the base proto")
 	require.Equal(t, uint64(1), got["base-only"].ClusterVersion)
 
 	// delta overlays the base of the same name, winning on cluster + version
-	require.Same(t, overlaidDelta, got["overlaid"].Cluster)
+	require.True(t, got["overlaid"].Cluster.Is(overlaidDelta), "delta must win over the base of the same name")
 	require.Equal(t, uint64(99), got["overlaid"].ClusterVersion)
 
 	// standalone delta (no matching base) is still surfaced
-	require.Same(t, standalone, got["standalone"].Cluster)
+	require.True(t, got["standalone"].Cluster.Is(standalone), "standalone delta must be surfaced")
 	require.Equal(t, uint64(7), got["standalone"].ClusterVersion)
 }
 
@@ -77,8 +80,8 @@ func TestFetchClustersForClient_DeltaErrorWinsOverBaseError(t *testing.T) {
 	baseErr := errors.New("base boom")
 	deltaErr := errors.New("delta boom")
 
-	bases := []baseEnvoyCluster{{Name: "c", Cluster: clusterNamed("c"), ClusterVersion: 1, Error: baseErr}}
-	deltas := []uccClusterDelta{{Client: ucc, Name: "c", Cluster: clusterNamed("c"), ClusterVersion: 2, Error: deltaErr}}
+	bases := []baseEnvoyCluster{{Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c")), ClusterVersion: 1, Error: baseErr}}
+	deltas := []uccClusterDelta{{Client: ucc, Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c")), ClusterVersion: 2, Error: deltaErr}}
 
 	pcc := newTestPerClientClustersRaw(bases, deltas)
 	waitSynced(t, pcc)
@@ -96,8 +99,8 @@ func TestFetchClustersForClient_FiltersByClient(t *testing.T) {
 	uccB := ir.NewUniquelyConnectedClient("role", "ns", map[string]string{"k": "b"}, ir.PodLocality{})
 
 	base := clusterNamed("c")
-	bases := []baseEnvoyCluster{{Name: "c", Cluster: base, ClusterVersion: 1}}
-	deltas := []uccClusterDelta{{Client: uccA, Name: "c", Cluster: clusterNamed("c-a"), ClusterVersion: 50}}
+	bases := []baseEnvoyCluster{{Name: "c", Cluster: sharedproto.Wrap(base), ClusterVersion: 1}}
+	deltas := []uccClusterDelta{{Client: uccA, Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c-a")), ClusterVersion: 50}}
 
 	pcc := newTestPerClientClustersRaw(bases, deltas)
 	waitSynced(t, pcc)
@@ -110,6 +113,51 @@ func TestFetchClustersForClient_FiltersByClient(t *testing.T) {
 	// uccB has no delta, sees the shared base proto
 	gotB := pcc.FetchClustersForClient(krt.TestingDummyContext{}, uccB)
 	require.Len(t, gotB, 1)
-	require.Same(t, base, gotB[0].Cluster)
+	require.True(t, gotB[0].Cluster.Is(base), "client without a delta must alias the shared base proto")
 	require.Equal(t, uint64(1), gotB[0].ClusterVersion)
+}
+
+// TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives pins the
+// publish-atomicity guard: a base whose CLA is built per client (nil
+// LoadAssignment on an inline-CLA cluster type) must NOT be surfaced for a UCC
+// that has no delta yet — base and deltas are separate KRT collections, so the
+// base can be visible first. Publishing it would send Envoy a host-less
+// STRICT_DNS/STATIC cluster (503s until the delta lands); withholding lets the
+// snapshot's referenced-cluster deferral hold the publish, matching the
+// pre-split behavior where the row was absent until fully translated.
+func TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives(t *testing.T) {
+	ucc := ir.NewUniquelyConnectedClient("role", "ns", map[string]string{"k": "a"}, ir.PodLocality{})
+
+	inlineBase := &envoyclusterv3.Cluster{
+		Name:                 "inline",
+		ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_STRICT_DNS},
+	}
+	us := ir.NewBackendObjectIR(ir.ObjectSource{Namespace: "ns", Name: "svc"}, 0, "", "")
+	bases := []baseEnvoyCluster{{
+		Name:           "inline",
+		Cluster:        sharedproto.Wrap(inlineBase),
+		ClusterVersion: 1,
+		Base: &irtranslator.BaseCluster{
+			Cluster:           inlineBase,
+			EndpointInputs:    &endpoints.EndpointsInputs{EndpointsForBackend: *ir.NewEndpointsForBackend(us)},
+			SupportsInlineCLA: true,
+		},
+	}}
+
+	// No delta yet: the incomplete base must be withheld entirely.
+	pcc := newTestPerClientClustersRaw(bases, nil)
+	waitSynced(t, pcc)
+	got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+	require.Empty(t, got, "a CLA-less inline-CLA base must be withheld until its per-client delta arrives")
+
+	// Delta present: the merged per-client cluster is surfaced.
+	withCLA := clusterNamed("inline")
+	pcc = newTestPerClientClustersRaw(bases, []uccClusterDelta{
+		{Client: ucc, Name: "inline", Cluster: sharedproto.Wrap(withCLA), ClusterVersion: 7},
+	})
+	waitSynced(t, pcc)
+	got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+	require.Len(t, got, 1)
+	require.True(t, got[0].Cluster.Is(withCLA), "the per-client delta must be surfaced once it arrives")
+	require.Equal(t, uint64(7), got[0].ClusterVersion)
 }

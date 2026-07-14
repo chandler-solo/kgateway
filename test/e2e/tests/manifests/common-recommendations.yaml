@@ -27,6 +27,10 @@ controller:
     # still published). The publication paths maintain the invariant by
     # construction, so any increment during a test run is a kgateway bug.
     KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK: "true"
+    # Test-only: Trip loudly (panic) if any code path mutates a Cluster/CLA proto that is
+    # shared across client snapshots (see pkg/kgateway/proxy_syncer/shared_proto_assert.go).
+    # Test-only: the re-hash this enables is the marshal cost interning avoids in production.
+    ASSERT_SHARED_PROTO_IMMUTABILITY: "true"
     # TODO enable other values
   # deployment:
   #   livenessProbeEnabled: true

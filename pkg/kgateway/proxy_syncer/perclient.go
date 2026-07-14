@@ -93,7 +93,9 @@ func snapshotPerClient(
 				erroredClustersHash ^= utils.HashString(c.Name)
 				continue
 			}
-			clustersProto = append(clustersProto, envoycachetypes.ResourceWithTTL{Resource: c.Cluster})
+			// ResourceWithTTL is the only exit for the shared proto; it runs
+			// the mutation tripwire when armed. See package sharedproto.
+			clustersProto = append(clustersProto, c.Cluster.ResourceWithTTL())
 			clustersHash ^= c.ClusterVersion
 		}
 		clustersVersion := fmt.Sprintf("%d", clustersHash)
@@ -117,7 +119,9 @@ func snapshotPerClient(
 		endpointsProto := make([]envoycachetypes.ResourceWithTTL, 0, len(endpointsForUcc))
 		var endpointsHash uint64
 		for _, ep := range endpointsForUcc {
-			endpointsProto = append(endpointsProto, envoycachetypes.ResourceWithTTL{Resource: ep.Endpoints})
+			// ResourceWithTTL is the only exit for the interned CLA; it runs
+			// the mutation tripwire when armed. See package sharedproto.
+			endpointsProto = append(endpointsProto, ep.Endpoints.ResourceWithTTL())
 			endpointsHash ^= ep.EndpointsHash
 		}
 

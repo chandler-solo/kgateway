@@ -34,7 +34,7 @@ To do this efficiently, the plugin should convert the CRD to an intermediate rep
 Plugins are **stateless across translations** but maintain state during a single gateway translation via `ProxyTranslationPass`. Each plugin:
 - Provides a KRT collection of `ir.PolicyWrapper` (contains `PolicyIR` + `TargetRefs`)
 - Implements `NewGatewayTranslationPass(tctx ir.GwTranslationCtx, reporter reporter.Reporter) ir.ProxyTranslationPass`
-- Can process backends via `ProcessBackend`, `PerClientProcessBackend`, or `PerClientProcessEndpoints`
+- Can process backends via `ProcessBackend` (UCC-invariant, runs once per backend), `PerClientClusterOverlay` (per-client cluster mutations; must self-gate and return nil for the common no-op case so the per-client collection stays sparse), or `PerClientProcessEndpoints` (per-client endpoint inputs; the returned hash must capture every per-UCC effect, as it keys CLA interning across clients)
 
 Example: `/pkg/kgateway/extensions2/plugins/trafficpolicy/traffic_policy_plugin.go`
 

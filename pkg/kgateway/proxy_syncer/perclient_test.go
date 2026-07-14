@@ -31,6 +31,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
@@ -265,7 +266,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -295,7 +296,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
 		Name:           "cluster-b",
-		Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
+		Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-b"}),
 		ClusterVersion: 2,
 	})
 
@@ -343,12 +344,12 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		{
 			Client: ucc,
 			Name:   "cluster-a",
-			Cluster: &envoyclusterv3.Cluster{
+			Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 				Name: "cluster-a",
 				ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 					Type: envoyclusterv3.Cluster_EDS,
 				},
-			},
+			}),
 			ClusterVersion: 1,
 		},
 	})
@@ -427,23 +428,23 @@ func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *tes
 	clusterA := uccWithCluster{
 		Client: ucc,
 		Name:   "cluster-a",
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: "cluster-a",
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: 1,
 	}
 	clusterB := uccWithCluster{
 		Client: ucc,
 		Name:   "cluster-b",
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: "cluster-b",
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: 2,
 	}
 	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterA, clusterB})
@@ -1208,13 +1209,13 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 		{
 			Client:         ucc,
 			Name:           "cluster-b",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-b"}),
 			ClusterVersion: 2,
 			Error:          errors.New("boom"),
 		},
@@ -1437,7 +1438,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -1507,7 +1508,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -1748,27 +1749,36 @@ func edsClusterForClient(ucc ir.UniquelyConnectedClient, name string, version ui
 	return uccWithCluster{
 		Client: ucc,
 		Name:   name,
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: name,
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: version,
 	}
 }
 
 func edsClusterForClientWithServiceName(ucc ir.UniquelyConnectedClient, name, serviceName string, version uint64) uccWithCluster {
-	cluster := edsClusterForClient(ucc, name, version)
-	cluster.Cluster.EdsClusterConfig = &envoyclusterv3.Cluster_EdsClusterConfig{
-		ServiceName: serviceName,
+	return uccWithCluster{
+		Client: ucc,
+		Name:   name,
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
+			Name: name,
+			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
+				Type: envoyclusterv3.Cluster_EDS,
+			},
+			EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{
+				ServiceName: serviceName,
+			},
+		}),
+		ClusterVersion: version,
 	}
-	return cluster
 }
 
 func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
-	endpoints := emptyEndpointsForClient(ucc, name, hash)
-	endpoints.Endpoints.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{
+	cla := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
+	cla.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{
 		{
 			LbEndpoints: []*envoyendpointv3.LbEndpoint{
 				{
@@ -1790,15 +1800,20 @@ func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64
 			},
 		},
 	}
-	return endpoints
+	return UccWithEndpoints{
+		Client:        ucc,
+		Endpoints:     sharedproto.Wrap(cla),
+		EndpointsHash: hash,
+		endpointsName: name,
+	}
 }
 
 func emptyEndpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
 	return UccWithEndpoints{
 		Client: ucc,
-		Endpoints: &envoyendpointv3.ClusterLoadAssignment{
+		Endpoints: sharedproto.Wrap(&envoyendpointv3.ClusterLoadAssignment{
 			ClusterName: name,
-		},
+		}),
 		EndpointsHash: hash,
 		endpointsName: name,
 	}

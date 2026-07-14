@@ -7,6 +7,7 @@ import (
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -16,8 +17,10 @@ import (
 
 type UccWithEndpoints struct {
 	Client ir.UniquelyConnectedClient
+	// Endpoints is wrapped so consumers cannot mutate the CLA interned across
+	// every UCC that resolved identically; see package sharedproto.
 	// +krtEqualsTodo compare load assignments when equality matters
-	Endpoints     *envoyendpointv3.ClusterLoadAssignment
+	Endpoints     sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]
 	EndpointsHash uint64
 	endpointsName string
 }
@@ -55,13 +58,15 @@ func NewPerClientEnvoyEndpoints(
 		// client only through PrioritizeEndpoints (locality, labels) and the
 		// plugin-applied PriorityInfo; UCCs sharing those hashes get one shared
 		// read-only proto instead of a freshly built copy each.
-		sharedClas := map[uint64]*envoyendpointv3.ClusterLoadAssignment{}
+		sharedClas := map[uint64]sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]{}
 		for _, ucc := range uccs {
 			resolved := resolveEndpoints(kctx, ucc, ep)
 			endpointsHash := combineEndpointHash(ep.LbEpsEqualityHash, resolved.AdditionalHash, resolved.LoadBalancingHash)
 			cla, ok := sharedClas[endpointsHash]
 			if !ok {
-				cla = buildClusterLoadAssignment(ucc, resolved)
+				// Wrap captures the tripwire hash once per distinct CLA; rows
+				// that reuse the interned CLA copy the wrapper.
+				cla = sharedproto.Wrap(buildClusterLoadAssignment(ucc, resolved))
 				sharedClas[endpointsHash] = cla
 			}
 			u := UccWithEndpoints{

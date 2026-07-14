@@ -149,11 +149,6 @@ func (s *CombinedTranslator) TranslateGateway(kctx krt.HandlerContext, ctx conte
 	return &xdsSnap, rm
 }
 
-func (s *CombinedTranslator) TranslateEndpoints(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient, ep ir.EndpointsForBackend) (*envoyendpointv3.ClusterLoadAssignment, uint64) {
-	resolved := s.ResolveEndpoints(kctx, ucc, ep)
-	return s.BuildClusterLoadAssignment(ucc, resolved), resolved.AdditionalHash
-}
-
 // ResolveEndpoints runs the endpoint plugins for a (ucc, backend) pair and captures
 // the inputs plus the hashes that determine whether the resulting CLA is UCC-specific.
 // It does NOT build the CLA — that is BuildClusterLoadAssignment — so callers can dedup
