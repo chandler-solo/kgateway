@@ -26,9 +26,11 @@ on:
 # so it is not safe to cancel if it has partially released. A concurrent attempt to release the same version
 # will wait for the first release workflow to finish and then fail fast on the duplicate tag check (if the earlier
 # run succeeded) or re-attempt the release (if the earlier run failed).
-# Releases initiated by `pull_request` do not publish anything so may be canceled safely
+# Main pushes use a unique group so every commit produces its SHA-qualified artifacts; the
+# origin/main check below separately ensures only the current HEAD promotes the floating tags.
+# Releases initiated by `pull_request` do not publish anything so may be canceled safely.
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.version || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.run_id || inputs.version || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
