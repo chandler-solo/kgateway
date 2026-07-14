@@ -120,6 +120,12 @@ jobs:
             if ./hack/ci/release-exists.sh "$VERSION"; then
               echo "Error: Release ${VERSION} already exists; refusing to re-run."
               exit 1
+            else
+              release_status=$?
+              if [[ $release_status -ne 1 ]]; then
+                echo "Error: Could not determine whether release ${VERSION} already exists."
+                exit "$release_status"
+              fi
             fi
             # Find the previous tag for release notes generation
             PREVIOUS_TAG=$(find_previous_release_notes_tag "$VERSION")
@@ -543,6 +549,12 @@ jobs:
           if ./hack/ci/release-exists.sh "${VERSION}"; then
             echo "Release ${VERSION} already exists; refusing to republish."
             exit 1
+          else
+            release_status=$?
+            if [[ $release_status -ne 1 ]]; then
+              echo "Could not determine whether release ${VERSION} already exists."
+              exit "$release_status"
+            fi
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -570,8 +582,14 @@ jobs:
               exit 1
             fi
             docker buildx imagetools create -t "$dst" "${src}@${exp}"
+            manifest_json="$(docker buildx imagetools inspect "${src}@${exp}" --raw)"
             for arch in amd64 arm64; do
-              docker buildx imagetools create -t "${dst}-${arch}" "${src}-${arch}"
+              arch_digest="$(jq -er --arg arch "$arch" \
+                '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' \
+                <<<"$manifest_json")"
+              docker buildx imagetools create \
+                -t "${dst}-${arch}" \
+                "${src}@${arch_digest}"
             done
             echo "promoted ${image} -> ${dst} (${exp})"
           done < <(echo "$DIGESTS" | jq -r 'to_entries[] | "\(.key) \(.value)"')
