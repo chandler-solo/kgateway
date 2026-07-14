@@ -29,17 +29,23 @@ Install container-structure-test:
 # macOS
 brew install container-structure-test
 
-# Linux
-curl -LO https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.19.3/container-structure-test-linux-amd64
-echo "fa0fa333bb6ba5c14065e7468d2904f5c82d021d7e1c763c9a45c5f2fbe9ff5f  container-structure-test-linux-amd64" | sha256sum --check
-chmod +x container-structure-test-linux-amd64
-sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
+# Linux (set CST_ARCH to amd64 or arm64)
+CST_ARCH=amd64
+case "${CST_ARCH}" in
+  amd64) CST_SHA256=fa0fa333bb6ba5c14065e7468d2904f5c82d021d7e1c763c9a45c5f2fbe9ff5f ;;
+  arm64) CST_SHA256=874d04183c4182ada9913c1f34e6d172b86c21bcd18797528107b49f9b6dbc31 ;;
+  *) echo "unsupported architecture: ${CST_ARCH}" >&2; exit 1 ;;
+esac
+curl -LO "https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.19.3/container-structure-test-linux-${CST_ARCH}"
+echo "${CST_SHA256}  container-structure-test-linux-${CST_ARCH}" | sha256sum --check
+chmod +x "container-structure-test-linux-${CST_ARCH}"
+sudo mv "container-structure-test-linux-${CST_ARCH}" /usr/local/bin/container-structure-test
 ```
 
 ### Run Tests
 
 ```bash
-# Run all container structure tests (builds images first)
+# Run all container structure tests against existing goreleaser-tagged images
 make container-structure-test
 
 # Run tests for a specific image
@@ -50,7 +56,11 @@ make container-structure-test-envoy-wrapper
 
 ## CI Integration
 
-Container structure tests run automatically in the release workflow (`.github/workflows/release.yaml`) as part of the `goreleaser` job, after images are built. This means they run on every PR, push to main, and release. Both amd64 and arm64 images are tested against the locally-built images (arm64 via QEMU), without pulling from a registry.
+Container structure tests run automatically in the release workflow
+(`.github/workflows/release.yaml`) after images are built. They run on every PR, push to main, and
+release, with amd64 and arm64 each tested on a native runner without QEMU. PR jobs receive the
+locally built images through short-lived workflow artifacts; main and release jobs pull their
+staged images from the registry.
 
 ## Adding Tests
 

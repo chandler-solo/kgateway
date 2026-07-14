@@ -34,6 +34,9 @@ concurrency:
 env:
   # this uses the `github.repository_owner` to support releases from forks (useful for testing).
   IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  # Keep the released image set in one place. The stage, native structure-test, rolling-tag, and
+  # publish jobs all consume this list directly or via the staged digest map.
+  IMAGES: kgateway sds envoy-wrapper
   # Only the official kgateway-dev/kgateway repo publishes to the vanity registry. Personal
   # forks publish to ghcr.io/<owner>, so their release notes should point there too — otherwise
   # the install commands in the GitHub release page reference images that don't exist.
@@ -120,6 +123,12 @@ jobs:
             if ./hack/ci/release-exists.sh "$VERSION"; then
               echo "Error: Release ${VERSION} already exists; refusing to re-run."
               exit 1
+            else
+              release_status=$?
+              if [[ $release_status -ne 1 ]]; then
+                echo "Error: Could not determine whether release ${VERSION} already exists."
+                exit "$release_status"
+              fi
             fi
             # Find the previous tag for release notes generation
             PREVIOUS_TAG=$(find_previous_release_notes_tag "$VERSION")
@@ -221,9 +230,9 @@ jobs:
   rolling-charts:
     name: Publish rolling main charts
     # Rolling-main builds publish charts directly (they are never staged/promoted). Gated on
-    # `stage` so charts never ship ahead of the images they reference, and on `helm` so the
+    # `container-structure` so charts never ship ahead of tested images, and on `helm` so the
     # default-tag assertion runs first. Release builds (workflow_dispatch) push from `publish`.
-    needs: [setup, helm, stage]
+    needs: [setup, helm, stage, container-structure]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-22.04
     steps:
@@ -256,8 +265,8 @@ jobs:
       # HEAD check, so the two artifact tags can never diverge. Promoting both in one step
       # (rather than splitting chart and image promotion across separate jobs) avoids a race
       # where origin/main advances between jobs and leaves the floating chart tag behind the
-      # floating image tag. This job needs [setup, helm, stage], so both the per-sha charts
-      # (pushed above) and the per-sha images (from the stage job) already exist by now.
+      # floating image tag. This job waits for helm, stage, and container-structure, so both the
+      # per-sha charts and the tested per-sha images already exist by now.
       - name: Promote floating chart and image tags if this commit is still main HEAD
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.setup.outputs.floating_version != '' }}
         shell: bash
@@ -270,7 +279,7 @@ jobs:
             exit 0
           fi
           make release-charts VERSION="${FLOAT}"
-          for image in kgateway sds envoy-wrapper; do
+          for image in $IMAGES; do
             docker buildx imagetools create \
               -t "${REG}/${image}:${FLOAT}" \
               "${REG}/${image}:${VERSION}"
@@ -316,11 +325,6 @@ jobs:
     name: Build and stage images
     needs: [setup]
     runs-on: ubuntu-22.04
-    env:
-      # Single source of the released image list, shared by the container-structure tests and the
-      # digest capture below and consumed (via the digests output) by publish's promote loop, so a
-      # new image is added in one place rather than three.
-      IMAGES: kgateway sds envoy-wrapper
     outputs:
       # JSON object mapping image name -> staged manifest digest; publish iterates its keys.
       digests: ${{ steps.digests.outputs.digests }}
@@ -370,31 +374,59 @@ jobs:
           GORELEASER_ARGS: ${{ needs.setup.outputs.goreleaser_args }}
           GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
 
-      - name: Install container-structure-test
+      # PR builds do not push images, so hand each architecture's local images to its native test
+      # runner. Main and release builds are already in GHCR and do not pay this artifact cost.
+      - name: Export amd64 PR images for native structure tests
+        if: ${{ github.event_name == 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
-          curl -LO https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.19.3/container-structure-test-linux-amd64
-          echo "fa0fa333bb6ba5c14065e7468d2904f5c82d021d7e1c763c9a45c5f2fbe9ff5f  container-structure-test-linux-amd64" | sha256sum --check
-          chmod +x container-structure-test-linux-amd64
-          sudo mv container-structure-test-linux-amd64 /usr/local/bin/container-structure-test
-
-      - name: Run container structure tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          for arch in amd64 arm64; do
-            for image in $IMAGES; do
-              echo "Testing ${image} (${arch})..."
-              container-structure-test test \
-                --image "${IMAGE_REGISTRY}/${image}:${STAGE_TAG}-${arch}" \
-                --platform "linux/${arch}" \
-                --config "test/container-structure/${image}.yaml"
-            done
+          mkdir -p _output/container-structure
+          image_refs=()
+          for image in $IMAGES; do
+            image_refs+=("${IMAGE_REGISTRY}/${image}:${STAGE_TAG}-amd64")
           done
+          docker image save \
+            --output _output/container-structure/images-amd64.tar \
+            "${image_refs[@]}"
         env:
-          IMAGE_REGISTRY: ${{ env.IMAGE_REGISTRY }}
           STAGE_TAG: ${{ needs.setup.outputs.stage_tag }}
+
+      - name: Upload amd64 PR images
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: container-structure-images-amd64
+          path: _output/container-structure/images-amd64.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Export arm64 PR images for native structure tests
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm _output/container-structure/images-amd64.tar
+          image_refs=()
+          for image in $IMAGES; do
+            image_refs+=("${IMAGE_REGISTRY}/${image}:${STAGE_TAG}-arm64")
+          done
+          docker image save \
+            --output _output/container-structure/images-arm64.tar \
+            "${image_refs[@]}"
+        env:
+          STAGE_TAG: ${{ needs.setup.outputs.stage_tag }}
+
+      - name: Upload arm64 PR images
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: container-structure-images-arm64
+          path: _output/container-structure/images-arm64.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       # Emit one JSON object mapping image name -> staged manifest digest. publish's promote loop
       # iterates its keys, so the image set is defined once (the IMAGES env) and flows through.
@@ -426,6 +458,77 @@ jobs:
             dist/*.tar.gz
             dist/*checksums.txt
           retention-days: 1
+
+  container-structure:
+    name: Container structure tests (${{ matrix.arch }})
+    needs: [setup, stage]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+            cst_sha256: fa0fa333bb6ba5c14065e7468d2904f5c82d021d7e1c763c9a45c5f2fbe9ff5f
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            cst_sha256: 874d04183c4182ada9913c1f34e6d172b86c21bcd18797528107b49f9b6dbc31
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Download PR images
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: container-structure-images-${{ matrix.arch }}
+          path: _output/container-structure
+
+      - name: Load PR images
+        if: ${{ github.event_name == 'pull_request' }}
+        run: docker image load --input _output/container-structure/images-${{ matrix.arch }}.tar
+
+      - name: Log into ghcr.io
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install container-structure-test
+        shell: bash
+        env:
+          CST_ARCH: ${{ matrix.arch }}
+          CST_SHA256: ${{ matrix.cst_sha256 }}
+          CST_VERSION: v1.19.3
+        run: |
+          set -euo pipefail
+          binary="container-structure-test-linux-${CST_ARCH}"
+          curl --fail --location --remote-name \
+            "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${CST_VERSION}/${binary}"
+          echo "${CST_SHA256}  ${binary}" | sha256sum --check
+          sudo install -m 0755 "${binary}" /usr/local/bin/container-structure-test
+
+      - name: Run container structure tests
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          EVENT_NAME: ${{ github.event_name }}
+          STAGE_TAG: ${{ needs.setup.outputs.stage_tag }}
+        run: |
+          set -euo pipefail
+          pull_args=()
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            pull_args=(--pull)
+          fi
+          for image in $IMAGES; do
+            echo "Testing ${image} (${ARCH})..."
+            container-structure-test test \
+              --image "${IMAGE_REGISTRY}/${image}:${STAGE_TAG}-${ARCH}" \
+              --platform "linux/${ARCH}" \
+              "${pull_args[@]}" \
+              --config "test/container-structure/${image}.yaml"
+          done
 
   validate:
     name: Validate release artifacts e2e (${{ matrix.arch }})
@@ -515,9 +618,9 @@ jobs:
 
   publish:
     name: Publish release
-    # Gated on the validation jobs that block a release: build + container-structure (in `stage`)
-    # and conformance (`validate`). Load tests are intentionally NOT a dependency (advisory).
-    needs: [setup, helm, stage, validate, release-notes]
+    # Gated on the build, native container-structure tests, and conformance validation. Load tests
+    # are intentionally NOT a dependency (advisory).
+    needs: [setup, helm, stage, container-structure, validate, release-notes]
     if: ${{ needs.setup.outputs.needs_release == 'true' }}
     runs-on: ubuntu-22.04
     steps:
@@ -543,6 +646,12 @@ jobs:
           if ./hack/ci/release-exists.sh "${VERSION}"; then
             echo "Release ${VERSION} already exists; refusing to republish."
             exit 1
+          else
+            release_status=$?
+            if [[ $release_status -ne 1 ]]; then
+              echo "Could not determine whether release ${VERSION} already exists."
+              exit "$release_status"
+            fi
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -570,8 +679,14 @@ jobs:
               exit 1
             fi
             docker buildx imagetools create -t "$dst" "${src}@${exp}"
+            manifest_json="$(docker buildx imagetools inspect "${src}@${exp}" --raw)"
             for arch in amd64 arm64; do
-              docker buildx imagetools create -t "${dst}-${arch}" "${src}-${arch}"
+              arch_digest="$(jq -er --arg arch "$arch" \
+                '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' \
+                <<<"$manifest_json")"
+              docker buildx imagetools create \
+                -t "${dst}-${arch}" \
+                "${src}@${arch_digest}"
             done
             echo "promoted ${image} -> ${dst} (${exp})"
           done < <(echo "$DIGESTS" | jq -r 'to_entries[] | "\(.key) \(.value)"')

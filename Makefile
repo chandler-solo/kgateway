@@ -571,8 +571,9 @@ CONTAINER_STRUCTURE_TEST ?= container-structure-test
 CONTAINER_STRUCTURE_TEST_DIR := test/container-structure
 # Architecture suffix used by goreleaser image tags (e.g. -amd64, -arm64)
 CONTAINER_STRUCTURE_TEST_ARCH ?= $(GOARCH)
-# Platform flag for cross-arch testing via QEMU (only needed when testing non-native arch)
-CONTAINER_STRUCTURE_TEST_PLATFORM_FLAG := $(if $(filter $(GOARCH),$(CONTAINER_STRUCTURE_TEST_ARCH)),,--platform linux/$(CONTAINER_STRUCTURE_TEST_ARCH))
+# container-structure-test defaults to linux/amd64, so specify the image platform even on native
+# arm64 runners. Docker only requires emulation when this differs from the host architecture.
+CONTAINER_STRUCTURE_TEST_PLATFORM_FLAG := --platform linux/$(CONTAINER_STRUCTURE_TEST_ARCH)
 
 .PHONY: container-structure-test
 container-structure-test: ## Run container structure tests for all production images (uses goreleaser image tags)
