@@ -21,7 +21,7 @@ import (
 )
 
 // TestNewPerClientEnvoyClusters_SparseOverlayWiring exercises the real KRT
-// wiring end-to-end (base collection -> deltas many-collection -> index ->
+// wiring end-to-end (base collection -> atomic sparse delta sets ->
 // FetchClustersForClient merge) rather than the static-collection test helpers.
 // It pins the headline behaviors of the base+overlay split:
 //
@@ -76,6 +76,11 @@ func TestNewPerClientEnvoyClusters_SparseOverlayWiring(t *testing.T) {
 
 	pcc := NewPerClientEnvoyClusters(ctx, krtopts, translator, finalBackends, uccs)
 	require.Eventually(t, pcc.HasSynced, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		bases := krt.Fetch(krt.TestingDummyContext{}, pcc.base)
+		return len(bases) == 1 && bases[0].Base != nil && bases[0].Base.Cluster == nil
+	}, time.Second, 10*time.Millisecond,
+		"the retained BaseCluster must not expose a raw alias to the shared proto")
 
 	var gotA, gotB, gotOther []uccWithCluster
 	require.Eventually(t, func() bool {
@@ -171,5 +176,20 @@ func TestNewPerClientEnvoyClusters_BackendMetadataUpdateRecomputesDeltas(t *test
 	require.Eventually(t, func() bool {
 		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
 		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() != nil
+	}, 2*time.Second, 20*time.Millisecond)
+
+	removed := backend
+	removed.Obj = &corev1.Service{ObjectMeta: metav1.ObjectMeta{
+		Namespace:       "ns",
+		Name:            "svc",
+		UID:             "svc-uid",
+		ResourceVersion: "3",
+		Generation:      1,
+	}}
+	finalBackends.UpdateObject(&removed)
+
+	require.Eventually(t, func() bool {
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Clone().GetOutlierDetection() == nil
 	}, 2*time.Second, 20*time.Millisecond)
 }

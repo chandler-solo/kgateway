@@ -33,16 +33,14 @@ func waitSynced(t *testing.T, pcc PerClientEnvoyClusters) {
 }
 
 // TestFetchClustersForClient_Merge exercises the base/delta merge: a base with
-// no delta passes through unchanged, a delta overlays the base of the same name
-// (winning on cluster + version), and a standalone delta (test-only) is still
-// surfaced.
+// no delta passes through unchanged, while a resolved delta overlays the base
+// of the same name (winning on cluster + version).
 func TestFetchClustersForClient_Merge(t *testing.T) {
 	ucc := ir.NewUniquelyConnectedClient("role", "ns", map[string]string{"k": "a"}, ir.PodLocality{})
 
 	baseOnly := clusterNamed("base-only")
 	overlaidBase := clusterNamed("overlaid")
 	overlaidDelta := clusterNamed("overlaid")
-	standalone := clusterNamed("standalone")
 
 	bases := []baseEnvoyCluster{
 		{Name: "base-only", Cluster: sharedproto.Wrap(baseOnly), ClusterVersion: 1},
@@ -50,14 +48,13 @@ func TestFetchClustersForClient_Merge(t *testing.T) {
 	}
 	deltas := []uccClusterDelta{
 		{Client: ucc, Name: "overlaid", Cluster: sharedproto.Wrap(overlaidDelta), ClusterVersion: 99},
-		{Client: ucc, Name: "standalone", Cluster: sharedproto.Wrap(standalone), ClusterVersion: 7},
 	}
 
-	pcc := newTestPerClientClustersRaw(bases, deltas)
+	pcc := newTestPerClientClustersRaw(bases, deltas, ucc)
 	waitSynced(t, pcc)
 
 	got := uccWithClusterByName(pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc))
-	require.Len(t, got, 3)
+	require.Len(t, got, 2)
 
 	// base with no delta passes through unchanged
 	require.True(t, got["base-only"].Cluster.Is(baseOnly), "base with no delta must alias the base proto")
@@ -66,10 +63,6 @@ func TestFetchClustersForClient_Merge(t *testing.T) {
 	// delta overlays the base of the same name, winning on cluster + version
 	require.True(t, got["overlaid"].Cluster.Is(overlaidDelta), "delta must win over the base of the same name")
 	require.Equal(t, uint64(99), got["overlaid"].ClusterVersion)
-
-	// standalone delta (no matching base) is still surfaced
-	require.True(t, got["standalone"].Cluster.Is(standalone), "standalone delta must be surfaced")
-	require.Equal(t, uint64(7), got["standalone"].ClusterVersion)
 }
 
 // TestFetchClustersForClient_DeltaErrorWinsOverBaseError documents the error
@@ -83,7 +76,7 @@ func TestFetchClustersForClient_DeltaErrorWinsOverBaseError(t *testing.T) {
 	bases := []baseEnvoyCluster{{Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c")), ClusterVersion: 1, Error: baseErr}}
 	deltas := []uccClusterDelta{{Client: ucc, Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c")), ClusterVersion: 2, Error: deltaErr}}
 
-	pcc := newTestPerClientClustersRaw(bases, deltas)
+	pcc := newTestPerClientClustersRaw(bases, deltas, ucc)
 	waitSynced(t, pcc)
 
 	got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
@@ -102,7 +95,7 @@ func TestFetchClustersForClient_FiltersByClient(t *testing.T) {
 	bases := []baseEnvoyCluster{{Name: "c", Cluster: sharedproto.Wrap(base), ClusterVersion: 1}}
 	deltas := []uccClusterDelta{{Client: uccA, Name: "c", Cluster: sharedproto.Wrap(clusterNamed("c-a")), ClusterVersion: 50}}
 
-	pcc := newTestPerClientClustersRaw(bases, deltas)
+	pcc := newTestPerClientClustersRaw(bases, deltas, uccA, uccB)
 	waitSynced(t, pcc)
 
 	// uccA sees its delta override
@@ -137,6 +130,7 @@ func TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives(t *testi
 		Name:           "inline",
 		Cluster:        sharedproto.Wrap(inlineBase),
 		ClusterVersion: 1,
+		NeedsInlineCLA: true,
 		Base: &irtranslator.BaseCluster{
 			Cluster:           inlineBase,
 			EndpointInputs:    &endpoints.EndpointsInputs{EndpointsForBackend: *ir.NewEndpointsForBackend(us)},
@@ -145,7 +139,7 @@ func TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives(t *testi
 	}}
 
 	// No delta yet: the incomplete base must be withheld entirely.
-	pcc := newTestPerClientClustersRaw(bases, nil)
+	pcc := newTestPerClientClustersRaw(bases, nil, ucc)
 	waitSynced(t, pcc)
 	got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
 	require.Empty(t, got, "a CLA-less inline-CLA base must be withheld until its per-client delta arrives")
@@ -154,10 +148,112 @@ func TestFetchClustersForClient_WithholdsInlineCLABaseUntilDeltaArrives(t *testi
 	withCLA := clusterNamed("inline")
 	pcc = newTestPerClientClustersRaw(bases, []uccClusterDelta{
 		{Client: ucc, Name: "inline", Cluster: sharedproto.Wrap(withCLA), ClusterVersion: 7},
-	})
+	}, ucc)
 	waitSynced(t, pcc)
 	got = pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
 	require.Len(t, got, 1)
 	require.True(t, got[0].Cluster.Is(withCLA), "the per-client delta must be surfaced once it arrives")
 	require.Equal(t, uint64(7), got[0].ClusterVersion)
+}
+
+// TestFetchClustersForClient_RejectsStaleDeltaAfterBaseUpdate reproduces the
+// reviewer-identified ordering window: the new base is visible while the old
+// full-clone delta still exists. The stale delta must not override the new base;
+// the whole merged view stays pending until a matching delta set arrives.
+func TestFetchClustersForClient_RejectsStaleDeltaAfterBaseUpdate(t *testing.T) {
+	ucc := ir.NewUniquelyConnectedClient("role", "ns", map[string]string{"k": "a"}, ir.PodLocality{})
+	oldFingerprint := baseClusterFingerprint{ClusterVersion: 1}
+	newFingerprint := baseClusterFingerprint{ClusterVersion: 2}
+	newBase := clusterNamed("c")
+	staleDelta := clusterNamed("c")
+
+	baseCol := krt.NewStaticCollection(nil, []baseEnvoyCluster{{
+		Name:           "c",
+		Cluster:        sharedproto.Wrap(newBase),
+		ClusterVersion: 2,
+		Fingerprint:    newFingerprint,
+	}})
+	deltaCol := krt.NewStaticCollection(nil, []backendClusterDeltaSet{{
+		Name:               "c",
+		BaseFingerprint:    oldFingerprint,
+		ClientsFingerprint: fingerprintClients([]ir.UniquelyConnectedClient{ucc}),
+		Deltas: map[string]uccClusterDelta{
+			ucc.ResourceName(): {
+				Client:          ucc,
+				Name:            "c",
+				BaseFingerprint: oldFingerprint,
+				Cluster:         sharedproto.Wrap(staleDelta),
+				ClusterVersion:  99,
+			},
+		},
+	}})
+	clientCol := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc})
+	pcc := PerClientEnvoyClusters{base: baseCol, deltas: deltaCol, clients: clientCol}
+	waitSynced(t, pcc)
+
+	require.Empty(t, pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc),
+		"a stale delta must make the generation pending, not override the newer base")
+
+	// Overlay removal: a matching empty set explicitly resolves to the base.
+	deltaCol.UpdateObject(backendClusterDeltaSet{
+		Name:               "c",
+		BaseFingerprint:    newFingerprint,
+		ClientsFingerprint: fingerprintClients([]ir.UniquelyConnectedClient{ucc}),
+	})
+	require.Eventually(t, func() bool {
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Is(newBase)
+	}, time.Second, 10*time.Millisecond)
+
+	// Overlay addition: the matching delta atomically replaces the base.
+	newDelta := clusterNamed("c")
+	deltaCol.UpdateObject(backendClusterDeltaSet{
+		Name:               "c",
+		BaseFingerprint:    newFingerprint,
+		ClientsFingerprint: fingerprintClients([]ir.UniquelyConnectedClient{ucc}),
+		Deltas: map[string]uccClusterDelta{
+			ucc.ResourceName(): {
+				Client:          ucc,
+				Name:            "c",
+				BaseFingerprint: newFingerprint,
+				Cluster:         sharedproto.Wrap(newDelta),
+				ClusterVersion:  100,
+			},
+		},
+	})
+	require.Eventually(t, func() bool {
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Is(newDelta)
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestFetchClustersForClient_WaitsForCurrentClientSet proves that an empty
+// sparse result from before a client connected is pending, not an affirmative
+// "no overlay" decision for that client.
+func TestFetchClustersForClient_WaitsForCurrentClientSet(t *testing.T) {
+	ucc := ir.NewUniquelyConnectedClient("role", "ns", nil, ir.PodLocality{})
+	base := clusterNamed("c")
+	fingerprint := baseClusterFingerprint{ClusterVersion: 1}
+	baseCol := krt.NewStaticCollection(nil, []baseEnvoyCluster{{
+		Name: "c", Cluster: sharedproto.Wrap(base), ClusterVersion: 1, Fingerprint: fingerprint,
+	}})
+	deltaCol := krt.NewStaticCollection(nil, []backendClusterDeltaSet{{
+		Name:               "c",
+		BaseFingerprint:    fingerprint,
+		ClientsFingerprint: fingerprintClients(nil),
+	}})
+	clientCol := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc})
+	pcc := PerClientEnvoyClusters{base: baseCol, deltas: deltaCol, clients: clientCol}
+	waitSynced(t, pcc)
+
+	require.Empty(t, pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc))
+	deltaCol.UpdateObject(backendClusterDeltaSet{
+		Name:               "c",
+		BaseFingerprint:    fingerprint,
+		ClientsFingerprint: fingerprintClients([]ir.UniquelyConnectedClient{ucc}),
+	})
+	require.Eventually(t, func() bool {
+		got := pcc.FetchClustersForClient(krt.TestingDummyContext{}, ucc)
+		return len(got) == 1 && got[0].Cluster.Is(base)
+	}, time.Second, 10*time.Millisecond)
 }

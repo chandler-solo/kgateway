@@ -3,77 +3,97 @@ package proxy_syncer
 import (
 	"istio.io/istio/pkg/kube/krt"
 
-	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
-// testClusterCols wraps the two static collections that back a test-built
-// PerClientEnvoyClusters. Tests use UpdateObject on these to mutate state.
+// testClusterCols keeps the static collections backing a test-built
+// PerClientEnvoyClusters alive and available to tests that need direct access.
 type testClusterCols struct {
-	bases  krt.StaticCollection[baseEnvoyCluster]
-	deltas krt.StaticCollection[uccClusterDelta]
+	bases   krt.StaticCollection[baseEnvoyCluster]
+	deltas  krt.StaticCollection[backendClusterDeltaSet]
+	clients krt.StaticCollection[ir.UniquelyConnectedClient]
 }
 
-// updateDelta inserts or replaces a per-client delta entry.
-func (c *testClusterCols) updateDelta(in uccWithCluster) {
-	c.deltas.UpdateObject(uccClusterDelta{
-		Client:         in.Client,
-		Name:           in.Name,
-		Cluster:        in.Cluster,
-		ClusterVersion: in.ClusterVersion,
-	})
-}
+// newTestPerClientClustersRaw builds a generation-consistent
+// PerClientEnvoyClusters directly from base and sparse delta entries. clients
+// must include every UCC that the caller will query; passing them explicitly
+// models the production resolved-client fence.
+func newTestPerClientClustersRaw(
+	bases []baseEnvoyCluster,
+	deltas []uccClusterDelta,
+	clients ...ir.UniquelyConnectedClient,
+) PerClientEnvoyClusters {
+	clientFingerprint := fingerprintClients(clients)
+	deltaSets := make([]backendClusterDeltaSet, 0, len(bases))
+	for _, base := range bases {
+		set := backendClusterDeltaSet{
+			Name:               base.Name,
+			BaseFingerprint:    base.Fingerprint,
+			ClientsFingerprint: clientFingerprint,
+		}
+		for _, delta := range deltas {
+			if delta.Name != base.Name {
+				continue
+			}
+			delta.BaseFingerprint = base.Fingerprint
+			if set.Deltas == nil {
+				set.Deltas = make(map[string]uccClusterDelta)
+			}
+			set.Deltas[delta.Client.ResourceName()] = delta
+		}
+		deltaSets = append(deltaSets, set)
+	}
 
-// newTestPerClientClustersRaw builds a PerClientEnvoyClusters directly from
-// base and delta entries, giving tests full control over the merge inputs
-// (e.g. a base and a delta sharing a name). Prefer newTestPerClientClusters
-// for the common flat-entry case.
-func newTestPerClientClustersRaw(bases []baseEnvoyCluster, deltas []uccClusterDelta) PerClientEnvoyClusters {
 	baseCol := krt.NewStaticCollection[baseEnvoyCluster](nil, bases)
-	deltaCol := krt.NewStaticCollection[uccClusterDelta](nil, deltas)
-	idx := krtpkg.UnnamedIndex(deltaCol, func(d uccClusterDelta) []string {
-		return []string{d.Client.ResourceName()}
-	})
+	deltaCol := krt.NewStaticCollection[backendClusterDeltaSet](nil, deltaSets)
+	clientCol := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, clients)
 	return PerClientEnvoyClusters{
-		base:       baseCol,
-		deltas:     deltaCol,
-		deltaByUcc: idx,
+		base:    baseCol,
+		deltas:  deltaCol,
+		clients: clientCol,
 	}
 }
 
-// newTestPerClientClusters builds a PerClientEnvoyClusters from flat
-// per-(ucc, cluster) entries. Errored entries are routed to the base
-// collection (where errors live in production); non-errored entries become
-// per-client deltas. The returned testClusterCols exposes UpdateObject hooks
-// for tests that mutate state mid-flight.
+// newTestPerClientClusters builds a PerClientEnvoyClusters from flat cluster
+// entries. These snapshot tests do not exercise overlays, so each entry is a
+// resolved shared base and each distinct client is included in the client set.
 func newTestPerClientClusters(initial []uccWithCluster) (PerClientEnvoyClusters, *testClusterCols) {
-	var bases []baseEnvoyCluster
-	var deltas []uccClusterDelta
-	for _, c := range initial {
-		if c.Error != nil {
-			bases = append(bases, baseEnvoyCluster{
-				Name:           c.Name,
-				Cluster:        c.Cluster,
-				ClusterVersion: c.ClusterVersion,
-				Error:          c.Error,
-			})
-			continue
+	basesByName := make(map[string]baseEnvoyCluster)
+	clientsByName := make(map[string]ir.UniquelyConnectedClient)
+	for _, cluster := range initial {
+		basesByName[cluster.Name] = baseEnvoyCluster{
+			Name:              cluster.Name,
+			Cluster:           cluster.Cluster,
+			ClusterVersion:    cluster.ClusterVersion,
+			Error:             cluster.Error,
+			BackendSource:     cluster.BackendSource,
+			BackendGeneration: cluster.BackendGeneration,
 		}
-		deltas = append(deltas, uccClusterDelta{
-			Client:         c.Client,
-			Name:           c.Name,
-			Cluster:        c.Cluster,
-			ClusterVersion: c.ClusterVersion,
+		clientsByName[cluster.Client.ResourceName()] = cluster.Client
+	}
+
+	bases := make([]baseEnvoyCluster, 0, len(basesByName))
+	for _, base := range basesByName {
+		bases = append(bases, base)
+	}
+	clients := make([]ir.UniquelyConnectedClient, 0, len(clientsByName))
+	for _, client := range clientsByName {
+		clients = append(clients, client)
+	}
+
+	clientFingerprint := fingerprintClients(clients)
+	deltaSets := make([]backendClusterDeltaSet, 0, len(bases))
+	for _, base := range bases {
+		deltaSets = append(deltaSets, backendClusterDeltaSet{
+			Name:               base.Name,
+			BaseFingerprint:    base.Fingerprint,
+			ClientsFingerprint: clientFingerprint,
 		})
 	}
+
 	baseCol := krt.NewStaticCollection[baseEnvoyCluster](nil, bases)
-	deltaCol := krt.NewStaticCollection[uccClusterDelta](nil, deltas)
-	idx := krtpkg.UnnamedIndex(deltaCol, func(d uccClusterDelta) []string {
-		return []string{d.Client.ResourceName()}
-	})
-	pcc := PerClientEnvoyClusters{
-		base:       baseCol,
-		deltas:     deltaCol,
-		deltaByUcc: idx,
-	}
-	return pcc, &testClusterCols{bases: baseCol, deltas: deltaCol}
+	deltaCol := krt.NewStaticCollection[backendClusterDeltaSet](nil, deltaSets)
+	clientCol := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, clients)
+	pcc := PerClientEnvoyClusters{base: baseCol, deltas: deltaCol, clients: clientCol}
+	return pcc, &testClusterCols{bases: baseCol, deltas: deltaCol, clients: clientCol}
 }

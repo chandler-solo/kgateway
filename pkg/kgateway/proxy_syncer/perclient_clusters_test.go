@@ -133,11 +133,9 @@ func TestPerClientClusters_BackendAddedPropagatesToAllClients(t *testing.T) {
 	eventuallyClusterCount(t, clusters, b, 2)
 }
 
-// Removing a client leaves other clients untouched. Base clusters are shared and
-// client-independent, so a removed client's rows are not cleared at this layer —
-// production only builds snapshots for connected clients (snapshotPerClient is
-// driven by the UCC collection), so a disconnected client is never queried. The
-// invariant this pins is that a surviving client is unaffected by another's removal.
+// Removing a client leaves other clients untouched and clears the removed
+// client's resolved view. Treating an absent client as resolved against shared
+// bases would make sparse delta absence ambiguous during reconnect.
 func TestPerClientClusters_ClientRemovedLeavesOthersUnaffected(t *testing.T) {
 	a, b := clustersTestClient("role-a"), clustersTestClient("role-b")
 	uccs, _, clusters := newClustersTestFixture(t,
@@ -150,8 +148,8 @@ func TestPerClientClusters_ClientRemovedLeavesOthersUnaffected(t *testing.T) {
 	uccs.DeleteObject(b.ResourceName())
 	// The surviving client keeps its full set...
 	eventuallyClusterCount(t, clusters, a, 2)
-	// ...and the shared base clusters remain resolvable regardless of the client set.
-	eventuallyClusterCount(t, clusters, b, 2)
+	// ...while the disconnected client no longer has a resolved generation.
+	eventuallyClusterCount(t, clusters, b, 0)
 }
 
 // Each client's index entry returns only that client's clusters.
