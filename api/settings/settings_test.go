@@ -56,6 +56,7 @@ func allEnvVarsSet() map[string]string {
 		"KGW_PER_CLIENT_PUBLISH_BUDGET":                 "90s",
 		"KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK":            "true",
 		"KGW_WORKLOAD_ENTRIES_EXCLUSION_LABELS":         "example.io/managed-by,example.io/other-key",
+		"KGW_ENABLE_ROUTE_SOURCE_METADATA":              "true",
 		"KGW_SERVICE_ENTRIES_EXCLUSION_LABEL_SELECTORS": `[{"matchLabels":{"example.io/managed-by":"some-controller"}}]`,
 		"KGW_REFERENCE_GRANT_MODE":                      string(ReferenceGrantStrict),
 	}
@@ -165,6 +166,7 @@ func TestSettings(t *testing.T) {
 					},
 				},
 				EnableAuthMetadata:          true,
+				EnableRouteSourceMetadata:   true,
 				PerClientPublishBudget:      90 * time.Second,
 				XdsSnapshotConsistencyCheck: true,
 				ReferenceGrantMode:          ReferenceGrantStrict,

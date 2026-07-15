@@ -3,7 +3,7 @@ package proxy_syncer
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -63,7 +63,7 @@ func clusterNamesForClient(c PerClientEnvoyClusters, ucc ir.UniquelyConnectedCli
 	for _, f := range fetched {
 		names = append(names, f.Name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
