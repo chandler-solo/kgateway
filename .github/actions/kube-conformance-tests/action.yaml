@@ -26,6 +26,10 @@ inputs:
   summarize-report:
     description: "Add a summary of the report to the GitHub step summary"
     required: false
+  ordered-ads:
+    description: "Enable ordered ADS delivery for this conformance leg"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -89,6 +93,13 @@ runs:
         # install branches below.
         ASSERT_FLAG="--set controller.extraEnv.ASSERT_SHARED_PROTO_IMMUTABILITY=true"
 
+        ORDERED_ADS_FLAG=""
+        if [[ "${{ inputs.ordered-ads }}" == "true" ]]; then
+          ORDERED_ADS_FLAG="--set controller.extraEnv.KGW_ENABLE_ORDERED_ADS=true"
+        fi
+
+        echo "ORDERED_ADS_FLAG: $ORDERED_ADS_FLAG"
+
         # Check if additional Helm values file is provided
         ADDITIONAL_VALUES=""
         if [[ -n "${{ inputs.additional-helm-values }}" && -f "${{ inputs.additional-helm-values }}" ]]; then
@@ -104,6 +115,7 @@ runs:
             --create-namespace \
             ${EXPERIMENTAL_FLAG} \
             ${ASSERT_FLAG} \
+            ${ORDERED_ADS_FLAG} \
             --set image.tag=${VERSION} --set image.registry=ghcr.io/kgateway-dev \
             ${ADDITIONAL_VALUES}
         else
@@ -118,6 +130,7 @@ runs:
             --create-namespace \
             ${EXPERIMENTAL_FLAG} \
             ${ASSERT_FLAG} \
+            ${ORDERED_ADS_FLAG} \
             --set image.tag=${VERSION} \
             ${ADDITIONAL_VALUES}
         fi
