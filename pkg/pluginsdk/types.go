@@ -26,7 +26,17 @@ var ErrNotFound = errors.New("not found")
 type (
 	EndpointsInputs = endpoints.EndpointsInputs
 	ProcessBackend  func(ctx context.Context, pol ir.PolicyIR, in ir.BackendObjectIR, out *envoyclusterv3.Cluster)
-	EndpointPlugin  func(
+	// EndpointPlugin mutates the per-client EndpointsInputs before the
+	// ClusterLoadAssignment is built for (ucc, backend).
+	//
+	// CONTRACT: the returned hash MUST capture every per-UCC effect this plugin
+	// has on the inputs (everything that could change the resulting CLA for
+	// this client). It is not merely a change-detection hint: the framework
+	// interns CLAs across UCCs keyed on this hash combined with the endpoint
+	// and load-balancing-context hashes, so two UCCs whose hashes collide are
+	// served ONE shared CLA. A hash that under-captures the plugin's mutation
+	// silently routes one client with another client's load assignment.
+	EndpointPlugin func(
 		kctx krt.HandlerContext,
 		ctx context.Context,
 		ucc ir.UniquelyConnectedClient,
@@ -34,17 +44,31 @@ type (
 	) uint64
 )
 
-// TODO: consider changing PerClientProcessBackend to look like this:
-// PerClientProcessBackend  func(kctx krt.HandlerContext, ctx context.Context, ucc ir.UniquelyConnectedClient, in ir.BackendObjectIR)
-// so that it only attaches the policy to the backend, and doesn't modify the backend (except for attached policies) or the cluster itself.
-// leaving as is for now as this requires better understanding of how krt would handle this.
-type PerClientProcessBackend func(
+// ClusterOverlay carries per-client cluster mutations.
+//
+// The framework only retains an overlay entry when the plugin returns a
+// non-nil value. The plugin is therefore responsible for performing the
+// cheap up-front check (e.g. "does this UCC even have the relevant label?")
+// and returning nil for the common case where no mutation applies. This is
+// what lets the per-client cluster collection stay sparse: with N UCCs and
+// M backends, only the K pairs that genuinely vary materialize an entry,
+// rather than N*M.
+//
+// Mutate is invoked exactly once with a fresh clone of the base cluster. It
+// must not retain a reference to its argument after returning.
+type ClusterOverlay struct {
+	Mutate func(out *envoyclusterv3.Cluster)
+}
+
+// PerClientClusterOverlay is the per-client cluster mutation hook.
+// Returning nil means "this (ucc, backend) pair needs no per-client cluster
+// changes from this plugin". See [ClusterOverlay].
+type PerClientClusterOverlay func(
 	kctx krt.HandlerContext,
 	ctx context.Context,
 	ucc ir.UniquelyConnectedClient,
 	in ir.BackendObjectIR,
-	out *envoyclusterv3.Cluster,
-)
+) *ClusterOverlay
 
 type (
 	// GetPolicyStatusFn is a type that plugins can implement to get the PolicyStatus for the given policy
@@ -61,7 +85,7 @@ type PolicyPlugin struct {
 
 	// Backend processing for envoy proxy
 	ProcessBackend            ProcessBackend
-	PerClientProcessBackend   PerClientProcessBackend
+	PerClientClusterOverlay   PerClientClusterOverlay
 	PerClientProcessEndpoints EndpointPlugin
 
 	Policies krt.Collection[ir.PolicyWrapper]

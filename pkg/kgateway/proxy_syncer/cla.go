@@ -2,10 +2,14 @@ package proxy_syncer
 
 import (
 	"fmt"
+	"hash/fnv"
 
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	"istio.io/istio/pkg/kube/krt"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	krtutil "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
@@ -13,8 +17,10 @@ import (
 
 type UccWithEndpoints struct {
 	Client ir.UniquelyConnectedClient
+	// Endpoints is wrapped so consumers cannot mutate the CLA interned across
+	// every UCC that resolved identically; see package sharedproto.
 	// +krtEqualsTodo compare load assignments when equality matters
-	Endpoints     *envoyendpointv3.ClusterLoadAssignment
+	Endpoints     sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]
 	EndpointsHash uint64
 	endpointsName string
 }
@@ -42,17 +48,31 @@ func NewPerClientEnvoyEndpoints(
 	krtopts krtutil.KrtOptions,
 	uccs krt.Collection[ir.UniquelyConnectedClient],
 	kgatewayEndpoints krt.Collection[ir.EndpointsForBackend],
-	translateEndpoints func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient, ep ir.EndpointsForBackend) (*envoyendpointv3.ClusterLoadAssignment, uint64),
+	resolveEndpoints func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient, ep ir.EndpointsForBackend) translator.ResolvedEndpoints,
+	buildClusterLoadAssignment func(ucc ir.UniquelyConnectedClient, resolved translator.ResolvedEndpoints) *envoyendpointv3.ClusterLoadAssignment,
 ) PerClientEnvoyEndpoints {
 	eps := krt.NewManyCollection(kgatewayEndpoints, func(kctx krt.HandlerContext, ep ir.EndpointsForBackend) []UccWithEndpoints {
 		uccs := krt.Fetch(kctx, uccs)
 		uccWithEndpointsRet := make([]UccWithEndpoints, 0, len(uccs))
+		// Intern CLAs across UCCs that resolve identically. The CLA varies per
+		// client only through PrioritizeEndpoints (locality, labels) and the
+		// plugin-applied PriorityInfo; UCCs sharing those hashes get one shared
+		// read-only proto instead of a freshly built copy each.
+		sharedClas := map[uint64]sharedproto.Shared[*envoyendpointv3.ClusterLoadAssignment]{}
 		for _, ucc := range uccs {
-			cla, additionalHash := translateEndpoints(kctx, ucc, ep)
+			resolved := resolveEndpoints(kctx, ucc, ep)
+			endpointsHash := combineEndpointHash(ep.LbEpsEqualityHash, resolved.AdditionalHash, resolved.LoadBalancingHash)
+			cla, ok := sharedClas[endpointsHash]
+			if !ok {
+				// Wrap captures the tripwire hash once per distinct CLA; rows
+				// that reuse the interned CLA copy the wrapper.
+				cla = sharedproto.Wrap(buildClusterLoadAssignment(ucc, resolved))
+				sharedClas[endpointsHash] = cla
+			}
 			u := UccWithEndpoints{
 				Client:        ucc,
 				Endpoints:     cla,
-				EndpointsHash: ep.LbEpsEqualityHash ^ additionalHash,
+				EndpointsHash: endpointsHash,
 				endpointsName: ep.ResourceName(),
 			}
 			uccWithEndpointsRet = append(uccWithEndpointsRet, u)
@@ -67,4 +87,16 @@ func NewPerClientEnvoyEndpoints(
 		endpoints: eps,
 		index:     idx,
 	}
+}
+
+// combineEndpointHash folds the endpoint-equality, plugin, and load-balancing
+// hashes into a single key. It replaces the prior LbEpsEqualityHash ^ additionalHash
+// (which omitted the load-balancing context) so UCCs that differ only in locality
+// or priority labels no longer collide on the same key.
+func combineEndpointHash(parts ...uint64) uint64 {
+	hasher := fnv.New64a()
+	for _, part := range parts {
+		utils.HashUint64(hasher, part)
+	}
+	return hasher.Sum64()
 }

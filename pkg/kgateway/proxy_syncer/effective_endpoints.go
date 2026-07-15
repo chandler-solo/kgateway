@@ -39,7 +39,7 @@ func newFinalBackendEndpoints(
 		// A same-named EDS cluster can still re-warm when policy changes CDS.
 		// Bump only the endpoint version so Envoy receives a fresh CLA response.
 		if policyHash := backendEndpointVersionHash(backend); policyHash != 0 {
-			final.LbEpsEqualityHash = combineEndpointHashes(final.LbEpsEqualityHash, policyHash)
+			final.LbEpsEqualityHash = combineEndpointHash(final.LbEpsEqualityHash, policyHash)
 		}
 		return &final
 	}, krtopts.ToOptions("FinalBackendEndpoints")...)
@@ -84,12 +84,5 @@ func backendEndpointVersionHash(backend *ir.BackendObjectIR) uint64 {
 		}
 	}
 
-	return hasher.Sum64()
-}
-
-func combineEndpointHashes(endpointHash, policyHash uint64) uint64 {
-	hasher := fnv.New64a()
-	utils.HashUint64(hasher, endpointHash)
-	utils.HashUint64(hasher, policyHash)
 	return hasher.Sum64()
 }
