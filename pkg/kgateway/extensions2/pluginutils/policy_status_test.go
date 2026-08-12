@@ -270,6 +270,15 @@ func TestRegisterPolicyStatusWithNilReportClearsOnlyOurAncestors(t *testing.T) {
 	}
 	f := newPolicyStatusFixture(t, existing, []reports.StatusContribution{emptyContribution}, nil, StandardConditionErrorMetric)
 
+	// A write that would retract every ancestor we own is deferred one queue pass, because
+	// an empty reduction at leader startup may simply not have converged yet. The first
+	// look must therefore write nothing and schedule a follow-up.
+	f.writer.ApplyStatus(context.Background(), policyResource())
+	require.Len(t, f.current(t).Status.Ancestors, 2,
+		"the first look at an empty reduction must defer the retraction, not clear")
+
+	// The reduction is still empty on the follow-up pass: the policy really is
+	// untranslated, so the retraction executes.
 	f.writer.ApplyStatus(context.Background(), policyResource())
 
 	status := f.current(t).Status

@@ -157,6 +157,10 @@ type statusCycleFixture struct {
 	gatewayWriter statussync.Writer[*gwv1.Gateway, gwv1.GatewayStatus]
 	routeWriter   statussync.Writer[*gwv1.HTTPRoute, gwv1.RouteStatus]
 	queue         *recordingQueue
+	// contributions is the translation-fact source the reducers fetch. Tests that model a
+	// pipeline still converging start it empty and land facts later via seedContributions.
+	contributions krt.StaticCollection[reports.StatusContribution]
+	routeReports  krt.Collection[statussync.ResourceReports]
 	// statusWrites counts status subresource writes that reached the API server for one
 	// resource plural (e.g. "gateways").
 	statusWrites func(resource string) int
@@ -178,9 +182,43 @@ func (f statusCycleFixture) liveRoute(t *testing.T) *gwv1.HTTPRoute {
 	return *route
 }
 
+// cycleContributions builds the report fragments translation would produce for the seeded
+// Gateway and route, split into keyed contributions by the real reporter.
+func cycleContributions() []reports.StatusContribution {
+	reportMap := reports.NewReportMap()
+	reporter := reports.NewReporter(&reportMap)
+	reporter.Gateway(cycleGateway())
+	reporter.Route(cycleRoute()).ParentRef(&cycleParentRef)
+	return reports.StatusContributionsFromReportMap(
+		reports.StatusSource{Kind: reports.GatewayStatusSource, Name: cycleNamespace + "/gw"}, reportMap)
+}
+
+// seedContributions lands translation's facts after startup, as a real leader's pipeline
+// converging moments after its sweep began, and waits for the route reduction to reflect
+// them.
+func (f statusCycleFixture) seedContributions(t *testing.T) {
+	t.Helper()
+	for _, contribution := range cycleContributions() {
+		f.contributions.UpdateObject(contribution)
+	}
+	require.Eventually(t, func() bool {
+		report, ok := statussync.ReportFor(f.routeReports, wellknown.HTTPRouteGVK,
+			types.NamespacedName{Namespace: cycleNamespace, Name: "route"})
+		return ok && report.Route != nil
+	}, 5*time.Second, 10*time.Millisecond, "the route reduction should converge on the seeded contributions")
+}
+
 // newStatusCycleFixture wires the production Gateway and HTTPRoute writers against a fake
 // API server whose informers echo every write back into the collections those writers read.
 func newStatusCycleFixture(t *testing.T) statusCycleFixture {
+	return newStatusCycleFixtureWithContributions(t, true)
+}
+
+// newStatusCycleFixtureWithContributions is newStatusCycleFixture with control over whether
+// translation's contributions exist at leadership time. seed=false models the ambiguous
+// leader-startup state: reducers synced, reductions empty, live status carrying the
+// previous leader's entries.
+func newStatusCycleFixtureWithContributions(t *testing.T, seed bool) statusCycleFixture {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -200,14 +238,11 @@ func newStatusCycleFixture(t *testing.T) statusCycleFixture {
 	routes := krt.WrapClient(routeClient, krtopts.ToOptions("HTTPRoutes")...)
 
 	// Report fragments from the real reporter, as translation would produce them.
-	reportMap := reports.NewReportMap()
-	reporter := reports.NewReporter(&reportMap)
-	reporter.Gateway(gw)
-	reporter.Route(route).ParentRef(&cycleParentRef)
-	contributions := krt.NewStaticCollection(nil,
-		reports.StatusContributionsFromReportMap(
-			reports.StatusSource{Kind: reports.GatewayStatusSource, Name: cycleNamespace + "/gw"}, reportMap),
-		krtopts.ToOptions("StatusContributions")...)
+	var initial []reports.StatusContribution
+	if seed {
+		initial = cycleContributions()
+	}
+	contributions := krt.NewStaticCollection(nil, initial, krtopts.ToOptions("StatusContributions")...)
 	byTarget := krtpkg.UnnamedIndex(contributions, func(contribution reports.StatusContribution) []reports.StatusKey {
 		return []reports.StatusKey{contribution.Target}
 	})
@@ -224,13 +259,16 @@ func newStatusCycleFixture(t *testing.T) statusCycleFixture {
 		gatewayWriter: gatewayWriter(c, f, gateways, gatewayReports),
 		routeWriter: routeWriter[*gwv1.HTTPRoute, *gwv1.HTTPRoute](c, f, routes, routeReports,
 			wellknown.HTTPRouteGVK, "httpRoute", wellknown.HTTPRouteGVR, wellknown.HTTPRouteKind, cycleController,
+			collections.Requeue,
 			func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1.HTTPRoute {
 				return &gwv1.HTTPRoute{ObjectMeta: om, Status: gwv1.HTTPRouteStatus{RouteStatus: st}}
 			},
 			func(o *gwv1.HTTPRoute) gwv1.RouteStatus { return o.Status.RouteStatus },
 			func(o *gwv1.HTTPRoute) []gwv1.ParentReference { return o.Spec.ParentRefs },
 		),
-		queue: &recordingQueue{pushes: map[statussync.Resource]int{}},
+		queue:         &recordingQueue{pushes: map[statussync.Resource]int{}},
+		contributions: contributions,
+		routeReports:  routeReports,
 	}
 
 	c.RunAndWait(ctx.Done())
@@ -243,6 +281,14 @@ func newStatusCycleFixture(t *testing.T) statusCycleFixture {
 	// Attaching the queue is what leadership does; from here on every informer event,
 	// including the echo of our own writes, enqueues the resource again.
 	collections.SetQueue(fixture.queue)
+
+	// SetQueue replays the current objects as Add events asynchronously, once per source:
+	// the raw collection and the report reducer each push every resource. Drain that
+	// initial sweep before handing the fixture out, so a test measuring "the next push"
+	// cannot mistake a late replay for the echo of its own write.
+	require.Eventually(t, func() bool {
+		return fixture.queue.count(gatewayResource()) >= 2 && fixture.queue.count(routeResource()) >= 2
+	}, 5*time.Second, 10*time.Millisecond, "the leadership replay should sweep the seeded objects")
 
 	fixture.statusWrites = func(resource string) int {
 		n := 0
@@ -368,4 +414,69 @@ func TestStatusWritersAreIdempotent(t *testing.T) {
 			next.Status.RouteStatus = *status.DeepCopy()
 			return next
 		}))
+}
+
+// TestLeaderSweepDefersOwnedClears pins the failover contract: a sweep that finds an empty
+// reduction for a resource whose live status carries our entries must not clear it on
+// first look. At leader startup, HasSynced guarantees each stage's initial pass, not
+// pipeline quiescence — krt marks a derived collection synced without waiting for its
+// fetched dependencies — so an empty reduction can mean "not converged yet" just as well
+// as "genuinely detached". The retraction is deferred one queue pass; when the pipeline
+// converges in the meantime, the predecessor's status is refreshed in place and no
+// clear-then-restore flap ever reaches the API server.
+func TestLeaderSweepDefersOwnedClears(t *testing.T) {
+	f := newStatusCycleFixtureWithContributions(t, false)
+	ctx := context.Background()
+	res := routeResource()
+
+	// The sweep's first look: the reducer is synced, its reduction is empty, and the live
+	// route carries a parent written by the previous leader.
+	before := f.queue.count(res)
+	f.routeWriter.ApplyStatus(ctx, res)
+	require.Equal(t, 0, f.statusWrites("httproutes"),
+		"an ambiguous empty reduction must not clear a predecessor's status on first look")
+	require.Equal(t, before+1, f.queue.count(res),
+		"the deferred retraction must schedule its follow-up pass")
+
+	// The pipeline converges before the follow-up pass pops, as it does in any realistic
+	// startup: translation contributes the route's parent.
+	f.seedContributions(t)
+
+	// The follow-up pass refreshes the veteran status instead of clearing it.
+	f.routeWriter.ApplyStatus(ctx, res)
+	require.Equal(t, 1, f.statusWrites("httproutes"),
+		"the follow-up pass must write the converged status")
+	require.Eventually(t, func() bool {
+		return statussync.OwnsAnyRouteParent(cycleController, f.liveRoute(t).Status.Parents)
+	}, 5*time.Second, 10*time.Millisecond,
+		"our parent must survive the failover sweep")
+}
+
+// TestGenuineDetachStillClearsOnFollowUp is the other half of the deferral contract: when
+// the reduction stays empty because the route really is no longer ours, the retraction
+// still executes on the follow-up pass — deferral delays a clear by one pass, it never
+// suppresses one.
+func TestGenuineDetachStillClearsOnFollowUp(t *testing.T) {
+	f := newStatusCycleFixtureWithContributions(t, false)
+	ctx := context.Background()
+	res := routeResource()
+
+	f.routeWriter.ApplyStatus(ctx, res)
+	require.Equal(t, 0, f.statusWrites("httproutes"), "the first look must defer, not clear")
+
+	f.routeWriter.ApplyStatus(ctx, res)
+	require.Equal(t, 1, f.statusWrites("httproutes"),
+		"the reduction is still empty on the follow-up pass, so the retraction must land")
+
+	// Wait for our write to echo back so the collection reflects the cleared status.
+	require.Eventually(t, func() bool {
+		return !statussync.OwnsAnyRouteParent(cycleController, f.liveRoute(t).Status.Parents)
+	}, 5*time.Second, 10*time.Millisecond, "the clearing write should echo back into the collection")
+	live := f.liveRoute(t)
+	require.Len(t, live.Status.Parents, 2, "the foreign controllers' parents must be preserved")
+
+	// Converged: another pass over the cleared object writes nothing.
+	f.routeWriter.ApplyStatus(ctx, res)
+	require.Equal(t, 1, f.statusWrites("httproutes"),
+		"the cleared status is the fixed point; nothing further may be written")
 }

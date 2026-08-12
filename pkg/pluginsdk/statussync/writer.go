@@ -91,8 +91,39 @@ type Writer[O controllers.ComparableObject, S any] struct {
 
 	// OnSync, when set, is called once per ApplyStatus invocation for which Desired returns
 	// true. current is the last object read from the collection and status the last merged
-	// status. Used to record status sync metrics.
+	// status. Used to record status sync metrics. It is not called for a deferred
+	// retraction (see ClearsOwnedEntries): a follow-up pass is pending, so by the same rule
+	// EndResourceStatusSyncOnWriteSuccess documents, the resource's sync stays open until
+	// that pass records it.
 	OnSync func(res Resource, current O, status S, took time.Duration, err error)
+
+	// ClearsOwnedEntries, when set together with Requeue and ClearDeferrals, reports whether
+	// publishing merged would retract every entry this controller owns from a multi-writer
+	// status list that current still carries some of — a pure clear. The writer defers the
+	// FIRST such write for a resource by one queue pass instead of executing it.
+	//
+	// Why: an empty reduction is ambiguous. It means either "this resource is genuinely no
+	// longer ours" or "the pipeline has not converged yet". The sync barrier cannot tell
+	// them apart: krt marks a derived collection synced after its initial pass over its
+	// primary input, without waiting for its fetched dependencies, so at leader startup a
+	// report reducer can be synced while the recompute triggered by late-arriving
+	// contributions is still queued. A sweep that trusted the empty reduction would briefly
+	// clear correct status written by the previous leader, then restore it — a visible flap
+	// on every failover. Deferring only the retraction converts that into "clears land one
+	// pass later": the requeued follow-up pops after the rest of the queue, by which point
+	// the reduction has converged, and a genuine retraction still executes on that pass.
+	// Real writes are never deferred.
+	ClearsOwnedEntries func(current O, merged S) bool
+
+	// Requeue schedules one follow-up reconciliation of the resource; required when
+	// ClearsOwnedEntries is set. Wire it to StatusCollections.Requeue: the worker pool's
+	// dirty bit turns a push for the in-flight resource into a guaranteed follow-up pass.
+	Requeue func(Resource)
+
+	// ClearDeferrals holds the per-resource deferral marks; required when
+	// ClearsOwnedEntries is set. Writer is used by value, so the shared state lives behind
+	// a pointer created once at construction with NewClearDeferrals.
+	ClearDeferrals *ClearDeferrals
 }
 
 var _ ResourceStatusSyncer = Writer[*gwv1.Gateway, *gwv1.GatewayStatus]{}
@@ -172,20 +203,44 @@ func (w Writer[O, S]) decide(current O) writeDecision[S] {
 	return writeDecision[S]{status: merged, has: true, write: true}
 }
 
+// shouldDeferClear reports whether this write is a pure retraction that should wait one
+// pass. Any non-retraction outcome drops the resource's deferral mark, so an episode that
+// converged to a real write cannot leak a mark into a later retraction.
+func (w Writer[O, S]) shouldDeferClear(res Resource, current O, merged S) bool {
+	if w.ClearsOwnedEntries == nil || w.ClearDeferrals == nil || w.Requeue == nil {
+		return false
+	}
+	if !w.ClearsOwnedEntries(current, merged) {
+		w.ClearDeferrals.reset(res)
+		return false
+	}
+	return w.ClearDeferrals.deferOnce(res)
+}
+
+// resetClearDeferral drops any pending deferral mark for res.
+func (w Writer[O, S]) resetClearDeferral(res Resource) {
+	if w.ClearDeferrals != nil {
+		w.ClearDeferrals.reset(res)
+	}
+}
+
 func (w Writer[O, S]) ApplyStatus(ctx context.Context, obj Resource) {
 	log := logger.With("kind", w.Name, "resource", obj.NamespacedName.String())
 	start := time.Now()
 	var lastCurrent O
 	var lastMerged S
 	hasDesired := false
+	deferred := false
 	err := RetryStatusWrite(ctx, func() error {
 		hasDesired = false
+		deferred = false
 		// Fetch the current object so we can preserve status written by other controllers or
 		// subsystems, and suppress writes that would be no-ops.
 		current := w.Current(obj)
 		if controllers.IsNil(current) {
 			// The resource was deleted between enqueue and write. Current reads the
 			// collection that enqueued it, so this cannot mean "not visible yet".
+			w.resetClearDeferral(obj)
 			log.Debug("resource no longer present, skipping status update")
 			return nil
 		}
@@ -193,6 +248,7 @@ func (w Writer[O, S]) ApplyStatus(ctx context.Context, obj Resource) {
 
 		decision := w.decide(current)
 		if !decision.has {
+			w.resetClearDeferral(obj)
 			log.Debug("resource has no desired status, skipping status update")
 			return nil
 		}
@@ -200,7 +256,17 @@ func (w Writer[O, S]) ApplyStatus(ctx context.Context, obj Resource) {
 		lastMerged = decision.status
 
 		if !decision.write {
+			w.resetClearDeferral(obj)
 			log.Debug("status already up to date, skipping status update")
+			return nil
+		}
+
+		if w.shouldDeferClear(obj, current, decision.status) {
+			// An empty reduction cannot be told apart from one that has not converged yet;
+			// give the pipeline one more queue pass before retracting entries we own.
+			deferred = true
+			w.Requeue(obj)
+			log.Debug("deferring owned-entry retraction one pass")
 			return nil
 		}
 
@@ -231,6 +297,11 @@ func (w Writer[O, S]) ApplyStatus(ctx context.Context, obj Resource) {
 	})
 	if err != nil {
 		log.Error("failed to sync status after retries", "error", err)
+	}
+	if deferred {
+		// The follow-up pass will record the sync; reporting now would close it while the
+		// stale status is still live.
+		return
 	}
 	if hasDesired && w.OnSync != nil {
 		w.OnSync(obj, lastCurrent, lastMerged, time.Since(start), err)

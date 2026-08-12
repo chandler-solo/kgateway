@@ -32,8 +32,14 @@ type routeVersionDiscovery struct {
 // promoted version is a candidate no matter what the cluster serves.
 //
 // An authoritative result narrows to exactly one version, so the common case costs one
-// informer and one client. A non-authoritative result cannot narrow anything: we do not know
-// which versions the CRD will serve once it appears, so every allowed version stays a
+// informer and one client. That includes the cluster that serves several versions at once —
+// the normal state after installing a newer Gateway API bundle over an older one, since a
+// CRD is a single object whose spec.versions the newer manifest replaces: all served
+// versions are views over the same storage, so the one most-preferred served version sees
+// every object no matter which apiVersion created it, and one writer covers them all.
+//
+// A non-authoritative result cannot narrow anything: we do not know which versions the CRD
+// will serve once it appears (or becomes readable), so every allowed version stays a
 // candidate and the writer dispatches to whichever informer actually holds the object.
 // Guessing a single version instead is a silent, permanent status outage when the guess is
 // wrong, because a client for a never-served version returns nil from every Get.

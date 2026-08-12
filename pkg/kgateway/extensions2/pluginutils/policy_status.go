@@ -126,6 +126,16 @@ func RegisterPolicyStatusWithBuilder[T controllers.ComparableObject](
 				desired.Ancestors = statussync.MergePolicyAncestorStatuses(controllerName, getStatus(current).Ancestors, desired.Ancestors)
 				return desired
 			},
+			// A write that would remove every ancestor we own is deferred one queue pass:
+			// at leader startup an empty reduction may just not have converged yet, and
+			// clearing a predecessor's correct status only to restore it is a user-visible
+			// flap. A genuine detach still clears on the follow-up pass.
+			ClearsOwnedEntries: func(current T, merged gwv1.PolicyStatus) bool {
+				return statussync.OwnsAnyPolicyAncestor(controllerName, getStatus(current).Ancestors) &&
+					!statussync.OwnsAnyPolicyAncestor(controllerName, merged.Ancestors)
+			},
+			Requeue:        in.Collections.Requeue,
+			ClearDeferrals: statussync.NewClearDeferrals(),
 			OnSync: func(res statussync.Resource, current T, status gwv1.PolicyStatus, took time.Duration, err error) {
 				statusErr := err
 				if conditionMetric {

@@ -251,6 +251,20 @@ func registerResource[I controllers.Object](
 	s.Register(reg)
 }
 
+// Requeue schedules one more reconciliation of res on the active write queue. Writers use
+// it to defer a write they are not yet confident in (see Writer.ClearsOwnedEntries): the
+// worker pool's dirty bit turns a push for the in-flight resource into a guaranteed
+// follow-up pass at the back of the queue. A requeue while no queue is active is dropped —
+// writers only run from the leader's pool, so that can only happen during leadership loss,
+// when the successor's startup sweep covers the resource anyway.
+func (s *StatusCollections) Requeue(res Resource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queue != nil {
+		s.queue.Push(res)
+	}
+}
+
 // HasSynced reports whether every registered report reducer has synced. The leader's
 // startup sweep must not write status built from a reducer that has not yet observed its
 // contributions, so this is part of the status syncer's cache-sync barrier. It reads the

@@ -67,14 +67,14 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 		s.commonCols.RawTLSRoutes, s.statusContributions, contributionsByTarget,
 		krtopts.ToOptions("TLSRouteStatusReports")...)
 
-	s.statusWriters[wellknown.HTTPRouteGVK] = routeWriter[*gwv1.HTTPRoute, *gwv1.HTTPRoute](cl, f, s.commonCols.RawHTTPRoutes, httpRouteReports, wellknown.HTTPRouteGVK, "httpRoute", wellknown.HTTPRouteGVR, wellknown.HTTPRouteKind, controllerName,
+	s.statusWriters[wellknown.HTTPRouteGVK] = routeWriter[*gwv1.HTTPRoute, *gwv1.HTTPRoute](cl, f, s.commonCols.RawHTTPRoutes, httpRouteReports, wellknown.HTTPRouteGVK, "httpRoute", wellknown.HTTPRouteGVR, wellknown.HTTPRouteKind, controllerName, s.statusCollections.Requeue,
 		func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1.HTTPRoute {
 			return &gwv1.HTTPRoute{ObjectMeta: om, Status: gwv1.HTTPRouteStatus{RouteStatus: st}}
 		},
 		func(o *gwv1.HTTPRoute) gwv1.RouteStatus { return o.Status.RouteStatus },
 		func(o *gwv1.HTTPRoute) []gwv1.ParentReference { return o.Spec.ParentRefs },
 	)
-	s.statusWriters[wellknown.GRPCRouteGVK] = routeWriter[*gwv1.GRPCRoute, *gwv1.GRPCRoute](cl, f, s.commonCols.RawGRPCRoutes, grpcRouteReports, wellknown.GRPCRouteGVK, "grpcRoute", wellknown.GRPCRouteGVR, wellknown.GRPCRouteKind, controllerName,
+	s.statusWriters[wellknown.GRPCRouteGVK] = routeWriter[*gwv1.GRPCRoute, *gwv1.GRPCRoute](cl, f, s.commonCols.RawGRPCRoutes, grpcRouteReports, wellknown.GRPCRouteGVK, "grpcRoute", wellknown.GRPCRouteGVR, wellknown.GRPCRouteKind, controllerName, s.statusCollections.Requeue,
 		func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1.GRPCRoute {
 			return &gwv1.GRPCRoute{ObjectMeta: om, Status: gwv1.GRPCRouteStatus{RouteStatus: st}}
 		},
@@ -93,7 +93,7 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 		switch gvr {
 		case wellknown.TCPRouteV1GVR:
 			registerStatusWriter(s.statusWriters, wellknown.TCPRouteV1GVK,
-				routeWriter[*gwv1a2.TCPRoute, *gwv1.TCPRoute](cl, f, s.commonCols.RawTCPRoutes, tcpRouteReports, wellknown.TCPRouteV1GVK, "tcpRoute", gvr, wellknown.TCPRouteKind, controllerName,
+				routeWriter[*gwv1a2.TCPRoute, *gwv1.TCPRoute](cl, f, s.commonCols.RawTCPRoutes, tcpRouteReports, wellknown.TCPRouteV1GVK, "tcpRoute", gvr, wellknown.TCPRouteKind, controllerName, s.statusCollections.Requeue,
 					func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1.TCPRoute {
 						return &gwv1.TCPRoute{ObjectMeta: om, Status: gwv1.TCPRouteStatus{RouteStatus: st}}
 					},
@@ -101,7 +101,7 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 				))
 		default:
 			registerStatusWriter(s.statusWriters, wellknown.TCPRouteGVK,
-				routeWriter[*gwv1a2.TCPRoute, *gwv1a2.TCPRoute](cl, f, s.commonCols.RawTCPRoutes, tcpRouteReports, wellknown.TCPRouteGVK, "tcpRoute", gvr, wellknown.TCPRouteKind, controllerName,
+				routeWriter[*gwv1a2.TCPRoute, *gwv1a2.TCPRoute](cl, f, s.commonCols.RawTCPRoutes, tcpRouteReports, wellknown.TCPRouteGVK, "tcpRoute", gvr, wellknown.TCPRouteKind, controllerName, s.statusCollections.Requeue,
 					func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1a2.TCPRoute {
 						return &gwv1a2.TCPRoute{ObjectMeta: om, Status: gwv1a2.TCPRouteStatus{RouteStatus: st}}
 					},
@@ -116,7 +116,7 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 		switch gvr {
 		case wellknown.TLSRouteV1GVR:
 			registerStatusWriter(s.statusWriters, wellknown.TLSRouteV1GVK,
-				routeWriter[*gwv1a2.TLSRoute, *gwv1.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteV1GVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName,
+				routeWriter[*gwv1a2.TLSRoute, *gwv1.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteV1GVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName, s.statusCollections.Requeue,
 					func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1.TLSRoute {
 						return &gwv1.TLSRoute{ObjectMeta: om, Status: gwv1.TLSRouteStatus{RouteStatus: st}}
 					},
@@ -124,7 +124,7 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 				))
 		case wellknown.TLSRouteV1Alpha3GVR:
 			registerStatusWriter(s.statusWriters, wellknown.TLSRouteV1Alpha3GVK,
-				routeWriter[*gwv1a2.TLSRoute, *gwv1a3.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteV1Alpha3GVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName,
+				routeWriter[*gwv1a2.TLSRoute, *gwv1a3.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteV1Alpha3GVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName, s.statusCollections.Requeue,
 					func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1a3.TLSRoute {
 						return &gwv1a3.TLSRoute{ObjectMeta: om, Status: gwv1.TLSRouteStatus{RouteStatus: st}}
 					},
@@ -132,7 +132,7 @@ func (s *ProxySyncer) initStatusInfra(krtopts krtutil.KrtOptions) {
 				))
 		default:
 			registerStatusWriter(s.statusWriters, wellknown.TLSRouteGVK,
-				routeWriter[*gwv1a2.TLSRoute, *gwv1a2.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteGVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName,
+				routeWriter[*gwv1a2.TLSRoute, *gwv1a2.TLSRoute](cl, f, s.commonCols.RawTLSRoutes, tlsRouteReports, wellknown.TLSRouteGVK, "tlsRoute", gvr, wellknown.TLSRouteKind, controllerName, s.statusCollections.Requeue,
 					func(om metav1.ObjectMeta, st gwv1.RouteStatus) *gwv1a2.TLSRoute {
 						return &gwv1a2.TLSRoute{ObjectMeta: om, Status: gwv1a2.TLSRouteStatus{RouteStatus: st}}
 					},
@@ -280,6 +280,7 @@ func routeWriter[R, W controllers.ComparableObject](
 	gvr schema.GroupVersionResource,
 	kind string,
 	controllerName string,
+	requeue func(statussync.Resource),
 	build func(om metav1.ObjectMeta, st gwv1.RouteStatus) W,
 	getStatus func(R) gwv1.RouteStatus,
 	parentRefs func(R) []gwv1.ParentReference,
@@ -321,7 +322,17 @@ func routeWriter[R, W controllers.ComparableObject](
 			desired.Parents = statussync.MergeRouteParentStatuses(controllerName, getStatus(current).Parents, desired.Parents)
 			return desired
 		},
-		OnSync: routeStatusMetricsHook(kind, controllerName, parentRefs),
+		// A write that would remove every parent we own is deferred one queue pass: at
+		// leader startup an empty reduction may just not have converged yet, and clearing a
+		// predecessor's correct status only to restore it is a user-visible flap. A genuine
+		// detach still clears on the follow-up pass.
+		ClearsOwnedEntries: func(current R, merged gwv1.RouteStatus) bool {
+			return statussync.OwnsAnyRouteParent(controllerName, getStatus(current).Parents) &&
+				!statussync.OwnsAnyRouteParent(controllerName, merged.Parents)
+		},
+		Requeue:        requeue,
+		ClearDeferrals: statussync.NewClearDeferrals(),
+		OnSync:         routeStatusMetricsHook(kind, controllerName, parentRefs),
 	}
 }
 
