@@ -38,12 +38,20 @@ func newFinalBackendEndpoints(
 		// A same-named EDS cluster can still re-warm when policy changes CDS.
 		// Bump only the endpoint version so Envoy receives a fresh CLA response.
 		if policyHash := backendEndpointVersionHash(backend); policyHash != 0 {
-			final.LbEpsEqualityHash = combineEndpointHashes(final.LbEpsEqualityHash, policyHash)
+			final.LbEpsEqualityHash = combineEndpointHash(final.LbEpsEqualityHash, policyHash)
 		}
 		return &final
 	}, krtopts.ToOptions("FinalBackendEndpoints")...)
 }
 
+// backendEndpointVersionHash versions the policies attached to a backend, so that a
+// policy change which alters endpoint output — but leaves the endpoints themselves
+// byte-identical — still counts as a change. Without it KRT would keep the stored
+// object and clients would be pinned to endpoints built under the old policy.
+//
+// Returns 0 when there is nothing attached, which callers treat as "contributes
+// nothing" rather than as a hash value. Iteration is sorted by GroupKind so the
+// result does not depend on map order.
 func backendEndpointVersionHash(backend *ir.BackendObjectIR) uint64 {
 	if backend == nil || len(backend.AttachedPolicies.Policies) == 0 {
 		return 0
@@ -83,12 +91,5 @@ func backendEndpointVersionHash(backend *ir.BackendObjectIR) uint64 {
 		}
 	}
 
-	return hasher.Sum64()
-}
-
-func combineEndpointHashes(endpointHash, policyHash uint64) uint64 {
-	hasher := fnv.New64a()
-	utils.HashUint64(hasher, endpointHash)
-	utils.HashUint64(hasher, policyHash)
 	return hasher.Sum64()
 }
