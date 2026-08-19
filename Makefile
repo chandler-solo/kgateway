@@ -186,7 +186,14 @@ install-go-tools: mod-download ## Download and install Go dependencies
 	go install github.com/saiskee/gettercheck
 	go install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 	# This version must stay in sync with the version used in CI: .github/workflows/static-analysis.yaml
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINTER_VERSION)
+	# Do not use go install here: it queries the module's latest release for deprecation
+	# metadata even when the requested version is pinned, which fails while a new release
+	# is propagating to the Go checksum database. The pinned installer verifies its checksum.
+	@installer=$$(mktemp); \
+		trap 'rm -f "$$installer"' EXIT; \
+		curl --fail --silent --show-error --location --output "$$installer" \
+			"https://raw.githubusercontent.com/golangci/golangci-lint/$(LINTER_VERSION)/install.sh"; \
+		sh "$$installer" -b "$(DEPSGOBIN)" "$(LINTER_VERSION)"
 	go install github.com/quasilyte/go-ruleguard/cmd/ruleguard@v0.3.16
 	# Kubebuilder docs generation
 	go install fybrik.io/crdoc@v0.6.3
