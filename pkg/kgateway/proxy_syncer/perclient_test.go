@@ -15,6 +15,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
@@ -225,17 +226,17 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 		Routes:         routes,
 		Listeners:      listeners,
 	}})
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 		{
 			Client:         ucc,
 			Name:           "cluster-b",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-b"}),
 			ClusterVersion: 2,
 			Error:          errors.New("boom"),
 		},
@@ -252,12 +253,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
@@ -319,11 +315,11 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 		Listeners:      listeners,
 	}})
 
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -339,12 +335,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
@@ -392,11 +383,11 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 	}
 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{initial})
 
-	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+	pcc, _ := newTestPerClientClusters([]uccWithCluster{
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -412,12 +403,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		pcc,
 	)
 
 	g.Eventually(func() int {
