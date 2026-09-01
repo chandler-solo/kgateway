@@ -421,9 +421,12 @@ No CRD or user-facing API change. One new environment variable:
 - `ASSERT_SHARED_PROTO_IMMUTABILITY` — arms the shared-proto mutation tripwire. Off by
   default in production; a trip surfaces as a controller panic, so the message is in the
   previous container's logs (`kubectl logs --previous`). Set in CI three ways: the
-  `proxy_syncer` package tests force it on in-process via `TestMain`, the e2e suites set it on
-  the deployed controller through `common-recommendations.yaml`, and the conformance action
-  sets it on both of its helm install branches. The conformance action takes an
+  `proxy_syncer` package tests force it on in-process via `TestMain`, the e2e framework appends
+  `test/e2e/tests/manifests/test-assertions.yaml` to the values of every install and upgrade it
+  performs, and the conformance action sets it on both of its helm install branches. That
+  values file is deliberately separate from `common-recommendations.yaml`, which documents the
+  install we recommend to users: an assertion that trades production performance for a loud CI
+  failure is not a recommendation. The conformance action takes an
   `assert-shared-proto-immutability` input, defaulting to on, because the re-hash is a
   deterministic marshal per resource per snapshot rebuild: a timing-sensitive flake has to be
   rulable out by re-running the leg without it.
