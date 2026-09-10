@@ -60,3 +60,14 @@ appears at this seam; separately audit secret delivery and the SDS binary.
 - Link protocol/source branches to the frozen historical corpus and generate
   deterministic cross-layer schedules. The named-watch model deliberately
   does not model nonce, queue, partial install, or Envoy worker state yet.
+
+## Subscription audit follow-up
+
+`stream/v3/subscription.go:SetResourceSubscription` permanently leaves legacy
+wildcard mode after named subscription; an ensuing empty request unsubscribes
+all. `simple.go:respond/createResponse` instead use raw names and send all
+resources for that empty list at a changed version. Both cache entry paths
+and both real server modes reproduce RF-018. `GcpSubscription.lean` adds the
+missing mode distinction. Follow GCP #1498's current-subscription send guard
+through release ancestry and actual-cache schedules; do not assume the
+historical injected-response regression covers every wrapper/cache path.

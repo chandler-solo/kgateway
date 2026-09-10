@@ -13,6 +13,7 @@ import XdsSpec.CheckerTests
 import XdsSpec.GcpWatch
 import XdsSpec.EnvoyAvailability
 import XdsSpec.RewarmingComposition
+import XdsSpec.GcpSubscription
 
 open XdsSpec XdsSpec.Convergence
 
@@ -221,6 +222,10 @@ def runModelCheck : IO UInt32 := do
     ok := (← runRecoverability (RewarmingComposition.system allowRevision)
       (expectStuck := !allowRevision) (·.warming) (! ·.warming)
       "Warming can reach Initialized") && ok
+  for honorSubscription in [false, true] do
+    ok := (← runSafetyExpectation ⟨GcpSubscription.system honorSubscription,
+      [("OnlyRequested", GcpSubscription.onlyRequested)],
+      if honorSubscription then none else some "OnlyRequested"⟩) && ok
   if ok then
     IO.println "all model-check expectations held"
     return 0

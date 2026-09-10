@@ -175,3 +175,21 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   delivery/ACK skew can place EDS ahead of CDS, and unnecessary replies can
   introduce loops. Extend to real KGW same-name cluster changes, NACK, TLS,
   and multi-client schedules before extracting a product mitigation.
+
+## RF-018 Unsubscribe-all is treated as wildcard by snapshot responses
+
+- Status: reproduced cache and wire defect in root v0.14.0, both ADS modes.
+- Evidence: `TestUnsubscribeAllStillReceivesResourcesFromCache` covers immediate
+  and parked response paths. `TestUnsubscribeAllResourceLeaksOnWire` uses the
+  actual cache/server: after named subscription, an empty names list clears
+  the subscription, but a later changed snapshot still sends that resource.
+  `GcpSubscription.lean` needs distinct legacy-wildcard and unsubscribe-all
+  states; the prior fixed-named-set watch model could not express this trace.
+- Source: subscription history in `stream/v3/subscription.go` is discarded by
+  `simple.go:respond/createResponse`, which inspect raw request names.
+- Action: enforce subscription-aware eligibility/filtering at cache and send
+  boundaries, and test empty responses, full-state types, wildcard history,
+  and queued supersession. GCP PR #1498 adds a send-time subscription filter
+  in newer source; validate its version ancestry and this real-cache schedule
+  before calling the branch dependency fixed. KGW deployment reachability and
+  the complete stream/queue refinement remain open.

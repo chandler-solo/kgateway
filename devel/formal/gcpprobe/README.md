@@ -33,3 +33,10 @@ waiter accounting but is not an implementation fix or full progress guarantee.
 Retention cannot make an incompatible snapshot eligible; new revision/valid
 subscription and eventual execution are separate obligations. Model versions
 wrap in the finite domain; RF-008 still governs production digest semantics.
+
+The subscription audit adds `TestUnsubscribeAllStillReceivesResourcesFromCache`
+(immediate and parked paths) and `TestUnsubscribeAllResourceLeaksOnWire`
+(default and ordered real server). Empty names after a named subscription are
+not legacy wildcard, yet v0.14.0 sends resources after a version change.
+RF-018 and `GcpSubscription.lean` record this distinct mechanism. GCP #1498's
+send-time guard is a fix-lineage lead; no dependency upgrade is applied here.
