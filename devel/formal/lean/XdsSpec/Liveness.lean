@@ -1,30 +1,12 @@
 /-
-XdsSpec.Liveness: the stuck-client progress theorem.
-
-The safety proofs in XdsSpec/Proofs.lean say nothing about progress, and
-the production incident behind assumption KRT-A1 (see ASSUMPTIONS.md)
-lived exactly in that gap: when the KRT fan-out event that would have
-made the per-client inputs coherent is dropped, `inputBecomesCoherent`
-never fires and the client sits at `deferredPartial` forever. Nothing
-the spec proved was violated — convergence was simply never reached.
-
-The watchdog heartbeat (`heartbeatRederive`) is the mechanism that
-closes the gap: it recomputes the per-client inputs from current truth
-without waiting for an event. This module proves it is sufficient:
-
-  `stuck_client_converges`: from ANY reachable deferred state, one
-  heartbeat re-derivation followed by the ordinary publication path
-  reaches a converged state (Envoy active on the new snapshot, or
-  steady state because the recomputed snapshot already matches the
-  cache) in at most five steps — for any name universe.
-
-The proof is constructive: it exhibits the action sequence
-(heartbeat -> publish or observe-converged -> Envoy learns CDS ->
-EDS watch responds or is already current -> activate) and discharges
-every guard from the inductive invariant. The finite-instance
-counterpart is checked by the model checker in Main.lean: the
-DroppedFanout system (no `inputBecomesCoherent`) violates liveness, and
-adding `heartbeatRederive` restores it.
+Constructive recovery for the abstract convergence machine. The theorem
+`stuck_client_has_recovery_path` exhibits a finite safe path to Converged.
+It does NOT prove eventual convergence of all fair executions, a wall-clock
+bound, or that a deployed watchdog supplies a closed candidate. It supplies
+that candidate as an action parameter. Permanent empty/invalid input and real
+watch lifecycle require separate models and evidence (see research-findings).
+The construction uses at most five transitions, but the theorem statement
+only asserts existence of a finite path; it does not encode a length bound.
 -/
 import XdsSpec.Proofs
 
@@ -51,19 +33,10 @@ theorem versionEq_some_subset {a b : List Name}
   simp only [versionEq] at h
   exact NameSet.subset_of_eq h
 
-/--
-The progress theorem: a client stuck at `deferredPartial` converges
-after a single heartbeat re-derivation, via the ordinary publication
-path, in at most five steps. Holds for any reachable state and any
-name universe.
-
-The heartbeat parameters instantiate KRT-A1: the watchdog recomputes
-the cluster and endpoint inputs from current truth, so the recomputed
-candidate is dependency-closed. Here the recomputed truth is taken to
-be `desiredRefs` for both CDS and EDS — the simplest closed candidate;
-any closed recomputation admits the same path.
--/
-theorem stuck_client_converges {old : List Name} {s : XdsState Name}
+/-- From a reachable deferred state there exists a safe path to convergence,
+using a closed recomputation chosen by this proof. This is recoverability,
+not an assertion that the scheduler or the real dependency takes that path. -/
+theorem stuck_client_has_recovery_path {old : List Name} {s : XdsState Name}
     (hr : Reachable old s) (hstuck : s.phase = .deferredPartial) :
     ∃ s', SafeSteps s s' ∧ Converged s' := by
   have hinv0 := IndInv.of_reachable hr

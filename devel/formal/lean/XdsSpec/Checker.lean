@@ -4,12 +4,10 @@ XdsSpec.Checker: a small explicit-state model checker.
 This plays the role TLC plays for the TLA+ models: exhaustive
 breadth-first exploration of a finite instantiation, checking safety
 invariants on every reachable state and reporting a shortest
-counterexample trace on violation. It also supports a reachability-style
-liveness check: under the weak-fairness assumptions of the TLA+
-`SafeSpec`, the property `phase = CoherentInput ~> phase = ActiveNew`
-fails on a finite system exactly when some reachable state satisfying
-the premise has no path to a state satisfying the goal, which is what
-`checkLiveness` detects.
+counterexample trace on violation. `checkRecoverability` asks whether a goal
+is reachable from every reachable premise state. It does not quantify over
+executions or encode fairness. Use TLC temporal specifications for leads-to
+claims; a fair cycle can avoid a goal even when the goal is always reachable.
 -/
 
 import Std.Data.HashSet
@@ -31,7 +29,7 @@ inductive CheckResult (σ α : Type)
   | ok (statesExplored : Nat)
   /-- `trace` is the action-labeled path from init to the violating state. -/
   | violation (invariant : String) (trace : List (α × σ)) (bad : σ)
-  | livenessViolation (stuck : σ) (statesExplored : Nat)
+  | unreachableGoal (stuck : σ) (statesExplored : Nat)
   deriving Repr
 
 instance : Inhabited (CheckResult σ α) := ⟨.ok 0⟩
@@ -102,16 +100,15 @@ where
               else (s' :: acc, visited.insert s')
         go (rest ++ next) visited
 
-/-- Finite-state analogue of the TLA+ leads-to property under weak
-fairness: every reachable state satisfying `premise` must have a path to
-a state satisfying `goal`. Returns the first stuck state otherwise. -/
-def checkLiveness [BEq σ] [Hashable σ]
+/-- Every reachable premise state has some path to the goal. This is
+recoverability (existential path quantification), not temporal liveness. -/
+def checkRecoverability [BEq σ] [Hashable σ]
     (sys : System σ α) (premise goal : σ → Bool) : CheckResult σ α :=
   let states := reachable sys
   let stuck := states.toList.find? fun s =>
     premise s && !canReach sys s goal
   match stuck with
-  | some s => .livenessViolation s states.size
+  | some s => .unreachableGoal s states.size
   | none => .ok states.size
 
 end XdsSpec

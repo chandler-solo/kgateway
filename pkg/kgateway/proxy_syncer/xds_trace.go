@@ -16,19 +16,22 @@ import (
 // events against the verified xDS publication spec; see the
 // `xdsspec trace` command and devel/formal/lean/README.md.
 type XdsSnapshotTraceEvent struct {
+	Schema   int    `json:"schema"`
+	Scenario string `json:"scenario"`
+	Sequence uint64 `json:"sequence"`
 	Client   string `json:"client"`
 	Decision string `json:"decision"`
 	// ReferencedClusters are the dataplane routing targets collected from
 	// LDS/RDS.
-	ReferencedClusters []string `json:"referenced,omitempty"`
+	ReferencedClusters []string `json:"referenced"`
 	// ExemptClusters are referenced names the publication gate deliberately
 	// skips: errored clusters and the blackhole sentinel.
-	ExemptClusters []string                   `json:"exempt,omitempty"`
-	Clusters       []XdsSnapshotTraceCluster  `json:"clusters,omitempty"`
-	Endpoints      []XdsSnapshotTraceEndpoint `json:"endpoints,omitempty"`
+	ExemptClusters []string                   `json:"exempt"`
+	Clusters       []XdsSnapshotTraceCluster  `json:"clusters"`
+	Endpoints      []XdsSnapshotTraceEndpoint `json:"endpoints"`
 	// EndpointsVersion is the version string of the (filtered) EDS resource
 	// set that would be published.
-	EndpointsVersion string `json:"endpointsVersion,omitempty"`
+	EndpointsVersion string `json:"endpointsVersion"`
 }
 
 type XdsSnapshotTraceCluster struct {
@@ -36,7 +39,7 @@ type XdsSnapshotTraceCluster struct {
 	EDS  bool   `json:"eds"`
 	// EDSName is the ClusterLoadAssignment name this cluster's named EDS
 	// request will use (service_name when set, else the cluster name).
-	EDSName string `json:"edsName,omitempty"`
+	EDSName string `json:"edsName"`
 }
 
 type XdsSnapshotTraceEndpoint struct {
@@ -87,8 +90,10 @@ func emitXdsSnapshotTrace(
 	}
 
 	event := XdsSnapshotTraceEvent{
-		Client:   client,
-		Decision: decision,
+		Client:             client,
+		Decision:           decision,
+		ReferencedClusters: []string{}, ExemptClusters: []string{},
+		Clusters: []XdsSnapshotTraceCluster{}, Endpoints: []XdsSnapshotTraceEndpoint{},
 	}
 	for name := range referencedClusters {
 		event.ReferencedClusters = append(event.ReferencedClusters, name)

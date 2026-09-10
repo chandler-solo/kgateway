@@ -1,11 +1,15 @@
-# Formal methods MVP for xDS correctness
+# xDS formal methods research
+
+Current claims and limitations are recorded in [assurance-status.md](assurance-status.md).
+The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
+track the unfinished program. Historical notes below do not override that status.
 
 ## Motivation
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
 
 - TLA+ / TLC models check abstract ADS/SotW publication, the issue-13868 reconnect readiness gate, the combined 13868/14184 per-client publication behavior, the end-to-end per-client convergence path, Envoy startup/warming ordering, issue-focused EDS subset invariants, and go-control-plane named EDS watch respondability.
-- A Lean 4 specification (`lean/`) supersedes the bounded TLC results for the per-client convergence model: the same invariants are proven inductively for unbounded names, episodes, and clients; the bug configurations are re-checked by an explicit-state model checker; and recorded `snapshotPerClient` traces are conformance-checked against the spec (`make formal-lean`). See `lean/README.md` and `lean/ASSUMPTIONS.md`.
+- A Lean 4 specification (`lean/`) complements bounded TLC checking of the per-client convergence model: the same invariants are proven inductively for unbounded names, episodes, and clients; the bug configurations are re-checked by an explicit-state model checker; and recorded `snapshotPerClient` traces are conformance-checked against the spec (`make formal-lean`). See `lean/README.md` and `lean/ASSUMPTIONS.md`.
 - A Go validator checks concrete Envoy LDS/RDS/CDS/EDS snapshot dependency invariants.
 - Tests and scripts make the seam repeatable for future translator validation.
 
@@ -169,7 +173,7 @@ The intended future translator-test seam is:
 - Fail tests on error-severity findings.
 - Allow warning-severity findings for dynamic or unverifiable constructs such as `cluster_header`.
 
-This keeps the MVP non-invasive while making it straightforward to attach concrete xDS invariant checks after translation.
+This provides an integration seam while making it straightforward to attach concrete xDS invariant checks after translation.
 
 See `devel/formal/model-to-go-test-matrix.md` for the explicit mapping from each TLA+ model obligation to existing Go coverage, partial coverage, and remaining gaps.
 

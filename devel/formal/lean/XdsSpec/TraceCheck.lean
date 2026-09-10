@@ -49,6 +49,9 @@ structure TraceEndpoint where
   deriving Repr
 
 structure TraceEvent where
+  schema : Nat := 1
+  scenario : String := "fixture"
+  sequence : Nat := 1
   client : String
   decision : String
   referenced : List String
@@ -58,33 +61,31 @@ structure TraceEvent where
   endpointsVersion : String
   deriving Repr
 
-def getStrList (j : Json) (field : String) : Except String (List String) :=
-  match j.getObjVal? field with
-  | .error _ => .ok []
-  | .ok v => do
-    let arr ← v.getArr?
-    arr.toList.mapM (·.getStr?)
+def getStrList (j : Json) (field : String) : Except String (List String) := do
+  let arr ← (← j.getObjVal? field).getArr?
+  arr.toList.mapM (·.getStr?)
 
 def parseCluster (j : Json) : Except String TraceCluster := do
   let name ← (← j.getObjVal? "name").getStr?
-  let eds ← match j.getObjVal? "eds" with
-    | .error _ => pure false
-    | .ok v => v.getBool?
-  let edsName ← match j.getObjVal? "edsName" with
-    | .error _ => pure ""
-    | .ok v => v.getStr?
+  let eds ← (← j.getObjVal? "eds").getBool?
+  let edsName ← (← j.getObjVal? "edsName").getStr?
+  if name.isEmpty || (eds && edsName.isEmpty) then throw "empty cluster identity"
   return { name, eds, edsName }
 
 def parseEndpoint (j : Json) : Except String TraceEndpoint := do
   let name ← (← j.getObjVal? "name").getStr?
-  let usable ← match j.getObjVal? "usable" with
-    | .error _ => pure false
-    | .ok v => v.getBool?
+  let usable ← (← j.getObjVal? "usable").getBool?
+  if name.isEmpty then throw "empty endpoint identity"
   return { name, usable }
 
 def parseEvent (line : String) : Except String TraceEvent := do
   let j ← Json.parse line
+  let schema ← (← j.getObjVal? "schema").getNat?
+  if schema != 1 then throw s!"unsupported schema: {schema}"
+  let scenario ← (← j.getObjVal? "scenario").getStr?
+  let sequence ← (← j.getObjVal? "sequence").getNat?
   let client ← (← j.getObjVal? "client").getStr?
+  if scenario.isEmpty || client.isEmpty || sequence == 0 then throw "missing trace identity"
   let decision ← (← j.getObjVal? "decision").getStr?
   unless ["publish", "publish-first", "publish-resolved",
       "defer-missing-role-snapshot", "defer-endpoints-not-ready",
@@ -92,16 +93,11 @@ def parseEvent (line : String) : Except String TraceEvent := do
     throw s!"unknown trace decision: {decision}"
   let referenced ← getStrList j "referenced"
   let exempt ← getStrList j "exempt"
-  let clusters ← match j.getObjVal? "clusters" with
-    | .error _ => pure []
-    | .ok v => do (← v.getArr?).toList.mapM parseCluster
-  let endpoints ← match j.getObjVal? "endpoints" with
-    | .error _ => pure []
-    | .ok v => do (← v.getArr?).toList.mapM parseEndpoint
-  let endpointsVersion ← match j.getObjVal? "endpointsVersion" with
-    | .error _ => pure ""
-    | .ok v => v.getStr?
-  return { client, decision, referenced, exempt, clusters, endpoints, endpointsVersion }
+  let clusters ← (← (← j.getObjVal? "clusters").getArr?).toList.mapM parseCluster
+  let endpoints ← (← (← j.getObjVal? "endpoints").getArr?).toList.mapM parseEndpoint
+  let endpointsVersion ← (← j.getObjVal? "endpointsVersion").getStr?
+  return { schema, scenario, sequence, client, decision, referenced, exempt,
+           clusters, endpoints, endpointsVersion }
 
 /-- A conformance violation found in a trace. -/
 structure Violation where
@@ -158,6 +154,7 @@ structure TraceSummary where
 def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   let mut summary : TraceSummary := {}
   let mut lineNumber := 0
+  let mut sequences : List (String × Nat) := []
   for line in lines do
     lineNumber := lineNumber + 1
     if line.isEmpty then
@@ -165,6 +162,10 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
     match parseEvent line with
     | .error err => return .error s!"line {lineNumber}: malformed trace event: {err}"
     | .ok e =>
+      let previous := (sequences.find? (fun pair => pair.1 == e.scenario)).map (·.2) |>.getD 0
+      if e.sequence != previous + 1 then
+        return .error s!"line {lineNumber}: sequence gap/duplicate for {e.scenario}: {previous} -> {e.sequence}"
+      sequences := (e.scenario, e.sequence) :: sequences.filter (fun pair => pair.1 != e.scenario)
       summary := { summary with events := summary.events + 1 }
       if ["publish", "publish-first", "publish-resolved"].contains e.decision then
         summary := { summary with publishes := summary.publishes + 1 }
@@ -174,6 +175,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
             { lineNumber, client := e.client, rule, detail } }
       else
         summary := { summary with defers := summary.defers + 1 }
+  if summary.events == 0 || summary.publishes == 0 then return .error "trace must contain a publication"
   return .ok summary
 
 /-- A first publication may be empty but must still be structurally closed. -/
@@ -187,11 +189,20 @@ private def firstEmpty : TraceEvent :=
 #guard !(checkPublish { firstEmpty with clusters := [] } false).isEmpty
 #guard !(checkPublish { firstEmpty with endpoints := [] } false).isEmpty
 #guard !(checkPublish { firstEmpty with endpoints := [⟨"orphan", false⟩] } false).isEmpty
-#guard match parseEvent "{\"client\":\"cold\",\"decision\":\"publsih\"}" with
-  | .error _ => true
-  | .ok _ => false
-#guard match checkTrace ["{\"client\":\"cold\",\"decision\":\"publish-first\",\"referenced\":[\"c\"]}"] with
-  | .ok summary => summary.publishes == 1 && !summary.violations.isEmpty
+private def eventJSON (decision : String := "publish-first") (sequence : Nat := 1) : String :=
+  (r#"{"schema":1,"scenario":"fixture","sequence":SEQ,"client":"cold","decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false}],"endpointsVersion":"v1"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision
+
+private def fails (result : Except String α) : Bool :=
+  match result with | .error _ => true | .ok _ => false
+
+#guard fails (parseEvent "{}")
+#guard fails (parseEvent (eventJSON "publsih"))
+#guard fails (checkTrace [])
+#guard fails (checkTrace [eventJSON "defer-flip"])
+#guard fails (checkTrace [eventJSON "publish-first" 2])
+#guard fails (checkTrace [eventJSON, eventJSON])
+#guard match checkTrace [eventJSON, eventJSON "publish-first" 2] with
+  | .ok summary => summary.publishes == 2 && summary.violations.isEmpty
   | .error _ => false
 
 def runTraceCheck (paths : List String) : IO UInt32 := do

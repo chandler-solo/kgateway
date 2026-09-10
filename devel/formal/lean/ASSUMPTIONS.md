@@ -1,208 +1,90 @@
-# Spec assumptions and how each is discharged
+# Spec assumptions and evidence
 
-The Lean spec in this directory proves safety of the kgateway per-client
-xDS publication state machine. Like every model, it stands on
-assumptions about the parts of the system it does not define: the
-go-control-plane snapshot cache, Envoy's warming behavior, and a few
-implementation details it abstracts. This ledger names each assumption,
-points at where the spec relies on it, and lists the test that
-discharges it against the real component.
+The Lean proofs establish properties of their transition relation. Tests
+characterize selected implementation behavior; they cannot universally
+discharge dependency assumptions. The machine-readable links in
+`devel/testing/formal-assumptions.yaml` are checked for declarations and
+anchors. Execution is a separate obligation. See
+[assurance status](../assurance-status.md) for the current profile and limits.
 
-The machine-readable mapping lives in
-`devel/testing/formal-assumptions.yaml` and is gated by
-`devel/testing/formal_assumptions_test.go`, which fails if a referenced
-test or spec anchor disappears. A regression therefore either breaks a
-Lean proof, breaks a discharging test, or breaks the gate that ties the
-two together.
+## GCP-A1 Named EDS watch respondability
 
-## GCP-A1: named EDS watch respondability
+**Open; original iff statement is contradicted.** The convergence model's
+`canRespond`/`edsWatchResponds` guard uses a differing version plus snapshot
+names contained in the subscription. v0.14.0 `CreateWatch` also responds at
+unchanged version to newly subscribed resources not yet returned. Both its
+immediate and parked-watch paths can discard a declined named request.
 
-go-control-plane answers a state-of-the-world ADS EDS watch if and only
-if the watch's version differs from the snapshot version and every EDS
-resource in the snapshot is named in Envoy's request.
+The filtered-EDS and service-name cache tests establish specific successful
+requests, not the full rule. RF-007 requires an explicit lifecycle model,
+returned-resource history, and probes of both lost-watch paths. The existing
+convergence theorem is conditional on its simplified guard.
 
-- Spec reliance: `canRespond` and the `edsWatchResponds` guard in
-  `XdsSpec/Spec.lean`; the `AlignedEDSRequestRespondable` invariant is
-  only meaningful under this response rule (issue 14184 was exactly
-  this rule interacting with stale CLAs).
-- Discharged by: `TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved`
-  and `TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved`
-  in `pkg/kgateway/proxy_syncer/perclient_test.go`, which drive the real
-  `SnapshotCache.CreateWatch`.
+## GCP-A2 Last-good retention on delete
 
-## GCP-A2: last-good retention on delete
+**Implementation-characterized.** The kgateway collection Delete callback is
+a no-op, retaining its snapshot cache entry. This is not a guarantee about
+`ClearSnapshot`, process restart, or cache failure. `deleteRetainsLastGood`
+models that callback and `TestSnapshotPerClientClientRemovalRetainsServedCache`
+exercises it.
 
-The xDS snapshot cache retains the previously published snapshot when a
-per-client collection entry is deleted (the Delete branch in
-proxy_syncer's xDS subscriber is a no-op).
+## GCP-A3 ADS wire-delivery ordering windows
 
-- Spec reliance: `deferPartialInput` leaves `cache` and `lastGood`
-  untouched; the `DeleteRetainsLastGood` invariant asserts the defer
-  window serves last-good config.
-- Discharged by: `TestSnapshotPerClientClientRemovalRetainsServedCache`
-  in `pkg/kgateway/proxy_syncer/perclient_test.go`.
+**Implementation-characterized.** The three `TestADS*` ordering probes in
+`xds_delivery_order_probe_test.go` observe quiet-stream CDS-before-RDS,
+ACK-skew RDS-before-CDS in both modes, and combined removal CDS-before-RDS
+in both modes. `OrderedADS.lean` represents those schedules.
 
-## GCP-A3: ADS wire-delivery ordering windows
+Setup now passes `EnableOrderedAds` to `NewControlPlane`; the earlier claim
+that the option is unavailable is stale. Fixed type ordering does not close
+ACK-skew or removal windows. `gracefulRemovalSystem` observes that the old
+route is inactive before removal. A fixed elapsed grace does not implement
+that guard without an application/latency assumption. Action RF-010: model
+and probe a real barrier or explicitly bounded timeout policy.
 
-Snapshot coherence is not wire coherence: go-control-plane delivers each
-resource type as its own DiscoveryResponse, and the order decides
-whether Envoy transiently applies a route whose cluster it does not have
-(`503 NC`). Probing the real `server.StreamAggregatedResources`
-established three facts:
+## GCP-A4 Per-stream callback serialization
 
-1. On a quiet stream, additions arrive CDS before RDS in both server
-   modes, because the cache itself writes responses in type order
-   (`pkg/cache/v3/order.go`). The default server's `reflect.Select`
-   drain randomizes only when several per-type channels are ready at
-   once (busy streams); `server.WithOrderedADS()` closes that residual
-   addition window (evaluated as an option by the referenced-only
-   discovery EP, PR
-   https://github.com/kgateway-dev/kgateway/pull/14341; no change
-   adopts it yet).
-2. ACK skew defeats both modes deterministically: after a CDS response
-   is sent, that watch is closed until Envoy ACKs it. A snapshot landing
-   in that window (new cluster + route retarget) can only answer the
-   open RDS watch, so the route reaches the wire before the CDS carrying
-   its cluster. SotW answers only open watches; no server option closes
-   this. In kgateway this is reachable whenever a route is retargeted to
-   a new backend while an earlier CDS-only update is still un-ACKed
-   (CDS churns on any backend change for the client).
-3. Removals are delivered in the WRONG order in both modes: a combined
-   de-reference + cluster-removal snapshot ships the CDS change first
-   (cache type order; cemented by WithOrderedADS), so the still-applied
-   route briefly references a removed cluster. Only a control-plane
-   grace window — de-reference in one snapshot, remove the cluster in a
-   later one — is safe; kgateway computes combined snapshots in a single
-   KRT recompute and has no such window today.
+**Implementation-characterized.** The v0.14.0 SotW processing goroutine
+serializes request callbacks and defers its close callback, including after
+a request callback error. `TestADSCallbacksAreSerializedPerStream` and
+`TestADSStreamClosedFiresAfterRequestError` exercise those paths.
+`ClientIdentity.lean` relies on atomic per-stream actions. This does not
+establish ordering between distinct streams or correctness of every shared
+identity-map interleaving.
 
-- Spec reliance: `XdsSpec/OrderedADS.lean`. `orderedAdditionSystem`
-  keeps `ActiveRouteHasCluster`; `unorderedAdditionBugSystem` (busy
-  streams), `ackSkewAdditionBugSystem`, and
-  `orderedRemovalStillBrokenBugSystem` each violate it;
-  `gracefulRemovalSystem` keeps it via the grace window.
-- Discharged by (characterization, against the real server):
-  `TestADSAdditionOnQuietStreamIsClusterFirst`,
-  `TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS`, and
-  `TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate` in
-  `pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go`.
-- Remediation state: kgateway does not yet pass `WithOrderedADS()`
-  (`pkg/kgateway/setup/controlplane.go`). The referenced-only discovery
-  EP (PR #14341) evaluates it and, per these findings, pairs it with
-  reference-ahead and de-reference grace windows — WithOrderedADS alone
-  is necessary for busy streams but not sufficient: the ACK-skew and
-  removal windows need the control-plane graces, tracked in
-  `devel/testing/formal-model-map.yaml`.
+## ENV-A1 Envoy activation
 
-## GCP-A4: per-stream callback serialization and error-path close
+**Open (RF-004).** `activateNew` and `activeSnapshotClosed` require abstract
+dependency closure. Existing warming e2e tests run through kgateway's gate
+and cannot prove an independent Envoy usable-endpoint guard. Empty EDS can
+initialize a cluster without usable traffic. C0 allows cold publication with
+complete CDS and empty CLAs, including a warm proxy reconnecting to a fresh
+cache. Direct, pinned Envoy probes must separate receipt, ACK, initialization,
+listener activation, and traffic.
 
-The xDS client-identity bookkeeping (`pkg/krtcollections/uniqueclients.go`,
-per-request re-derivation from PR
-https://github.com/kgateway-dev/kgateway/pull/14244) relies on two
-go-control-plane contracts that hold by construction in v0.14.0 but are
-not documented API guarantees:
+## IMPL-A1 EDS version digest
 
-1. `OnStreamRequest` and `OnStreamClosed` for ONE stream are dispatched
-   strictly sequentially (the sotw `process`/`processADS` loop consumes
-   requests in a single goroutine; `OnStreamClosed` runs in that
-   goroutine's deferred `shutdown`). The PR's `add()` reads the
-   per-stream entry under `RLock`, derives the identity with NO lock
-   held, and mutates the shared maps under `Lock` — a check-then-act
-   that is only sound under this serialization. Parallel per-stream
-   dispatch would double-add a stream's identity (leaked refcount →
-   a stale UniqlyConnectedClient forever) and race `del` against `add`.
-2. When `OnStreamRequest` returns an error (how a drifted identity
-   closes the stream), the stream terminates AND `OnStreamClosed` still
-   fires — the only place the old identity's refcount is released.
+**Open (RF-008).** `versionEq` uses name-set equality, omitting same-name
+payload changes. Go hashes endpoint protos and XORs resource hashes. The
+finite digest cannot be injective over an unbounded content domain.
+`TestFilterEndpointResourcesForClusters_VersionDigestProperties` checks
+determinism, order invariance, and no collisions in its finite corpus; it
+cannot prove universal injectivity. Add payload revisions and state a
+collision assumption or define an explicit revision-allocation contract.
 
-- Spec reliance: `XdsSpec/ClientIdentity.lean` — actions are atomic
-  (`safeSystem`), and `countsMatchStreams` treats every drift close as
-  paired with exactly one refcount release.
-- Discharged by (characterization, against the real server):
-  `TestADSCallbacksAreSerializedPerStream` and
-  `TestADSStreamClosedFiresAfterRequestError` in
-  `pkg/kgateway/proxy_syncer/xds_callback_serialization_probe_test.go`.
-  A go-control-plane upgrade that breaks either contract fails these
-  probes, not production.
+## KRT-A1 Eventual coherent inputs
 
-## ENV-A1: Envoy warming and make-before-break (OPEN)
+**Open.** A dropped fan-out can leave a client permanently partial. The
+abstract `heartbeatRederive` supplies a coherent candidate, and
+`stuck_client_has_recovery_path` proves existence of a recovery path. Neither
+proves that a production timer runs, reads authoritative truth, obtains
+coherent inputs, or receives fair downstream execution. Watchdog execution,
+permanent empty/invalid input, and scheduling assumptions require separate
+implementation evidence and temporal properties (RF-005).
 
-The convergence model's activation guard requires dependency closure.
-It does not establish that Envoy waits for usable endpoints before activating
-routes. An empty CLA can initialize a cluster with zero hosts; cluster
-initialization and successful backend traffic are distinct.
+## IMPL-A2 Per-client isolation
 
-The existing `xds_warming` e2e tests pass through kgateway's warm publication
-gate. They characterize that policy, not an independent Envoy guarantee.
-`TestInitialRouteWaitsForEDSBeforeBecomingActive` adds a new host to an already
-running gateway; it is not the first cache publication. C0 permits first
-publication with empty CLAs once referenced CDS is complete, including when
-a warm proxy reconnects to an empty controller cache.
-
-- Spec reliance: `activateNew`, `ActiveSnapshotClosed`, and
-  `edsResponded -> activeNew` in the abstract convergence model.
-- Status: open pending direct probes against the pinned Envoy binary without
-  the kgateway gate. `XdsEnvoyWarming` separates initialized clusters from the
-  warm route-flip requirement; it is an abstraction, not proof of Envoy.
-- C0 implementation evidence: `TestSnapshotPerClientFirstPublishWithEmptyEndpoints`
-  covers empty CLAs, missing CDS, cache restart, unrelated route updates, and
-  endpoint recovery. It observes the served cache, not Envoy application.
-
-## IMPL-A1: EDS version is an injective content digest
-
-The spec models xDS versions as digests of EDS content
-(`Version Name := Option (List Name)` with content equality), so the
-`EDSResourceSetChangeChangesVersion` proof assumes the implementation's
-version string is deterministic for content-equal resource sets and
-different for content-different sets. The implementation uses an XOR of
-per-resource proto hashes (`filterEndpointResourcesForClusters` in
-`pkg/kgateway/proxy_syncer/perclient.go`), which is order-invariant and
-deterministic by construction but only probabilistically injective.
-
-- Spec reliance: `versionEq` in `XdsSpec/Spec.lean`; the
-  `cacheVerDigest`/`clientVerDigest` conjuncts of `IndInv` in
-  `XdsSpec/Proofs.lean`.
-- Discharged by: `TestFilterEndpointResourcesForClusters_VersionDigestProperties`
-  in `pkg/kgateway/proxy_syncer/perclient_version_property_test.go`
-  (determinism, order invariance, and injectivity over a corpus).
-
-## KRT-A1: per-client inputs eventually become coherent (OPEN)
-
-The KRT fan-out that drives the per-client collections eventually
-delivers the events that make `snapshotPerClient`'s inputs reflect the
-current `clients x backends` truth — no event is dropped permanently.
-
-This is the assumption the production stale-endpoints incident
-violated: a dropped fan-out left one replica's inputs permanently
-partial, so the client sat in the defer window forever. Nothing the
-safety proofs establish was broken — convergence was simply never
-reached, which is why this entry exists: the ledger must name liveness
-assumptions, not only safety ones.
-
-- Spec reliance: `inputBecomesCoherent` in `XdsSpec/Spec.lean` models
-  the fan-out event arriving. `heartbeatRederive` models the watchdog
-  that discharges this assumption mechanically by re-deriving the
-  inputs from current truth on a timer. The progress theorem
-  `stuck_client_converges` (`XdsSpec/Liveness.lean`) proves the
-  heartbeat is sufficient: any reachable deferred state converges
-  within one heartbeat re-derivation (at most five steps). The model
-  checker reproduces both sides at the finite instance: the
-  `DroppedFanoutBug` system (no coherence event) violates
-  `DeferredPartial ~> Converged`, and `DroppedFanoutWithHeartbeat`
-  restores it.
-- Status: **open** on this branch. The discharging mechanism is the
-  defer watchdog on the `fix/defer-watchdog` branch (a periodic
-  reconciler that re-publishes for any live proxy without a current
-  snapshot past a threshold). When that lands here, list its tests as
-  the discharge and flip this entry to discharged.
-
-## IMPL-A2: per-client isolation
-
-`snapshotPerClient`'s KRT transform for one UniquelyConnectedClient
-writes only that client's snapshot-cache entry.
-
-- Spec reliance: `applyClientAction` in `XdsSpec/MultiClient.lean`
-  updates a single client's component by construction; the `isolation`
-  theorem makes the frame property explicit, and `multi_safety` uses it
-  to lift safety to any number of clients.
-- Discharged by: `TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient`
-  in `pkg/kgateway/proxy_syncer/perclient_test.go`.
+**Implementation-characterized.** `TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient`
+checks two different client keys. Lean `isolation` and `multi_safety` use
+disjoint abstract state components by construction. Shared keys, concurrent
+streams, cache-wide locks, and stale callbacks remain composition obligations.

@@ -24,13 +24,23 @@ func init() {
 		os.Exit(1)
 	}
 	var mu sync.Mutex
+	scenario := os.Getenv("XDS_TRACE_SCENARIO")
+	if scenario == "" {
+		fmt.Fprintln(os.Stderr, "XDS_TRACE_SCENARIO is required with XDS_TRACE_OUT")
+		os.Exit(1)
+	}
+	var sequence uint64
 	xdsSnapshotTraceSink = func(event XdsSnapshotTraceEvent) {
-		line, err := json.Marshal(event)
-		if err != nil {
-			return
-		}
 		mu.Lock()
 		defer mu.Unlock()
-		_, _ = out.Write(append(line, '\n'))
+		sequence++
+		event.Schema, event.Scenario, event.Sequence = 1, scenario, sequence
+		line, err := json.Marshal(event)
+		if err != nil {
+			panic(fmt.Errorf("marshal xDS trace: %w", err))
+		}
+		if _, err := out.Write(append(line, '\n')); err != nil {
+			panic(fmt.Errorf("write xDS trace: %w", err))
+		}
 	}
 }

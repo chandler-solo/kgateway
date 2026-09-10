@@ -1,0 +1,60 @@
+# xDS assurance status
+
+This is the current status of the research branch, superseding stronger claims
+in historical investigation notes. The program is **open**. Findings and next
+actions are tracked in [research-findings.md](research-findings.md).
+
+## Profile
+
+Profile `research-2026-09-10`, read from the post-merge branch:
+
+| Component | Selected revision or configuration |
+|---|---|
+| Baseline cold-start correction | `8c451a4b5bcf072b7c43159be2a4069eefe2fc5e` |
+| Go | `1.26.7` |
+| go-control-plane cache/server | `v0.14.0` |
+| Envoy protos | `v1.37.1-0.20260529185539-1175069dbb2c` |
+| Contrib protos | `v1.36.1-0.20260529185539-1175069dbb2c` |
+| Ratelimit protos | `v0.1.1-0.20250507123352-93990c5ec02f` |
+| gRPC | `v1.83.2` |
+| Protobuf | `v1.36.12-0.20260120151049-f2248ac996af` |
+| Envoy image default | `envoyproxy/envoy:v1.39.1` (binary digest not yet characterized) |
+| Lean | `leanprover/lean4:v4.30.0` |
+| Normal delivery | Snapshot cache, SotW ADS, node-role key |
+| Ordered ADS | `EnableOrderedAds`, passed by setup; both modes have probes |
+
+The Makefile tag is not an immutable Envoy binary identity. RF-004 requires
+recording its digest, architecture, runtime flags, bootstrap, and admin version.
+The earlier plan's v1.37.2 was its review baseline, not this merged profile.
+Dependency modules and binary versions are separate identities.
+
+## Guarantee table
+
+| Subject | Evidence level | Limit |
+|---|---|---|
+| Convergence-machine structural invariants | Proved in Lean | Abstract atomic transitions, serial episodes, name-set versions |
+| Multi-client frame/isolation | Proved in Lean | Disjoint client components by construction; no shared-key refinement |
+| Recovery from deferred state | Constructive existence proof | No fairness, wall-clock bound, or guarantee of coherent future input |
+| Finite model safety | Model-checked with bounded names and states | Run output records each explored domain; not arbitrary concurrency |
+| Finite model recovery | Reachability checked | Does not imply eventuality on all fair executions |
+| Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check | Missing CDS still blocks; cache behavior is not Envoy application |
+| Snapshot trace validity | Per-event structural checks | No payload-version, lifecycle, acceptance, or activation replay |
+| GCP named response guard | Contradicted/incomplete | Equal-version subscriptions and both lost-watch paths omitted |
+| GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
+| Envoy usable-endpoint activation | Open | Existing e2e tests conflate KGW policy with Envoy semantics |
+| Hash injectivity | Open abstraction assumption | Finite-width digest cannot be unboundedly injective |
+| KRT recovery | Open | Existential model heartbeat is not a deployed progress guarantee |
+| Historical coverage | Seed reconnaissance only | No complete frozen corpus or per-candidate dispositions yet |
+| Protocol/feature coverage | Open inventory | Delta, Fetch, caches, bootstrap/static paths need reachability dispositions |
+
+## Required evidence
+
+Run `CGO_ENABLED=0 make formal-lean`. The runner keeps Go JSON receipts and
+isolated snapshot traces and fails if required tools or scenario publications
+are absent. Declaration checks alone do not prove tests ran. The receipt gate
+and wider CI trigger coverage remain RF-009 work until implemented and tested.
+TLC is separate from the Lean recovery checker; the three-state
+`ReachabilityIsNotLiveness` example must produce a temporal counterexample.
+
+No test pass here closes RF-002/003's product-policy decisions, RF-004's Envoy
+characterization, or the program's historical/source coverage obligations.

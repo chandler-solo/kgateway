@@ -92,7 +92,7 @@ obligations:
     summary: a client stuck in the defer window converges within one watchdog re-derivation
     specFile: devel/formal/lean/XdsSpec/Liveness.lean
     specAnchors:
-      - stuck_client_converges
+      - stuck_client_has_recovery_path
     status: open
     note: proven sufficient in the spec; the Go mechanism is the defer watchdog (fix/defer-watchdog branch). Discharge tracked as assumption KRT-A1 in formal-assumptions.yaml.
   - id: ordered-ADS-delivery-windows
@@ -103,7 +103,7 @@ obligations:
       - ackSkewAdditionBugSystem
       - orderedRemovalStillBrokenBugSystem
     status: divergent
-    note: kgateway ships the default (unordered) server (pkg/kgateway/setup/controlplane.go); the referenced-only discovery EP (PR https://github.com/kgateway-dev/kgateway/pull/14341) evaluates adopting WithOrderedADS, which closes only the busy-stream window, paired with reference-ahead and de-reference grace windows. The ACK-skew and combined-removal windows persist in both modes (probed deterministically against the real server) and need control-plane pacing / a de-reference grace window. Characterization discharged as assumption GCP-A3.
+    note: setup passes EnableOrderedAds to NewControlPlane. Both modes are characterized; ACK skew and combined removals persist. The model safe removal guard observes route deactivation, which a timer alone does not establish. RF-010 tracks application-barrier and timeout-policy work.
     divergencePins:
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSAckSkewDeliversRouteBeforeClusterEvenWithOrderedADS

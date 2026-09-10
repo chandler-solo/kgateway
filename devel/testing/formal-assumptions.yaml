@@ -1,11 +1,10 @@
-# Machine-readable mapping from the Lean spec's named assumptions to the
-# Go/e2e tests that discharge them. See devel/formal/lean/ASSUMPTIONS.md
-# for the prose ledger. Gated by formal_assumptions_test.go: every spec
-# anchor must appear in the referenced Lean file and every discharging
-# test function must exist in the referenced Go file.
+# Evidence links, not universal discharge. The validator checks declarations;
+# the runner preserves execution receipts. Open entries may cite partial tests.
 assumptions:
   - id: GCP-A1
-    summary: go-control-plane answers a named SotW ADS EDS watch iff the version differs and every snapshot EDS resource is named in the request
+    summary: the simplified named EDS response guard omits equal-version subscription responses and declined-watch disposition
+    status: open
+    plannedDischarge: RF-007 requires modeling both CreateWatch and SetSnapshot paths, returned resources, and watch loss against v0.14.0
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - canRespond
@@ -16,6 +15,7 @@ assumptions:
       - file: pkg/kgateway/proxy_syncer/perclient_test.go
         test: TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterClusterRemoved
   - id: GCP-A2
+    status: characterized
     summary: the snapshot cache retains the last published snapshot when a per-client entry is deleted
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
@@ -39,7 +39,9 @@ assumptions:
       - file: test/e2e/features/xds_warming/suite.go
         test: TestInitialRouteWaitsForEDSBeforeBecomingActive
   - id: IMPL-A1
-    summary: the EDS version string is a deterministic, order-invariant, content-injective digest of the filtered endpoint set
+    summary: EDS digests are assumed collision-free for compared revisions; finite corpus tests cannot prove injectivity
+    status: open
+    plannedDischarge: RF-008 requires payload revisions in the model and an explicit collision or revision-allocation contract
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - versionEq
@@ -47,6 +49,7 @@ assumptions:
       - file: pkg/kgateway/proxy_syncer/perclient_version_property_test.go
         test: TestFilterEndpointResourcesForClusters_VersionDigestProperties
   - id: GCP-A3
+    status: characterized
     summary: ADS wire-delivery ordering - quiet-stream additions are CDS-first in both server modes (cache type ordering), WithOrderedADS closes only the busy-stream randomization, ACK skew delivers RDS before CDS deterministically in both modes, and combined removals ship the cluster removal first in both modes
     specFile: devel/formal/lean/XdsSpec/OrderedADS.lean
     specAnchors:
@@ -62,6 +65,7 @@ assumptions:
       - file: pkg/kgateway/proxy_syncer/xds_delivery_order_probe_test.go
         test: TestADSOrderedServerStillDeliversClusterRemovalBeforeRouteUpdate
   - id: GCP-A4
+    status: characterized
     summary: go-control-plane dispatches OnStreamRequest/OnStreamClosed for one stream strictly sequentially, and OnStreamClosed still fires when OnStreamRequest returns an error
     specFile: devel/formal/lean/XdsSpec/ClientIdentity.lean
     specAnchors:
@@ -75,12 +79,13 @@ assumptions:
   - id: KRT-A1
     summary: per-client collections eventually reflect current clients x backends (no permanently dropped fan-out events)
     status: open
-    plannedDischarge: defer watchdog (fix/defer-watchdog branch) re-publishes for any live proxy stranded without a current snapshot; list its tests here when it lands. Spec side is already proven sufficient by XdsSpec.stuck_client_converges.
+    plannedDischarge: defer watchdog (fix/defer-watchdog branch) re-publishes for any live proxy stranded without a current snapshot; list its tests here when it lands. XdsSpec.stuck_client_has_recovery_path supplies an existential recovery path, not scheduler fairness or eventual coherent input.
     specFile: devel/formal/lean/XdsSpec/Liveness.lean
     specAnchors:
-      - stuck_client_converges
+      - stuck_client_has_recovery_path
       - heartbeatRederive
   - id: IMPL-A2
+    status: characterized
     summary: snapshotPerClient for one UniquelyConnectedClient writes only that client's snapshot-cache entry
     specFile: devel/formal/lean/XdsSpec/MultiClient.lean
     specAnchors:

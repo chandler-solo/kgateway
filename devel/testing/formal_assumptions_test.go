@@ -16,10 +16,8 @@ type formalAssumptions struct {
 type formalAssumption struct {
 	ID      string `json:"id"`
 	Summary string `json:"summary"`
-	// Status is "discharged" (default) or "open". An open assumption is
-	// one the spec relies on that no test discharges yet; it must say
-	// how it is planned to be discharged so the ledger records the gap
-	// instead of hiding it.
+	// Characterized means finite implementation evidence, not universal discharge.
+	// Open obligations must name the missing evidence or model correction.
 	Status           string                 `json:"status,omitempty"`
 	PlannedDischarge string                 `json:"plannedDischarge,omitempty"`
 	SpecFile         string                 `json:"specFile"`
@@ -32,11 +30,8 @@ type formalAssumptionTest struct {
 	Test string `json:"test"`
 }
 
-// TestFormalAssumptionsDischarged gates the mapping between the Lean
-// spec's named assumptions (devel/formal/lean/ASSUMPTIONS.md) and the Go
-// or e2e tests that discharge them. It fails when a spec anchor vanishes
-// from the Lean sources or a discharging test function is renamed or
-// deleted, so the assumption ledger cannot silently rot.
+// TestFormalAssumptionsDischarged validates evidence links, not execution or truth.
+// The historical test name is retained for existing callers.
 func TestFormalAssumptionsDischarged(t *testing.T) {
 	repoRoot := repoRootFromPackageDir(t)
 
@@ -88,20 +83,18 @@ func TestFormalAssumptionsDischarged(t *testing.T) {
 			}
 
 			status := assumption.Status
-			if status == "" {
-				status = "discharged"
-			}
+
 			switch status {
-			case "discharged":
+			case "characterized":
 				if len(assumption.DischargedBy) == 0 {
-					t.Fatal("discharged assumption must name at least one discharging test")
+					t.Fatal("characterized assumption must name at least one evidence test")
 				}
 			case "open":
 				if assumption.PlannedDischarge == "" {
 					t.Fatal("open assumption must describe its planned discharge")
 				}
 			default:
-				t.Fatalf("status %q must be one of [discharged open]", status)
+				t.Fatalf("status %q must be one of [characterized open]", status)
 			}
 			for _, discharge := range assumption.DischargedBy {
 				requireTestDeclared(t, repoRoot, discharge.File, discharge.Test)

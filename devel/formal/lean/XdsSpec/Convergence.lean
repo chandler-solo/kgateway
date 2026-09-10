@@ -4,7 +4,7 @@ XdsSpec.Convergence: concrete instantiations matching the TLA+ configs.
 Each `System` below corresponds to a SPECIFICATION in
 devel/formal/tla/XdsPerClientConvergence*.cfg, instantiated at the same
 two-name universe (`old`, `new`). The safe system must satisfy every
-invariant and the liveness property; each bug system must reproduce the
+invariant and the recoverability property; each bug system must reproduce the
 TLA+ counterexample. `Main.lean` runs all of them and fails loudly if a
 bug config stops producing its counterexample — that is the regression
 gate that keeps the invariants honest.
@@ -100,7 +100,7 @@ def activateBeforeEdsBugSystem : System CState CAction :=
       .envoyLearnsCds,
       .buggyActivateBeforeEds ]
 
-/-- TLA+ `NoPublishBugSpec`: safety holds but liveness fails because the
+/-- TLA+ `NoPublishBugSpec`: safety holds but recoverability fails because the
 coherent input is never published. -/
 def noPublishBugSystem : System CState CAction :=
   mkSystem "NoPublishBug"
@@ -110,7 +110,7 @@ def noPublishBugSystem : System CState CAction :=
 that would make the per-client inputs coherent is dropped, so
 `InputBecomesCoherent` never fires. Every other transition is available,
 yet the client is stuck at `deferredPartial` forever — safety holds
-(Envoy keeps serving last-good config) but liveness fails. -/
+(Envoy keeps serving last-good config) but recoverability fails. -/
 def droppedFanoutBugSystem : System CState CAction :=
   mkSystem "DroppedFanoutBug"
     [ .deferPartialInput newSet newSet,
@@ -122,9 +122,9 @@ def droppedFanoutBugSystem : System CState CAction :=
       .beginNextEpisode,
       .observeConverged ]
 
-/-- The same dropped-fanout system plus the watchdog heartbeat: liveness
+/-- The same dropped-fanout system plus the watchdog heartbeat: recoverability
 is restored, demonstrating at the finite instance what
-`stuck_client_converges` proves in general — the heartbeat discharges
+`stuck_client_has_recovery_path` proves in general — the abstract heartbeat supplies a recovery path for
 KRT-A1. -/
 def droppedFanoutWithHeartbeatSystem : System CState CAction :=
   mkSystem "DroppedFanoutWithHeartbeat"
@@ -142,7 +142,7 @@ def isCoherentInput (s : CState) : Bool := s.phase == .coherentInput
 
 def isDeferredPartial (s : CState) : Bool := s.phase == .deferredPartial
 
-/-- The liveness goal: a coherent input must lead either to activation of
+/-- The recovery goal: a coherent input can lead either to activation of
 the new snapshot or back to steady state because the input was already
 what the cache serves (a repeat episode that recomputes the same
 snapshot is a no-op, not a stall). -/

@@ -2,13 +2,14 @@
 xdsspec CLI: run the model configurations and the trace checker.
 
 Exit code 0 means every expectation held:
-  - the safe systems satisfy all safety invariants and their liveness
+  - the safe systems satisfy all safety invariants and their recoverability
     properties, and
   - every bug system reproduces its expected counterexample (a bug
     config that silently passes means an invariant lost its teeth).
 -/
 import XdsSpec
 import XdsSpec.TraceCheck
+import XdsSpec.CheckerTests
 
 open XdsSpec XdsSpec.Convergence
 
@@ -45,30 +46,30 @@ def runSafetyExpectation [BEq σ] [Hashable σ] [Repr σ]
   | some inv, .ok n =>
     IO.println s!"FAIL  {e.system.name}: expected violation of {inv} but all invariants held ({n} states) — an invariant lost its teeth"
     return false
-  | _, .livenessViolation .. =>
-    IO.println s!"FAIL  {e.system.name}: unexpected liveness result from safety check"
+  | _, .unreachableGoal .. =>
+    IO.println s!"FAIL  {e.system.name}: unexpected reachability result from safety check"
     return false
 
-def runLiveness [BEq σ] [Hashable σ] [Repr σ]
+def runRecoverability [BEq σ] [Hashable σ] [Repr σ]
     (sys : System σ α) (expectStuck : Bool)
     (premise goal : σ → Bool) (property : String) : IO Bool := do
-  match checkLiveness sys premise goal with
+  match checkRecoverability sys premise goal with
   | .ok n =>
     if expectStuck then
-      IO.println s!"FAIL  {sys.name}: expected liveness violation but {property} holds ({n} states)"
+      IO.println s!"FAIL  {sys.name}: expected unreachable goal but {property} is reachable ({n} states)"
       return false
     else
-      IO.println s!"PASS  {sys.name}: {property} holds ({n} states)"
+      IO.println s!"PASS  {sys.name}: {property} is reachable ({n} states)"
       return true
-  | .livenessViolation stuck n =>
+  | .unreachableGoal stuck n =>
     if expectStuck then
-      IO.println s!"PASS  {sys.name}: reproduced expected liveness violation of {property} ({n} states)"
+      IO.println s!"PASS  {sys.name}: reproduced expected unreachable goal of {property} ({n} states)"
       return true
     else
       IO.println s!"FAIL  {sys.name}: {property} violated; stuck state: {reprStr stuck}"
       return false
   | .violation .. =>
-    IO.println s!"FAIL  {sys.name}: unexpected safety result from liveness check"
+    IO.println s!"FAIL  {sys.name}: unexpected safety result from recoverability check"
     return false
 
 def convergenceExpectations : List (Expectation CState CAction) :=
@@ -88,7 +89,7 @@ def perClusterExpectations :
 def orderedADSExpectations :
     List (Expectation OrderedADS.OAState OrderedADS.OAAction) :=
   -- WithOrderedADS makes additions drop-free; the default random-order server
-  -- does not. Ordered ADS does NOT help removals — only a grace window does.
+  -- does not. Ordered ADS does NOT help removals — an observed deactivation barrier does.
   [ ⟨OrderedADS.orderedAdditionSystem, OrderedADS.invariantList, none⟩,
     ⟨OrderedADS.unorderedAdditionBugSystem, OrderedADS.invariantList,
       some "ActiveRouteHasCluster"⟩,
@@ -101,7 +102,7 @@ def orderedADSExpectations :
 def clientIdentityExpectations :
     List (Expectation ClientIdentity.CIState ClientIdentity.CIAction) :=
   -- Only the miscounting drift close corrupts the refcount algebra; every
-  -- other bug system fails as a liveness violation below while keeping the
+  -- other bug system fails as an unreachable goal below while keeping the
   -- counts sound.
   [ ⟨ClientIdentity.safeSystem, ClientIdentity.invariantList, none⟩,
     ⟨ClientIdentity.frozenIdentityBugSystem, ClientIdentity.invariantList, none⟩,
@@ -118,17 +119,17 @@ def runModelCheck : IO UInt32 := do
   let mut ok := true
   for e in convergenceExpectations do
     ok := (← runSafetyExpectation e) && ok
-  ok := (← runLiveness safeSystem (expectStuck := false)
-    isCoherentInput isConverged "CoherentInput ~> Converged") && ok
-  ok := (← runLiveness noPublishBugSystem (expectStuck := true)
-    isCoherentInput isConverged "CoherentInput ~> Converged") && ok
+  ok := (← runRecoverability safeSystem (expectStuck := false)
+    isCoherentInput isConverged "CoherentInput can reach Converged") && ok
+  ok := (← runRecoverability noPublishBugSystem (expectStuck := true)
+    isCoherentInput isConverged "CoherentInput can reach Converged") && ok
   -- KRT-A1 (see ASSUMPTIONS.md): a dropped fan-out event strands the
   -- client at DeferredPartial; the watchdog heartbeat restores progress.
-  -- Finite-instance counterparts of XdsSpec.stuck_client_converges.
-  ok := (← runLiveness droppedFanoutBugSystem (expectStuck := true)
-    isDeferredPartial isConverged "DeferredPartial ~> Converged") && ok
-  ok := (← runLiveness droppedFanoutWithHeartbeatSystem (expectStuck := false)
-    isDeferredPartial isConverged "DeferredPartial ~> Converged") && ok
+  -- Finite-instance counterparts of XdsSpec.stuck_client_has_recovery_path.
+  ok := (← runRecoverability droppedFanoutBugSystem (expectStuck := true)
+    isDeferredPartial isConverged "DeferredPartial can reach Converged") && ok
+  ok := (← runRecoverability droppedFanoutWithHeartbeatSystem (expectStuck := false)
+    isDeferredPartial isConverged "DeferredPartial can reach Converged") && ok
   IO.println ""
   IO.println "per-cluster readiness model (guard #3 granularity)"
   IO.println ""
@@ -137,37 +138,37 @@ def runModelCheck : IO UInt32 := do
   ok := (← runSafetyExpectation ⟨PerCluster.coldMissingCDSBugSystem,
     PerCluster.coldInvariants, some "ColdPublicationClosed"⟩) && ok
   -- This checker establishes recoverability, not all-fair-execution liveness.
-  ok := (← runLiveness PerCluster.coldSafeSystem (expectStuck := false)
+  ok := (← runRecoverability PerCluster.coldSafeSystem (expectStuck := false)
     PerCluster.coldPending (·.published) "Cold publication reachable with permanently empty endpoints") && ok
-  ok := (← runLiveness PerCluster.coldStarvationBugSystem (expectStuck := true)
+  ok := (← runRecoverability PerCluster.coldStarvationBugSystem (expectStuck := true)
     PerCluster.coldPending (·.published) "Cold publication reachable with permanently empty endpoints") && ok
   for e in perClusterExpectations do
     ok := (← runSafetyExpectation e) && ok
   -- C2: a previously-active cluster's published CLA always catches up
   -- with its truth (empty included) — for every cluster independently
   -- of the others' readiness (publication isolation).
-  ok := (← runLiveness PerCluster.safeSystem (expectStuck := false)
+  ok := (← runRecoverability PerCluster.safeSystem (expectStuck := false)
     PerCluster.truthLagsA PerCluster.truthPublishedA
-    "TruthLagsA ~> TruthPublishedA") && ok
+    "TruthLagsA can reach TruthPublishedA") && ok
   -- C3: once the newly referenced cluster is deployed, the held route
   -- flip goes through.
-  ok := (← runLiveness PerCluster.safeSystem (expectStuck := false)
+  ok := (← runRecoverability PerCluster.safeSystem (expectStuck := false)
     PerCluster.flipPending PerCluster.flipDone
-    "FlipPending ~> FlipDone") && ok
+    "FlipPending can reach FlipDone") && ok
   -- The strengthened whole-snapshot gate livelocks: scale-to-zero can
   -- never publish its empty CLA, so Envoy keeps the dead endpoints.
-  ok := (← runLiveness PerCluster.wholeSnapshotDeferBugSystem
+  ok := (← runRecoverability PerCluster.wholeSnapshotDeferBugSystem
     (expectStuck := true)
     PerCluster.truthLagsA PerCluster.truthPublishedA
-    "TruthLagsA ~> TruthPublishedA") && ok
+    "TruthLagsA can reach TruthPublishedA") && ok
   -- The rejected PR #13976 design fails open: an errored cluster keeps
   -- serving from last-good config, so its truth (absence) never publishes —
   -- the fail-closed 5xx that Gateway API BackendTLSPolicy conformance
   -- requires never happens.
-  ok := (← runLiveness PerCluster.erroredRestoreBugSystem
+  ok := (← runRecoverability PerCluster.erroredRestoreBugSystem
     (expectStuck := true)
     PerCluster.truthLagsA PerCluster.truthPublishedA
-    "TruthLagsA ~> TruthPublishedA") && ok
+    "TruthLagsA can reach TruthPublishedA") && ok
   IO.println ""
   IO.println "client-identity re-derivation model (PR #14244)"
   IO.println ""
@@ -176,32 +177,32 @@ def runModelCheck : IO UInt32 := do
   -- The startup race heals: a stream serving under a connect-time stale
   -- identity re-identifies once the informer surfaces the pod's true state
   -- (drift close → reconnect → fresh derivation).
-  ok := (← runLiveness ClientIdentity.safeSystem (expectStuck := false)
+  ok := (← runRecoverability ClientIdentity.safeSystem (expectStuck := false)
     ClientIdentity.staleServing1 ClientIdentity.s1Fresh
-    "StaleServing ~> FreshIdentity") && ok
+    "StaleServing can reach FreshIdentity") && ok
   -- No reconnect storm: every established stream can reach a clean ACK
   -- (re-derivation matching the established identity).
-  ok := (← runLiveness ClientIdentity.safeSystem (expectStuck := false)
+  ok := (← runRecoverability ClientIdentity.safeSystem (expectStuck := false)
     ClientIdentity.s1Established ClientIdentity.s1CleanAck
-    "Established ~> CleanAck") && ok
+    "Established can reach CleanAck") && ok
   -- Pre-PR: the frozen identity never heals.
-  ok := (← runLiveness ClientIdentity.frozenIdentityBugSystem (expectStuck := true)
+  ok := (← runRecoverability ClientIdentity.frozenIdentityBugSystem (expectStuck := true)
     ClientIdentity.staleServing1 ClientIdentity.s1Fresh
-    "StaleServing ~> FreshIdentity") && ok
+    "StaleServing can reach FreshIdentity") && ok
   -- Without the pinned original role: every ACK false-closes the stream.
-  ok := (← runLiveness ClientIdentity.reaugmentFalseCloseBugSystem (expectStuck := true)
+  ok := (← runRecoverability ClientIdentity.reaugmentFalseCloseBugSystem (expectStuck := true)
     ClientIdentity.s1Established ClientIdentity.s1CleanAck
-    "Established ~> CleanAck") && ok
+    "Established can reach CleanAck") && ok
   -- Disclosed limitation: a stream that receives no DiscoveryRequests never
   -- re-derives, so its stale identity never heals.
-  ok := (← runLiveness ClientIdentity.quietStreamStuckBugSystem (expectStuck := true)
+  ok := (← runRecoverability ClientIdentity.quietStreamStuckBugSystem (expectStuck := true)
     ClientIdentity.staleServing1 ClientIdentity.s1Fresh
-    "StaleServing ~> FreshIdentity") && ok
+    "StaleServing can reach FreshIdentity") && ok
   -- Rejected design: closing on a transient derivation failure makes a
   -- permanent pod-record absence a permanent outage.
-  ok := (← runLiveness ClientIdentity.blipCloseBugSystem (expectStuck := true)
+  ok := (← runRecoverability ClientIdentity.blipCloseBugSystem (expectStuck := true)
     ClientIdentity.disconnectedNoView1 ClientIdentity.s1Established
-    "Disconnected ~> Established") && ok
+    "Disconnected can reach Established") && ok
   IO.println ""
   IO.println "ADS wire-delivery ordering model (WithOrderedADS)"
   IO.println ""
