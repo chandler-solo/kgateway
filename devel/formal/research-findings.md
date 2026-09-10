@@ -193,3 +193,18 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   in newer source; validate its version ancestry and this real-cache schedule
   before calling the branch dependency fixed. KGW deployment reachability and
   the complete stream/queue refinement remain open.
+
+## RF-016 Historical inventory is not completed bug coverage
+
+- Status: all seven title/body inventories captured; detailed classification and linked-source audit open.
+- Evidence: the exporter records every retrieved issue/PR page and cursor,
+  cutoff, repository identity, payload checksum, keyword hits, and unreviewed
+  dispositions. GitHub rejected page-number pagination at Envoy page 100;
+  following server-supplied cursors is necessary for large repositories.
+- Evidence added: `corpus-inventory.json` records completed enumeration;
+  `bug-corpus.json` records ten discovery dispositions, with their detail pages
+  captured privately. Gloo/kgateway repository IDs prevent lineage loss.
+- Action: review comments/reviews and linked fixes across the candidate set,
+  audit relevant source history and release ancestry, classify every candidate,
+  and review non-keyword sources and held-out mechanisms. Search or title/body
+  inventory counts are not a claim to have reviewed all historical xDS bugs.

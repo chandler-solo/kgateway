@@ -1,0 +1,89 @@
+{
+  "scope": "issue/PR title-body inventory, not exhaustive bug review",
+  "repositories": [
+    {
+      "repository": "envoyproxy/envoy",
+      "canonical_repository": "envoyproxy/envoy",
+      "repository_id": 65214191,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:18:15.415916Z",
+      "pages": 472,
+      "issue_pr_records": 47128,
+      "title_body_keyword_candidates": 17810,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "envoyproxy/gateway",
+      "canonical_repository": "envoyproxy/gateway",
+      "repository_id": 480573177,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:18:49.549048Z",
+      "pages": 98,
+      "issue_pr_records": 9792,
+      "title_body_keyword_candidates": 3811,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "envoyproxy/go-control-plane",
+      "canonical_repository": "envoyproxy/go-control-plane",
+      "repository_id": 107708884,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:17:36.709659Z",
+      "pages": 16,
+      "issue_pr_records": 1555,
+      "title_body_keyword_candidates": 1082,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "kgateway-dev/kgateway",
+      "canonical_repository": "kgateway-dev/kgateway",
+      "repository_id": 118510171,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:18:35.707958Z",
+      "pages": 146,
+      "issue_pr_records": 14583,
+      "title_body_keyword_candidates": 5915,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "solo-io/gloo",
+      "canonical_repository": "solo-io/gloo",
+      "repository_id": 885037479,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:18:25.025743Z",
+      "pages": 14,
+      "issue_pr_records": 1361,
+      "title_body_keyword_candidates": 412,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "solo-io/solo-kit",
+      "canonical_repository": "solo-io/solo-kit",
+      "repository_id": 157437065,
+      "cutoff_exclusive": "2026-09-10T00:00:00Z",
+      "completed_at": "2026-09-10T13:18:49.779188Z",
+      "pages": 6,
+      "issue_pr_records": 591,
+      "title_body_keyword_candidates": 124,
+      "keyword_matching": "case-insensitive word boundaries",
+      "visibility": "public",
+      "review_status": "unreviewed except discovery records in bug-corpus.json"
+    },
+    {
+      "repository": "solo-io/solo-projects",
+      "visibility": "private",
+      "inventory_status": "cursor enumeration complete; details retained privately",
+      "review_status": "unreviewed"
+    }
+  ]
+}

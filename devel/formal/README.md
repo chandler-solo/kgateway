@@ -63,7 +63,7 @@ Lean, Dafny, F*, and Coq compiler proofs are future work, not part of this MVP. 
 - No proof of Envoy internals.
 - No proof of Kubernetes watch semantics.
 - No proof of all Envoy proto validation annotations.
-- No production behavior change.
+- This research branch includes experimental production publication-policy changes; see assurance-status.md and RF-001/002/003.
 - No verification of every Envoy proto field.
 - No vendored TLA+ tools jar or downloaded binary.
 
