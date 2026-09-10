@@ -7,6 +7,7 @@ This directory contains the KGateway load testing framework that implements perf
 The load testing framework provides:
 
 - **Attached Routes Test**: Measures Gateway API route attachment performance
+- **Controller Restart Measurement**: Measures kgateway controller rollout recovery while baseline routes already exist
 - **VCluster Simulation**: Creates fake cluster resources to simulate production-scale environments
 - **Scale-Aware Testing**: Automatically adjusts thresholds based on route count (1000 vs 5000+ routes)
 - **Performance Monitoring**: Tracks setup time, teardown time, and status propagation
@@ -63,6 +64,9 @@ make run-load-tests-production
 
 # Run all load tests (baseline + production)
 make run-load-tests
+
+# Run against an already-installed strict-validation controller
+VALIDATION_MODE=strict make run-load-tests
 ```
 
 ### VS Code Debug Configuration
@@ -134,6 +138,13 @@ Add this configuration to your `.vscode/launch.json` file:
 - `CLUSTER_NAME=kind`: Targets the kind cluster named "kind"
 - `INSTALL_NAMESPACE=kgateway-system`: Specifies where KGateway is installed
 
+The nightly load-test action runs the full attached-routes suite twice: once
+with `validation.level=standard` and once with `validation.level=strict`.
+Each attached-routes run restarts the controller after creating baseline routes
+and emits a `startup_benchmark_result` log line with the Gateway API CRD
+version/channel, validation mode, controller image, rollout generation,
+duration, and failure diagnostics.
+
 ## Test Types and Metrics
 
 ### Baseline Test (1000 routes)
@@ -148,13 +159,51 @@ Add this configuration to your `.vscode/launch.json` file:
 - **Thresholds**: Setup <90s, Teardown <20s
 - **Batch Size**: 500 routes per batch
 
+### Controller Restart Measurement
+
+- **Purpose**: Measures the time from a controller rollout restart to a fully ready new deployment generation after baseline routes are present
+- **Failure Signal**: Fails if the controller deployment does not become ready within 5 minutes
+- **Diagnostics**: Records deployment status, controller pod state, recent pod events, and installed Gateway API metadata
+
 ### Key Metrics Measured
 
 - **Setup Time**: Time to add 1 incremental route to existing baseline
 - **Route Ready Time**: Time until route accepts traffic
 - **Teardown Time**: Time to remove 1 route
+- **Controller Restart Time**: Time for the controller deployment to roll out after baseline resources are created
 - **Total Writes**: Number of status updates during test
 - **Resource Usage**: CPU, memory, and API call metrics
+
+### StrictChurn Test (per-client xDS convergence)
+
+`strictchurn_suite.go` is a convergence/liveness test for the per-client xDS
+pipeline under its worst-case shape (#14184) rather than a latency benchmark:
+
+- **Setup**: Enables `KGW_VALIDATION_MODE=STRICT` on the controller (restored on
+  teardown), creates ~200 simulated backends and baseline routes across two
+  gateways, plus one stable route to a real nginx backend.
+- **Load**: Cycles of Service+EndpointSlice+HTTPRoute create/delete, a
+  background rewriter that keeps the simulated fleet's EndpointSlices moving
+  continuously, persistent dangling and starved backend references, two
+  gateway Envoy rolls, and a controller restart mid-churn.
+- **Assertions**: The stable route answers 200 at every checkpoint (connected
+  proxies are never stranded on stale or withheld config); rolled gateway
+  Envoys become Ready within a bound (a fresh xDS client's first snapshot is
+  never withheld indefinitely); a route created after churn becomes routable
+  within a bound (publication liveness).
+
+To probe the xDS first-connect grace period, set `KGW_XDS_FIRST_CONNECT_DELAY`
+in the environment: the suite forwards it to the controller deployment for the
+duration of the run. `0` exercises the raw reconnect race the delay narrows;
+large values verify warm clients keep serving through the delay and rolled
+Envoys still beat the rollout bound. Scale past the laptop-friendly defaults
+with `KGW_LOADTEST_BACKENDS` / `KGW_LOADTEST_ROUTES`.
+
+Because the suite mutates the controller deployment, it is registered with the
+suite runner but excluded from the shared CI e2e clusters. The nightly
+load-test action runs it once per load-test cluster, after the standard and
+strict AttachedRoutes runs. Run it locally with
+`make run-load-tests-strict-churn`.
 
 ## Framework Architecture
 
@@ -171,10 +220,11 @@ Add this configuration to your `.vscode/launch.json` file:
 2. Set up test infrastructure (namespaces, services, gateways)
 3. Create baseline routes (1000 or 5000) in batches
 4. Wait for all routes to be attached to gateways
-5. **Start stopwatch** → Add 1 incremental route
-6. Measure time until route is ready and status propagates
-7. **Stop stopwatch** → Record performance metrics
-8. Measure teardown time for incremental route cleanup
+5. Restart the controller and wait for the restarted deployment to become ready
+6. **Start stopwatch** → Add 1 incremental route
+7. Measure time until route is ready and status propagates
+8. **Stop stopwatch** → Record performance metrics
+9. Measure teardown time for incremental route cleanup
 
 ## The "Attached Routes" Test Methodology
 

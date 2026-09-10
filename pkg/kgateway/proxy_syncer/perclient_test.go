@@ -29,12 +29,16 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/endpoints"
+	kgtranslator "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/xdscheck"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
@@ -52,7 +56,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaticClusterCLAs(t *testing.
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-cluster"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -77,7 +81,7 @@ func TestFilterEndpointResourcesForClusters_ReturnsOriginalWhenNoFiltering(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-only"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -98,7 +102,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersAndEndpoints(t *testing
 	emptyClusters := envoycache.NewResourcesWithTTL("v1", nil)
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints)
+	out := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints, nil)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -111,7 +115,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersNonEmptyEndpoints(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "any"}},
 	})
 
-	out := filterEndpointResourcesForClusters(emptyClusters, endpoints)
+	out := filterEndpointResourcesForClusters(emptyClusters, endpoints, nil)
 
 	if len(out.Items) != 0 {
 		t.Fatalf("expected no endpoint resources when no EDS clusters are emitted, got %d", len(out.Items))
@@ -124,7 +128,7 @@ func TestFilterEndpointResourcesForClusters_EmptyEndpoints(t *testing.T) {
 	})
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(clusters, emptyEndpoints)
+	out := filterEndpointResourcesForClusters(clusters, emptyEndpoints, nil)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -146,7 +150,7 @@ func TestFilterEndpointResourcesForClusters_MixedStaticAndNonStatic(t *testing.T
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
 
 	if len(out.Items) != 2 {
 		t.Fatalf("expected 2 endpoint resources (eds-a, eds-b), got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -174,7 +178,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaleClusterLoadAssignments(t
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "cluster-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -207,7 +211,7 @@ func TestFilterEndpointResourcesForClusters_UsesEDSServiceName(t *testing.T) {
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "service-a"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints)
+	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the service-name CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -2189,4 +2193,133 @@ func mustMessageToAny(t *testing.T, msg proto.Message) *anypb.Any {
 		t.Fatalf("marshal Any: %v", err)
 	}
 	return out
+}
+
+func TestPerClientEnvoyEndpointsUsesResolvedReplacementHash(t *testing.T) {
+	g := gomega.NewWithT(t)
+	krtopts := krtutil.NewKrtOptions(t.Context().Done(), nil)
+	pluginGK := schema.GroupKind{Group: "test.example.io", Kind: "EndpointReplacement"}
+
+	translator := kgtranslator.NewCombinedTranslator(t.Context(), sdk.Plugin{
+		ContributesPolicies: sdk.ContributesPolicies{
+			pluginGK: {
+				PerClientEditEndpoints: func(_ krt.HandlerContext, _ context.Context, _ ir.UniquelyConnectedClient, out endpoints.EndpointInputsEditor) uint64 {
+					replacement := out.NewEndpointSet()
+					replacement.Add(ir.PodLocality{}, ir.EndpointWithMd{LbEndpoint: &envoyendpointv3.LbEndpoint{
+						HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{
+							Address: &envoycorev3.Address{Address: &envoycorev3.Address_Pipe{Pipe: &envoycorev3.Pipe{Path: out.Hostname()}}},
+						}},
+					}})
+					out.ReplaceEndpoints(replacement)
+					return 0 // Replacement content is already reflected by LbEpsEqualityHash.
+				},
+			},
+		},
+	}, nil, nil)
+
+	backend := ir.NewBackendObjectIR(ir.ObjectSource{Kind: "Service", Namespace: "ns", Name: "backend"}, 80, "", "")
+	source := ir.NewEndpointsForBackend(backend)
+	source.Hostname = "replacement-a"
+	source.Add(ir.PodLocality{}, ir.EndpointWithMd{LbEndpoint: &envoyendpointv3.LbEndpoint{
+		HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{
+			Address: &envoycorev3.Address{Address: &envoycorev3.Address_Pipe{Pipe: &envoycorev3.Pipe{Path: "source"}}},
+		}},
+	}})
+	sourceHash := source.LbEpsEqualityHash
+	ucc := ir.NewUniquelyConnectedClient("client", "ns", nil, ir.PodLocality{})
+	uccs := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc}, krtopts.ToOptions("ReplacementHashClients")...)
+	sources := krt.NewStaticCollection(nil, []ir.EndpointsForBackend{*source}, krtopts.ToOptions("ReplacementHashEndpoints")...)
+	perClient := NewPerClientEnvoyEndpoints(krtopts, uccs, sources, translator.TranslateEndpoints)
+
+	var initialHash uint64
+	g.Eventually(func() string {
+		rows := perClient.FetchEndpointsForClient(krt.TestingDummyContext{}, ucc)
+		if len(rows) != 1 {
+			return ""
+		}
+		initialHash = rows[0].EndpointsHash
+		return endpointPipePath(rows[0].Endpoints)
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal("replacement-a"))
+	g.Expect(initialHash).ToNot(gomega.Equal(sourceHash),
+		"the row key must use the replacement set's resolved hash, not the source hash")
+
+	updated := *source
+	updated.Hostname = "replacement-b"
+	g.Expect(updated.LbEpsEqualityHash).To(gomega.Equal(sourceHash),
+		"precondition: only the plugin's replacement output changes the endpoint hash")
+	sources.UpdateObject(updated)
+
+	var updatedHash uint64
+	g.Eventually(func() string {
+		rows := perClient.FetchEndpointsForClient(krt.TestingDummyContext{}, ucc)
+		if len(rows) != 1 {
+			return ""
+		}
+		updatedHash = rows[0].EndpointsHash
+		return endpointPipePath(rows[0].Endpoints)
+	}, time.Second, 20*time.Millisecond).Should(gomega.Equal("replacement-b"),
+		"a replacement-only update must not be suppressed by stale KRT equality")
+	g.Expect(updatedHash).ToNot(gomega.Equal(initialHash))
+}
+
+func endpointPipePath(cla *envoyendpointv3.ClusterLoadAssignment) string {
+	if len(cla.GetEndpoints()) == 0 || len(cla.GetEndpoints()[0].GetLbEndpoints()) == 0 {
+		return ""
+	}
+	return cla.GetEndpoints()[0].GetLbEndpoints()[0].GetEndpoint().GetAddress().GetPipe().GetPath()
+}
+
+// TestFilterEndpointResourcesDropsErroredClusterCLAs pins the STRICT-validation
+// EDS blackout: a cluster whose backend translation failed is withheld from CDS,
+// so its CLA must go with it — in ADS mode one CLA the proxy never subscribed to
+// makes go-control-plane withhold the whole EDS response. Recovery must move the
+// EDS version even when no endpoint content changed, or the restored cluster
+// stays warming until an unrelated endpoint update bumps it.
+func TestFilterEndpointResourcesDropsErroredClusterCLAs(t *testing.T) {
+	g := gomega.NewWithT(t)
+
+	// CDS carries only the healthy cluster: the errored one was dropped when its
+	// backend failed to translate, and the local cluster comes from Envoy's
+	// bootstrap rather than from this snapshot.
+	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
+		{Resource: &envoyclusterv3.Cluster{
+			Name:                 "healthy-cluster",
+			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
+		}},
+	})
+	endpoints := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
+		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "healthy-cluster"}},
+		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "errored-cluster"}},
+		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "local-cluster"}},
+	})
+	bootstrapNames := map[string]struct{}{"local-cluster": {}}
+
+	out := filterEndpointResourcesForClusters(clusters, endpoints, bootstrapNames)
+
+	g.Expect(out.Items).To(gomega.HaveKey("healthy-cluster"))
+	g.Expect(out.Items).To(gomega.HaveKey("local-cluster"),
+		"filtering must not require every CLA to have a matching dynamic CDS resource")
+	g.Expect(out.Items).ToNot(gomega.HaveKey("errored-cluster"))
+	g.Expect(out.Version).ToNot(gomega.Equal(endpoints.Version),
+		"entering the error state must change the EDS version")
+
+	// The BackendConfigPolicy is fixed: the cluster returns to CDS with the same
+	// endpoints it always had.
+	recoveredClusters := envoycache.NewResourcesWithTTL("v2", []envoycachetypes.ResourceWithTTL{
+		{Resource: &envoyclusterv3.Cluster{
+			Name:                 "healthy-cluster",
+			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
+		}},
+		{Resource: &envoyclusterv3.Cluster{
+			Name:                 "errored-cluster",
+			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
+		}},
+	})
+
+	recovered := filterEndpointResourcesForClusters(recoveredClusters, endpoints, bootstrapNames)
+
+	g.Expect(recovered.Items).To(gomega.HaveKey("errored-cluster"),
+		"leaving the error state must republish the recovered cluster's CLA")
+	g.Expect(recovered.Version).ToNot(gomega.Equal(out.Version),
+		"leaving the error state must change the EDS version even when endpoints did not change")
 }

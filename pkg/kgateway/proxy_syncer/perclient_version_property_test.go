@@ -75,6 +75,7 @@ func TestFilterEndpointResourcesForClusters_VersionDigestProperties(t *testing.T
 		out := filterEndpointResourcesForClusters(
 			envoycache.NewResourcesWithTTL("v-in", clusterResources),
 			envoycache.NewResourcesWithTTL("v-in", endpointResources),
+			nil,
 		)
 		return out.Version
 	}

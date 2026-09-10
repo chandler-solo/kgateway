@@ -3,7 +3,7 @@ package xdscheck
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	xdscorev3 "github.com/cncf/xds/go/xds/core/v3"
@@ -116,10 +116,6 @@ type Finding struct {
 // CheckSnapshot checks concrete LDS/RDS/CDS/EDS dependency invariants without
 // invoking Envoy or changing production behavior.
 func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	c := checker{}
 	c.routes = indexByName(s.Routes, "RouteConfiguration", func(r *envoyroutev3.RouteConfiguration) string {
 		return r.GetName()
@@ -201,7 +197,7 @@ func (c *checker) checkListener(ctx context.Context, listener *envoylistenerv3.L
 			fmt.Sprintf("%s FilterChain/%s TransportSocket", listenerResource(listener.GetName()), filterChainName),
 		)
 		for _, filter := range filterChain.GetFilters() {
-			if ctx.Err() != nil {
+			if ctxErr(ctx) != nil {
 				return
 			}
 			if filter.GetName() != envoywellknown.HTTPConnectionManager {
@@ -506,7 +502,7 @@ func (c *checker) checkGenericSecretFormatterTypedConfig(typedConfig anyTypedCon
 	for name := range formatter.GetSecretConfigs() {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	for _, name := range names {
 		c.requireSecret(formatter.GetSecretConfigs()[name], resource, fmt.Sprintf("secret_configs[%s]", name))
 	}
@@ -860,7 +856,7 @@ func (c *checker) checkXDSMatcherOnMatch(
 }
 
 func (c *checker) checkClusterTransportSockets(cluster *envoyclusterv3.Cluster) {
-	c.checkUpstreamTransportSocket(cluster.GetTransportSocket(), fmt.Sprintf("%s TransportSocket", clusterResource(cluster.GetName())))
+	c.checkUpstreamTransportSocket(cluster.GetTransportSocket(), clusterResource(cluster.GetName())+" TransportSocket")
 	for _, match := range cluster.GetTransportSocketMatches() {
 		matchName := match.GetName()
 		if matchName == "" {
@@ -982,7 +978,7 @@ func (c *checker) checkHCMRouteSpecifier(ctx context.Context, listenerName, filt
 				fmt.Sprintf("listener %q filter chain %q references missing RDS route configuration %q", listenerName, filterChainName, routeName))
 		}
 	case *envoyhcmv3.HttpConnectionManager_RouteConfig:
-		c.checkRouteConfiguration(ctx, routeSpecifier.RouteConfig, fmt.Sprintf("%s InlineRouteConfiguration", resource))
+		c.checkRouteConfiguration(ctx, routeSpecifier.RouteConfig, resource+" InlineRouteConfiguration")
 	case *envoyhcmv3.HttpConnectionManager_ScopedRoutes:
 		c.add(SeverityWarning, CodeUnsupportedHCMRouteSpecifier, resource,
 			"scoped_routes route specifier is not validated by xdscheck")
@@ -1000,7 +996,7 @@ func (c *checker) checkRouteConfiguration(ctx context.Context, routeConfig *envo
 		return
 	}
 	for _, virtualHost := range routeConfig.GetVirtualHosts() {
-		if ctx.Err() != nil {
+		if ctxErr(ctx) != nil {
 			return
 		}
 		vhostResource := fmt.Sprintf("%s VirtualHost/%s", resourcePrefix, virtualHost.GetName())
@@ -1163,8 +1159,17 @@ func requiredEndpointNames(clusters []*envoyclusterv3.Cluster) map[string]string
 	return out
 }
 
+// ctxErr reports ctx's error, treating a nil context as "not canceled" so a
+// caller that has no context still gets a complete check.
+func ctxErr(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
+}
+
 func (c *checker) isCanceled(ctx context.Context) bool {
-	err := ctx.Err()
+	err := ctxErr(ctx)
 	if err == nil {
 		return false
 	}
@@ -1202,17 +1207,17 @@ func indexByName[T any](items []T, typeName string, nameOf func(T) string, findi
 }
 
 func listenerResource(name string) string {
-	return fmt.Sprintf("Listener/%s", name)
+	return "Listener/" + name
 }
 
 func routeResource(name string) string {
-	return fmt.Sprintf("RouteConfiguration/%s", name)
+	return "RouteConfiguration/" + name
 }
 
 func clusterResource(name string) string {
-	return fmt.Sprintf("Cluster/%s", name)
+	return "Cluster/" + name
 }
 
 func clusterLoadAssignmentResource(name string) string {
-	return fmt.Sprintf("ClusterLoadAssignment/%s", name)
+	return "ClusterLoadAssignment/" + name
 }

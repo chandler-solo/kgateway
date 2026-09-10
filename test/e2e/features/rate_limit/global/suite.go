@@ -10,32 +10,20 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/suite"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e"
 	"github.com/kgateway-dev/kgateway/v2/test/e2e/common"
+	"github.com/kgateway-dev/kgateway/v2/test/e2e/tests/base"
 	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	testmatchers "github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
-	"github.com/kgateway-dev/kgateway/v2/test/testutils"
 )
 
 var _ e2e.NewSuiteFunc = NewTestingSuite
 
 // testingSuite is a suite of global rate limiting tests
 type testingSuite struct {
-	suite.Suite
-
-	ctx context.Context
-
-	// testInstallation contains all the metadata/utilities necessary to execute a series of tests
-	// against an installation of kgateway
-	testInstallation *e2e.TestInstallation
-
-	// manifests shared by all tests
-	commonManifests []string
-	// resources from manifests shared by all tests
-	commonResources []client.Object
+	*base.BaseTestingSuite
 }
 
 // rlBurstTries: run a tiny burst so all checks stay in one fixed RL window.
@@ -45,67 +33,36 @@ type testingSuite struct {
 var rlBurstTries = 3
 
 func NewTestingSuite(ctx context.Context, testInst *e2e.TestInstallation) suite.TestingSuite {
+	setup := base.TestCase{
+		Manifests: []string{
+			commonManifest,
+			rateLimitServerManifest,
+		},
+	}
+	testCases := map[string]*base.TestCase{
+		"TestGlobalRateLimitByRemoteAddress": {
+			Manifests: []string{httpRoutesManifest, ipRateLimitManifest},
+		},
+		"TestGlobalRateLimitEnvoyAcceptsRateLimitCluster": {
+			Manifests: []string{httpRoutesManifest, ipRateLimitManifest},
+		},
+		"TestGlobalRateLimitByPath": {
+			Manifests: []string{httpRoutesManifest, pathRateLimitManifest},
+		},
+		"TestGlobalRateLimitByUserID": {
+			Manifests: []string{httpRoutesManifest, userRateLimitManifest},
+		},
+		"TestCombinedLocalAndGlobalRateLimit": {
+			Manifests: []string{httpRoutesManifest, combinedRateLimitManifest},
+		},
+	}
 	return &testingSuite{
-		ctx:              ctx,
-		testInstallation: testInst,
+		BaseTestingSuite: base.NewBaseTestingSuite(ctx, testInst, setup, testCases),
 	}
-}
-
-func (s *testingSuite) SetupSuite() {
-	s.commonManifests = []string{
-		commonManifest,
-		simpleServiceManifest,
-		rateLimitServerManifest,
-	}
-	s.commonResources = []client.Object{
-		// resources from service manifest
-		simpleSvc, simpleDeployment,
-		// resources from gateway extension manifest
-		gatewayExtension,
-		// rate limit service resources
-		rateLimitDeployment, rateLimitService, rateLimitConfigMap,
-	}
-
-	// set up common resources once
-	for _, manifest := range s.commonManifests {
-		err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, manifest)
-		s.Require().NoError(err, "can apply "+manifest)
-	}
-	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, s.commonResources...)
-
-	// make sure pods are running
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, simpleDeployment.GetNamespace(), metav1.ListOptions{
-		LabelSelector: "app=backend-0,version=v1",
-	})
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsRunning(s.ctx, rateLimitDeployment.GetNamespace(), metav1.ListOptions{
-		LabelSelector: "app=ratelimit",
-	})
-}
-
-func (s *testingSuite) TearDownSuite() {
-	if testutils.ShouldSkipCleanup(s.T()) {
-		return
-	}
-	// clean up common resources
-	for _, manifest := range s.commonManifests {
-		err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
-		s.Require().NoError(err, "can delete "+manifest)
-	}
-	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsNotExist(s.ctx, s.commonResources...)
-
-	// make sure pods are gone
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsNotExist(s.ctx, simpleDeployment.GetNamespace(), metav1.ListOptions{
-		LabelSelector: "app=backend-0,version=v1",
-	})
-	s.testInstallation.AssertionsT(s.T()).EventuallyPodsNotExist(s.ctx, rateLimitDeployment.GetNamespace(), metav1.ListOptions{
-		LabelSelector: "app=ratelimit",
-	})
 }
 
 // Test cases for global rate limit based on remote address (client IP)
 func (s *testingSuite) TestGlobalRateLimitByRemoteAddress() {
-	s.setupTest([]string{httpRoutesManifest, ipRateLimitManifest}, []client.Object{route, route2, ipRateLimitTrafficPolicy})
-
 	// First request should be successful
 	s.assertResponse("/path1", http.StatusOK)
 
@@ -116,16 +73,15 @@ func (s *testingSuite) TestGlobalRateLimitByRemoteAddress() {
 	s.assertConsistentResponse("/path2", http.StatusTooManyRequests)
 }
 
+// TestGlobalRateLimitEnvoyAcceptsRateLimitCluster asserts that the rate limit service
+// cluster the policy references reaches Envoy's CDS: without it the filter is configured
+// against a cluster the proxy does not have.
 func (s *testingSuite) TestGlobalRateLimitEnvoyAcceptsRateLimitCluster() {
-	s.setupTest([]string{httpRoutesManifest, ipRateLimitManifest}, []client.Object{route, route2, ipRateLimitTrafficPolicy})
-
 	s.assertEnvoyClusterExists("kube_kgateway-test-extensions_ratelimit_8081")
 }
 
 // Test cases for global rate limit based on request path
 func (s *testingSuite) TestGlobalRateLimitByPath() {
-	s.setupTest([]string{httpRoutesManifest, pathRateLimitManifest}, []client.Object{route, route2, pathRateLimitTrafficPolicy})
-
 	// First request should be successful
 	s.assertResponse("/path1", http.StatusOK)
 
@@ -138,8 +94,6 @@ func (s *testingSuite) TestGlobalRateLimitByPath() {
 
 // Test cases for global rate limit based on user ID header
 func (s *testingSuite) TestGlobalRateLimitByUserID() {
-	s.setupTest([]string{httpRoutesManifest, userRateLimitManifest}, []client.Object{route, route2, userRateLimitTrafficPolicy})
-
 	// First request should be successful
 	s.assertResponseWithHeader("/path1", "X-User-ID", "user1", http.StatusOK)
 
@@ -152,29 +106,11 @@ func (s *testingSuite) TestGlobalRateLimitByUserID() {
 
 // Test cases for combined local and global rate limiting
 func (s *testingSuite) TestCombinedLocalAndGlobalRateLimit() {
-	s.setupTest([]string{httpRoutesManifest, combinedRateLimitManifest}, []client.Object{route, route2, combinedRateLimitTrafficPolicy})
-
 	// First request should be successful
 	s.assertResponse("/path1", http.StatusOK)
 
 	// Consecutive requests should be rate limited
 	s.assertConsistentResponse("/path1", http.StatusTooManyRequests)
-}
-
-func (s *testingSuite) setupTest(manifests []string, resources []client.Object) {
-	testutils.Cleanup(s.T(), func() {
-		for _, manifest := range manifests {
-			err := s.testInstallation.Actions.Kubectl().DeleteFileSafe(s.ctx, manifest)
-			s.Require().NoError(err)
-		}
-		s.testInstallation.AssertionsT(s.T()).EventuallyObjectsNotExist(s.ctx, resources...)
-	})
-
-	for _, manifest := range manifests {
-		err := s.testInstallation.Actions.Kubectl().ApplyFile(s.ctx, manifest)
-		s.Require().NoError(err, "can apply "+manifest)
-	}
-	s.testInstallation.AssertionsT(s.T()).EventuallyObjectsExist(s.ctx, resources...)
 }
 
 func (s *testingSuite) assertResponse(path string, expectedStatus int) {
@@ -231,11 +167,11 @@ func (s *testingSuite) assertConsistentResponseWithHeader(path, headerName, head
 
 func (s *testingSuite) assertEnvoyClusterExists(clusterName string) {
 	proxyObjectMeta := metav1.ObjectMeta{
-		Name:      "gateway",
-		Namespace: namespace,
+		Name:      common.BaseGateway.Name,
+		Namespace: common.BaseGateway.Namespace,
 	}
-	s.testInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.ctx, proxyObjectMeta, func(ctx context.Context, adminClient *admincli.Client) {
-		s.testInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
+	s.TestInstallation.AssertionsT(s.T()).AssertEnvoyAdminApi(s.Ctx, proxyObjectMeta, func(ctx context.Context, adminClient *admincli.Client) {
+		s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 			clusters, err := adminClient.GetDynamicClusters(ctx)
 			g.Expect(err).NotTo(gomega.HaveOccurred(), "can get dynamic clusters")
 			_, ok := clusters[clusterName]

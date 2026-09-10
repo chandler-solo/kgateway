@@ -11,7 +11,6 @@ clusters:
             socketAddress:
               address: 1.1.1.1
               portValue: 80
-        loadBalancingWeight: 1
       loadBalancingWeight: 1
       locality:
         region: r1
@@ -23,7 +22,6 @@ clusters:
             socketAddress:
               address: 2.2.2.2
               portValue: 80
-        loadBalancingWeight: 1
       loadBalancingWeight: 1
       locality:
         region: r1
@@ -36,7 +34,6 @@ clusters:
             socketAddress:
               address: 3.3.3.3
               portValue: 80
-        loadBalancingWeight: 1
       loadBalancingWeight: 1
       locality:
         region: r2
@@ -54,7 +51,9 @@ clusters:
       resourceApiVersion: V3
   name: istio-se_gwtest_workloads-se_se-b.example.com_80
   type: EDS
-- connectTimeout: 5s
+- commonLbConfig:
+    localityWeightedLbConfig: {}
+  connectTimeout: 5s
   edsClusterConfig:
     edsConfig:
       ads: {}
@@ -71,7 +70,6 @@ endpoints:
           socketAddress:
             address: 1.1.1.1
             portValue: 80
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r1
@@ -83,7 +81,6 @@ endpoints:
           socketAddress:
             address: 2.2.2.2
             portValue: 80
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r1
@@ -96,7 +93,6 @@ endpoints:
           socketAddress:
             address: 3.3.3.3
             portValue: 80
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r2

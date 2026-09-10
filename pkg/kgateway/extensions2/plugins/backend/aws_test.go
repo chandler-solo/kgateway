@@ -14,6 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kgateway-dev/kgateway/v2/api/v1alpha1/kgateway"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 )
 
 func TestProcessAwsUsesDnsClusterWithSingleEndpointAggregation(t *testing.T) {
@@ -35,6 +37,61 @@ func TestProcessAwsUsesDnsClusterWithSingleEndpointAggregation(t *testing.T) {
 	err = anypb.UnmarshalTo(clusterType.GetTypedConfig(), &dnsCluster, proto.UnmarshalOptions{})
 	require.NoError(t, err)
 	assert.True(t, dnsCluster.GetAllAddressesInSingleEndpoint(), "aws backends should aggregate resolved addresses into a single endpoint")
+}
+
+func TestConfigureAWSAuthDefaultProviderChain(t *testing.T) {
+	signing, err := configureAWSAuth(nil, nil, "us-east-1")
+	require.NoError(t, err)
+	assert.Equal(t, lambdaServiceName, signing.GetServiceName())
+	assert.Equal(t, "us-east-1", signing.GetRegion())
+	assert.Nil(t, signing.GetCredentialProvider(), "default provider chain should not set an explicit credential provider")
+}
+
+func TestConfigureAWSAuthSecret(t *testing.T) {
+	secret := &ir.Secret{Data: map[string][]byte{
+		wellknown.AccessKey:    []byte("access"),
+		wellknown.SecretKey:    []byte("secret"),
+		wellknown.SessionToken: []byte("session"),
+	}}
+	auth := &kgateway.AwsAuth{
+		Type:      kgateway.AwsAuthTypeSecret,
+		SecretRef: &corev1.LocalObjectReference{Name: "aws-creds"},
+	}
+
+	signing, err := configureAWSAuth(auth, secret, "us-east-1")
+	require.NoError(t, err)
+	inline := signing.GetCredentialProvider().GetInlineCredential()
+	require.NotNil(t, inline)
+	assert.Equal(t, "access", inline.GetAccessKeyId())
+	assert.Equal(t, "secret", inline.GetSecretAccessKey())
+	assert.Equal(t, "session", inline.GetSessionToken())
+}
+
+func TestConfigureAWSAuthSecretMissing(t *testing.T) {
+	auth := &kgateway.AwsAuth{Type: kgateway.AwsAuthTypeSecret, SecretRef: &corev1.LocalObjectReference{Name: "aws-creds"}}
+	_, err := configureAWSAuth(auth, nil, "us-east-1")
+	require.Error(t, err)
+}
+
+func TestConfigureAWSAuthAssumeRole(t *testing.T) {
+	auth := &kgateway.AwsAuth{
+		Type:       kgateway.AwsAuthTypeAssumeRole,
+		AssumeRole: &kgateway.AwsAssumeRole{RoleArn: "arn:aws:iam::311275790335:role/project-invoke-role"},
+	}
+
+	signing, err := configureAWSAuth(auth, nil, "us-east-1")
+	require.NoError(t, err)
+
+	assumeRole := signing.GetCredentialProvider().GetAssumeRoleCredentialProvider()
+	require.NotNil(t, assumeRole, "assume role auth should set the assume role credential provider")
+	assert.Equal(t, "arn:aws:iam::311275790335:role/project-invoke-role", assumeRole.GetRoleArn())
+	// The nested credential provider must be left unset so Envoy signs the AssumeRole call with an
+	// inner default provider chain (IRSA, Pod Identity, instance profile, env vars, ...).
+	assert.Nil(t, assumeRole.GetCredentialProvider(), "base credential provider should be unset to use the gateway's ambient credentials")
+	// Envoy's default chain discards an assume-role provider passed as a modifier, so a custom
+	// chain is required for the provider to take effect at all.
+	assert.True(t, signing.GetCredentialProvider().GetCustomCredentialProviderChain(),
+		"custom credential provider chain must be set or Envoy silently ignores the assume role provider")
 }
 
 func TestBuildLambdaARNUsesPreferredNestedAccountID(t *testing.T) {
@@ -67,7 +124,7 @@ func TestBuildLambdaARNFallsBackToDeprecatedBackendAccountID(t *testing.T) {
 }
 
 func TestBuildTranslateFuncFailsClosedForLambdaEndpointWithoutPort(t *testing.T) {
-	translate := buildTranslateFunc(nil, true)
+	translate := buildTranslateFunc(nil, nil, true)
 
 	backendIR := translate(krt.TestingDummyContext{}, newLambdaBackend("lambda-backend", "https://lambda.us-east-1.amazonaws.com"))
 
@@ -89,8 +146,8 @@ func TestBackendIrEqualsDetectsLambdaErrorOnlyChanges(t *testing.T) {
 		},
 	}
 
-	missingSecretIR := buildTranslateFunc(newSecretIndexForTest(t), true)(krt.TestingDummyContext{}, backend)
-	invalidSecretIR := buildTranslateFunc(newSecretIndexForTest(t, &corev1.Secret{
+	missingSecretIR := buildTranslateFunc(nil, newSecretIndexForTest(t), true)(krt.TestingDummyContext{}, backend)
+	invalidSecretIR := buildTranslateFunc(nil, newSecretIndexForTest(t, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            "lambda-secret",
 			Namespace:       "kgateway-base",

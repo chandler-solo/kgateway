@@ -1,7 +1,8 @@
 package proxy_syncer
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -90,10 +91,10 @@ func emitXdsSnapshotTrace(
 	for name := range referencedClusters {
 		event.ReferencedClusters = append(event.ReferencedClusters, name)
 	}
-	sort.Strings(event.ReferencedClusters)
+	slices.Sort(event.ReferencedClusters)
 	event.ExemptClusters = append(event.ExemptClusters, erroredClusters...)
 	event.ExemptClusters = append(event.ExemptClusters, wellknown.BlackholeClusterName)
-	sort.Strings(event.ExemptClusters)
+	slices.Sort(event.ExemptClusters)
 	for name, item := range clusters.Items {
 		edsName, isEDS := endpointResourceNameForCluster(item)
 		event.Clusters = append(event.Clusters, XdsSnapshotTraceCluster{
@@ -102,8 +103,8 @@ func emitXdsSnapshotTrace(
 			EDSName: edsName,
 		})
 	}
-	sort.Slice(event.Clusters, func(i, j int) bool {
-		return event.Clusters[i].Name < event.Clusters[j].Name
+	slices.SortFunc(event.Clusters, func(a, b XdsSnapshotTraceCluster) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	for _, item := range endpoints.Items {
 		cla, ok := item.Resource.(*envoyendpointv3.ClusterLoadAssignment)
@@ -115,8 +116,8 @@ func emitXdsSnapshotTrace(
 			Usable: clusterLoadAssignmentHasUsableEndpoint(item),
 		})
 	}
-	sort.Slice(event.Endpoints, func(i, j int) bool {
-		return event.Endpoints[i].Name < event.Endpoints[j].Name
+	slices.SortFunc(event.Endpoints, func(a, b XdsSnapshotTraceEndpoint) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 	event.EndpointsVersion = endpoints.Version
 

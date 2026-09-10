@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -21,6 +21,12 @@ func (s *ProxyTranslator) syncXds(
 ) {
 	snap := snapWrap.snap
 	proxyKey := snapWrap.proxyKey
+
+	// Errored clusters intentionally fail closed. Restoring a cluster from the previous
+	// snapshot could keep serving with stale configuration that bypasses the security
+	// policy whose validation now fails. snapshotPerClient omits both the errored cluster
+	// and its endpoint assignment so that only the affected backend fails, without
+	// blocking xDS updates for unrelated clusters.
 
 	// stringifying the snapshot may be an expensive operation, so we'd like to avoid building the large
 	// string if we're not even going to log it anyway
@@ -140,7 +146,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		}
 		flipBlocking = append(flipBlocking, name)
 	}
-	sort.Strings(flipBlocking)
+	slices.Sort(flipBlocking)
 
 	composed := &envoycache.Snapshot{}
 	*composed = *snapWrap.snap
@@ -221,7 +227,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		}
 	}
 	if len(carried) > 0 {
-		sort.Strings(carried)
+		slices.Sort(carried)
 		var carryHash uint64
 		for _, name := range carried {
 			carryHash ^= utils.HashString(name)

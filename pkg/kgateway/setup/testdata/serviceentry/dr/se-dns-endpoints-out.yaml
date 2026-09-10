@@ -17,7 +17,6 @@ clusters:
             socketAddress:
               address: foo.external.com
               portValue: 80
-        loadBalancingWeight: 1
       loadBalancingWeight: 1
       locality:
         region: r1
@@ -30,7 +29,6 @@ clusters:
             socketAddress:
               address: 1.1.1.1
               portValue: 80
-        loadBalancingWeight: 1
       loadBalancingWeight: 1
       locality:
         region: r2
@@ -42,7 +40,9 @@ clusters:
     baseEjectionTime: 900s
     consecutive5xx: 7
     interval: 300s
-- connectTimeout: 5s
+- commonLbConfig:
+    localityWeightedLbConfig: {}
+  connectTimeout: 5s
   edsClusterConfig:
     edsConfig:
       ads: {}

@@ -3,6 +3,7 @@ package validator
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -96,13 +97,14 @@ func (b *binaryValidator) Validate(ctx context.Context, bootstrap *envoybootstra
 	cmd.Stderr = &e
 	if err := cmd.Run(); err != nil {
 		rawErr := normalizeEnvoyError(e.String())
-		if _, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			if rawErr == "" {
 				rawErr = err.Error()
 			}
 			return fmt.Errorf("%w: %s", ErrInvalidXDS, rawErr)
 		}
-		return fmt.Errorf("envoy validate invocation failed: %v", err)
+		return fmt.Errorf("envoy validate invocation failed: %w", err)
 	}
 	return nil
 }
@@ -159,7 +161,7 @@ func (d *dockerValidator) args() []string {
 		args = append(args, "--pull", d.pull)
 	}
 	if d.etcEnvoy != "" {
-		args = append(args, "-v", fmt.Sprintf("%s:/etc/envoy/:ro", d.etcEnvoy))
+		args = append(args, "-v", d.etcEnvoy+":/etc/envoy/:ro")
 	}
 	args = append(args,
 		"--entrypoint", "/usr/local/bin/envoy",
@@ -194,7 +196,8 @@ func (d *dockerValidator) Validate(ctx context.Context, bootstrap *envoybootstra
 	}
 
 	rawErr := strings.TrimSpace(stderr.String())
-	if _, ok := err.(*exec.ExitError); ok {
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
 		// Extract just the envoy error message, ignoring Docker pull output
 		if envoyErr := extractEnvoyError(rawErr); envoyErr != "" {
 			return fmt.Errorf("%w: %s", ErrInvalidXDS, normalizeEnvoyError(envoyErr))
@@ -204,7 +207,7 @@ func (d *dockerValidator) Validate(ctx context.Context, bootstrap *envoybootstra
 		}
 		return fmt.Errorf("%w: %s", ErrInvalidXDS, normalizeEnvoyError(rawErr))
 	}
-	return fmt.Errorf("envoy validate invocation failed: %v", err)
+	return fmt.Errorf("envoy validate invocation failed: %w", err)
 }
 
 // extractEnvoyError extracts the actual Envoy validation error from stderr output,
@@ -263,4 +266,15 @@ func prepareBootstrapConfig(bootstrap *envoybootstrapv3.Bootstrap) ([]byte, erro
 	clone.ApplicationLogConfig = nil
 
 	return protojson.Marshal(clone)
+}
+
+// cacheKeyFor returns a stable content hash of the marshalled bootstrap config,
+// suitable as a cache key.
+func cacheKeyFor(bootstrap *envoybootstrapv3.Bootstrap) (string, error) {
+	marshalled, err := prepareBootstrapConfig(bootstrap)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(marshalled)
+	return string(sum[:]), nil
 }

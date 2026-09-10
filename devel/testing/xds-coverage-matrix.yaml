@@ -18,7 +18,6 @@ translatorFixtureRoots:
   - http-routing-invalid-backend
   - http-routing-missing-backend
   - http-with-header-modifier
-  - httplistenerpolicy
   - httproute-timeout-retry
   - https-listener-pol
   - https-routing
@@ -31,7 +30,9 @@ translatorFixtureRoots:
   - multiple-listeners-http-routing
   - multiple-listeners-https-routing
   - rbac
+  - reference-grant-mode
   - route-replacement
+  - route-source-metadata
   - session-persistence
   - status
   - tcp-routing

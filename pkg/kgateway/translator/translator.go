@@ -36,7 +36,7 @@ type CombinedTranslator struct {
 	gwtranslator      sdk.KGwTranslator
 	irtranslator      *irtranslator.Translator
 	backendTranslator *irtranslator.BackendTranslator
-	endpointPlugins   []sdk.EndpointPlugin
+	endpointPlugins   []irtranslator.EndpointPlugin
 
 	logger *slog.Logger
 }
@@ -47,16 +47,10 @@ func NewCombinedTranslator(
 	commonCols *collections.CommonCollections,
 	validator validator.Validator,
 ) *CombinedTranslator {
-	var endpointPlugins []sdk.EndpointPlugin
-	for _, ext := range extensions.ContributesPolicies {
-		if ext.PerClientProcessEndpoints != nil {
-			endpointPlugins = append(endpointPlugins, ext.PerClientProcessEndpoints)
-		}
-	}
 	return &CombinedTranslator{
 		commonCols:      commonCols,
 		extensions:      extensions,
-		endpointPlugins: endpointPlugins,
+		endpointPlugins: irtranslator.OrderedEndpointPlugins(extensions.ContributesPolicies),
 		logger:          logger,
 		validator:       validator,
 		waitForSync:     []cache.InformerSynced{extensions.HasSynced},
@@ -75,13 +69,15 @@ func (s *CombinedTranslator) Init(ctx context.Context) {
 
 	s.gwtranslator = gwtranslator.NewTranslator(queries, listenerTranslatorConfig)
 	s.irtranslator = &irtranslator.Translator{
-		ContributedPolicies: s.extensions.ContributesPolicies,
-		ValidationLevel:     s.commonCols.Settings.ValidationMode,
-		Validator:           s.validator,
+		ContributedPolicies:       s.extensions.ContributesPolicies,
+		ValidationLevel:           s.commonCols.Settings.ValidationMode,
+		Validator:                 s.validator,
+		EnableRouteSourceMetadata: s.commonCols.Settings.EnableRouteSourceMetadata,
 	}
 	s.backendTranslator = &irtranslator.BackendTranslator{
 		ContributedBackends: make(map[schema.GroupKind]ir.BackendInit),
 		ContributedPolicies: s.extensions.ContributesPolicies,
+		EndpointPlugins:     s.endpointPlugins,
 		CommonCols:          s.commonCols,
 		Validator:           s.validator,
 		Mode:                s.commonCols.Settings.ValidationMode,
@@ -145,14 +141,15 @@ func (s *CombinedTranslator) TranslateGateway(kctx krt.HandlerContext, ctx conte
 	return &xdsSnap, rm
 }
 
-func (s *CombinedTranslator) TranslateEndpoints(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient, ep ir.EndpointsForBackend) (*envoyendpointv3.ClusterLoadAssignment, uint64) {
-	epInputs := endpoints.EndpointsInputs{
+func (s *CombinedTranslator) TranslateEndpoints(
+	kctx krt.HandlerContext,
+	ucc ir.UniquelyConnectedClient,
+	ep ir.EndpointsForBackend,
+) (*envoyendpointv3.ClusterLoadAssignment, uint64, uint64) {
+	epInputs, additionalHash := irtranslator.ResolveEndpointInputs(kctx, context.TODO(), ucc, endpoints.EndpointsInputs{
 		EndpointsForBackend: ep,
-	}
-	var hash uint64
-	for _, processEndpoints := range s.endpointPlugins {
-		additionalHash := processEndpoints(kctx, context.TODO(), ucc, &epInputs)
-		hash ^= additionalHash
-	}
-	return endpoints.PrioritizeEndpoints(s.logger, ucc, epInputs), hash
+	}, s.endpointPlugins)
+	return endpoints.PrioritizeEndpoints(s.logger, ucc, epInputs),
+		epInputs.EndpointsForBackend.LbEpsEqualityHash,
+		additionalHash
 }

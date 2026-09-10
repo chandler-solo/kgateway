@@ -50,7 +50,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -124,7 +124,7 @@ func (w *propWorld) referencedList() []string {
 			out = append(out, c)
 		}
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -182,7 +182,7 @@ func edsContentSignature(snap *envoycache.Snapshot) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s:%d", name, utils.HashProto(cla)))
 	}
-	sort.Strings(parts)
+	slices.Sort(parts)
 	return fmt.Sprintf("%v", parts)
 }
 

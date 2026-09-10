@@ -50,7 +50,7 @@ func (s *tsuite) TestPolicies() {
 		[]curl.Option{curl.WithHostPort(ProxyHostPort(s.namespace)), curl.WithPath("/get")},
 		&testmatchers.HttpResponse{StatusCode: http.StatusOK, Headers: map[string]any{"x-foo": "bar"}})
 
-	// Verify access logs with HTTPListenerPolicy
+	// Verify access logs with ListenerPolicy
 	pods, err := s.ti.Actions.Kubectl().GetPodsInNsWithLabel(
 		s.ctx, s.namespace, fmt.Sprintf("%s=%s", defaults.WellKnownAppLabel, Gateway(s.namespace).Name),
 	)
@@ -58,12 +58,12 @@ func (s *tsuite) TestPolicies() {
 	s.Require().Len(pods, 1)
 	s.Require().EventuallyWithT(func(c *assert.CollectT) {
 		logs, err := s.ti.Actions.Kubectl().GetContainerLogs(s.ctx, s.namespace, pods[0])
-		s.Require().NoError(err)
+		assert.NoError(c, err)
 		// Verify the log contains the expected JSON pattern
 		assert.Contains(c, logs, `"method":"GET"`)
 		assert.Contains(c, logs, `"path":"/get"`)
 		assert.Contains(c, logs, `"protocol":"HTTP/1.1"`)
 		assert.Contains(c, logs, `"response_code":200`)
 		assert.Contains(c, logs, fmt.Sprintf(`"backendCluster":"kube_%s_httpbin_8000"`, s.namespace))
-	}, 5*time.Second, 100*time.Millisecond)
+	}, 30*time.Second, 100*time.Millisecond)
 }

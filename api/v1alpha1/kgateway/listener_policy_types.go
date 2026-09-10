@@ -119,6 +119,16 @@ type ListenerConfig struct {
 	// that should map 1-to-1 with a given HTTP listener, such as the Envoy health check HTTP filter.
 	// +optional
 	HTTPSettings *HTTPSettings `json:"httpSettings,omitempty"`
+
+	// TransportSocketConnectTimeout is the timeout for the transport socket to complete after a new connection is accepted.
+	// If the timeout fires, the connection is closed. Setting this protects Envoy from clients that open connections and
+	// then never complete the TLS handshake. Applied to every filter chain on the listener.
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/listener/v3/listener_components.proto#envoy-v3-api-field-config-listener-v3-filterchain-transport-socket-connect-timeout
+	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
+	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
+	TransportSocketConnectTimeout *metav1.Duration `json:"transportSocketConnectTimeout,omitempty"`
 }
 
 type ListenerDefaultConfig struct {
@@ -176,6 +186,10 @@ type HTTPSettings struct {
 	// +optional
 	Tracing *Tracing `json:"tracing,omitempty"`
 
+	// LocalReplies configures how Envoy's local replies are formatted etc.
+	// +optional
+	LocalReplies *LocalReplyConfig `json:"localReplies,omitempty"`
+
 	// UpgradeConfig contains configuration for HTTP upgrades like WebSocket.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/v1.34.1/intro/arch_overview/http/upgrades.html
 	// +optional
@@ -201,6 +215,28 @@ type HTTPSettings struct {
 	// See here for more information https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-generate-request-id
 	// +optional
 	GenerateRequestId *bool `json:"generateRequestId,omitempty"`
+
+	// NormalizePath determines whether the connection manager normalizes the path per RFC 3986 before
+	// routing, e.g. collapsing `.` and `..` segments and decoding percent-encoded characters. This
+	// defaults to true. Disable this if a backend (e.g. an S3-compatible object store) needs to see
+	// the original, unnormalized request path.
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-normalize-path
+	// +optional
+	NormalizePath *bool `json:"normalizePath,omitempty"`
+
+	// MergeSlashes determines whether the connection manager merges adjacent slashes in the request
+	// path before routing. This defaults to true. Disable this if a backend (e.g. an S3-compatible
+	// object store) relies on repeated slashes in the path having meaning, such as object keys that
+	// contain "//".
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-merge-slashes
+	// +optional
+	MergeSlashes *bool `json:"mergeSlashes,omitempty"`
+
+	// Proxy100Continue determines whether Envoy forwards requests with an
+	// Expect: 100-continue header upstream and proxies upstream 100 Continue
+	// responses downstream. When unset or false, Envoy handles the response locally.
+	// +optional
+	Proxy100Continue *bool `json:"proxy100Continue,omitempty"`
 
 	// XffNumTrustedHops is the number of additional ingress proxy hops from the right side of the X-Forwarded-For HTTP header to trust when determining the origin client's IP address.
 	// This is mutually exclusive with XffTrustedCIDRs.
@@ -228,15 +264,25 @@ type HTTPSettings struct {
 	// +optional
 	ServerHeaderTransformation *ServerHeaderTransformation `json:"serverHeaderTransformation,omitempty"`
 
+	// ServerName determines the value of the server header.
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-server-name
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	ServerName *string `json:"serverName,omitempty"`
+
 	// StreamIdleTimeout is the idle timeout for HTTP streams.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-stream-idle-timeout
 	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	StreamIdleTimeout *metav1.Duration `json:"streamIdleTimeout,omitempty"`
 
 	// IdleTimeout is the idle timeout for connections.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-msg-config-core-v3-httpprotocoloptions
 	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	IdleTimeout *metav1.Duration `json:"idleTimeout,omitempty"`
 
@@ -250,6 +296,14 @@ type HTTPSettings struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxRequestsPerConnection *int32 `json:"maxRequestsPerConnection,omitempty"`
 
+	// MaxHeadersCount sets the maximum number of headers allowed in a request.
+	// Downstream requests that exceed this limit will receive a 431 response for HTTP/1.x and a
+	// stream reset for HTTP/2. If unset, defaults to Envoy's built-in default of 100.
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#envoy-v3-api-field-config-core-v3-httpprotocoloptions-max-headers-count
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxHeadersCount *int32 `json:"maxHeadersCount,omitempty"`
+
 	// Http2ProtocolOptions configures downstream HTTP/2 behavior on the listener's
 	// HttpConnectionManager.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/core/v3/protocol.proto#config-core-v3-http2protocoloptions
@@ -259,6 +313,11 @@ type HTTPSettings struct {
 	// HealthCheck configures [Envoy health checks](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/health_check/v3/health_check.proto)
 	// +optional
 	HealthCheck *EnvoyHealthCheck `json:"healthCheck,omitempty"`
+
+	// GrpcStats configures Envoy's gRPC statistics filter for per-service/method
+	// gRPC metrics (including grpc-status) on this listener.
+	// +optional
+	GrpcStats *GrpcStats `json:"grpcStats,omitempty"`
 
 	// PreserveHttp1HeaderCase determines whether to preserve the case of HTTP1 request headers.
 	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_conn_man/header_casing
@@ -313,6 +372,16 @@ type HTTPSettings struct {
 	// +kubebuilder:validation:Enum=MatchingPort;AnyPort
 	// +optional
 	StripHostPortMode *StripHostPortMode `json:"stripHostPortMode,omitempty"`
+
+	// StripTrailingHostDot determines whether Envoy strips the trailing dot from the
+	// Host/authority header before any filter processing or route matching. Without this,
+	// a request whose host is a fully qualified domain name with a trailing dot (for example
+	// "example.com.") does not match routes configured for the hostname "example.com".
+	// The stripped value is also what gets forwarded upstream.
+	// If unset, the trailing dot is kept (Envoy's default).
+	// See here for more information: https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/network/http_connection_manager/v3/http_connection_manager.proto#envoy-v3-api-field-extensions-filters-network-http-connection-manager-v3-httpconnectionmanager-strip-trailing-host-dot
+	// +optional
+	StripTrailingHostDot *bool `json:"stripTrailingHostDot,omitempty"`
 }
 
 // AccessLog represents the top-level access log configuration.
@@ -332,6 +401,44 @@ type AccessLog struct {
 	// Filter access logs configuration
 	// +optional
 	Filter *AccessLogFilter `json:"filter,omitempty"`
+}
+
+// LocalReplyConfig represents the listener-wide options for local replies returned by Envoy (e.g. errors, direct responses)
+// +kubebuilder:validation:AtLeastOneOf=mappers;defaultBodyFormat
+type LocalReplyConfig struct {
+	// DefaultBodyFormat is the format to use for local reply bodies if it's not overridden by any mapper.
+	// You can use the `%LOCAL_REPLY_BODY%` substitution to insert the original reply such as an error message.
+	// +optional
+	DefaultBodyFormat *shared.BodyFormat `json:"defaultBodyFormat,omitempty"`
+	// A list of custom options to apply based on filters. This may override the DefaultBodyFormat.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	Mappers []LocalReplyMapper `json:"mappers,omitempty"`
+}
+
+// LocalReplyMapper may customize the local reply based on stream, request, and response properties such as status code.
+// +kubebuilder:validation:AtLeastOneOf=statusCode;body;bodyFormatOverride;headers
+type LocalReplyMapper struct {
+	// A filter that determines if this mapper should apply.
+	// +required
+	Filter AccessLogFilter `json:"filter"`
+	// New response status code for the reply if specified.
+	// +kubebuilder:validation:Minimum=100
+	// +kubebuilder:validation:Maximum=599
+	// +optional
+	StatusCode *uint32 `json:"statusCode,omitempty"`
+	// New body text for the reply if specified.
+	// Available as `%LOCAL_REPLY_BODY%` in substitution strings.
+	// +optional
+	Body *string `json:"body,omitempty"`
+	// Alternative body format for the reply if specified. Takes precedence over default body format.
+	// +optional
+	BodyFormatOverride *shared.BodyFormat `json:"bodyFormatOverride,omitempty"`
+	// Headers to add or set for the reply if specified.
+	// +kubebuilder:validation:XValidation:message="Local reply mappers may only add or modify headers, not remove them",rule="!has(self.remove)"
+	// +optional
+	Headers *shared.HTTPHeaderFilter `json:"headers,omitempty"`
 }
 
 // ListenerHTTP2ProtocolOptions mirrors Http2ProtocolOptions for listener-facing
@@ -357,6 +464,15 @@ type ListenerHTTP2ProtocolOptions struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=2147483647
 	MaxConcurrentStreams *int32 `json:"maxConcurrentStreams,omitempty"`
+
+	// AllowConnect allows proxying of WebSocket and other upgrades over HTTP/2 by
+	// enabling Envoy to handle Extended CONNECT requests (RFC 8441) on the downstream
+	// connection. This is required for WebSocket-over-HTTP/2 when the listener advertises
+	// h2 in its ALPN; otherwise user agents that use Extended CONNECT (e.g. Firefox) fail
+	// to establish WebSocket connections.
+	// Defaults to false.
+	// +optional
+	AllowConnect *bool `json:"allowConnect,omitempty"`
 }
 
 // FileSink represents the file sink configuration for access logs.
@@ -428,6 +544,8 @@ type CommonGrpcService struct {
 
 	// The timeout for the gRPC request. This is the timeout for a specific request
 	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
@@ -473,11 +591,15 @@ type RetryPolicy struct {
 type BackoffStrategy struct {
 	// The base interval to be used for the next back off computation. It should be greater than zero and less than or equal to max_interval.
 	// +required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	BaseInterval metav1.Duration `json:"baseInterval"`
 
 	// Specifies the maximum interval between retries. This parameter is optional, but must be greater than or equal to the base_interval if set. The default is 10 times the base_interval.
 	// +optional
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:MaxLength=32
 	// +kubebuilder:validation:XValidation:rule="matches(self, '^([0-9]{1,5}(h|m|s|ms)){1,4}$')",message="invalid duration value"
 	MaxInterval *metav1.Duration `json:"maxInterval,omitempty"`
 }
@@ -602,8 +724,9 @@ type ComparisonFilter struct {
 	// Value to compare against.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=4294967295
+	// +kubebuilder:validation:Format=uint32
 	// +required
-	Value int32 `json:"value"`
+	Value uint32 `json:"value"`
 }
 
 // Op represents comparison operators.
@@ -957,7 +1080,10 @@ const (
 
 // UpgradeConfig represents configuration for HTTP upgrades.
 type UpgradeConfig struct {
-	// List of upgrade types to enable (e.g. "websocket", "CONNECT", etc.)
+	// EnabledUpgrades lists the HTTP upgrade types to enable, such as "websocket"
+	// and "CONNECT". Enabling "CONNECT" allows CONNECT requests to be proxied
+	// upstream without termination. To terminate CONNECT and forward its payload
+	// as raw TCP data, configure httpUpgrade in a TrafficPolicy.
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	EnabledUpgrades []string `json:"enabledUpgrades,omitempty"`
@@ -995,6 +1121,31 @@ type EnvoyHealthCheck struct {
 	// +kubebuilder:validation:Pattern="^/[-a-zA-Z0-9@:%.+~#?&/=_]+$"
 	// +required
 	Path string `json:"path"`
+}
+
+// GrpcStats configures Envoy's gRPC statistics HTTP filter
+// (envoy.filters.http.grpc_stats), emitting per-service/method gRPC metrics
+// that upstream_rq_xx cannot express (gRPC is HTTP 200 regardless of grpc-status).
+//
+// Exactly one of statsForAllMethods or methodAllowlist must be set.
+//
+// +kubebuilder:validation:XValidation:message="exactly one of statsForAllMethods or methodAllowlist must be set",rule="has(self.statsForAllMethods) != has(self.methodAllowlist)"
+type GrpcStats struct {
+	// StatsForAllMethods enables emitting stats for every gRPC method seen on the
+	// listener. Mutually exclusive with methodAllowlist.
+	// +optional
+	StatsForAllMethods *bool `json:"statsForAllMethods,omitempty"`
+
+	// MethodAllowlist entries are fully-qualified gRPC methods, e.g. "/pkg.Service/Method".
+	// Only methods in this list get per-method stats. Mutually exclusive with statsForAllMethods.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=128
+	MethodAllowlist []string `json:"methodAllowlist,omitempty"`
+
+	// EnableUpstreamStats emits a histogram for the upstream (wire) latency of each request.
+	// +optional
+	EnableUpstreamStats *bool `json:"enableUpstreamStats,omitempty"`
 }
 
 // UuidRequestIdConfig configures the UUID request ID extension.

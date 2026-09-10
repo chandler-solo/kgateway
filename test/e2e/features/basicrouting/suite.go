@@ -52,7 +52,7 @@ var (
 			Manifests: []string{headlessServiceManifest},
 		},
 		"TestLongHTTPRouteName": {
-			Manifests: []string{longHTTPRouteManifest},
+			Manifests: []string{testdefaults.HttpbinManifest, longHTTPRouteManifest},
 		},
 		"TestSamePrefixLongGatewayNameRouting": {
 			Manifests: []string{serviceManifest, samePrefixLongGatewayManifest},

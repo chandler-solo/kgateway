@@ -1,5 +1,7 @@
 clusters:
-- connectTimeout: 5s
+- commonLbConfig:
+    localityWeightedLbConfig: {}
+  connectTimeout: 5s
   edsClusterConfig:
     edsConfig:
       ads: {}
@@ -26,7 +28,6 @@ endpoints:
           socketAddress:
             address: 10.244.1.11
             portValue: 8080
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r1
@@ -38,7 +39,6 @@ endpoints:
           socketAddress:
             address: 10.244.2.14
             portValue: 8080
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r1
@@ -51,7 +51,6 @@ endpoints:
           socketAddress:
             address: 10.244.3.3
             portValue: 8080
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r1
@@ -64,7 +63,6 @@ endpoints:
           socketAddress:
             address: 10.244.4.4
             portValue: 8080
-      loadBalancingWeight: 1
     loadBalancingWeight: 1
     locality:
       region: r2

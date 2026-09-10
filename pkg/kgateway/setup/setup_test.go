@@ -2,6 +2,7 @@ package setup_test
 
 import (
 	"bytes"
+	stdcmp "cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -46,6 +46,7 @@ import (
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/envutils"
 	"github.com/kgateway-dev/kgateway/v2/test/envtestassets"
 	"github.com/kgateway-dev/kgateway/v2/test/envtestutil"
@@ -277,9 +278,9 @@ spec:
 		t.Cleanup(dumper.Close)
 		t.Cleanup(func() {
 			if t.Failed() {
-				logKrtState(t, fmt.Sprintf("krt state for failed test: %s", t.Name()), kdbg)
+				logKrtState(t, "krt state for failed test: "+t.Name(), kdbg)
 			} else if os.Getenv("KGW_DUMP_KRT_ON_SUCCESS") == "true" {
-				logKrtState(t, fmt.Sprintf("krt state for successful test: %s", t.Name()), kdbg)
+				logKrtState(t, "krt state for successful test: "+t.Name(), kdbg)
 			}
 		})
 
@@ -357,9 +358,9 @@ spec:
 		time.Sleep(time.Second * 2)
 		t.Cleanup(func() {
 			if t.Failed() {
-				logKrtState(t, fmt.Sprintf("krt state for failed test: %s", t.Name()), kdbg)
+				logKrtState(t, "krt state for failed test: "+t.Name(), kdbg)
 			} else if os.Getenv("KGW_DUMP_KRT_ON_SUCCESS") == "true" {
-				logKrtState(t, fmt.Sprintf("krt state for successful test: %s", t.Name()), kdbg)
+				logKrtState(t, "krt state for successful test: "+t.Name(), kdbg)
 			}
 		})
 		initialDump, err := dumpXdsConfig(t, ctx, xdsPort, "http-gw")
@@ -395,10 +396,10 @@ spec:
 				return fmt.Errorf("failed to get updated xDS dump: %w", err)
 			}
 			if len(updatedDump.Routes) == 0 {
-				return fmt.Errorf("no routes found in updated dump")
+				return errors.New("no routes found in updated dump")
 			}
 			if !hasWebsocketUpgradeConfig(updatedDump) {
-				return fmt.Errorf("expected websocket upgrade configuration after updating appProtocol, but found none")
+				return errors.New("expected websocket upgrade configuration after updating appProtocol, but found none")
 			}
 			t.Logf("SUCCESS: Found websocket upgrade configuration after updating appProtocol")
 			return nil
@@ -561,9 +562,9 @@ func testScenario(
 
 	t.Cleanup(func() {
 		if t.Failed() {
-			logKrtState(t, fmt.Sprintf("krt state for failed test: %s", t.Name()), kdbg)
+			logKrtState(t, "krt state for failed test: "+t.Name(), kdbg)
 		} else if os.Getenv("KGW_DUMP_KRT_ON_SUCCESS") == "true" {
-			logKrtState(t, fmt.Sprintf("krt state for successful test: %s", t.Name()), kdbg)
+			logKrtState(t, "krt state for successful test: "+t.Name(), kdbg)
 		}
 	})
 
@@ -575,17 +576,17 @@ func testScenario(
 			return err
 		}
 		if len(dump.Listeners) == 0 {
-			return fmt.Errorf("timed out waiting for listeners")
+			return errors.New("timed out waiting for listeners")
 		}
 		if write {
 			t.Logf("writing out file")
 			// serialize xdsDump to yaml
 			d, err := dump.ToYaml()
 			if err != nil {
-				return fmt.Errorf("failed to serialize xdsDump: %v", err)
+				return fmt.Errorf("failed to serialize xdsDump: %w", err)
 			}
 			os.WriteFile(fout, d, 0o600)
-			return fmt.Errorf("wrote out file - nothing to test")
+			return errors.New("wrote out file - nothing to test")
 		}
 		return dump.Compare(expectedXdsDump)
 	}, retry.Converge(2), retry.Timeout(10*time.Second))
@@ -608,6 +609,11 @@ type xdsDumper struct {
 	adsClient envoy_service_discovery_v3.AggregatedDiscoveryService_StreamAggregatedResourcesClient
 	dr        *envoy_service_discovery_v3.DiscoveryRequest
 	cancel    context.CancelFunc
+	// localClusterName is the per-gateway "local cluster" EDS resource the control plane
+	// programs for native zone-aware routing. Real Envoy subscribes to it via its bootstrap
+	// static EDS cluster; the dumper must request it too (see Dump) so go-control-plane's ADS
+	// superset check doesn't withhold the entire EDS response.
+	localClusterName string
 }
 
 func (x xdsDumper) Close() {
@@ -631,14 +637,21 @@ func newXdsDumper(t *testing.T, ctx context.Context, xdsPort int, gwname string)
 		t.Fatalf("failed to connect to xds server: %v", err)
 	}
 
+	// The setup tests always run the gateway in the "gwtest" namespace (encoded in the role
+	// below); keep the local cluster name's namespace in sync with it.
+	const gwNamespace = "gwtest"
+
 	d := xdsDumper{
 		conn: conn,
+		// Build the local cluster name with the exact same helper the control plane uses, so the
+		// dumper subscribes to the resource that actually exists in the snapshot.
+		localClusterName: ir.LocalClusterName(gwname, gwNamespace),
 		dr: &envoy_service_discovery_v3.DiscoveryRequest{
 			Node: &envoycorev3.Node{
-				Id: "gateway.gwtest",
+				Id: "gateway." + gwNamespace,
 				Metadata: &structpb.Struct{
 					Fields: map[string]*structpb.Value{
-						"role": structpb.NewStringValue(fmt.Sprintf("kgateway-kube-gateway-api~%s~%s", "gwtest", gwname)),
+						"role": structpb.NewStringValue(fmt.Sprintf("kgateway-kube-gateway-api~%s~%s", gwNamespace, gwname)),
 					},
 				},
 			},
@@ -677,14 +690,14 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 		for i := 0; i < sent; i++ {
 			dresp, err := x.adsClient.Recv()
 			if err != nil {
-				errs = errors.Join(errs, fmt.Errorf("failed to get response from xds server: %v", err))
+				errs = errors.Join(errs, fmt.Errorf("failed to get response from xds server: %w", err))
 			}
 			t.Logf("got response: %s len: %d", dresp.GetTypeUrl(), len(dresp.GetResources()))
 			if dresp.GetTypeUrl() == "type.googleapis.com/envoy.config.cluster.v3.Cluster" {
 				for _, anyCluster := range dresp.GetResources() {
 					var cluster envoyclusterv3.Cluster
 					if err := anyCluster.UnmarshalTo(&cluster); err != nil {
-						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal cluster: %v", err))
+						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal cluster: %w", err))
 					}
 					clusters = append(clusters, &cluster)
 				}
@@ -693,7 +706,7 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 				for _, anyListener := range dresp.GetResources() {
 					var listener envoylistenerv3.Listener
 					if err := anyListener.UnmarshalTo(&listener); err != nil {
-						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal listener: %v", err))
+						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal listener: %w", err))
 					}
 					listeners = append(listeners, &listener)
 					needMoreListerners = needMoreListerners || (len(getroutesnames(&listener)) == 0)
@@ -720,11 +733,11 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		// don't fatal yet as we want to dump the state while still connected
-		errs = errors.Join(errs, fmt.Errorf("timed out waiting for listener/cluster xds dump"))
+		errs = errors.Join(errs, errors.New("timed out waiting for listener/cluster xds dump"))
 		return xdsDump{}, errs
 	}
 	if len(listeners) == 0 {
-		errs = errors.Join(errs, fmt.Errorf("no listeners found"))
+		errs = errors.Join(errs, errors.New("no listeners found"))
 		return xdsDump{}, errs
 	}
 	t.Logf("xds: found %d listeners and %d clusters", len(listeners), len(clusters))
@@ -754,7 +767,15 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 	x.adsClient.Send(dr)
 	dr = proto.Clone(x.dr).(*envoy_service_discovery_v3.DiscoveryRequest)
 	dr.TypeUrl = "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment"
-	dr.ResourceNames = clusterServiceNames
+	// Also subscribe to the per-gateway local cluster EDS. In ADS mode go-control-plane only
+	// responds when the request lists a superset of the snapshot's resources, so omitting the
+	// local cluster (which real Envoy requests via its bootstrap static EDS cluster) would
+	// cause the entire EDS response, including backend endpoints, to be withheld.
+	edsResourceNames := clusterServiceNames
+	if x.localClusterName != "" {
+		edsResourceNames = append(slices.Clone(clusterServiceNames), x.localClusterName)
+	}
+	dr.ResourceNames = edsResourceNames
 	x.adsClient.Send(dr)
 
 	var endpoints []*envoyendpointv3.ClusterLoadAssignment
@@ -766,14 +787,14 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 		for range 2 {
 			dresp, err := x.adsClient.Recv()
 			if err != nil {
-				errs = errors.Join(errs, fmt.Errorf("failed to get response from xds server: %v", err))
+				errs = errors.Join(errs, fmt.Errorf("failed to get response from xds server: %w", err))
 			}
 			t.Logf("got response: %s len: %d", dresp.GetTypeUrl(), len(dresp.GetResources()))
 			if dresp.GetTypeUrl() == "type.googleapis.com/envoy.config.route.v3.RouteConfiguration" {
 				for _, anyRoute := range dresp.GetResources() {
 					var route envoyroutev3.RouteConfiguration
 					if err := anyRoute.UnmarshalTo(&route); err != nil {
-						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal route: %v", err))
+						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal route: %w", err))
 					}
 					routes = append(routes, &route)
 				}
@@ -781,12 +802,15 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 				for _, anyCla := range dresp.GetResources() {
 					var cla envoyendpointv3.ClusterLoadAssignment
 					if err := anyCla.UnmarshalTo(&cla); err != nil {
-						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal cla: %v", err))
+						errs = errors.Join(errs, fmt.Errorf("failed to unmarshal cla: %w", err))
 					}
-					// remove kube endpoints, as with envtests we will get random ports, so we cant assert on them
-					if !strings.Contains(cla.ClusterName, "kubernetes") {
-						endpoints = append(endpoints, &cla)
+					// remove kube endpoints, as with envtests we will get random ports, so we cant assert on them.
+					// also skip the per-gateway local cluster: it's requested only to satisfy the ADS
+					// superset check and isn't part of the asserted golden output.
+					if strings.Contains(cla.ClusterName, "kubernetes") || cla.ClusterName == x.localClusterName {
+						continue
 					}
+					endpoints = append(endpoints, &cla)
 				}
 			}
 		}
@@ -795,7 +819,7 @@ func (x xdsDumper) Dump(t *testing.T, ctx context.Context) (xdsDump, error) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		// don't fatal yet as we want to dump the state while still connected
-		errs = errors.Join(errs, fmt.Errorf("timed out waiting for routes/cla xds dump"))
+		errs = errors.Join(errs, errors.New("timed out waiting for routes/cla xds dump"))
 		return xdsDump{}, errs
 	}
 
@@ -907,7 +931,7 @@ func (x *xdsDump) Compare(other xdsDump) error {
 func compareCla(c, otherc *envoyendpointv3.ClusterLoadAssignment) error {
 	if (c == nil) != (otherc == nil) {
 		if c == nil {
-			return fmt.Errorf("cluster is nil")
+			return errors.New("cluster is nil")
 		}
 		return fmt.Errorf("ep %v not found", c.ClusterName)
 	}
@@ -1018,15 +1042,55 @@ func anyJsonRoundTrip[T any, PT interface {
 func sortResource[T fmt.Stringer](resources []T) []T {
 	// clone the slice
 	resources = append([]T(nil), resources...)
-	sort.Slice(resources, func(i, j int) bool {
-		return resources[i].String() < resources[j].String()
+	slices.SortFunc(resources, func(a, b T) int {
+		return stdcmp.Compare(a.String(), b.String())
 	})
 	return resources
+}
+
+// sortLocalityLbEndpoints sorts locality endpoints by locality (region, zone,
+// sub-zone), then priority, then endpoint addresses. The endpoints are received
+// over xDS in a non-deterministic order, so sorting them gives stable golden
+// output. The comparison logic (equalset) is order-independent, so this only
+// affects serialization, not correctness.
+func sortLocalityLbEndpoints(eps []*envoyendpointv3.LocalityLbEndpoints) {
+	slices.SortStableFunc(eps, func(a, b *envoyendpointv3.LocalityLbEndpoints) int {
+		la, lb := a.GetLocality(), b.GetLocality()
+		if la.GetRegion() != lb.GetRegion() {
+			return stdcmp.Compare(la.GetRegion(), lb.GetRegion())
+		}
+		if la.GetZone() != lb.GetZone() {
+			return stdcmp.Compare(la.GetZone(), lb.GetZone())
+		}
+		if la.GetSubZone() != lb.GetSubZone() {
+			return stdcmp.Compare(la.GetSubZone(), lb.GetSubZone())
+		}
+		if a.GetPriority() != b.GetPriority() {
+			return stdcmp.Compare(a.GetPriority(), b.GetPriority())
+		}
+		return stdcmp.Compare(localityLbEndpointAddrs(a), localityLbEndpointAddrs(b))
+	})
+}
+
+// localityLbEndpointAddrs returns a deterministic, sorted, comma-joined string
+// of the socket addresses within a locality, used as a sort tie-breaker.
+func localityLbEndpointAddrs(e *envoyendpointv3.LocalityLbEndpoints) string {
+	var addrs []string
+	for _, lb := range e.GetLbEndpoints() {
+		addrs = append(addrs, lb.GetEndpoint().GetAddress().GetSocketAddress().GetAddress())
+	}
+	slices.Sort(addrs)
+	return strings.Join(addrs, ",")
 }
 
 func (x *xdsDump) ToYaml() ([]byte, error) {
 	jsonM := map[string][]any{}
 	for _, c := range sortResource(x.Clusters) {
+		// Clone before sorting inline endpoints so the dump is not mutated.
+		c = proto.Clone(c).(*envoyclusterv3.Cluster)
+		if c.LoadAssignment != nil {
+			sortLocalityLbEndpoints(c.LoadAssignment.Endpoints)
+		}
 		roundtrip, err := protoJsonRoundTrip(c)
 		if err != nil {
 			return nil, err
@@ -1041,6 +1105,9 @@ func (x *xdsDump) ToYaml() ([]byte, error) {
 		jsonM["listeners"] = append(jsonM["listeners"], roundtrip)
 	}
 	for _, c := range sortResource(x.Endpoints) {
+		// Clone + sort localities for deterministic output (see clusters above).
+		c = proto.Clone(c).(*envoyendpointv3.ClusterLoadAssignment)
+		sortLocalityLbEndpoints(c.Endpoints)
 		roundtrip, err := protoJsonRoundTrip(c)
 		if err != nil {
 			return nil, err
