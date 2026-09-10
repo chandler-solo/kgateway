@@ -438,6 +438,9 @@ func findMissingReferencedEndpointResources(
 	return missingEndpointClusters
 }
 
+// RF-013: this publication-policy predicate is not an Envoy host-selection
+// oracle. Panic mode can select UNHEALTHY hosts, while active health checks,
+// ejection, and transport failure can prevent traffic to other listed hosts.
 func clusterLoadAssignmentHasUsableEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
 	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
 	if !ok {

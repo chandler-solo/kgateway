@@ -18,13 +18,14 @@ Profile `research-2026-09-10`, read from the post-merge branch:
 | Ratelimit protos | `v0.1.1-0.20250507123352-93990c5ec02f` |
 | gRPC | `v1.83.2` |
 | Protobuf | `v1.36.12-0.20260120151049-f2248ac996af` |
-| Envoy image default | `envoyproxy/envoy:v1.39.1` (binary digest not yet characterized) |
+| Envoy image default | `envoyproxy/envoy:v1.39.1` (direct binary profile in envoy-characterization.md) |
 | Lean | `leanprover/lean4:v4.30.0` |
 | Normal delivery | Snapshot cache, SotW ADS, node-role key |
 | Ordered ADS | `EnableOrderedAds`, passed by setup; both modes have probes |
 
-The Makefile tag is not an immutable Envoy binary identity. RF-004 requires
-recording its digest, architecture, runtime flags, bootstrap, and admin version.
+The Makefile tag is not an immutable Envoy binary identity.
+[Direct probes](envoy-characterization.md) record a digest and runtime profile;
+RF-004 remains open for the untested lifecycle/configuration combinations.
 The earlier plan's v1.37.2 was its review baseline, not this merged profile.
 Dependency modules and binary versions are separate identities.
 
@@ -41,7 +42,7 @@ Dependency modules and binary versions are separate identities.
 | Snapshot trace validity | Per-event structural checks | No payload-version, lifecycle, acceptance, or activation replay |
 | GCP named response guard | Contradicted/incomplete | Equal-version subscriptions and both lost-watch paths omitted |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
-| Envoy usable-endpoint activation | Open | Existing e2e tests conflate KGW policy with Envoy semantics |
+| Envoy initialization/traffic | Directly characterized for two pinned profiles | Empty EDS initializes; panic changes selection; broader ENV-A1 remains open |
 | Hash injectivity | Open abstraction assumption | Finite-width digest cannot be unboundedly injective |
 | KRT recovery | Open | Existential model heartbeat is not a deployed progress guarantee |
 | Historical coverage | Seed reconnaissance only | No complete frozen corpus or per-candidate dispositions yet |

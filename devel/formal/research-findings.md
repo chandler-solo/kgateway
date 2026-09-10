@@ -34,11 +34,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-004 Envoy activation assumption is unproven
 
-- Status: open environment assumption (ENV-A1).
+- Status: partly characterized directly; ENV-A1 remains open beyond tested profiles.
 - Evidence: warming e2e tests run through the kgateway gate; the initial-route
   test adds a host to a running gateway. They do not establish an independent
   Envoy usable-endpoint activation guarantee.
-- Action: drive the pinned Envoy directly, testing missing/empty/ready EDS,
+- Evidence added: `envoy-characterization.md` records direct missing/empty/ready,
+  same-version rewarming, unhealthy and endpoint-loss probes in both panic modes.
+- Action: extend the pinned direct harness to missing CDS, multi-resource NACK,
   rewarming, partial rejection, SDS, and startup/application observations.
 
 ## RF-005 Recoverability was described as temporal liveness
@@ -115,3 +117,26 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   version with fresh nonces, then receives a corrected snapshot.
 - Action: model rejected payload identity, damping/reset/cancellation and healthy
   type/client progress. The scripted recurrence is not a real-Envoy CPU estimate.
+
+## RF-013 EDS health, selection, and success differ
+
+- Status: characterized Envoy behavior, not a new Envoy defect.
+- Evidence: direct v1.39.1 probe marks its sole reachable host UNHEALTHY.
+  With default panic behavior traffic returns 200; with panic threshold zero
+  it returns 503. In both cases process readiness remains 200.
+- Action: inventory panic threshold, priorities, fail-on-panic, degraded hosts,
+  active health checking, outlier ejection, and transport reachability. Do not
+  equate kgateway's `clusterLoadAssignmentHasUsableEndpoint` predicate with Envoy host selection.
+  `EnvoyAvailability.lean` records the one-priority distinction only.
+
+## RF-014 Same-version EDS can be required by cluster rewarming
+
+- Status: directly characterized lifecycle requirement; composition open.
+- Evidence: direct Envoy changes CDS connect timeout without changing cluster
+  name or EDS content/version. Candidate remains warming and old traffic works;
+  replaying the identical CLA/version completes warming. The trace records an
+  EDS request at the existing accepted version.
+- Action: compose this schedule with go-control-plane returned-resource/version
+  eligibility and prove or implement a rewarming response trigger. The direct
+  scripted server intentionally bypasses SnapshotCache, so this observation
+  alone does not prove the integrated cache/server strands Envoy.

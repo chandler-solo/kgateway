@@ -11,6 +11,7 @@ import XdsSpec
 import XdsSpec.TraceCheck
 import XdsSpec.CheckerTests
 import XdsSpec.GcpWatch
+import XdsSpec.EnvoyAvailability
 
 open XdsSpec XdsSpec.Convergence
 
