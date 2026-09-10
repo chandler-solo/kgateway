@@ -10,6 +10,7 @@ Exit code 0 means every expectation held:
 import XdsSpec
 import XdsSpec.TraceCheck
 import XdsSpec.CheckerTests
+import XdsSpec.GcpWatch
 
 open XdsSpec XdsSpec.Convergence
 
@@ -209,6 +210,11 @@ def runModelCheck : IO UInt32 := do
   for e in orderedADSExpectations do
     ok := (← runSafetyExpectation e) && ok
   IO.println ""
+  IO.println "go-control-plane named-watch lifecycle"
+  for retain in [false, true] do
+    ok := (← runSafetyExpectation ⟨GcpWatch.system retain,
+      [("RequestAccountedFor", GcpWatch.requestAccountedFor)],
+      if retain then none else some "RequestAccountedFor"⟩) && ok
   if ok then
     IO.println "all model-check expectations held"
     return 0

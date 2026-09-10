@@ -24,7 +24,7 @@ cat "$ARTIFACT_DIR/model-check.log"
 cd "$ROOT_DIR"
 # Full unit suites include digest and dependency probes omitted by the old
 # TestSnapshotPerClient-only gate. JSON receipts distinguish skipped tests.
-go test -tags e2e -count=1 -json ./pkg/kgateway/proxy_syncer ./devel/testing ./pkg/kgateway/translator/xdscheck > "$ARTIFACT_DIR/go-tests.jsonl"
+go test -tags e2e -count=1 -json ./pkg/kgateway/proxy_syncer ./devel/testing ./pkg/kgateway/translator/xdscheck ./devel/formal/gcpprobe > "$ARTIFACT_DIR/go-tests.jsonl"
 go test -tags e2e -c -o "$ARTIFACT_DIR/proxy-tests" ./pkg/kgateway/proxy_syncer
 cd "$ROOT_DIR/pkg/kgateway/proxy_syncer"
 "$ARTIFACT_DIR/proxy-tests" -test.list '^TestSnapshotPerClient' > "$ARTIFACT_DIR/scenarios.txt"

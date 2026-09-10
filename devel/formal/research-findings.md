@@ -61,11 +61,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-007 go-control-plane response model omits real behavior
 
-- Status: open dependency/model defect, pinned to root module v0.14.0.
+- Status: dependency defects characterized at root module v0.14.0; model refinement open.
 - Evidence: `CreateWatch` responds at equal version for new unreturned names;
   declined immediate requests are not registered; `respondSOTWWatches` deletes
   declined parked watches. `SetSnapshot` installs before sends can fail.
-- Action: check in isolated probes and a descriptive watch lifecycle model;
+- Evidence added: `gcpprobe` reproduces both paths, equal-version subscription,
+  and partial installation. `GcpWatch.lean` checks discard and retention policies.
+- Action: compose the named-watch model with installation and stream lifecycle;
   distinguish installation from response success. A passing defect probe is
   not a fixed cache. Track repaired watch retention and eligibility separately.
 
@@ -94,3 +96,22 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   `EnableOrderedAds`, so earlier documentation of non-adoption was stale.
 - Action: characterize actual application barriers, delayed/NACKed updates, and
   timeout policy. Do not equate a finite grace timer with route deactivation.
+
+## RF-011 Immediate cache send can block other nodes
+
+- Status: characterized API hazard in v0.14.0; deployed reachability open.
+- Evidence: `TestFullImmediateChannelBlocksOtherNode` enters the immediate path
+  with a full caller-supplied channel. It blocks another node's SetSnapshot;
+  draining the channel releases both. All probe goroutines are joined.
+- Action: audit wrapper and ordered-ADS shared-queue capacity and cancellation.
+  Default per-type fresh capacity-one channels avoid this particular supplied
+  full-channel schedule; that is not a proof for every server/wrapper mode.
+
+## RF-012 Rejected version repeats on matching NACK
+
+- Status: characterized dependency behavior; retry/isolation policy open.
+- Evidence: `TestRepeatedNackResendsSameVersionAndCorrectionRecovers` drives
+  32 repeated NACKs through the actual cache/server and receives the same
+  version with fresh nonces, then receives a corrected snapshot.
+- Action: model rejected payload identity, damping/reset/cancellation and healthy
+  type/client progress. The scripted recurrence is not a real-Envoy CPU estimate.

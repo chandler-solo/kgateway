@@ -88,3 +88,12 @@ implementation evidence and temporal properties (RF-005).
 checks two different client keys. Lean `isolation` and `multi_safety` use
 disjoint abstract state components by construction. Shared keys, concurrent
 streams, cache-wide locks, and stale callbacks remain composition obligations.
+
+## GCP-A5 Named-watch lifecycle characterization
+
+**Implementation-characterized defects, not repaired.** `gcpprobe` exercises
+both declined-watch paths and equal-version new subscriptions using the root
+module. `GcpWatch.lean` explicitly checks the v0.14.0 loss counterexample and
+proposed retention policy over 534 finite states. This seam supplements the
+incomplete GCP-A1 guard; it does not yet refine the composed convergence proof.
+RF-007 tracks cache installation, stream state, and that refinement.

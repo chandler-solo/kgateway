@@ -94,3 +94,18 @@ assumptions:
     dischargedBy:
       - file: pkg/kgateway/proxy_syncer/perclient_test.go
         test: TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient
+  - id: GCP-A5
+    status: characterized
+    summary: v0.14.0 discards both declined named-watch entries and answers equal-version requests for new unreturned resources; retention is a proposed policy, not a dependency fix
+    specFile: devel/formal/lean/XdsSpec/GcpWatch.lean
+    specAnchors:
+      - immediateEligible
+      - requestAccountedFor
+      - retainDeclined
+    dischargedBy:
+      - file: devel/formal/gcpprobe/watch_test.go
+        test: TestParkedNamedWatchIsDiscardedOnDeclinedResponse
+      - file: devel/formal/gcpprobe/watch_test.go
+        test: TestDeclinedNewRequestRegistersNoWatch
+      - file: devel/formal/gcpprobe/watch_test.go
+        test: TestEqualVersionRespondsForNewlySubscribedResource

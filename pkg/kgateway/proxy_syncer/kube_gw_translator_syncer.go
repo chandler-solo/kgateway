@@ -90,7 +90,8 @@ func (s *ProxyTranslator) syncXds(
 	// so we do not rely on a post-hoc MakeConsistent() pass, which would also
 	// have mutated the snapshot shared with the krt cache.
 	if err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap); err != nil {
-		// A rejected snapshot leaves the client on its previous config; surface
+		// RF-007: SetSnapshot may install the new cache and answer some watches
+		// before returning an error. This is not a transactional rollback. Surface
 		// it rather than silently dropping the update.
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 	}
