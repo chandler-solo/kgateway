@@ -52,8 +52,10 @@ Dependency modules and binary versions are separate identities.
 
 Run `CGO_ENABLED=0 make formal-lean`. The runner keeps Go JSON receipts and
 isolated snapshot traces and fails if required tools or scenario publications
-are absent. Declaration checks alone do not prove tests ran. The receipt gate
-and wider CI trigger coverage remain RF-009 work until implemented and tested.
+are absent. Declaration checks alone do not prove tests ran. The receipt gate now requires run/test-pass/package-pass events for unit
+evidence and rejects skipped descendants. CI runs on every PR change, uploads
+artifacts, and runs bounded TLC and both direct Envoy profiles. RF-009 still
+tracks full lifecycle/live KGW evidence; RF-015 tracks original broad TLC bounds.
 TLC is separate from the Lean recovery checker; the three-state
 `ReachabilityIsNotLiveness` example must produce a temporal counterexample.
 

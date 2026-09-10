@@ -83,12 +83,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-009 Required evidence execution and CI coverage
 
-- Status: partial. Required Lean runner now fails on missing tools, runs full
+- Status: required unit receipt validation and broader CI implemented; full
+  lifecycle/e2e and extended-bound coverage remain open. Required Lean runner
+  fails on missing tools, runs full
   relevant unit packages, isolates snapshot scenarios, rejects skips, and
   retains logs/JSON receipts. Declaration mapping now requires explicit status.
-- Action: validate required test outcomes from receipts, add dependency/setup/
-  identity/ledger/e2e workflow triggers and artifact upload, and execute TLC
-  negative expectations in CI. Existence of a named Go function is not execution.
+- Evidence added: `checkreceipts` rejects absent, skipped, failed, malformed,
+  or truncated required test outcomes. Workflow runs on all PR changes, uploads
+  receipts, and includes bounded TLC and pinned direct Envoy.
+- Action: add lifecycle trace receipts and live KGW e2e execution. Existence of
+  a named Go function is not execution; RF-015 tracks original TLC bounds.
 
 ## RF-010 Ordered delivery does not prove remote application
 
@@ -140,3 +144,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   eligibility and prove or implement a rewarming response trigger. The direct
   scripted server intentionally bypasses SnapshotCache, so this observation
   alone does not prove the integrated cache/server strands Envoy.
+
+## RF-015 Broad ADS state space is not an established CI receipt
+
+- Status: explicit verification bound, extended run open.
+- Evidence: the original XdsAdsSotw run was stopped after millions of distinct
+  states without exhaustion. That is not a passing model-check result.
+- Resolution: make bounds explicit constants while preserving the original
+  config, and use the separately named `XdsAdsSotwCI.cfg` in the required job.
+  Its bounds are two versions, two nonces per type, two streams, one stale
+  request; logs record explored states and tool identity.
+- Action: exhaust the original bounds with adequate resources and report the
+  result separately (`TLC_INCLUDE_WIDE=1`). CI emits a deferred-wide-model
+  receipt; it must not imply every original bound was checked.

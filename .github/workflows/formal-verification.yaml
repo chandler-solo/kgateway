@@ -3,10 +3,6 @@ name: Formal Verification
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "devel/formal/**"
-      - "pkg/kgateway/proxy_syncer/**"
-      - ".github/workflows/formal-verification.yaml"
   merge_group:
     types: [checks_requested]
 
@@ -39,4 +35,23 @@ jobs:
           fi
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
       - name: Re-check proofs, model-check the spec, and conformance-check an implementation trace
+        env:
+          FORMAL_ARTIFACT_DIR: ${{ runner.temp }}/formal/lean
         run: make formal-lean
+      - name: Check TLC safety and expected temporal counterexamples
+        env:
+          FORMAL_TLC_ARTIFACT_DIR: ${{ runner.temp }}/formal/tlc
+        run: devel/formal/tla/check-required.sh
+      - name: Pull pinned Envoy characterization image
+        run: docker pull envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4
+      - name: Characterize Envoy directly in both panic profiles
+        env:
+          FORMAL_ENVOY_ARTIFACT_DIR: ${{ runner.temp }}/formal/envoy
+        run: devel/formal/check-envoy.sh
+      - name: Preserve verification receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: formal-verification-receipts
+          path: ${{ runner.temp }}/formal
+          if-no-files-found: error

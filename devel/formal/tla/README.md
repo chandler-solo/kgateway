@@ -169,3 +169,22 @@ Revert the temporary edit after reading the trace. These drills are intentionall
 ## Liveness
 
 The MVP keeps the TLC configuration safety-focused. The model notes the intended liveness direction: under stable valid desired state and a fair client that ACKs valid responses, every resource type should be able to reach the desired version. A future PR can add fairness constraints and liveness checking if the state space stays practical.
+
+## Required CI gate and bounds
+
+`devel/formal/tla/check-required.sh` downloads TLC v1.7.4's tools JAR with a
+checked SHA-256, runs the focused passing configurations, and requires each
+bug configuration's specific invariant (exit 12) or temporal violation (exit
+13). Parser errors, deadlocks, and missing tools cannot count as expected
+counterexamples. Logs remain under `FORMAL_TLC_ARTIFACT_DIR`.
+
+`XdsAdsSotwCI.cfg` uses two versions, two nonces per type, two streams, and one
+stale request: 10,632 distinct states in the recorded run. The original
+`XdsAdsSotw.cfg` preserves four versions, three nonces, three streams, and two
+stale requests. Its attempted run did not exhaust; it is explicitly deferred,
+not reported as passing (RF-015). Use `TLC_INCLUDE_WIDE=1` to include it in a
+larger-budget run. Other focused configurations keep their original bounds.
+
+`ReachabilityIsNotLiveness` must report the weakly fair A/B cycle avoiding G,
+although G is reachable from each state. This cross-checks the intentionally
+weaker Lean recoverability checker.

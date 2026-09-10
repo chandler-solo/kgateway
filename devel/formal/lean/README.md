@@ -47,10 +47,11 @@ CGO_ENABLED=0 FORMAL_ARTIFACT_DIR=/tmp/xds-formal-run ./devel/formal/lean/check.
 ```
 
 The required runner fails when Lean is unavailable, runs the full proxy-syncer,
-ledger, and xdscheck unit packages, then runs each `TestSnapshotPerClient*`
+ledger, dependency-probe, receipt-checker, and xdscheck unit packages, then runs each `TestSnapshotPerClient*`
 scenario separately with schema/sequence metadata. It preserves Go JSON
 receipts, scenario logs, traces, and model results. Scenario skips fail.
-A top-level scenario can contain subtests; scenario identity is not a stream
+The runner also validates required unit run/pass/package outcomes from JSON
+receipts; a skipped required descendant fails. A top-level scenario can contain subtests; scenario identity is not a stream
 identity. A full lifecycle schema and end-of-trace coverage receipt remain
 RF-006 work.
 

@@ -7,14 +7,11 @@ EXTENDS Naturals, FiniteSets, TLC
 
 Types == {"LDS", "RDS", "CDS", "EDS"}
 
-VersionValues == 0..4
-NonceValues == 0..3
-StreamValues == 1..3
+CONSTANTS MaxVersion, MaxNonce, MaxStream, MaxStaleRequests
+VersionValues == 0..MaxVersion
+NonceValues == 0..MaxNonce
+StreamValues == 1..MaxStream
 NoNonce == 0
-MaxVersion == 4
-MaxNonce == 3
-MaxStream == 3
-MaxStaleRequests == 2
 
 NamesForType(t) ==
     IF t = "LDS" THEN {"listener"}
