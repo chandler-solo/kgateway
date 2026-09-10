@@ -1,0 +1,124 @@
+# Machine-readable protocol and implementation reachability inventory.
+# A registered RPC is in scope even when the generated bootstrap does not use it.
+profile: research-2026-09-10
+entries:
+  - id: CP-ADS-SOTW
+    surface: AggregatedDiscoveryService.StreamAggregatedResources
+    reachability: deployed-default
+    status: partially-modeled
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: RegisterAggregatedDiscoveryServiceServer
+    evidence: devel/formal/gcpprobe and devel/formal/cmd/envoyprobe
+    action: RF-006 lifecycle tracing and RF-007 stream/cache composition remain open
+  - id: CP-ADS-DELTA
+    surface: AggregatedDiscoveryService.DeltaAggregatedResources
+    reachability: registered-network-surface
+    status: open
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: RegisterAggregatedDiscoveryServiceServer
+    evidence: normal generated bootstrap selects GRPC SotW, not DELTA_GRPC
+    action: RF-019 must audit authentication, reachability, snapshot delta maps, reconnect, and subscription history
+  - id: CP-TYPE-SOTW
+    surface: EDS/CDS/RDS/LDS Stream* RPCs
+    reachability: registered-network-surface
+    status: open
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: RegisterEndpointDiscoveryServiceServer
+    evidence: all four individual services share the production server and cache
+    action: RF-019 must test non-ADS named/wildcard behavior, stream isolation, and authorization
+  - id: CP-TYPE-DELTA
+    surface: EDS/CDS/RDS/LDS Delta* RPCs
+    reachability: registered-network-surface
+    status: open
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: RegisterClusterDiscoveryServiceServer
+    evidence: service registration exposes the server's generated Delta methods
+    action: RF-019 must determine allowed clients and model delta removal/reconnect/version maps
+  - id: CP-TYPE-FETCH
+    surface: EDS/CDS/RDS/LDS Fetch* RPCs
+    reachability: registered-network-surface
+    status: open
+    constructionFile: pkg/krtcollections/uniqueclients.go
+    constructionAnchor: OnFetchRequest
+    evidence: callback rejects Fetch only when xDS authentication is enabled
+    action: RF-019 must characterize unauthenticated Fetch and decide whether to disable or support it
+  - id: CP-CACHE-SNAPSHOT
+    surface: SnapshotCache ADS=true with node-role key
+    reachability: deployed-default
+    status: partially-modeled
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: NewSnapshotCache
+    evidence: GcpWatch, GcpSubscription, RewarmingComposition, and gcpprobe
+    action: RF-007 still needs cancellation, clear, partial-send, queued-response, and shared-key composition
+  - id: CP-ADS-RESOURCE-FAMILIES
+    surface: Cluster, Endpoint, Route, Listener, and Secret resources in the main ADS snapshot
+    reachability: deployed-default
+    status: partially-modeled
+    constructionFile: pkg/kgateway/proxy_syncer/perclient.go
+    constructionAnchor: snapshot.Resources[envoycachetypes.Secret]
+    evidence: per-client construction installs all five resource families; current formal closure concentrates on route/cluster/endpoint dependencies
+    action: RF-021 must cover listener/route/cluster/endpoint/secret references, removal, validation blind spots, and activation
+  - id: CP-CACHE-HEARTBEAT-TTL
+    surface: SnapshotCacheWithHeartbeating and TTL responses
+    reachability: excluded-by-construction
+    status: excluded
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: NewSnapshotCache
+    evidence: production constructs NewSnapshotCache rather than NewSnapshotCacheWithHeartbeating
+    action: reopen before adopting TTL resources or heartbeating and audit shared cache mechanisms meanwhile
+  - id: CP-CACHE-LINEAR-MUX
+    surface: go-control-plane LinearCache and MuxCache
+    reachability: excluded-by-construction
+    status: excluded
+    constructionFile: pkg/kgateway/setup/controlplane.go
+    constructionAnchor: NewSnapshotCache
+    evidence: production returns SnapshotCache directly
+    action: audit historical fixes for transferable server/subscription mechanisms before excluding mechanisms
+  - id: ENVOY-BOOTSTRAP-ADS
+    surface: Envoy CDS/LDS plus named EDS/RDS over SotW ADS
+    reachability: deployed-default
+    status: partially-characterized
+    constructionFile: pkg/kgateway/helm/envoy/templates/configmap.yaml
+    constructionAnchor: "api_type: GRPC"
+    evidence: direct and SnapshotCache Envoy profiles in envoy-characterization.md
+    action: RF-004 requires partial NACK, removal, worker application, timeout, reconnect, and multi-resource cases
+  - id: ENVOY-BOOTSTRAP-STATIC
+    surface: xDS transport cluster, admin cluster/listener, optional local workload cluster
+    reachability: deployed-default
+    status: open
+    constructionFile: pkg/kgateway/helm/envoy/templates/configmap.yaml
+    constructionAnchor: "static_resources:"
+    evidence: static resources can satisfy references outside the dynamic snapshot checker
+    action: RF-019 must inventory bootstrap overlays and distinguish static closure from missing dynamic resources
+  - id: ENVOY-LOCAL-EDS-TIMEOUT
+    surface: optional local workload EDS cluster with one-second initial fetch timeout
+    reachability: configuration-conditional
+    status: open
+    constructionFile: pkg/kgateway/helm/envoy/templates/configmap.yaml
+    constructionAnchor: "initial_fetch_timeout: 1s"
+    evidence: generated bootstrap comment expects ADS request ordering to consume the timeout
+    action: RF-019 must characterize timeout expiry, late response, readiness, and traffic for enabled profiles
+  - id: SDS-SOTW
+    surface: SecretDiscoveryService.StreamSecrets with ADS=false SnapshotCache
+    reachability: configuration-conditional
+    status: open
+    constructionFile: pkg/sds/server/server.go
+    constructionAnchor: RegisterSecretDiscoveryServiceServer
+    evidence: separate loopback SDS server is enabled by Istio integration
+    action: RF-020 must model rotation, removal/revocation, last-good policy, reconnect, and client identity
+  - id: SDS-DELTA
+    surface: SecretDiscoveryService.DeltaSecrets
+    reachability: registered-loopback-surface
+    status: open
+    constructionFile: pkg/sds/server/server.go
+    constructionAnchor: RegisterSecretDiscoveryServiceServer
+    evidence: the generated service registration exposes DeltaSecrets on the same loopback server
+    action: RF-020 must characterize whether Envoy can select Delta and cover removal semantics
+  - id: SDS-FETCH
+    surface: SecretDiscoveryService.FetchSecrets
+    reachability: registered-loopback-surface
+    status: characterized-only
+    constructionFile: pkg/sds/server/server_test.go
+    constructionAnchor: FetchSecrets
+    evidence: server tests exercise Fetch but no formal lifecycle model consumes those results
+    action: RF-020 must decide supported status and add security/lifecycle properties or disable the RPC

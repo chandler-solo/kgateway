@@ -15,8 +15,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-type key struct{ Package, Test string }
-type event struct{ Action, Package, Test string }
+type (
+	key   struct{ Package, Test string }
+	event struct{ Action, Package, Test string }
+)
 
 func check(r io.Reader, required map[key]bool) error {
 	if len(required) == 0 {
@@ -63,6 +65,7 @@ func check(r io.Reader, required map[key]bool) error {
 	}
 	return nil
 }
+
 func requirements(root string) (map[key]bool, error) {
 	data, err := os.ReadFile(filepath.Join(root, "devel/testing/formal-assumptions.yaml"))
 	if err != nil {
@@ -107,8 +110,10 @@ func requirements(root string) (map[key]bool, error) {
 		}
 	}
 	req[key{prefix + "devel/testing", "TestFormalAssumptionsDischarged"}] = true
+	req[key{prefix + "devel/testing", "TestProtocolScopeHasExplicitDispositions"}] = true
 	return req, nil
 }
+
 func run() error {
 	if len(os.Args) != 3 {
 		return fmt.Errorf("usage: checkreceipts <repository-root> <go-test.jsonl>")
@@ -128,6 +133,7 @@ func run() error {
 	fmt.Printf("PASS execution receipts for %d required unit tests; live e2e obligations remain separate\n", len(req))
 	return nil
 }
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

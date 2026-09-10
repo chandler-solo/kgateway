@@ -208,3 +208,44 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   audit relevant source history and release ancestry, classify every candidate,
   and review non-keyword sources and held-out mechanisms. Search or title/body
   inventory counts are not a claim to have reviewed all historical xDS bugs.
+
+## RF-019 Registered control-plane paths exceed the modeled ADS path
+
+- Status: reachability inventory added; nondefault RPC behavior remains open.
+- Evidence: the production gRPC server registers ADS plus individual EDS/CDS/
+  RDS/LDS services. Their generated registrations expose SotW, Delta, and
+  Fetch methods; Fetch is rejected by callbacks only when xDS auth is enabled.
+  The normal generated Envoy bootstrap selects SotW ADS, but registration is
+  still an externally reachable implementation path subject to auth/network.
+- Action: characterize and either support or disable individual SotW, Delta,
+  and Fetch paths. Audit node identity/auth, named and wildcard subscriptions,
+  version maps, removal, reconnect, and shared cache state. Inventory bootstrap
+  overlays and the optional local-cluster EDS fetch timeout. Keep Linear/Mux/
+  heartbeat caches excluded by construction while importing shared mechanisms.
+
+## RF-020 Secret discovery is a separate unmodeled control plane
+
+- Status: registered surface inventoried; security/lifecycle model open.
+- Evidence: `pkg/sds/server` constructs an ADS=false SnapshotCache and registers
+  SecretDiscoveryService on a loopback server. This exposes StreamSecrets,
+  DeltaSecrets, and FetchSecrets; tests use Fetch. It is separate from the main
+  ADS server and its per-client publication gate.
+- Action: model secret rotation, deletion/revocation, last-good versus
+  fail-closed behavior, version reuse, reconnect, identity, and partial send.
+  Determine which three RPC modes are supported and disable unused modes or
+  add executable evidence. Availability fixes must not retain revoked secrets.
+
+## RF-021 Main ADS carries an under-modeled secret dependency graph
+
+- Status: resource-family inventory corrected; full closure and lifecycle open.
+- Evidence: main per-client snapshots contain Cluster, Endpoint, Route,
+  Listener, and Secret resources. Secrets travel through ADS without a
+  separately registered SecretDiscoveryService on that server. The formal
+  closure work concentrates on route/cluster/endpoint edges, while the concrete
+  checker has a larger, necessarily fallible traversal of listener, transport
+  socket, HTTP filter, formatter, and nested typed-config secret references.
+- Action: extract a versioned resource/reference inventory from emitted protos,
+  cover every supported secret edge and deletion/rotation schedule, and add
+  held-out fixtures for typed configs the checker cannot unpack. Relate cache
+  publication to Envoy validation, warming, worker activation, and traffic.
+  Do not infer resource coverage from the list of registered gRPC services.

@@ -45,8 +45,8 @@ Dependency modules and binary versions are separate identities.
 | Envoy initialization/traffic | Directly characterized for two pinned profiles | Empty EDS initializes; panic changes selection; broader ENV-A1 remains open |
 | Hash injectivity | Open abstraction assumption | Finite-width digest cannot be unboundedly injective |
 | KRT recovery | Open | Existential model heartbeat is not a deployed progress guarantee |
-| Historical coverage | Seed reconnaissance only | No complete frozen corpus or per-candidate dispositions yet |
-| Protocol/feature coverage | Open inventory | Delta, Fetch, caches, bootstrap/static paths need reachability dispositions |
+| Historical coverage | Complete title/body inventory, ten detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |
+| Protocol/feature coverage | Source-anchored reachability inventory | Every known registered/deployed path has a disposition; most nondefault paths still need characterization and modeling |
 
 ## Required evidence
 
@@ -56,6 +56,10 @@ are absent. Declaration checks alone do not prove tests ran. The receipt gate no
 evidence and rejects skipped descendants. CI runs on every PR change, uploads
 artifacts, and runs bounded TLC and both direct Envoy profiles. RF-009 still
 tracks full lifecycle/live KGW evidence; RF-015 tracks original broad TLC bounds.
+The receipt gate also executes the strict, source-anchored
+[`protocol-scope.yaml`](protocol-scope.yaml) inventory check. This detects a
+removed or renamed construction point; it does not prove that the inventory is
+complete.
 TLC is separate from the Lean recovery checker; the three-state
 `ReachabilityIsNotLiveness` example must produce a temporal counterexample.
 
