@@ -95,9 +95,9 @@ func (s *testingSuite) AfterTest(suiteName, testName string) {
 
 // TestServesDespiteNeverReadyReference is the core anti-starvation pin: with
 // a route to a never-ready ExternalName backend in the config, the gateway
-// still publishes, its pod becomes Ready, and the valid route serves. Under
-// the reverted gates, this exact configuration withheld the whole snapshot
-// and the curl below would never succeed. The never-ready route itself must
+// still publishes, its pod becomes Ready, and the valid route serves. A gate
+// requiring usable endpoints would withhold the whole snapshot; a CDS-presence
+// gate can pass this fixture (see the package's qualification above). The never-ready route must
 // answer (with an upstream error), not hang the rest of the config.
 func (s *testingSuite) TestServesDespiteNeverReadyReference() {
 	s.assertEventuallyServesNginx(validHost)
@@ -110,8 +110,8 @@ func (s *testingSuite) TestServesDespiteNeverReadyReference() {
 
 // TestGatewayRolloutSurvives replaces every proxy pod while the never-ready
 // reference exists. Fresh pods have no cached snapshot to fall back on, so
-// under the reverted gates they were starved of all config and crash-looped
-// (#14352); now the rollout must complete and traffic must resume.
+// an endpoint-usability gate would starve them. The rollout must complete
+// and traffic must resume; this fixture does not reproduce every CDS-lag case.
 func (s *testingSuite) TestGatewayRolloutSurvives() {
 	s.assertEventuallyServesNginx(validHost)
 
@@ -123,8 +123,8 @@ func (s *testingSuite) TestGatewayRolloutSurvives() {
 
 // TestControllerRestartDoesNotStrandClients restarts the control plane while
 // the never-ready reference exists, then applies a new route. Under the
-// reverted gates a reconnecting warm proxy could be withheld indefinitely
-// (the gate re-evaluated to unsatisfiable on the fresh cache), freezing all
+// endpoint-usability gate a reconnecting warm proxy could be withheld indefinitely
+// on the fresh cache, freezing all
 // config updates; now the new route must become effective.
 func (s *testingSuite) TestControllerRestartDoesNotStrandClients() {
 	s.assertEventuallyServesNginx(validHost)

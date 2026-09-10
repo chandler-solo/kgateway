@@ -185,6 +185,8 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 	s.assertGatewayEventuallyServesAll(hostName, []string{oldBody, newBody}, 30*time.Second, time.Second)
 }
 
+// This adds a new host to an already running gateway. It checks the warm
+// route-flip policy, not first cache publication, which permits empty CLAs.
 func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, startupServiceRouteManifest)
 	s.Require().NoError(err, "can publish startup route and service before endpoints exist")

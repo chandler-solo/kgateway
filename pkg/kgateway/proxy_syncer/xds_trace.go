@@ -46,12 +46,15 @@ type XdsSnapshotTraceEndpoint struct {
 
 // Decisions recorded by the trace hook. The trace conformance checker
 // (devel/formal/lean/XdsSpec/TraceCheck.lean) validates the invariants on
-// every "publish" decision; all other decisions are defers. "publish" is
+// every publication decision. "publish" is
 // emitted where the published content is decided: in snapshotPerClient for
 // coherent snapshots, and in syncXds for the per-cluster resolutions of
 // deferred ones (carry-forward / held-flip compositions).
 const (
 	xdsTraceDecisionPublish = "publish"
+	// A first cache publication with complete CDS and possibly empty CLAs.
+	// This identifies cache state, not whether the connecting proxy is new.
+	xdsTraceDecisionPublishFirst = "publish-first"
 	// A per-cluster resolution published by syncXds (held flip, carried
 	// clusters, or a scale-to-zero truth publish). Checked like a publish
 	// except that a referenced cluster's CLA may legitimately be empty:
@@ -62,8 +65,7 @@ const (
 	// The transform built a snapshot with unready referenced clusters;
 	// syncXds resolves it per cluster.
 	xdsTraceDecisionDeferFlip = "defer-flip"
-	// A never-published client with unready referenced clusters: withhold
-	// entirely (an incoherent first publish has no last-good to fall back on).
+	// No cached snapshot and a nonexempt referenced cluster missing from CDS.
 	xdsTraceDecisionDeferFirstPublish = "defer-first-publish"
 )
 

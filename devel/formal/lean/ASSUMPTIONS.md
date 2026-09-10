@@ -124,17 +124,28 @@ not documented API guarantees:
   A go-control-plane upgrade that breaks either contract fails these
   probes, not production.
 
-## ENV-A1: Envoy warming and make-before-break
+## ENV-A1: Envoy warming and make-before-break (OPEN)
 
-Envoy activates a route/listener against a cluster only after the
-cluster is ACKed and a ClusterLoadAssignment with a usable endpoint has
-been received; until then it keeps serving its previous configuration.
+The convergence model's activation guard requires dependency closure.
+It does not establish that Envoy waits for usable endpoints before activating
+routes. An empty CLA can initialize a cluster with zero hosts; cluster
+initialization and successful backend traffic are distinct.
 
-- Spec reliance: the `activateNew` guard and the `ActiveSnapshotClosed`
-  invariant; the `edsResponded -> activeNew` ordering.
-- Discharged by: the `test/e2e/features/xds_warming` suite
-  (route retarget, weighted split, and cold-start scenarios against a
-  real Envoy).
+The existing `xds_warming` e2e tests pass through kgateway's warm publication
+gate. They characterize that policy, not an independent Envoy guarantee.
+`TestInitialRouteWaitsForEDSBeforeBecomingActive` adds a new host to an already
+running gateway; it is not the first cache publication. C0 permits first
+publication with empty CLAs once referenced CDS is complete, including when
+a warm proxy reconnects to an empty controller cache.
+
+- Spec reliance: `activateNew`, `ActiveSnapshotClosed`, and
+  `edsResponded -> activeNew` in the abstract convergence model.
+- Status: open pending direct probes against the pinned Envoy binary without
+  the kgateway gate. `XdsEnvoyWarming` separates initialized clusters from the
+  warm route-flip requirement; it is an abstraction, not proof of Envoy.
+- C0 implementation evidence: `TestSnapshotPerClientFirstPublishWithEmptyEndpoints`
+  covers empty CLAs, missing CDS, cache restart, unrelated route updates, and
+  endpoint recovery. It observes the served cache, not Envoy application.
 
 ## IMPL-A1: EDS version is an injective content digest
 

@@ -65,15 +65,24 @@ The expected workflow is:
 
 ## Envoy startup and warming matrix
 
-| Model obligation | Go bug shape | Existing Go coverage | Status | Next action |
-| --- | --- | --- | --- | --- |
-| `XdsEnvoyWarming.ActiveClustersHaveCDSAndEDS` | Code or tests treat CDS ACK as enough for a cluster to be usable before EDS arrives. | `TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints`, `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady`, `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint`, `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic`, and `TestKgateway/XdsWarming/TestInitialRouteWaitsForEDSBeforeBecomingActive`. | Covered | Add more shapes only if kgateway introduces new startup publication modes. |
-| `XdsEnvoyWarming.ActiveClustersHaveReadyCLA` | Code treats an ACKed empty CLA as usable endpoint state. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers the unit-level empty-CLA gate; `TestKgateway/XdsWarming/TestInitialRouteWaitsForEDSBeforeBecomingActive` covers startup route publication against real Envoy by requiring the delayed-endpoints host to remain unrouted until the backend is usable; `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` covers hot update delayed endpoints. | Covered | Add a multi-endpoint partial-ready case if endpoint health filtering becomes part of the publication gate. |
-| `XdsEnvoyWarming.ActiveRouteReferencesActiveCluster` | RDS route moves to a cluster before the cluster is active. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` and `TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady` cover the control-plane side; `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers empty EDS; `TestKgateway/XdsWarming/TestInitialRouteWaitsForEDSBeforeBecomingActive` covers startup delayed endpoints; `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` and `TestKgateway/XdsWarming/TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic` cover real Envoy traffic while the new EDS has no usable endpoints. | Covered | Add continuous-load variants if transient sub-second failures become a concern. |
-| `XdsEnvoyWarming.ActiveListenerHasRouteConfig` | LDS listener becomes active before referenced RDS exists. | `TestCheckSnapshotMissingRDSReferencedByListener` catches emitted snapshot closure, not Envoy warming. | Partial | Add startup e2e that withholds RDS or uses a delayed route input and checks no active listener points at missing RDS. |
-| `XdsEnvoyWarming.ActiveListenerAndRouteAgree` | Active listener and active route identity diverge. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` now uses an HCM/RDS listener and `xdscheck` to assert the emitted listener and route config stay closed; actual active Envoy state is not observable in unit tests. | Partial | Add Envoy e2e if this becomes a suspected startup/warming regression. |
-| `XdsEnvoyWarming.StartupActiveOnlyAfterClosure` | Startup declares success before LDS/RDS/CDS/EDS closure exists. | Static closure is covered by xdscheck; `TestKgateway/XdsWarming/TestInitialRouteWaitsForEDSBeforeBecomingActive` covers a startup route/service with delayed endpoints and verifies traffic does not move to the host until the backend becomes usable. | Covered | Add a delayed-RDS startup case if listener/RDS warming is suspected. |
-| `XdsEnvoyWarming.NoBreakBeforeMake` | Old active cluster is removed before traffic has moved to the new warmed cluster. | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady` and `TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady` cover the control-plane ordering; `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint` covers empty EDS; `TestKgateway/XdsWarming/TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic` asserts old traffic remains stable while the new backend has no endpoints, then moves to new; `TestKgateway/XdsWarming/TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic` asserts old traffic remains stable before weighted traffic splits. | Covered | Add higher-rate continuous-load coverage if this needs to catch very short transient failures. |
+Initialization and usable backend traffic are separate. First cache publication
+follows C0; the existing warm route-flip policy follows C3. The e2e test named
+`TestInitialRouteWaitsForEDSBeforeBecomingActive` adds a host to a running gateway
+and therefore does not establish a first-publication requirement.
+
+| Obligation | Evidence | Limit |
+|---|---|---|
+| C0: complete CDS permits first publication with permanently empty CLAs | `TestSnapshotPerClientFirstPublishWithEmptyEndpoints`, Lean `coldSafeSystem` and `coldStarvationBugSystem` | Served-cache evidence; cache restart does not simulate an actual Envoy restart |
+| Missing nonexempt CDS still defers | The `missing-CDS` subtest and Lean `coldMissingCDSBugSystem` | Permanently missing CDS can still starve publication |
+| `ActiveClustersHaveCDSAndEDS` and `ActiveClustersHaveCLA` | TLC warming safety; concrete CLA synthesis tests | Direct Envoy characterization remains open under ENV-A1 |
+| `WarmRouteFlipHasReadyCLA` | `TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint`, `xds_warming` route/weighted tests | Control-plane warm policy; no general Envoy guarantee |
+| `ActiveRouteReferencesActiveCluster`, `ActiveListenerHasRouteConfig`, `ActiveListenerAndRouteAgree` | TLC and concrete snapshot closure checks | Snapshot closure is not proof of wire/application order |
+| `StartupActiveOnlyAfterClosure` and `ColdEmptyEventuallyActive` | `XdsEnvoyWarmingColdEmpty.cfg` has no endpoint-recovery action | Temporal result assumes fairness of the modeled initialization actions |
+| `NoBreakBeforeMake` | TLC and existing warm transition tests | Does not resolve the known ADS delivery windows |
+
+The new trace decision `publish-first` permits empty endpoints while checking
+CDS closure, CLA presence, and orphan resources. Unknown decisions fail parsing.
+Warm whole-type RDS/LDS/SDS starvation remains outside this cold-start correction.
 
 ## ADS protocol matrix
 

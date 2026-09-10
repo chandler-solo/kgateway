@@ -159,63 +159,21 @@ func snapshotPerClient(
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
 		clientEndpointResources := krt.FetchOne(kctx, endpointResources, krt.FilterKey(ucc.ResourceName()))
 
-		// Defer publishing a per-client snapshot until its per-client inputs
-		// are coherent. Three guards:
+		// Wait for the per-client endpoint collection to be derived; an empty
+		// derived collection is valid. A missing cluster collection is treated
+		// as empty, then checked against the actual route references below.
 		//
-		//  1. If per-client endpoints haven't been derived yet for this UCC,
-		//     return nil. This handler can fire before the per-client
-		//     collections — driven by the same upstream events — have
-		//     re-run, so FetchOne may briefly return nil even though results
-		//     are imminent. clustersForUcc is treated differently as a
-		//     defensive measure: a nil clusterSnapshot entry can in principle
-		//     mean either "not yet processed" or "this UCC legitimately has
-		//     zero backend clusters". In practice the latter is hard to hit
-		//     because finalBackends pulls in a BackendObjectIR for every
-		//     Service port in the cluster (kube-apiserver, kube-dns, the
-		//     gateway's own Service, etc.), so clustersForUcc is virtually
-		//     never nil in an operational cluster — even for a gateway whose
-		//     HTTPRoutes only emit RequestRedirect or direct responses.
-		//     Substituting an empty resource set keeps the function honest
-		//     against narrow edge cases (a freshly started controller before
-		//     Service informers have synced, or a configuration whose only
-		//     backends are non-K8s and all fail translation) without
-		//     weakening guards 2 and 3, which still defer if any specific
-		//     cluster reference is missing.
+		// CDS gaps and unusable endpoints are recorded on the wrapper. syncXds
+		// defers first publication only for nonexempt missing CDS clusters;
+		// synthesized or actual empty CLAs publish on first cache installation.
+		// With an existing snapshot it retains the warm-transition policy:
+		// carry missing old clusters, publish scale-to-zero truth, and hold a
+		// flip to a newly referenced unready backend. That hold affects entire
+		// route/listener/secret types and is not a general anti-starvation rule.
 		//
-		//  2. If any cluster referenced as a dataplane routing target
-		//     (RouteAction / TcpProxy) is not yet present or explicitly
-		//     errored, return nil (see findMissingReferencedClusters below).
-		//     Publishing before then would emit a partial CDS referenced by
-		//     listeners/routes and cause Envoy to return 500/NC on routes
-		//     whose clusters just happen to be in the same CDS response.
-		//
-		//  3. If any referenced EDS cluster has no matching ready
-		//     ClusterLoadAssignment in the EDS resources that would be sent,
-		//     return nil. A CLA with zero usable endpoints is not ready for
-		//     make-before-break publication: publishing CDS/RDS/LDS before EDS
-		//     catches up can make Envoy drop all hosts for a route that was
-		//     healthy before the update.
-		//
-		// Returning nil removes this UCC's entry from the output collection,
-		// which surfaces as a Delete event in proxy_syncer.go's xDS
-		// subscriber. That Delete branch is intentionally a no-op so the
-		// xDS snapshot cache retains the last-published Snapshot for this
-		// client. Envoy therefore keeps serving its previous, coherent
-		// config until a new coherent snapshot overwrites it. This is what
-		// prevents an unresolvable reference — a user BackendRef typo, a
-		// plugin bug — from stranding Envoy: there is no error response on
-		// valid traffic during the defer window, only continuity.
-		//
-		// BackendRef typos never reach this gate as real cluster names:
-		// IR-time resolution substitutes wellknown.BlackholeClusterName,
-		// which findMissingReferencedClusters explicitly skips.
-		//
-		// The guards only cover the convergence window between the first
-		// per-client row landing and the last; the first-connect delay in
-		// pkg/krtcollections/uniqueclients.go additionally keeps a client's
-		// very first watch from observing that window at all.
-		//
-		// Historical context: https://github.com/solo-io/gloo/pull/10611.
+		// Returning nil for missing input emits a collection Delete, whose
+		// subscriber intentionally retains the previous cache entry. No cached
+		// entry can mean a new proxy OR a controller restart with warm proxies.
 		if clustersForUcc == nil {
 			clustersForUcc = &clustersWithErrors{
 				clusters: envoycache.Resources{
@@ -633,10 +591,10 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 // relying on the cache tolerating a dangling EDS cluster, and it lets Envoy
 // treat such a cluster as active-with-no-hosts immediately instead of stalling
 // its warming on an absent EDS resource until the initial-fetch timeout.
-// Referenced clusters whose only CLA is a synthesized empty are still deferred
-// upstream by findMissingReferencedEndpointResources, which checks for a
-// usable endpoint; the synthesized empties therefore only ever reach Envoy for
-// clusters no route targets.
+// Referenced clusters whose only CLA is a synthesized empty are marked unready
+// by findMissingReferencedEndpointResources, which checks for a
+// usable endpoint; syncXds permits referenced empty CLAs on first publication
+// and for previously referenced backends, but holds warm flips to new backends.
 //
 // Clusters dropped from CDS because backend translation failed are covered by
 // the same rule: their CLA is not required by any published cluster, so it goes

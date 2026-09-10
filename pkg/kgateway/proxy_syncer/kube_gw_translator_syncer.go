@@ -55,25 +55,32 @@ func (s *ProxyTranslator) syncXds(
 		//     the RDS that uses it).
 		published, err := s.xdsCache.GetSnapshot(proxyKey)
 		if err != nil {
-			// Never-published client: there is no last-good to hold or carry.
-			// Publishing an incoherent snapshot would 503 the unready routes,
-			// so withhold until the referenced clusters are ready (cold-start
-			// make-before-break, unchanged from the whole-snapshot gate).
-			logger.Info("withholding first publish until referenced clusters are ready",
-				"proxy_key", proxyKey,
-				"missing_clusters", snapWrap.missingReferenced,
-				"unusable_clusters", snapWrap.unusableReferenced,
-			)
-			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionDeferFirstPublish,
-				nil, snapWrap.erroredClusters,
+			// No cached snapshot: preserve CDS closure, but do not wait for
+			// usable endpoints. Empty CLAs are valid steady-state input and
+			// withholding them would starve every route on a new proxy. This
+			// also applies to a warm proxy reconnecting after a cache restart;
+			// cache absence does not tell us what the proxy is still serving.
+			refs := publishedReferencedClusters(snap)
+			if len(snapWrap.missingReferenced) > 0 {
+				logger.Info("withholding first publish until referenced clusters are present in CDS",
+					"proxy_key", proxyKey,
+					"missing_clusters", snapWrap.missingReferenced,
+				)
+				emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionDeferFirstPublish,
+					refs, snapWrap.erroredClusters,
+					snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
+				return
+			}
+			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishFirst,
+				refs, snapWrap.erroredClusters,
 				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
-			return
+		} else {
+			snap = resolveDeferredPerCluster(snapWrap, published)
+			publishedRefs := publishedReferencedClusters(published)
+			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishResolved,
+				publishedRefsForTrace(snap, publishedRefs), snapWrap.erroredClusters,
+				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
 		}
-		snap = resolveDeferredPerCluster(snapWrap, published)
-		publishedRefs := publishedReferencedClusters(published)
-		emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishResolved,
-			publishedRefsForTrace(snap, publishedRefs), snapWrap.erroredClusters,
-			snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
 	}
 
 	// The snapshot is EDS-consistent by construction: snapshotPerClient drops

@@ -33,34 +33,25 @@ convergence model in `devel/formal/tla/` with three stronger artifacts:
    counterparts: `DroppedFanoutBug` (no coherence event) violates
    `DeferredPartial ~> Converged`; adding the heartbeat restores it.
 4. **The per-cluster readiness model**
-   (`XdsSpec/PerClusterReadiness.lean`). Guard #3 of
-   `snapshotPerClient` applies a per-cluster fact ("does this
-   referenced EDS cluster have a usable endpoint?") at whole-snapshot
-   granularity, and the two candidate fixes pull it in opposite
-   directions. The model encodes the per-cluster synthesis (publish a
-   previously-active cluster's truth unconditionally, empty included;
-   gate only the route flip onto a newly-referenced cluster) and keeps
-   both rejected variants as machine-checked counterexamples: the
-   strengthened whole-snapshot gate livelocks holding dead endpoints
-   (`WholeSnapshotDeferBug`, a liveness violation), and the demoted
-   gate opens a 503 window by flipping routes onto a cluster that
-   warmed on an empty CLA (`PublishWhileWarmingBug`, a safety violation
-   of `FlipWasGated`). Each obligation is tied to the Go code through
-   `devel/testing/formal-model-map.yaml` (gated by
-   `TestFormalModelMap`): covered obligations name their discharging
-   tests, and the two places where `snapshotPerClient` currently *is*
-   the bug system (C2 scale-to-zero, C3 isolation) are pinned by
-   characterization tests in
-   `pkg/kgateway/proxy_syncer/perclient_percluster_divergence_test.go`
-   that assert today's behavior and must flip when the per-cluster
-   synthesis lands — the divergence is load-bearing in CI, not prose.
+   (`XdsSpec/PerClusterReadiness.lean`) distinguishes C0 first cache
+   publication from C2 endpoint truth and C3 warm route transitions.
+   C0 publishes complete CDS with empty CLAs, including after cache
+   restart; the cold model has no endpoint-recovery action. Its safe
+   system preserves closure and can reach publication. Requiring usable
+   endpoints strands it; bypassing missing CDS violates closure.
+   C2 publishes a previously referenced backend's empty truth. C3 holds a
+   warm flip onto a newly referenced unready backend. The warm whole-type
+   RDS/LDS/SDS hold can still starve unrelated changes indefinitely.
+   `formal-model-map.yaml` maps these obligations to concrete tests.
+   The finite Lean progress checker checks reachability, not temporal
+   liveness under fairness; TLC checks fair cold progress separately.
 5. **Trace conformance** (`XdsSpec/TraceCheck.lean`,
    `lake exe xdsspec trace`). The proxy_syncer Go tests, run with
    `XDS_TRACE_OUT=<file>`, record every `snapshotPerClient` decision
    (defer or publish, with the snapshot data it was made on) as JSONL.
-   The checker replays those events against the spec instantiated at
-   `Name := String`: publish closure (issue 13868), EDS readiness, and
-   no-orphan-CLAs (issue 14184). This is the link that keeps the model
+   The checker validates individual events using predicates over
+   `Name := String`: publish closure (issue 13868), EDS presence/readiness, and
+   no-orphan-CLAs (issue 14184). `publish-first` permits empty CLAs while retaining closure checks, and unknown decisions fail parsing. This does not replay the protocol state machine. This is the link that keeps the model
    and `pkg/kgateway/proxy_syncer/perclient.go` from drifting apart —
    an implementation change that publishes a snapshot the spec forbids
    fails CI even if nobody re-reads the model.

@@ -3,25 +3,16 @@ EXTENDS FiniteSets, TLC
 
 \* A focused model of Envoy startup/warming semantics for LDS/RDS/CDS/EDS.
 \*
-\* Envoy ACKs individual xDS resources after validating them in isolation, but
-\* ACK does not mean the configuration is active. For this kgateway safety
-\* model, a cluster is route-usable only after EDS supplies a ready
-\* ClusterLoadAssignment. A missing CLA means no EDS response has arrived for
-\* the cluster; an empty CLA means EDS was ACKed but does not contain usable
-\* endpoints; a ready CLA can activate the cluster in the model. Listeners that
-\* refer to RDS warm until the corresponding RouteConfiguration is supplied.
-\* Routes are not warmed, so the management server must make sure route cluster
-\* references are already usable before activating route updates.
+\* Initialization and backend availability are distinct. Receiving an empty
+\* CLA can initialize a cluster with zero hosts. Cold publication permits this
+\* degraded state; only the warm route-flip policy requires usable endpoints.
+\* activeClusters means initialized clusters, not successful backend traffic.
+\* ACK alone still does not establish initialization or dependency closure.
 \*
-\* The safe spec checks two paths:
-\*   1. cold startup from no active listener to a fully active listener
-\*   2. make-before-break update from "old" to "new"
-\*
-\* The buggy specs demonstrate four common mistakes:
-\*   - treating CDS ACK as cluster active before EDS arrives
-\*   - treating an empty CLA as enough to activate a cluster
-\*   - activating an RDS route before the referenced cluster is active
-\*   - activating an LDS listener before the referenced RDS config exists
+\* The safe spec covers cold empty/ready startup and warm make-before-break.
+\* ColdEmptySpec checks progress with permanently empty endpoints under named
+\* weak-fairness assumptions. No endpoint-recovery action exists in that spec.
+\* These are abstract policy/initialization models, not a proof of Envoy.
 
 Names == {"old", "new"}
 MaybeName == Names \cup {"none"}
@@ -141,7 +132,8 @@ HotReceiveEmptyEDS ==
     /\ phase' = "HotEmptyClaAcked"
     /\ edsAcked' = {"old", "new"}
     /\ claState' = [claState EXCEPT !["new"] = "EmptyCLA"]
-    /\ UNCHANGED << cdsAcked, rdsAcked, ldsAcked, activeClusters, activeRouteCluster, activeListenerRoute >>
+    /\ activeClusters' = {"old", "new"}
+    /\ UNCHANGED << cdsAcked, rdsAcked, ldsAcked, activeRouteCluster, activeListenerRoute >>
 
 HotReceiveReadyEDS ==
     /\ phase \in {"HotCdsAcked", "HotEmptyClaAcked"}
@@ -179,7 +171,7 @@ BuggyActivateClusterOnCDSAck ==
     /\ activeClusters' = {"new"}
     /\ UNCHANGED << cdsAcked, edsAcked, rdsAcked, ldsAcked, claState, activeRouteCluster, activeListenerRoute >>
 
-BuggyActivateClusterOnEmptyCLA ==
+ColdInitializeOnEmptyCLA ==
     /\ phase = "ColdEmptyClaAcked"
     /\ phase' = "ColdClusterActive"
     /\ activeClusters' = {"new"}
@@ -201,6 +193,14 @@ BuggyListenerBeforeRouteConfig ==
     /\ activeListenerRoute' = "new"
     /\ UNCHANGED << cdsAcked, edsAcked, rdsAcked, claState, activeClusters >>
 
+BuggyFlipOnEmptyCLA ==
+    /\ phase = "HotEmptyClaAcked"
+    /\ phase' = "HotRouteActive"
+    /\ rdsAcked' = {"old", "new"}
+    /\ activeRouteCluster' = "new"
+    /\ activeListenerRoute' = "new"
+    /\ UNCHANGED << cdsAcked, edsAcked, ldsAcked, claState, activeClusters >>
+
 NoOp ==
     UNCHANGED vars
 
@@ -208,6 +208,7 @@ SafeNext ==
     \/ ColdReceiveCDS
     \/ ColdReceiveEmptyEDS
     \/ ColdReceiveReadyEDS
+    \/ ColdInitializeOnEmptyCLA
     \/ ColdReceiveRDS
     \/ ColdReceiveLDS
     \/ HotReceiveCDS
@@ -222,10 +223,10 @@ AckImpliesActiveBugNext ==
     \/ BuggyActivateClusterOnCDSAck
     \/ NoOp
 
-EmptyCLAImpliesActiveBugNext ==
-    \/ ColdReceiveCDS
-    \/ ColdReceiveEmptyEDS
-    \/ BuggyActivateClusterOnEmptyCLA
+EmptyCLAFlipBugNext ==
+    \/ HotReceiveCDS
+    \/ HotReceiveEmptyEDS
+    \/ BuggyFlipOnEmptyCLA
     \/ NoOp
 
 RouteBeforeClusterBugNext ==
@@ -239,11 +240,30 @@ ListenerBeforeRouteBugNext ==
     \/ BuggyListenerBeforeRouteConfig
     \/ NoOp
 
+ColdEmptyNext ==
+    \/ ColdReceiveCDS
+    \/ ColdReceiveEmptyEDS
+    \/ ColdInitializeOnEmptyCLA
+    \/ ColdReceiveRDS
+    \/ ColdReceiveLDS
+    \/ NoOp
+
+ColdEmptySpec ==
+    /\ ColdInit
+    /\ [][ColdEmptyNext]_vars
+    /\ WF_vars(ColdReceiveCDS)
+    /\ WF_vars(ColdReceiveEmptyEDS)
+    /\ WF_vars(ColdInitializeOnEmptyCLA)
+    /\ WF_vars(ColdReceiveRDS)
+    /\ WF_vars(ColdReceiveLDS)
+
+ColdEmptyEventuallyActive == <> (phase = "ColdActive")
+
 SafeSpec == Init /\ [][SafeNext]_vars
 
 AckImpliesActiveBugSpec == ColdInit /\ [][AckImpliesActiveBugNext]_vars
 
-EmptyCLAImpliesActiveBugSpec == ColdInit /\ [][EmptyCLAImpliesActiveBugNext]_vars
+EmptyCLAFlipBugSpec == HotInit /\ [][EmptyCLAFlipBugNext]_vars
 
 RouteBeforeClusterBugSpec == HotInit /\ [][RouteBeforeClusterBugNext]_vars
 
@@ -263,8 +283,11 @@ TypeOK ==
 ActiveClustersHaveCDSAndEDS ==
     activeClusters \subseteq (cdsAcked \cap edsAcked)
 
-ActiveClustersHaveReadyCLA ==
-    \A c \in activeClusters: claState[c] = "ReadyCLA"
+ActiveClustersHaveCLA ==
+    \A c \in activeClusters: claState[c] # "MissingCLA"
+
+WarmRouteFlipHasReadyCLA ==
+    phase \in {"HotRouteActive", "OldRemoved"} => claState["new"] = "ReadyCLA"
 
 ActiveRouteReferencesActiveCluster ==
     \/ activeRouteCluster = "none"
@@ -280,7 +303,7 @@ ActiveListenerAndRouteAgree ==
 StartupActiveOnlyAfterClosure ==
     phase = "ColdActive" =>
         /\ "new" \in activeClusters
-        /\ claState["new"] = "ReadyCLA"
+        /\ claState["new"] # "MissingCLA"
         /\ "new" \in rdsAcked
         /\ "new" \in ldsAcked
         /\ activeRouteCluster = "new"

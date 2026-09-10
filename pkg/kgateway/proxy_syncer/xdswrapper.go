@@ -35,6 +35,8 @@ type XdsSnapWrapper struct {
 	// are carried forward, previously-referenced clusters with no usable
 	// endpoints publish their truth (scale-to-zero), and only a route flip
 	// onto a newly-referenced not-yet-ready cluster is held back.
+	// Without a cached snapshot, only missing CDS prevents publication;
+	// referenced clusters with empty CLAs publish immediately.
 	// +noKrtEquals (derived from snapshot contents whose per-type versions Equals compares)
 	deferred bool
 	// missingReferenced lists referenced clusters absent from this snapshot's

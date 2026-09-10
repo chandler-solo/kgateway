@@ -24,7 +24,9 @@ assumptions:
       - file: pkg/kgateway/proxy_syncer/perclient_test.go
         test: TestSnapshotPerClientClientRemovalRetainsServedCache
   - id: ENV-A1
-    summary: Envoy activates routes/listeners only after CDS ACK and a usable ClusterLoadAssignment (make-before-break)
+    summary: the abstract convergence activation guard requires dependency closure; a general Envoy usable-endpoint activation guarantee is unproven and must not constrain first publication
+    status: open
+    plannedDischarge: directly characterize the pinned Envoy without the kgateway readiness gate, separating initialized empty clusters from traffic-usable clusters. Existing warming e2e tests characterize the warm control-plane policy, not an Envoy first-publication guarantee.
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - activateNew

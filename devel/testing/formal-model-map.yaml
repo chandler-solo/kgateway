@@ -12,6 +12,18 @@
 #               safe-system behavior, and the entry flips to covered.
 #   open      - not implemented; the note says where the work is tracked.
 obligations:
+  - id: C0-first-cache-publication
+    summary: complete referenced CDS permits first cache publication with empty CLAs, including after cache restart; missing nonexempt CDS still defers
+    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+    specAnchors:
+      - coldSafeSystem
+      - coldStarvationBugSystem
+      - coldClosed
+    status: covered
+    note: cache absence is not evidence that Envoy is cold. Empty endpoint truth can replace a warm proxy's retained state after controller restart. This does not change the warm C3 policy or solve permanent missing-CDS starvation.
+    tests:
+      - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+        test: TestSnapshotPerClientFirstPublishWithEmptyEndpoints
   - id: C1-steady-state-publish
     summary: a referenced cluster with usable endpoints publishes its current truth
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
@@ -33,7 +45,7 @@ obligations:
       - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
         test: TestSnapshotPerClientScaleToZeroPublishesEmptyCLA
   - id: C3-flip-gated-on-usable-endpoint
-    summary: the route flip onto a newly-referenced cluster waits for a CLA with a usable endpoint (make-before-break, no 503 window)
+    summary: with an existing cached snapshot, the route flip onto a newly-referenced cluster waits for a CLA with a usable endpoint; first cache publication follows C0
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
     specAnchors:
       - flipRoutes
@@ -47,7 +59,7 @@ obligations:
       - file: test/e2e/features/xds_warming/suite.go
         test: TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic
   - id: C3-isolation-warming-cluster-does-not-block-others
-    summary: while a newly-referenced cluster warms, only its route flip is held - other clusters' updates keep publishing
+    summary: while a newly-referenced cluster warms, route/listener/secret types are held while other clusters' endpoint updates keep publishing
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
     specAnchors:
       - truthLagsA

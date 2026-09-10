@@ -24,6 +24,10 @@ snapshot granularity:
 
 The safe system encodes the synthesis — per-cluster make-before-break:
 
+  C0  first CACHE publication: once referenced CDS is complete, publish
+      even if endpoints remain empty forever. Cache absence can also mean
+      a controller restart with a warm proxy. C3 applies only when a
+      previously published snapshot exists, not to this first publication.
   C1  steady state: publish the cluster's current truth.
   C2  a PREVIOUSLY-ACTIVE cluster scales to zero / goes unhealthy:
       publish the empty CLA anyway. Truth wins; only that cluster's
@@ -62,6 +66,58 @@ fuzzed against the served cache by the randomized property test.
 import XdsSpec.Checker
 
 namespace XdsSpec.PerCluster
+
+/- First-cache publication is separate from the warm A/B transition below.
+The endpoint state is permanently empty: there is no deployment action that
+could hide starvation. A CLA is synthesized when CDS arrives. -/
+structure ColdState where
+  cdsPresent : Bool := false
+  claPresent : Bool := false
+  published : Bool := false
+  proxyHadConfig : Bool := false
+  routeUpdated : Bool := false
+  deriving DecidableEq, Repr, Hashable
+
+inductive ColdAction
+  | deriveCDS | publish | restartCache | updateRoute
+  | buggyWaitForUsable | buggyPublishMissingCDS
+  deriving DecidableEq, Repr, Hashable
+
+def coldStep (s : ColdState) : ColdAction → Option ColdState
+  | .deriveCDS => some { s with cdsPresent := true, claPresent := true }
+  | .publish =>
+    if s.cdsPresent && s.claPresent then some { s with published := true } else none
+  | .restartCache =>
+    if s.published then
+      some { s with published := false, proxyHadConfig := true, routeUpdated := false }
+    else none
+  | .updateRoute =>
+    if s.published then some { s with routeUpdated := true } else none
+  | .buggyWaitForUsable => none -- Permanently empty endpoints never enable this gate.
+  | .buggyPublishMissingCDS => some { s with published := true }
+
+def coldClosed (s : ColdState) : Bool :=
+  !s.published || (s.cdsPresent && s.claPresent)
+
+def coldPending (s : ColdState) : Bool := s.cdsPresent && !s.published
+
+def coldSystem (name : String) (publishAction : ColdAction) : System ColdState ColdAction where
+  name := name
+  init := {}
+  actions := [.deriveCDS, publishAction, .restartCache, .updateRoute]
+  step := coldStep
+  describeAction := fun a => reprStr a
+
+def coldSafeSystem := coldSystem "ColdEmptyEndpoints" .publish
+def coldStarvationBugSystem := coldSystem "ColdUsableEndpointGateBug" .buggyWaitForUsable
+def coldMissingCDSBugSystem := coldSystem "ColdMissingCDSBug" .buggyPublishMissingCDS
+def coldInvariants : List (String × (ColdState → Bool)) := [("ColdPublicationClosed", coldClosed)]
+
+-- First publication is enabled without endpoint recovery, including after
+-- cache restart. These are direct guard checks, not temporal fairness proofs.
+#guard (coldStep { cdsPresent := true, claPresent := true } .publish).isSome
+#guard (coldStep { cdsPresent := true, claPresent := true, proxyHadConfig := true } .publish).isSome
+#guard (coldStep {} .publish).isNone
 
 /-- Endpoint truth for one cluster: at least one usable (healthy)
 endpoint, or none. -/

@@ -11,10 +11,10 @@ events against the verified spec, instantiated at `Name := String`:
     (errored or the blackhole sentinel) must be present in CDS — the
     trace-level counterpart of `candidateClosed`/`CacheSnapshotClosed`
     and of issue 13868's publication gate.
-  - EDS readiness: every referenced EDS cluster's ClusterLoadAssignment
-    (by service_name or cluster name) must be present and have a usable
-    endpoint — the `findMissingReferencedEndpointResources` gate that
-    `activateNew`'s guard models.
+  - EDS presence: every referenced EDS cluster's ClusterLoadAssignment
+    (by service_name or cluster name) must be present. Empty assignments
+    are permitted for first cache publication and per-cluster resolution.
+    Only the fully ready transform decision requires usable endpoints.
   - No orphan CLAs: every published CLA must be induced by an EDS
     cluster in the same snapshot — issue 14184's
     `NoOrphanEndpointResources`.
@@ -86,6 +86,10 @@ def parseEvent (line : String) : Except String TraceEvent := do
   let j ← Json.parse line
   let client ← (← j.getObjVal? "client").getStr?
   let decision ← (← j.getObjVal? "decision").getStr?
+  unless ["publish", "publish-first", "publish-resolved",
+      "defer-missing-role-snapshot", "defer-endpoints-not-ready",
+      "defer-flip", "defer-first-publish"].contains decision do
+    throw s!"unknown trace decision: {decision}"
   let referenced ← getStrList j "referenced"
   let exempt ← getStrList j "exempt"
   let clusters ← match j.getObjVal? "clusters" with
@@ -106,13 +110,16 @@ structure Violation where
   rule : String
   detail : String
 
-/-- Check a publish event. `requireUsable` distinguishes the two publish
+/-- Check a publish event. `requireUsable` distinguishes the publish
 kinds: a coherent transform publish ("publish") requires every referenced
 EDS cluster to carry a usable endpoint; a per-cluster resolution
 ("publish-resolved", emitted by syncXds) only requires the CLA to exist —
 a previously-referenced cluster legitimately publishes an empty CLA when
 its endpoints scale to zero (spec case C2), and held-flip compositions gate
-usability upstream in the unit tests. -/
+usability upstream in the unit tests. First cache publication
+("publish-first") also requires presence, not usable endpoints: there is
+no cached route flip to protect. All three decisions check CDS closure
+and orphan CLAs. These event checks do not prove transition conformance. -/
 def checkPublish (e : TraceEvent) (requireUsable : Bool) :
     List (String × String) := Id.run do
   let mut violations := []
@@ -159,7 +166,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
     | .error err => return .error s!"line {lineNumber}: malformed trace event: {err}"
     | .ok e =>
       summary := { summary with events := summary.events + 1 }
-      if e.decision == "publish" || e.decision == "publish-resolved" then
+      if ["publish", "publish-first", "publish-resolved"].contains e.decision then
         summary := { summary with publishes := summary.publishes + 1 }
         let found := checkPublish e (requireUsable := e.decision == "publish")
         summary := { summary with
@@ -168,6 +175,24 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       else
         summary := { summary with defers := summary.defers + 1 }
   return .ok summary
+
+/-- A first publication may be empty but must still be structurally closed. -/
+private def firstEmpty : TraceEvent :=
+  { client := "cold", decision := "publish-first", referenced := ["c"],
+    exempt := [], clusters := [⟨"c", true, "service"⟩],
+    endpoints := [⟨"service", false⟩], endpointsVersion := "v1" }
+
+#guard (checkPublish firstEmpty false).isEmpty
+#guard !(checkPublish firstEmpty true).isEmpty
+#guard !(checkPublish { firstEmpty with clusters := [] } false).isEmpty
+#guard !(checkPublish { firstEmpty with endpoints := [] } false).isEmpty
+#guard !(checkPublish { firstEmpty with endpoints := [⟨"orphan", false⟩] } false).isEmpty
+#guard match parseEvent "{\"client\":\"cold\",\"decision\":\"publsih\"}" with
+  | .error _ => true
+  | .ok _ => false
+#guard match checkTrace ["{\"client\":\"cold\",\"decision\":\"publish-first\",\"referenced\":[\"c\"]}"] with
+  | .ok summary => summary.publishes == 1 && !summary.violations.isEmpty
+  | .error _ => false
 
 def runTraceCheck (paths : List String) : IO UInt32 := do
   let mut ok := true

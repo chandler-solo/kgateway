@@ -132,6 +132,15 @@ def runModelCheck : IO UInt32 := do
   IO.println ""
   IO.println "per-cluster readiness model (guard #3 granularity)"
   IO.println ""
+  for sys in [PerCluster.coldSafeSystem, PerCluster.coldStarvationBugSystem] do
+    ok := (← runSafetyExpectation ⟨sys, PerCluster.coldInvariants, none⟩) && ok
+  ok := (← runSafetyExpectation ⟨PerCluster.coldMissingCDSBugSystem,
+    PerCluster.coldInvariants, some "ColdPublicationClosed"⟩) && ok
+  -- This checker establishes recoverability, not all-fair-execution liveness.
+  ok := (← runLiveness PerCluster.coldSafeSystem (expectStuck := false)
+    PerCluster.coldPending (·.published) "Cold publication reachable with permanently empty endpoints") && ok
+  ok := (← runLiveness PerCluster.coldStarvationBugSystem (expectStuck := true)
+    PerCluster.coldPending (·.published) "Cold publication reachable with permanently empty endpoints") && ok
   for e in perClusterExpectations do
     ok := (← runSafetyExpectation e) && ok
   -- C2: a previously-active cluster's published CLA always catches up
