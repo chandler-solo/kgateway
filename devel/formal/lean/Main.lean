@@ -12,6 +12,7 @@ import XdsSpec.TraceCheck
 import XdsSpec.CheckerTests
 import XdsSpec.GcpWatch
 import XdsSpec.EnvoyAvailability
+import XdsSpec.RewarmingComposition
 
 open XdsSpec XdsSpec.Convergence
 
@@ -216,6 +217,10 @@ def runModelCheck : IO UInt32 := do
     ok := (← runSafetyExpectation ⟨GcpWatch.system retain,
       [("RequestAccountedFor", GcpWatch.requestAccountedFor)],
       if retain then none else some "RequestAccountedFor"⟩) && ok
+  for allowRevision in [false, true] do
+    ok := (← runRecoverability (RewarmingComposition.system allowRevision)
+      (expectStuck := !allowRevision) (·.warming) (! ·.warming)
+      "Warming can reach Initialized") && ok
   if ok then
     IO.println "all model-check expectations held"
     return 0

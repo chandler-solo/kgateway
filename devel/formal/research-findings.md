@@ -157,3 +157,21 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Action: exhaust the original bounds with adequate resources and report the
   result separately (`TLC_INCLUDE_WIDE=1`). CI emits a deferred-wide-model
   receipt; it must not imply every original bound was checked.
+
+## RF-017 Real cache/server can strand same-name cluster rewarming
+
+- Status: reproduced integration defect/limitation with v0.14.0 and Envoy
+  v1.39.1; mitigation remains open.
+- Evidence: `envoyprobe -snapshot-cache` changes CDS connect timeout while EDS
+  names/content/version stay fixed. Envoy re-requests EDS at its accepted
+  version; cache eligibility parks the watch. Unchanged SetSnapshot completes
+  but the candidate stays warming throughout a checked 400 ms window. An
+  explicit EDS revision completes warming. Repeat with `-ordered` to exercise
+  the shared ADS queue. `RewarmingComposition.lean` has no recovery path when
+  only same-version requests/republishes are allowed; adding an EDS revision
+  provides an existential recovery witness.
+- Action: design and verify a rewarming response trigger across cache, stream,
+  nonce, and subscription state. A global EDS version bump is not yet a fix:
+  delivery/ACK skew can place EDS ahead of CDS, and unnecessary replies can
+  introduce loops. Extend to real KGW same-name cluster changes, NACK, TLS,
+  and multi-client schedules before extracting a product mitigation.

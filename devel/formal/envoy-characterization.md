@@ -66,3 +66,27 @@ transport failure. No steady-state or wall-clock guarantee follows from one
 controlled schedule. RF-001's live kgateway e2e suites still need execution.
 Historical mechanism links include Envoy #13009 and go-control-plane #46;
 closed status alone does not establish version coverage or a deployed repair.
+
+## Integration with the actual cache/server
+
+`-snapshot-cache` substitutes the root go-control-plane SnapshotCache and
+SotW server for the scripted server. `-ordered` selects ordered ADS in that
+mode. The required runner executes both, in addition to the two direct panic
+profiles.
+
+In both cache modes, the same-name CDS connect-timeout change produces a
+warming candidate and an EDS request at the already returned version. A
+same-version cache republish returns successfully but does not send EDS;
+admin state remains warming for the checked 400 ms stable window. An explicit
+EDS version change then releases warming. The old active endpoint continues
+to serve traffic during that window. Wire logs distinguish cache installation
+from responses and from observed warming completion.
+
+RF-017 records the defect/limitation and required mitigation work. The finite
+observation is not a proof of infinite silence. The composed finite model
+`RewarmingComposition.lean` explains the missing transition under stable
+input, and the v0.14.0 source supplies the equal-version eligibility branch.
+This is still not a proof of all real client retries or timer schedules.
+The version change is a controlled recovery event, not a proposed universal
+repair. This integration evidence advances RF-014 without closing its broader
+protocol/refinement obligation.

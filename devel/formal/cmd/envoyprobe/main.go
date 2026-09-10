@@ -42,12 +42,15 @@ func packed(p proto.Message) *anypb.Any {
 	}
 	return a
 }
+
 func address(port uint32) *core.Address {
 	return &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "127.0.0.1", PortSpecifier: &core.SocketAddress_PortValue{PortValue: port}}}}
 }
+
 func ads() *core.ConfigSource {
 	return &core.ConfigSource{ResourceApiVersion: core.ApiVersion_V3, ConfigSourceSpecifier: &core.ConfigSource_Ads{Ads: &core.AggregatedConfigSource{}}, InitialFetchTimeout: durationpb.New(0)}
 }
+
 func resources(phase int, disablePanic bool) map[string][]*anypb.Any {
 	c := &cluster.Cluster{Name: "a", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS}, EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{EdsConfig: ads()}}
 	if disablePanic {
@@ -88,6 +91,7 @@ func (s *probeServer) record(v any) {
 		panic(err)
 	}
 }
+
 func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
 	reqs := make(chan *discovery.DiscoveryRequest)
 	errs := make(chan error, 1)
@@ -117,16 +121,7 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 		if !ok {
 			return nil
 		}
-		version := "base"
-		if typ == resource.EndpointType {
-			version = strconv.Itoa(phase)
-			if phase == 3 || phase == 4 {
-				version = "2"
-			}
-		}
-		if typ == resource.ClusterType && phase >= 3 {
-			version = "rewarm"
-		}
+		version := versionFor(phase, typ)
 		if sent[typ] == version {
 			return nil
 		}
@@ -174,6 +169,7 @@ func command(args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(b)), nil
 }
+
 func get(url string) (int, string, error) {
 	c := http.Client{Timeout: time.Second}
 	r, err := c.Get(url)
@@ -184,6 +180,7 @@ func get(url string) (int, string, error) {
 	b, err := io.ReadAll(r.Body)
 	return r.StatusCode, string(b), err
 }
+
 func await(ctx context.Context, f func() bool) error {
 	for {
 		if f() {
@@ -271,6 +268,8 @@ func endpointState(body string, phase int) bool {
 }
 
 func run() (runErr error) {
+	useCache := flag.Bool("snapshot-cache", false, "use the actual go-control-plane cache/server")
+	ordered := flag.Bool("ordered", false, "use ordered ADS with -snapshot-cache")
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
@@ -282,14 +281,14 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(dir, 0755); err != nil {
+	if err = os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	info, err := command("image", "inspect", *image)
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "image.json"), []byte(info), 0644); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "image.json"), []byte(info), 0o644); err != nil {
 		return err
 	}
 	lis, err := net.Listen("tcp", "0.0.0.0:0")
@@ -304,7 +303,22 @@ func run() (runErr error) {
 	defer logfile.Close()
 	p := &probeServer{disablePanic: *disablePanic, updates: make(chan int, 1), log: json.NewEncoder(logfile)}
 	srv := grpc.NewServer()
-	discovery.RegisterAggregatedDiscoveryServiceServer(srv, p)
+	serverCtx, stopServer := context.WithCancel(context.Background())
+	defer stopServer()
+	advance := func(phase int) error { p.updates <- phase; return nil }
+	if *useCache {
+		advance, err = installCacheServer(serverCtx, srv, p, *ordered)
+		if err != nil {
+			return err
+		}
+	} else {
+		if *ordered {
+			return fmt.Errorf("-ordered requires -snapshot-cache")
+		}
+		discovery.RegisterAggregatedDiscoveryServiceServer(srv, p)
+	}
+	p.record(map[string]any{"event": "profile", "snapshot_cache": *useCache, "ordered": *ordered, "disable_panic": *disablePanic})
+
 	defer srv.Stop()
 	go func() {
 		if err := srv.Serve(lis); err != nil {
@@ -320,7 +334,7 @@ func run() (runErr error) {
  "listeners":[{"name":"upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"upstream","route_config":{"virtual_hosts":[{"name":"all","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"probe-upstream"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}
 `, port)
 	cfg := filepath.Join(dir, "bootstrap.json")
-	if err = os.WriteFile(cfg, []byte(bootstrap), 0644); err != nil {
+	if err = os.WriteFile(cfg, []byte(bootstrap), 0o644); err != nil {
 		return err
 	}
 	dockerOS, err := command("info", "--format", "{{.OperatingSystem}}")
@@ -338,7 +352,7 @@ func run() (runErr error) {
 	}
 	defer func() {
 		logs, logErr := command("logs", id)
-		writeErr := os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0644)
+		writeErr := os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0o644)
 		_, cleanupErr := command("rm", "-f", id)
 		runErr = errors.Join(runErr, logErr, writeErr, cleanupErr)
 	}()
@@ -362,7 +376,7 @@ func run() (runErr error) {
 		if e != nil {
 			panic(e)
 		}
-		if e = os.WriteFile(filepath.Join(dir, name), []byte(body), 0644); e != nil {
+		if e = os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); e != nil {
 			panic(e)
 		}
 		return body
@@ -382,7 +396,9 @@ func run() (runErr error) {
 	}
 	save("missing-config.json", "/config_dump")
 	p.record(map[string]any{"event": "observation", "phase": "missing", "ready": code})
-	p.updates <- 1
+	if err = advance(1); err != nil {
+		return err
+	}
 	if err = await(ctx, func() bool { code, _, _ := get(admin + "/ready"); return code == 200 }); err != nil {
 		return fmt.Errorf("empty EDS did not initialize: %w", err)
 	}
@@ -392,14 +408,18 @@ func run() (runErr error) {
 	save("empty-config.json", "/config_dump")
 	save("empty-clusters.json", "/clusters?format=json")
 	p.record(map[string]any{"event": "observation", "phase": "empty", "ready": 200, "traffic": 503})
-	p.updates <- 2
+	if err = advance(2); err != nil {
+		return err
+	}
 	if err = await(ctx, func() bool { code, b, _ := get(front + "/"); return code == 200 && b == "probe-upstream" }); err != nil {
 		return fmt.Errorf("ready EDS traffic did not recover: %w", err)
 	}
 	save("ready-config.json", "/config_dump")
 	save("ready-clusters.json", "/clusters?format=json")
 	p.record(map[string]any{"event": "observation", "phase": "ready", "ready": 200, "traffic": 200})
-	p.updates <- 3 // changed CDS, unchanged EDS deliberately withheld
+	if err = advance(3); err != nil {
+		return err
+	} // changed CDS, unchanged EDS deliberately withheld
 	if err = await(ctx, func() bool { _, b, _ := get(admin + "/config_dump"); return hasCluster(b, true) }); err != nil {
 		return fmt.Errorf("changed CDS did not rewarm: %w", err)
 	}
@@ -409,17 +429,43 @@ func run() (runErr error) {
 	}
 	save("rewarming-config.json", "/config_dump")
 	p.record(map[string]any{"event": "observation", "phase": "rewarming-without-eds-replay", "traffic": 200})
-	p.updates <- 4 // identical CLA content AND version, but a fresh wire response
+	if err = advance(4); err != nil {
+		return err
+	}
+	if *useCache {
+		// Finite stable-window characterization, not a proof of infinite silence.
+		// Source eligibility plus absence of a future revision is a separate model obligation.
+		for i := 0; i < 8; i++ {
+			_, b, e := get(admin + "/config_dump")
+			if e != nil || !hasCluster(b, true) {
+				return fmt.Errorf("unchanged cache republish unexpectedly completed rewarming: %v", e)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		save("cache-republish-still-warming.json", "/config_dump")
+		p.record(map[string]any{"event": "observation", "phase": "unchanged-cache-republish", "warming": true, "stable_window_ms": 400})
+		// A changed EDS version is an explicit recovery event, not a cache fix.
+		if err = advance(8); err != nil {
+			return err
+		}
+	}
+
 	if err = await(ctx, func() bool {
 		_, b, _ := get(admin + "/config_dump")
 		return !hasCluster(b, true) && hasCluster(b, false)
 	}); err != nil {
-		return fmt.Errorf("same-version EDS replay did not finish rewarming: %w", err)
+		return fmt.Errorf("EDS recovery did not finish rewarming: %w", err)
 	}
 	save("rewarmed-config.json", "/config_dump")
-	p.record(map[string]any{"event": "observation", "phase": "same-version-eds-replay", "warming": false})
+	p.record(map[string]any{"event": "observation", "phase": "eds-recovery", "snapshot_cache": *useCache, "warming": false})
 	for _, phase := range []int{5, 6, 7} {
-		p.updates <- phase
+		if err = advance(phase); err != nil {
+			return err
+		}
 		if err = await(ctx, func() bool {
 			_, b, _ := get(admin + "/config_dump?include_eds")
 			return endpointState(b, phase)
@@ -443,10 +489,11 @@ func run() (runErr error) {
 		}
 		p.record(map[string]any{"event": "observation", "phase": phase, "ready": 200, "traffic": want})
 	}
-	fmt.Println("PASS missing/empty/ready EDS, same-version rewarming, unhealthy/empty truth, recovery")
+	fmt.Printf("PASS Envoy characterization: cache=%t ordered=%t panic-disabled=%t\n", *useCache, *ordered, *disablePanic)
 
 	return nil
 }
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
