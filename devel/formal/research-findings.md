@@ -328,13 +328,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-016 Historical inventory is not completed bug coverage
 
-- Status: all seven title/body inventories captured; detailed classification and linked-source audit open.
+- Status: all seven title/body inventories captured; a first classified batch
+  of eleven go-control-plane keyword candidates is recorded; detailed
+  classification of the remaining candidates and the linked-source audit
+  are open.
 - Evidence: the exporter records every retrieved issue/PR page and cursor,
   cutoff, repository identity, payload checksum, keyword hits, and unreviewed
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records eleven discovery dispositions, with their detail pages
+  `bug-corpus.json` records twenty-two dispositions, eleven from discovery and eleven from a classified go-control-plane keyword batch (two held out as unprobed: #431 and #505), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Action: review comments/reviews and linked fixes across the candidate set,
   audit relevant source history and release ancestry, classify every candidate,

@@ -4,7 +4,7 @@ The [scope manifest](corpus-scope.json) covers all six requested repositories
 plus solo-kit, with creation cutoff **before 2026-09-10 00:00:00 UTC**. All seven
 issue/PR inventories were enumerated to cutoff or the final server-provided
 cursor. [Inventory counts](corpus-inventory.json) report retrieval, not review.
-[Discovery records](bug-corpus.json) contain the first eleven mechanism dispositions.
+[Discovery records](bug-corpus.json) contain twenty-two dispositions: the first eleven discovery mechanisms plus a classified batch of go-control-plane keyword candidates.
 RF-016 tracks the unfinished historical program.
 
 ## Reproduce and resume
