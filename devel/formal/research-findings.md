@@ -418,6 +418,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: the direct `secrets` scenario characterizes rotation,
   removal, and a never-delivered secret over SotW ADS (RF-027). Removal is
   ACKed and revokes nothing.
+- Evidence added: `TestSDSStreamAndDeltaServeAnyNodeIdentity` shows the
+  standalone server answers StreamSecrets and DeltaSecrets, like
+  FetchSecrets, with the configured client's snapshot for any Node identity.
+  All three RPC modes are reachable; none authenticates.
 - Action: model secret rotation, deletion/revocation, last-good versus
   fail-closed behavior, version reuse, reconnect, identity, and partial send.
   Determine which three RPC modes are supported and disable unused modes or
@@ -474,9 +478,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Scope correction: `pkg/sds/run.go` defaults `SdsServerAddress` to loopback
   but reads it from environment. `Server.Run` binds the supplied address.
   Loopback is a default deployment boundary, not an enforced server invariant.
+- Evidence added: StreamSecrets and DeltaSecrets behave like FetchSecrets:
+  any Node identity receives the configured client's secrets.
 - Action: audit chart/environment overrides and network reachability; decide
-  whether to enforce loopback or authenticate supported remote clients. Extend
-  characterization to StreamSecrets and DeltaSecrets. Model the configured
+  whether to enforce loopback or authenticate supported remote clients. Model the configured
   client as a cache key and represent the actual trust boundary explicitly.
   This synthetic probe does not establish exposure in an installed deployment.
 
