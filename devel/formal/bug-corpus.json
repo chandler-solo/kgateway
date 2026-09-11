@@ -562,15 +562,15 @@
       "number": 21425,
       "url": "https://github.com/envoyproxy/envoy/issues/21425",
       "visibility": "public",
-      "classification": "plausible-init-composition-unprobed",
+      "classification": "repaired-verified-on-pin",
       "mechanism": "a partial EDS response followed by a CDS re-push and the remaining EDS left initialization blocked with an infinite initial fetch timeout",
       "profile": "Envoy 2022",
-      "evidence": "report with reproducer; the pinned Envoy's rewarming and timeout behavior is characterized but this exact schedule is not",
+      "evidence": "envoyprobe init scenario: partial EDS, CDS re-push, then the missing assignment; initialization completes and LDS is requested on Envoy v1.39.1",
       "model": "RewarmingComposition.lean does not model init manager phases",
       "obligation": "RF-004, RF-014",
       "fix_status": "closed as completed 2022-07-01",
-      "remaining": "replay the schedule with the timeouts scenario harness at zero timeout",
-      "partition": "holdout"
+      "remaining": "none",
+      "partition": "discovery"
     },
     {
       "repository": "envoyproxy/envoy",

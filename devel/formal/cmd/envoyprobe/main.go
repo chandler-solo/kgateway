@@ -128,6 +128,8 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return restartResources(phase)
 	case "timeouts":
 		return timeoutResources(phase)
+	case "init":
+		return initResources(phase)
 	default:
 		return resources(phase, s.disablePanic)
 	}
@@ -338,12 +340,12 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart (requires -snapshot-cache), or timeouts")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart (requires -snapshot-cache), timeouts, or init")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" && *scenario != "init" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
@@ -527,6 +529,9 @@ func run() (runErr error) {
 	}
 	if *scenario == "timeouts" {
 		return runTimeouts(ctx, dir, admin, front, p, advance)
+	}
+	if *scenario == "init" {
+		return runInit(ctx, dir, admin, front, p, advance)
 	}
 	if *scenario == "restart" {
 		return runRestart(ctx, dir, admin, front, p, restart, func() (string, string, error) {

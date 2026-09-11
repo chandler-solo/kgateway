@@ -279,3 +279,18 @@ Conclusions, limited to this binary and configuration:
 
 Not covered: the default 15 s value, timeouts during a warm update rather
 than initialization, and interaction with the kgateway readiness gate.
+
+### Partial EDS during initialization
+
+`-scenario init` replays the Envoy #21425 schedule with timeouts disabled:
+CDS carries clusters `a` and `b`, the EDS response carries only `a`, CDS is
+re-pushed under a new version with identical content, and then EDS carries
+both. Observed on 2026-09-11: with `b` lacking its assignment the
+cluster-manager init phase does not complete, LDS is not requested, and
+readiness stays 503; the CDS re-push changes nothing and produces no NACK;
+when the missing assignment arrives, initialization completes, LDS is
+requested, and traffic serves. The indefinite block reported in 2022 does
+not reproduce on v1.39.1. This also shows the ADS initialization order
+directly: listeners are not requested until every primary cluster has its
+endpoints or has timed out, which is why a single withheld assignment delays
+the whole proxy's readiness (RF-003, RF-014).

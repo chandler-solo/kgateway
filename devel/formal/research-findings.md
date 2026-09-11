@@ -105,6 +105,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: the `timeouts` scenario measures the initial fetch timeout
   for missing EDS and RDS, their sequential composition through the init
   manager phases, and a route ahead of its cluster (503, no NACK).
+- Evidence added: the `init` scenario shows a partial named EDS response
+  holds initialization and the LDS request until the missing assignment
+  arrives; a CDS re-push in between neither blocks nor completes it (Envoy
+  #21425 does not reproduce on the pin).
 - Action: extend the pinned direct harness to restart during warming, worker
   application observations, validation-context secrets, and Delta xDS.
 
@@ -379,7 +383,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records forty-four dispositions: eleven from discovery, eleven from go-control-plane, nine from kgateway, six from Envoy Gateway, and seven from Envoy, with three current hold-outs (EG #9519; Envoy #21425; kgateway #14429), with their detail pages
+  `bug-corpus.json` records forty-four dispositions: eleven from discovery, eleven from go-control-plane, nine from kgateway, six from Envoy Gateway, and seven from Envoy, with two current hold-outs (EG #9519 and kgateway #14429), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Evidence added: the two held-out go-control-plane mechanisms were probed on
   the pin without new model state. #431 is repaired in v0.14.0 (a
