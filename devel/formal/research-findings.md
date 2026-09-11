@@ -249,3 +249,23 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   held-out fixtures for typed configs the checker cannot unpack. Relate cache
   publication to Envoy validation, warming, worker activation, and traffic.
   Do not infer resource coverage from the list of registered gRPC services.
+
+## RF-022 Stale nonce discards subscription changes before cache admission
+
+- Status: finite schedule characterized against the pinned cache/server;
+  real-client starvation and protocol-policy disposition remain open.
+- Evidence: `TestStaleNonceDropsSubscriptionChangeAndWatch` runs default and
+  ordered ADS. After sending a newer response, the server observes an older
+  nonce with expanded names in its callback, but admits no replacement cache
+  watch. A subsequent coherent snapshot has no waiter. Repeating the names
+  with the current nonce receives that snapshot. A second request callback
+  provides a serial-loop barrier before inspecting the first stale request's
+  outcome; callback receipt alone does not establish subscription admission.
+- Source: pinned v0.14.0 `pkg/server/sotw/v3/{xds,ads}.go` explicitly discards
+  stale-nonce requests before updating subscriptions and cites Envoy #10363.
+- Action: model callback observation, subscription admission, response nonce,
+  and pending client requests separately. Construct an actual Envoy schedule
+  and establish fairness/retry assumptions before claiming sustained starvation.
+  Audit versioned protocol requirements before changing nonce handling; this
+  probe records existing behavior and does not establish that ignoring stale
+  ACKs is itself a protocol defect.

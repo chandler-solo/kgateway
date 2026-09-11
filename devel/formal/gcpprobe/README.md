@@ -19,6 +19,7 @@ do not simply delete or relax the assertion to keep the suite green.
 | `TestInstallationSurvivesPartialResponseFailure` | CDS answered, EDS blocked/canceled, new cache remains, EDS waiter retained | RF-007, multi-stage installation model open |
 | `TestFullImmediateChannelBlocksOtherNode` | Full immediate channel holds cache-wide lock; draining releases both operations | RF-011, wrapper queue-capacity audit open |
 | `TestRepeatedNackResendsSameVersionAndCorrectionRecovers` | 32 matching NACKs resend rejected version; changed snapshot recovers | RF-012, damping/isolation policy open |
+| `TestStaleNonceDropsSubscriptionChangeAndWatch` | Both ADS loops observe stale requests in callbacks but discard subscription changes; a current nonce recovers | RF-022, real-client schedule and fairness remain open |
 
 Synchronous cache calls permit immediate queue inspection for non-delivery;
 no sleep is needed for declined-watch silence. The lock probe uses a source
