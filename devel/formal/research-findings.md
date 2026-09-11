@@ -12,6 +12,12 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Resolution: first cache publication requires nonexempt referenced CDS, but
   permits empty CLAs. Unknown trace decisions are rejected. Empty cluster
   initialization is separate from usable backend traffic.
+- Evidence added: the direct `restart` scenario shows a warm Envoy keeps
+  serving across a control-plane restart with an empty SnapshotCache,
+  reconnects with accepted versions and no nonce, receives nothing for an
+  equal-version republish, and applies a later revision. The kgateway
+  first-publish gate for a client with no cache entry (RF-003) is the part
+  this scenario does not exercise.
 - Action: run the live `xds_starvation` and `xds_warming` suites against the
   resulting image; cache-level restart tests do not characterize live Envoy.
 
@@ -85,9 +91,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   resources of the NACKed response (RF-026).
 - Evidence added: the `rejection` and `secrets` scenarios cover EDS and RDS
   multi-resource rejection and SDS rotation, removal, and absence.
-- Action: extend the pinned direct harness to initial-fetch timeouts,
-  restart, worker application observations, validation-context secrets, and
-  Delta xDS.
+- Evidence added: the `restart` scenario covers a control-plane restart with
+  an empty cache against a warm proxy.
+- Action: extend the pinned direct harness to initial-fetch timeouts, proxy
+  restart against a warm cache, worker application observations,
+  validation-context secrets, and Delta xDS.
 
 ## RF-005 Recoverability was described as temporal liveness
 

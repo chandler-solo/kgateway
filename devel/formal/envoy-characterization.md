@@ -215,3 +215,31 @@ Two conclusions, limited to this binary and SotW SDS over ADS:
 
 Not covered: validation-context (CA) secrets, upstream client certificates,
 SDS over its own gRPC service as `pkg/sds` exposes, NACKed secrets, and Delta.
+
+### Controller restart with an empty cache
+
+`-scenario restart -snapshot-cache` (and `-ordered`) publishes a ready
+configuration through the real SnapshotCache, lets Envoy warm, then stops the
+ADS server and starts a fresh server with an empty cache on the same port,
+the shape of a kgateway controller restart before KRT has re-derived the
+client's snapshot. Observed on 2026-09-11:
+
+| Step | Envoy behavior |
+|---|---|
+| Server stops, empty cache takes the port | Envoy reconnects on its own backoff and re-requests all four types with `version_info` equal to its accepted versions and an empty nonce; the empty cache answers nothing; traffic and readiness stay 200 |
+| Same content republished under the same versions | No response is sent (equal versions park every watch); nothing is needed; traffic 200 |
+| Changed CDS content under new versions for every type | Four responses, the cluster rewarms and activates with the new timeout; traffic 200 throughout |
+
+Conclusions, limited to this binary and cache: a warm proxy is not harmed by
+a control-plane restart whose cache is empty, provided the control plane
+eventually republishes; nonces are stream-local while versions persist, as
+`XdsAdsSotw.tla` assumes; and an equal-version republish after restart is
+silent, which is correct for identical content and is the same mechanism
+that parks a same-name rewarming (RF-017). Bumping every type's version on a
+revision that changed only CDS produced three content-identical pushes
+(RF-025).
+
+Not covered: a proxy restart (fresh Envoy against a warm cache), a restart
+during warming, and the kgateway first-publish gate's behavior when the
+reconnected proxy's derived snapshot is deferred (RF-002, RF-003 hold the
+whole first publication for a client with no cache entry).

@@ -28,7 +28,7 @@ func versionFor(phase int, typ string) string {
 
 // Wire the same fixture through the actual dependency. A repeated SetSnapshot
 // at unchanged EDS version does NOT force an EDS response (RF-017).
-func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ordered bool) (func(int) error, error) {
+func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ordered, publishInitial bool) (func(int) error, error) {
 	c := cache.NewSnapshotCache(true, cache.IDHash{}, nil)
 	publish := func(phase int) error {
 		rs := map[resource.Type][]cachetypes.Resource{}
@@ -56,12 +56,15 @@ func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ord
 		p.record(map[string]any{"event": "cache-set-result", "phase": phase, "error": failure})
 		return err
 	}
-	if err := publish(0); err != nil {
-		return nil, err
+	if publishInitial {
+		if err := publish(0); err != nil {
+			return nil, err
+		}
 	}
 	callbacks := server.CallbackFuncs{
 		StreamRequestFunc: func(_ int64, r *discovery.DiscoveryRequest) error {
 			p.record(map[string]any{"event": "request", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "error": r.ErrorDetail})
+			p.noteRequest(r.TypeUrl, r.VersionInfo, r.ResponseNonce, r.ResourceNames)
 			if r.ErrorDetail != nil {
 				return p.observeNack(r.TypeUrl)
 			}

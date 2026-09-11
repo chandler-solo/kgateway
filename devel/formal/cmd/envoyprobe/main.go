@@ -91,6 +91,8 @@ type probeServer struct {
 	nacks chan string
 	// secrets holds the per-run certificates for the "secrets" scenario.
 	secrets secretSchedule
+	// requests summarizes every DiscoveryRequest seen, in order (guarded by mu).
+	requests []requestSummary
 	// nackCount and responseCount total every NACK request and every response
 	// observed on the wire in either server mode.
 	nackCount     atomic.Int64
@@ -122,12 +124,17 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return rejectionResources(phase)
 	case "secrets":
 		return s.secrets.resources(phase)
+	case "restart":
+		return restartResources(phase)
 	default:
 		return resources(phase, s.disablePanic)
 	}
 }
 
 func (s *probeServer) versionFor(phase int, typ string) string {
+	if s.scenario == "restart" {
+		return restartVersion(phase)
+	}
 	if s.scenario != "warming" {
 		return fmt.Sprintf("r%d", phase)
 	}
@@ -202,6 +209,7 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 			}
 		case r := <-reqs:
 			s.record(map[string]any{"event": "request", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "error": r.ErrorDetail})
+			s.noteRequest(r.TypeUrl, r.VersionInfo, r.ResponseNonce, r.ResourceNames)
 			if r.ErrorDetail != nil {
 				// The rejected version stays recorded as sent, so the scripted
 				// server does not answer a NACK by resending the rejected content.
@@ -328,16 +336,19 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, or secrets")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, or restart (requires -snapshot-cache)")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
 		return fmt.Errorf("-scenario %s runs with default panic settings", *scenario)
+	}
+	if *scenario == "restart" && !*useCache {
+		return errors.New("-scenario restart requires -snapshot-cache")
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -379,7 +390,7 @@ func run() (runErr error) {
 	defer stopServer()
 	advance := func(phase int) error { p.updates <- phase; return nil }
 	if *useCache {
-		advance, err = installCacheServer(serverCtx, srv, p, *ordered)
+		advance, err = installCacheServer(serverCtx, srv, p, *ordered, true)
 		if err != nil {
 			return err
 		}
@@ -391,12 +402,34 @@ func run() (runErr error) {
 	}
 	p.record(map[string]any{"event": "profile", "scenario": *scenario, "snapshot_cache": *useCache, "ordered": *ordered, "disable_panic": *disablePanic})
 
-	defer srv.Stop()
+	defer func() { srv.Stop() }()
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			p.record(map[string]any{"event": "server-error", "error": err.Error()})
 		}
 	}()
+	// restart simulates a controller restart: the server stops, a fresh empty
+	// SnapshotCache and server take over the same port, and Envoy reconnects.
+	restart := func() (func(int) error, error) {
+		addr := lis.Addr().String()
+		srv.Stop()
+		fresh, err := net.Listen("tcp", addr) //nolint:gosec // G102: same reachable address as the original listener
+		if err != nil {
+			return nil, err
+		}
+		next := grpc.NewServer()
+		adv, err := installCacheServer(serverCtx, next, p, *ordered, false)
+		if err != nil {
+			return nil, err
+		}
+		go func() {
+			if err := next.Serve(fresh); err != nil {
+				p.record(map[string]any{"event": "server-error", "error": err.Error()})
+			}
+		}()
+		srv = next
+		return adv, nil
+	}
 	port := lis.Addr().(*net.TCPAddr).Port
 	bootstrap := fmt.Sprintf(`{
  "node":{"id":"formal-probe","cluster":"formal-probe"},
@@ -474,6 +507,9 @@ func run() (runErr error) {
 	}
 	if *scenario == "secrets" {
 		return runSecrets(ctx, dir, admin, front, strings.TrimPrefix(tlsPublished, "http://"), strings.TrimPrefix(orphanPublished, "http://"), p, advance, p.secrets)
+	}
+	if *scenario == "restart" {
+		return runRestart(ctx, dir, admin, front, p, restart)
 	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.
