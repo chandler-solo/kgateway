@@ -38,7 +38,9 @@ and [program plan](../xds-formal-research-plan.md).
   decision for the client in order on the full per-type version tuple and be
   closed; a failed installation, or a
   decision left uninstalled in a scenario that installs, is a violation.
-  Skipped (coalesced) and identical consecutive decisions are counted. These
+  Skipped (coalesced) and identical consecutive decisions are counted.
+  A scenario that installs must end quiescent, with its last derived
+  snapshot installed on every type, before the test returns. These
   per-client rules do not replay watches, wire responses, ACK/NACK, or
   activation.
 - `VersionDigest.lean` adds payload revisions, proves the Spec's name-set

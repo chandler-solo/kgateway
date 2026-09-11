@@ -192,6 +192,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: `checkreceipts` rejects absent, skipped, failed, malformed,
   or truncated required test outcomes. Workflow runs on all PR changes, uploads
   receipts, and includes bounded TLC and pinned direct Envoy.
+- Evidence added: the required runner now includes a scenario with real
+  endpoint translation and cache installation receipts; live KGW e2e traces
+  remain open.
 - Action: add lifecycle trace receipts and live KGW e2e execution. Existence of
   a named Go function is not execution; RF-015 tracks original TLC bounds.
 
@@ -482,6 +485,14 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   violation, and it is the same class that PR #14516 fixed for label hashing.
   It also shows that `EndpointsHash` and the proto digest are not the same
   version function, so IMPL-A1 must be stated for both.
+- Evidence added: `TestSnapshotPerClientRealEndpointTranslationVersionRelation`
+  runs the real endpoint translation through snapshotPerClient and syncXds
+  as a trace scenario. Adding a pod changes the EDS version and the CLA;
+  removing it restores the CLA and the same version string, so on this path
+  `EndpointsHash` is a content-idempotent function of the endpoint set and
+  the version relation sees production-shaped versions with no reuse and
+  no churn. The two churn mechanisms above remain the carry suffix and the
+  branch-dependent version function, neither of which this scenario reaches.
 - Action: version the EDS resource set from the published CLA protos on every
   branch, including the carried composition, so equal content yields equal
   version; or document the churn as accepted. Emit traces from a run with the

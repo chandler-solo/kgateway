@@ -368,10 +368,11 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		for {
 			list := snapshots.List()
 			if len(list) == 1 && !list[0].deferred {
-				wantRoutes := list[0].snap.Resources[envoycachetypes.Route].Version
+				// The served cache must carry the latest wrapper on every type, not
+				// only routes: the trace conformance gate requires every decision
+				// in an install-wired scenario to be installed before it ends.
 				if resourceSnapshot, err := cache.GetSnapshot(nodeID); err == nil {
-					if snap, ok := resourceSnapshot.(*envoycache.Snapshot); ok &&
-						snap.Resources[envoycachetypes.Route].Version == wantRoutes {
+					if snap, ok := resourceSnapshot.(*envoycache.Snapshot); ok && sameTypeVersions(snap, list[0].snap) {
 						return snap
 					}
 				}
@@ -406,6 +407,24 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		t.Fatalf("seed=%d: coherent-state served snapshot violates spec\nfindings: %+v\njournal:\n  %s",
 			seed, findings, joinJournal(w.journal))
 	}
+	// Drain: a late recomputation may still be installing when the coherent
+	// check passed. End only once the served cache has matched the latest
+	// wrapper on every type across two consecutive samples.
+	stable := 0
+	for deadline := time.Now().Add(2 * time.Second); stable < 2 && time.Now().Before(deadline); {
+		list := snapshots.List()
+		resourceSnapshot, err := cache.GetSnapshot(nodeID)
+		served, ok := resourceSnapshot.(*envoycache.Snapshot)
+		if err == nil && ok && len(list) == 1 && sameTypeVersions(served, list[0].snap) {
+			stable++
+		} else {
+			stable = 0
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if stable < 2 {
+		t.Fatalf("seed=%d: the served cache never settled on the latest derived snapshot", seed)
+	}
 }
 
 func joinJournal(journal []string) string {
@@ -417,4 +436,15 @@ func joinJournal(journal []string) string {
 		out.WriteString(e)
 	}
 	return out.String()
+}
+
+// sameTypeVersions reports whether two snapshots carry the same version string
+// for every resource type.
+func sameTypeVersions(a, b *envoycache.Snapshot) bool {
+	for _, rt := range []envoycachetypes.ResponseType{envoycachetypes.Cluster, envoycachetypes.Endpoint, envoycachetypes.Route, envoycachetypes.Listener, envoycachetypes.Secret} {
+		if a.Resources[rt].Version != b.Resources[rt].Version {
+			return false
+		}
+	}
+	return true
 }
