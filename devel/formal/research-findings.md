@@ -109,6 +109,12 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 ## RF-007 go-control-plane response model omits real behavior
 
 - Status: dependency defects characterized at root module v0.14.0; model refinement open.
+- Lineage: replaying the probes against unreleased upstream `bf9b60b56`
+  (#1356) and `1cd122661` (#1498) shows the parked declined watch is retained
+  there (GCP-A5 repaired expectation) while the request-entry decline still
+  registers no watch. No root-module release contains either change as of
+  the 2026-09-04 checkout. See `gcpprobe/README.md` profile diff and
+  `gcpprobe/replay-profile.sh`.
 - Evidence: `CreateWatch` responds at equal version for new unreturned names;
   declined immediate requests are not registered; `respondSOTWWatches` deletes
   declined parked watches. `SetSnapshot` installs before sends can fail.
@@ -249,12 +255,21 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   states; the prior fixed-named-set watch model could not express this trace.
 - Source: subscription history in `stream/v3/subscription.go` is discarded by
   `simple.go:respond/createResponse`, which inspect raw request names.
+- Lineage: both unsubscribe-all probes stop reproducing at upstream
+  `bf9b60b56` (#1356, cache response rewrite): the cache answers no
+  unsubscribed watch and the server parks none. #1498 (`1cd122661`) adds a
+  send-time filter for queued superseded responses in ordered ADS; the probes
+  do not construct that schedule, so its effect is unobserved. Neither change
+  is in a released root module; v0.14.0 is the newest tag at the 2026-09-04
+  checkout. The earlier attribution of the probed repair to #1498 was wrong.
 - Action: enforce subscription-aware eligibility/filtering at cache and send
   boundaries, and test empty responses, full-state types, wildcard history,
   and queued supersession. GCP PR #1498 adds a send-time subscription filter
-  in newer source; validate its version ancestry and this real-cache schedule
-  before calling the branch dependency fixed. KGW deployment reachability and
-  the complete stream/queue refinement remain open.
+  in newer source. Ancestry validated: unreleased. Remaining: construct the
+  queued-supersession schedule #1498 targets against the real ordered server,
+  and decide whether kgateway adopts a pseudo-version or waits for a release.
+  KGW deployment reachability and the complete stream/queue refinement remain
+  open.
 
 ## RF-016 Historical inventory is not completed bug coverage
 
@@ -264,7 +279,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records ten discovery dispositions, with their detail pages
+  `bug-corpus.json` records eleven discovery dispositions, with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Action: review comments/reviews and linked fixes across the candidate set,
   audit relevant source history and release ancestry, classify every candidate,

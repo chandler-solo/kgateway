@@ -71,3 +71,16 @@ and both real server modes reproduce RF-018. `GcpSubscription.lean` adds the
 missing mode distinction. Follow GCP #1498's current-subscription send guard
 through release ancestry and actual-cache schedules; do not assume the
 historical injected-response regression covers every wrapper/cache path.
+
+## Post-pin revisions
+
+Cache/server commits between v0.14.0 and the 2026-09-04 upstream checkout,
+excluding dependency bumps: #1356 (cache response rewrite), #1390 and #1411
+(LEDS and LinearCache prefix watches, excluded paths here), #1466 (LinearCache
+error propagation, excluded), #1498 (send-time subscription filter), and lint
+changes. No root-module tag newer than v0.14.0 exists. `gcpprobe/replay-profile.sh`
+replays the probes against any of these; the observed diff is recorded in
+`gcpprobe/README.md`. The #1356 rewrite of `respond`/`createResponse` and
+`respondSOTWWatches` invalidates the v0.14.0 row-level dispositions above for
+that revision; they must be re-derived before any upgrade is treated as
+characterized.
