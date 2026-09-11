@@ -532,15 +532,15 @@
       "number": 9463,
       "url": "https://github.com/envoyproxy/gateway/issues/9463",
       "visibility": "public",
-      "classification": "plausible-sds-whole-response-rejection-unprobed",
+      "classification": "mechanism-reproduced",
       "mechanism": "one TLS secret with a key/certificate mismatch made Envoy reject the entire SDS update, breaking unrelated listeners",
       "profile": "Envoy Gateway with ~32 ListenerSets",
-      "evidence": "report; consistent with RF-026's observation that EDS and RDS responses are rejected as a whole; SDS not yet probed for partial rejection",
+      "evidence": "envoyprobe secrets scenario phase 4: a valid rotation beside a key-mismatched sibling in one SDS response is NACKed (KEY_VALUES_MISMATCH) and not applied on Envoy v1.39.1",
       "model": "PartialRejection.lean atomic semantics",
       "obligation": "RF-026",
       "fix_status": "closed with a fix 2026-07-27 (control-plane side)",
-      "remaining": "probe a two-secret SDS response with one invalid secret on the pin",
-      "partition": "holdout"
+      "remaining": "none for SotW; Delta untested",
+      "partition": "discovery"
     },
     {
       "repository": "envoyproxy/gateway",
@@ -652,14 +652,14 @@
       "number": 47309,
       "url": "https://github.com/envoyproxy/envoy/issues/47309",
       "visibility": "public",
-      "classification": "open-upstream-holdout",
+      "classification": "not-reproduced-on-sotw",
       "mechanism": "a new SDS provider keyed by secret name plus ConfigSource bytes for an already-subscribed secret never receives it; the listener times out and goes active without a certificate",
       "profile": "Envoy 2026, delta and unified xDS",
-      "evidence": "report; the secrets scenario covers rotation, removal, and absence over SotW but not a provider-key change on a subscribed secret",
+      "evidence": "envoyprobe secrets scenario phase 5: changing the tls listener SDS ConfigSource bytes creates a second provider that is served over SotW ADS; 16 of 16 handshakes succeed",
       "model": "none",
       "obligation": "RF-027, RF-004",
       "fix_status": "open upstream",
-      "remaining": "probe a listener update that changes the SDS ConfigSource bytes for a subscribed secret on the pin; kgateway keeps ConfigSource constant, so check whether any policy path varies it",
+      "remaining": "reproduce over Delta or unified xDS if adopted; kgateway keeps ConfigSource constant",
       "partition": "holdout"
     }
   ]

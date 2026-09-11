@@ -198,6 +198,8 @@ the SDS response and Envoy redacts them in its dump. Observed on 2026-09-11:
 | Same name, new content (CN cert-2) | ACK | Handshake serves cert-2 without listener drain; no NACK |
 | SDS response for the subscribed name carries no resource | ACK, request version advances to the empty response's version | Handshake keeps serving cert-2 for the whole 400 ms window; dump still shows `cert` active; no NACK |
 | New TLS listener referencing secret `never`, which the server never sends | ACK for LDS | Listener held warming with `never` in warming secrets; no handshake on its port; readiness stays 200; other listeners unaffected |
+| One SDS response with a valid rotation of `cert` (CN cert-3) and a `cert2` whose key does not match its certificate | NACK `KEY_VALUES_MISMATCH`, request version stays at the previous SDS version | The valid rotation is not applied: handshakes keep serving cert-2. SDS rejects the whole response like EDS and RDS (Envoy Gateway #9463 reproduced) |
+| The `tls` listener's SDS ConfigSource bytes change (a 5 s initial fetch timeout is added) while `cert` keeps its name, content, and version | ACK | Envoy creates a second provider for `cert` (the dump lists it twice); over SotW ADS the new provider receives the secret, the listener stays active, and 16 of 16 handshakes over 8 s serve cert-3. The Envoy #47309 failure did not reproduce over SotW |
 
 Two conclusions, limited to this binary and SotW SDS over ADS:
 
@@ -214,7 +216,8 @@ Two conclusions, limited to this binary and SotW SDS over ADS:
   serving without TLS.
 
 Not covered: validation-context (CA) secrets, upstream client certificates,
-SDS over its own gRPC service as `pkg/sds` exposes, NACKed secrets, and Delta.
+SDS over its own gRPC service as `pkg/sds` exposes, and Delta xDS, where
+Envoy #47309 and Envoy Gateway #9519 report the provider-key failure.
 
 ### Controller restart with an empty cache
 

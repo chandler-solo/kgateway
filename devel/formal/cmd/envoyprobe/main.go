@@ -386,6 +386,9 @@ func run() (runErr error) {
 		if p.secrets.second, err = newProbeCertificate("cert-2"); err != nil {
 			return err
 		}
+		if p.secrets.third, err = newProbeCertificate("cert-3"); err != nil {
+			return err
+		}
 	}
 	srv := grpc.NewServer()
 	serverCtx, stopServer := context.WithCancel(context.Background())

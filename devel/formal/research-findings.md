@@ -379,7 +379,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records forty-four dispositions: eleven from discovery, eleven from go-control-plane, nine from kgateway, six from Envoy Gateway, and seven from Envoy, with five current hold-outs (EG #9463, #9519; Envoy #21425, #47309; kgateway #14429), with their detail pages
+  `bug-corpus.json` records forty-four dispositions: eleven from discovery, eleven from go-control-plane, nine from kgateway, six from Envoy Gateway, and seven from Envoy, with three current hold-outs (EG #9519; Envoy #21425; kgateway #14429), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Evidence added: the two held-out go-control-plane mechanisms were probed on
   the pin without new model state. #431 is repaired in v0.14.0 (a
@@ -563,8 +563,8 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-026 SotW rejection applies the valid resources of a NACKed response
 
-- Status: directly characterized on Envoy v1.39.1 for CDS, LDS, EDS, and RDS;
-  the semantics differ by type; model fidelity gap open; SDS and Delta
+- Status: directly characterized on Envoy v1.39.1 for CDS, LDS, EDS, RDS,
+  and SDS; the semantics differ by type; model fidelity gap open; Delta
   untested.
 - Evidence: `envoyprobe -scenario references` sends a CDS response with a
   valid change to cluster `a` and an invalid cluster `bad`. Envoy NACKs the
@@ -611,8 +611,8 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Corroboration: Envoy #32880 asks the protocol to specify per-resource
   versus per-response NACK semantics; the measurements here answer it per
   type for v1.39.1. Envoy Gateway #9463 reports one invalid TLS secret
-  rejecting an entire SDS update, consistent with whole-response rejection
-  for SDS, which remains to be probed.
+  rejecting an entire SDS update; the secrets scenario now reproduces it on
+  the pin: a valid rotation beside a key-mismatched sibling is not applied.
 - Consequence: a NACK does not protect unrelated resources from a response
   that also carries an invalid one; it protects only the invalid resource.
   Isolation is better than the atomic-rollback model predicts, but the

@@ -86,7 +86,13 @@ func newProbeCertificate(commonName string) (probeCertificate, error) {
 
 // secretSchedule holds the per-run certificates for the secrets scenario.
 type secretSchedule struct {
-	first, second probeCertificate
+	first, second, third probeCertificate
+}
+
+// mismatched pairs one certificate with another's private key, which Envoy
+// rejects while loading (KEY_VALUES_MISMATCH).
+func (s secretSchedule) mismatched() probeCertificate {
+	return probeCertificate{certPEM: s.first.certPEM, keyPEM: s.second.keyPEM, commonName: s.first.commonName}
 }
 
 func (s secretSchedule) resources(phase int) map[string][]*anypb.Any {
@@ -95,12 +101,12 @@ func (s secretSchedule) resources(phase int) map[string][]*anypb.Any {
 	}
 	cla := &envoyendpointv3.ClusterLoadAssignment{ClusterName: "a", Endpoints: []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: address(10001)}}}}}}}
 	rc := &envoyroutev3.RouteConfiguration{Name: "routes", VirtualHosts: []*envoyroutev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*envoyroutev3.Route{{Match: &envoyroutev3.RouteMatch{PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"}}, Action: &envoyroutev3.Route_Route{Route: &envoyroutev3.RouteAction{ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: "a"}}}}}}}}
-	httpListener := func(name string, port uint32, secretName string) *envoylistenerv3.Listener {
+	httpListener := func(name string, port uint32, secretName string, sdsSource *envoycorev3.ConfigSource) *envoylistenerv3.Listener {
 		hm := &hcm.HttpConnectionManager{StatPrefix: name, RouteSpecifier: &hcm.HttpConnectionManager_Rds{Rds: &hcm.Rds{RouteConfigName: "routes", ConfigSource: ads()}}, HttpFilters: []*hcm.HttpFilter{{Name: "envoy.filters.http.router", ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: packed(&router.Router{})}}}}
 		chain := &envoylistenerv3.FilterChain{Filters: []*envoylistenerv3.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &envoylistenerv3.Filter_TypedConfig{TypedConfig: packed(hm)}}}}
 		if secretName != "" {
 			chain.TransportSocket = &envoycorev3.TransportSocket{Name: "envoy.transport_sockets.tls", ConfigType: &envoycorev3.TransportSocket_TypedConfig{TypedConfig: packed(&envoytlsv3.DownstreamTlsContext{
-				CommonTlsContext: &envoytlsv3.CommonTlsContext{TlsCertificateSdsSecretConfigs: []*envoytlsv3.SdsSecretConfig{{Name: secretName, SdsConfig: ads()}}},
+				CommonTlsContext: &envoytlsv3.CommonTlsContext{TlsCertificateSdsSecretConfigs: []*envoytlsv3.SdsSecretConfig{{Name: secretName, SdsConfig: sdsSource}}},
 			})}}
 		}
 		return &envoylistenerv3.Listener{Name: name, Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "0.0.0.0", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: port}}}}, FilterChains: []*envoylistenerv3.FilterChain{chain}}
@@ -112,18 +118,33 @@ func (s secretSchedule) resources(phase int) map[string][]*anypb.Any {
 		}}}
 	}
 
-	listeners := []*anypb.Any{packed(httpListener("front", 10000, "")), packed(httpListener("tls", 10004, "cert"))}
-	if phase >= 3 {
-		listeners = append(listeners, packed(httpListener("orphan-tls", 10006, "never")))
+	// Phase 5 changes only the bytes of the tls listener's SDS ConfigSource
+	// (Envoy #47309): a new secret provider for an already-subscribed name.
+	tlsSource := ads()
+	if phase >= 5 {
+		tlsSource = adsWithTimeout(5 * time.Second)
+	}
+	listeners := []*anypb.Any{packed(httpListener("front", 10000, "", nil)), packed(httpListener("tls", 10004, "cert", tlsSource))}
+	switch {
+	case phase == 3:
+		listeners = append(listeners, packed(httpListener("orphan-tls", 10006, "never", ads())))
+	case phase >= 4:
+		// The second TLS listener now references cert2, delivered below.
+		listeners = append(listeners, packed(httpListener("orphan-tls", 10006, "cert2", ads())))
 	}
 	secrets := []*anypb.Any{}
 	switch {
 	case phase == 0:
 		secrets = append(secrets, packed(secret("cert", s.first)))
-	case phase == 1 || phase >= 3:
+	case phase == 1 || phase == 3:
 		secrets = append(secrets, packed(secret("cert", s.second)))
 	case phase == 2:
 		// Removed: the SDS response for the subscribed name carries nothing.
+	case phase == 4:
+		// A valid rotation of cert beside an invalid cert2 in one response.
+		secrets = append(secrets, packed(secret("cert", s.third)), packed(secret("cert2", s.mismatched())))
+	case phase >= 5:
+		secrets = append(secrets, packed(secret("cert", s.third)), packed(secret("cert2", s.second)))
 	}
 	return map[string][]*anypb.Any{
 		resource.ClusterType:  {packed(edsCluster("a"))},
@@ -178,6 +199,18 @@ func secretNames(body string) []string {
 }
 
 func runSecrets(ctx context.Context, dir, admin, front, tlsAddr, orphanAddr string, p *probeServer, advance func(int) error, schedule secretSchedule) error {
+	awaitNack := func(typ string) error {
+		for {
+			select {
+			case got := <-p.nacks:
+				if got == typ {
+					return nil
+				}
+			case <-ctx.Done():
+				return fmt.Errorf("no NACK of %s observed: %w", typ, ctx.Err())
+			}
+		}
+	}
 	save := func(name string) (string, error) {
 		_, body, err := get(admin + "/config_dump")
 		if err != nil {
@@ -298,6 +331,74 @@ func runSecrets(ctx context.Context, dir, admin, front, tlsAddr, orphanAddr stri
 	if err = quiet(300 * time.Millisecond); err != nil {
 		return fmt.Errorf("phase 3: %w", err)
 	}
-	fmt.Println("PASS Envoy secrets characterization: SDS rotates in place, removal retains the last certificate, a missing secret holds only its listener")
+	// Phase 4 (RF-026, Envoy Gateway #9463): one SDS response carries a valid
+	// rotation of cert (CN cert-3) and an invalid cert2 whose key does not
+	// match its certificate. Does the valid sibling apply?
+	if err = advance(4); err != nil {
+		return err
+	}
+	if err = awaitNack(resource.SecretType); err != nil {
+		return err
+	}
+	select {
+	case <-time.After(500 * time.Millisecond):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	servedCN, _ := servedCommonName(tlsAddr)
+	body, err = save("sds-partial-rejection-config.json")
+	if err != nil {
+		return err
+	}
+	sdsSiblingApplied := servedCN == schedule.third.commonName
+	p.record(map[string]any{"event": "observation", "phase": "sds-partial-rejection", "served_cn": servedCN, "valid_sibling_applied": sdsSiblingApplied, "secrets": secretNames(body)})
+	if sdsSiblingApplied {
+		return fmt.Errorf("valid secret in the rejected SDS response was applied (serving %s); reassess RF-026 for SDS", servedCN)
+	}
+
+	// Phase 5 (Envoy #47309): the tls listener's SDS ConfigSource bytes change
+	// (an initial_fetch_timeout is added) while the secret name, content, and
+	// SDS version stay the same, and cert2 becomes valid.
+	if err = advance(5); err != nil {
+		return err
+	}
+	if err = await(ctx, func() bool {
+		got, err := servedCommonName(orphanAddr)
+		return err == nil && got == schedule.second.commonName
+	}); err != nil {
+		return fmt.Errorf("corrected cert2 was not served: %w", err)
+	}
+	if err = await(ctx, func() bool {
+		got, err := servedCommonName(tlsAddr)
+		return err == nil && got == schedule.third.commonName
+	}); err != nil {
+		return fmt.Errorf("rotated cert was not served after the corrected response: %w", err)
+	}
+	// Watch the tls listener across the new provider's 5 s initial fetch
+	// timeout: a provider that never receives the secret would time out and
+	// replace the serving listener with one that has no certificate.
+	handshakes, failures := 0, 0
+	for range 16 {
+		if got, err := servedCommonName(tlsAddr); err == nil && got == schedule.third.commonName {
+			handshakes++
+		} else {
+			failures++
+		}
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	body, err = save("sds-provider-key-change-config.json")
+	if err != nil {
+		return err
+	}
+	states = listenerStates(body)
+	p.record(map[string]any{"event": "observation", "phase": "sds-provider-key-change", "handshakes_ok": handshakes, "handshakes_failed": failures, "tls_active": states["tls"].active, "secrets": secretNames(body), "nacks": p.nackCount.Load()})
+	if failures != 0 {
+		return fmt.Errorf("tls listener failed %d of %d handshakes after its SDS ConfigSource changed (Envoy #47309 shape); reassess RF-027", failures, handshakes+failures)
+	}
+	fmt.Println("PASS Envoy secrets characterization: SDS rotates in place, removal retains the last certificate, a missing secret holds only its listener, an invalid sibling rejects the whole SDS response, a provider key change keeps serving")
 	return nil
 }
