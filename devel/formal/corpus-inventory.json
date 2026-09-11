@@ -12,7 +12,7 @@
       "title_body_keyword_candidates": 17810,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: discovery records plus a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "envoyproxy/gateway",
@@ -25,7 +25,7 @@
       "title_body_keyword_candidates": 3811,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: discovery records plus a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "envoyproxy/go-control-plane",
@@ -38,7 +38,7 @@
       "title_body_keyword_candidates": 1082,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: discovery records plus a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "kgateway-dev/kgateway",
@@ -51,7 +51,7 @@
       "title_body_keyword_candidates": 5915,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: discovery records plus a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "solo-io/gloo",

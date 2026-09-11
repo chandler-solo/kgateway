@@ -323,6 +323,36 @@ the ledger entry each item advances. Nothing below closes a phase.
     and models; both held-out mechanisms probed on the pin (#431 repaired,
     #505 reproduced but unreachable: kgateway never calls ClearSnapshot).
 
+### Fourth tranche, same day
+
+17. RF-006: subtest boundary events so per-client trace relations do not
+    leak across subtests; direct-install segments are counted, not matched.
+18. RF-001, RF-004: direct restart scenario, control plane with an empty cache
+    then the proxy container against the warm cache; reconnect carries
+    versions and no nonce.
+19. RF-003, RF-004, RF-010: initial fetch timeouts measured (missing EDS and
+    RDS degrade to active states sequentially across init phases; a route
+    ahead of its cluster is a 503 window); Envoy #21425 does not reproduce.
+20. RF-026, RF-027: SDS rejects a whole response like EDS and RDS (Envoy
+    Gateway #9463 reproduced); a provider-key change is served over SotW
+    (Envoy #47309 not reproduced); the standalone SDS server serves all three
+    RPC modes to any Node identity.
+21. RF-016: forty-four corpus dispositions across all four core repositories
+    with two remaining hold-outs (a Delta xDS report and a status-path
+    report), both outside the deployed path.
+
+### What remains and who decides
+
+- Policy: RF-002 isolation and revocation precedence, RF-003 classification
+  bound (compare with Envoy's 15 s default), RF-024 errored recording,
+  RF-025 churn as a gate failure, RF-012 NACK damping. These change product
+  behavior and belong to the maintainers.
+- Dependency: adopting go-control-plane #1356 through a pseudo-version.
+- Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
+  fix ancestry, RF-004 restart during warming and Delta xDS (excluded).
+- Proofs: per-type acceptance semantics in the convergence models (RF-026)
+  and the composed refinement of Phase 4.
+
 ### Revised immediate next work
 
 1. RF-002 and RF-021: compute the resource dependency partition from emitted
