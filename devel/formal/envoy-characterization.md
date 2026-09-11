@@ -153,3 +153,33 @@ recurrence in every run. These are real-Envoy recurrence measurements for
 RF-012 on one machine; they are not a CPU budget or a rate that transfers to
 other hardware, concurrency, or resource sizes. The scripted profile's window
 stays at zero NACKs and zero responses.
+
+### Rejection semantics by resource type
+
+`-scenario rejection` repeats the partial-rejection question for the two
+types kgateway updates most often. Two listeners, two route configurations,
+and two EDS clusters start ready. An EDS response carries a valid weight
+change for cluster `a` and a CLA for `b` whose port exceeds 65535; an RDS
+response carries an added route for `routes-a` and a route for `routes-b`
+whose regex does not compile. Observed on 2026-09-11:
+
+| Type | Invalid sibling fails at | Valid sibling applied? | Envoy log |
+|---|---|---|---|
+| CDS (references scenario) | cluster construction (EDS cluster without EDS config) | yes | one `Error adding/updating cluster(s)` NACK |
+| LDS (references scenario) | listener construction (inline route to an unknown cluster) | yes | one `Error adding/updating listener(s)` NACK |
+| EDS | proto constraint validation on decode | no | one rejection |
+| RDS | route configuration construction (regex compile) | no | one rejection logged per RDS subscription |
+
+Partial acceptance is therefore a property of the CDS and LDS API
+implementations, which add or update resources one at a time and collect the
+failures, not of SotW response handling in general. EDS and RDS responses are
+rejected as a whole, whether the failure is caught during decoding or during
+construction, and every subscription of that type on the stream sees the
+rejection. Through SnapshotCache the rejected EDS and RDS versions are resent
+on every NACK like the CDS and LDS cases: about 6,600 EDS and 6,000 RDS
+round trips in two seconds on the same machine. Both chains kept serving
+their retained configuration throughout, and the corrected responses ended
+the recurrence.
+
+This scenario does not cover an EDS failure that passes constraint
+validation but fails at application, SDS, or Delta xDS.

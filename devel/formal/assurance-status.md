@@ -44,7 +44,7 @@ Dependency modules and binary versions are separate identities.
 | GCP named response guard | Contradicted/incomplete; post-pin diff recorded | Equal-version subscriptions and both lost-watch paths omitted; unreleased #1356 retains the parked declined watch and stops the unsubscribe-all leak, request-entry decline unchanged |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
 | NACK resend recurrence | Characterized on the real cache with a scripted client and with a real Envoy (RF-012) | One machine; no damping exists; not a CPU budget |
-| SotW rejection semantics | Directly characterized for CDS and LDS; descriptive Lean model (RF-026) | Valid siblings apply on NACK; convergence models keep the atomic abstraction; RDS/EDS/SDS untested |
+| SotW rejection semantics | Directly characterized for CDS, LDS, EDS, and RDS; descriptive Lean model (RF-026) | CDS and LDS apply valid siblings on NACK; EDS and RDS reject the whole response; convergence models keep the atomic abstraction; SDS and Delta untested |
 | Cache installation receipts | Trace relation from decision to installation on the per-type version tuple (RF-006) | Delivery, acceptance, and activation not instrumented; transform-only scenarios counted |
 | Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; XOR combiner cancels equal per-resource digests |

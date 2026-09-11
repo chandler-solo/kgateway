@@ -101,7 +101,7 @@ type probeServer struct {
 // the references scenario expects them and does not resend the rejected
 // version from the scripted server (the cache path resends it, RF-012).
 func (s *probeServer) observeNack(typ string) error {
-	if s.scenario != "references" {
+	if s.scenario == "warming" {
 		return fmt.Errorf("Envoy NACK of %s", typ)
 	}
 	s.nackCount.Add(1)
@@ -113,14 +113,18 @@ func (s *probeServer) observeNack(typ string) error {
 }
 
 func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
-	if s.scenario == "references" {
+	switch s.scenario {
+	case "references":
 		return referenceResources(phase)
+	case "rejection":
+		return rejectionResources(phase)
+	default:
+		return resources(phase, s.disablePanic)
 	}
-	return resources(phase, s.disablePanic)
 }
 
 func (s *probeServer) versionFor(phase int, typ string) string {
-	if s.scenario == "references" {
+	if s.scenario != "warming" {
 		return fmt.Sprintf("r%d", phase)
 	}
 	return versionFor(phase, typ)
@@ -320,16 +324,16 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default) or references")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, or rejection")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
-	if *scenario == "references" && *disablePanic {
-		return errors.New("-scenario references runs with default panic settings")
+	if *scenario != "warming" && *disablePanic {
+		return fmt.Errorf("-scenario %s runs with default panic settings", *scenario)
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -444,6 +448,9 @@ func run() (runErr error) {
 	save("server-info.json", "/server_info")
 	if *scenario == "references" {
 		return runReferences(ctx, dir, admin, front, inline, p, advance, *useCache)
+	}
+	if *scenario == "rejection" {
+		return runRejection(ctx, dir, admin, front, inline, p, advance, *useCache)
 	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.

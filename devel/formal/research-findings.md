@@ -492,8 +492,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-026 SotW rejection applies the valid resources of a NACKed response
 
-- Status: directly characterized on Envoy v1.39.1 for CDS and LDS; model
-  fidelity gap open; RDS/EDS/SDS and Delta untested.
+- Status: directly characterized on Envoy v1.39.1 for CDS, LDS, EDS, and RDS;
+  the semantics differ by type; model fidelity gap open; SDS and Delta
+  untested.
 - Evidence: `envoyprobe -scenario references` sends a CDS response with a
   valid change to cluster `a` and an invalid cluster `bad`. Envoy NACKs the
   response, its request keeps the previous version, and `a` is nevertheless
@@ -528,6 +529,14 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   NACK (RF-012), so the partial application recurs thousands of times per
   second until a corrected snapshot arrives; applied state and traffic were
   unchanged across the window.
+- Evidence added: `envoyprobe -scenario rejection` shows EDS and RDS behave
+  differently. A CLA that fails proto constraint validation and a route
+  configuration whose regex fails to compile each reject the whole response;
+  the valid sibling CLA and route configuration are not applied, and both
+  RDS subscriptions log the rejection. Partial acceptance is a property of
+  the CDS and LDS API implementations, which apply resources one at a time,
+  not of SotW handling in general. The cache path resends the rejected EDS
+  and RDS versions on every NACK at the same rate as CDS and LDS.
 - Consequence: a NACK does not protect unrelated resources from a response
   that also carries an invalid one; it protects only the invalid resource.
   Isolation is better than the atomic-rollback model predicts, but the
@@ -535,8 +544,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   resends "the last accepted version", describe state Envoy is not in. A
   resend of the rejected version re-applies the valid parts idempotently and
   repeats the NACK (RF-012).
-- Action: add a partial-acceptance transition to the ADS and convergence
-  models and re-derive which invariants survive; audit kgateway status and
+- Action: add a per-type acceptance semantics to the ADS and convergence
+  models (partial for CDS and LDS, whole-response for EDS and RDS) and
+  re-derive which invariants survive; audit kgateway status and
   readiness reporting that infers applied configuration from ACKed versions;
   extend the probe to RDS with several route configurations, EDS with several
   CLAs, SDS, and the SnapshotCache path where the rejected version is resent

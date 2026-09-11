@@ -30,7 +30,7 @@ The model represents:
 - Resource-type versions that persist across reconnects.
 - Response nonces that are scoped to the current stream and tracked per resource type.
 - ACK of the latest response nonce advancing the server-observed accepted version for that type.
-- NACK leaving the accepted version unchanged. This is an abstraction: the pinned Envoy applies the valid resources of a NACKed CDS or LDS response (RF-026), so the model under-approximates client state after rejection.
+- NACK leaving the accepted version unchanged. This is an abstraction: the pinned Envoy applies the valid resources of a NACKed CDS or LDS response while rejecting EDS and RDS responses as a whole (RF-026), so the model under-approximates client state after a CDS or LDS rejection.
 - Stale nonce requests leaving accepted versions and sent snapshots unchanged.
 - Reconnect resetting nonce context while preserving resource-level versions.
 - SotW publication sequencing that keeps sent LDS/RDS/CDS/EDS state dependency-closed.

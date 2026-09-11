@@ -2,9 +2,12 @@ import XdsSpec.Checker
 
 /- RF-026: SotW rejection semantics for a response carrying two resources of
    one type. `envoyprobe -scenario references` observed that Envoy v1.39.1
-   applies the valid resource and NACKs the response for the invalid one, with
-   the request reporting the previously accepted version. This finite model
-   states the two candidate semantics and the property each one breaks:
+   applies the valid CDS or LDS resource and NACKs the response for the
+   invalid one, with the request reporting the previously accepted version.
+   `-scenario rejection` observed that EDS and RDS responses are instead
+   rejected as a whole, so the atomic semantics below is the observed one for
+   those types and the partial semantics is the observed one for CDS and LDS.
+   This finite model states the two semantics and the property each breaks:
 
    - atomic:  the whole response is discarded on any invalid resource. The
      accepted version then describes the applied state, but a valid sibling
