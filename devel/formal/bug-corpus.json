@@ -1015,11 +1015,11 @@
       "classification": "mechanism-reproduced-in-model",
       "mechanism": "a newer control plane added a per-gateway local-cluster CLA to every EDS snapshot; older Envoys without that bootstrap cluster never requested it, so the ADS superset check withheld the whole EDS response",
       "profile": "kgateway v2.4.0 control plane with v2.3.6 data plane",
-      "evidence": "XdsEdsSubsetBug.cfg and the xdscheck no-orphan-cla rule are exactly this mechanism; the version-skew trigger is the bootstrapEndpointNames path in perclient.go",
+      "evidence": "gcpprobe/TestUnrequestedBootstrapClusterCLAWithholdsEDSForOlderProxy pins the superset decline through the real cache across revisions and the filtered repair shape; XdsEdsSubsetBug.cfg and the xdscheck no-orphan-cla rule cover the same mechanism",
       "model": "XdsEdsSubset.tla, XdsNamedEdsWatch.tla",
       "obligation": "RF-007 (superset decline remains upstream)",
       "fix_status": "closed with a fix 2026-07-27",
-      "remaining": "an upgrade-skew test that publishes to a proxy whose bootstrap lacks the local cluster",
+      "remaining": "none for the dependency side; a live rolling-upgrade test with mixed proxy generations remains an e2e obligation",
       "partition": "discovery"
     },
     {

@@ -23,6 +23,7 @@ do not simply delete or relax the assertion to keep the suite green.
 | `TestQueuedSupersededResponseIsDroppedOnSubscriptionChange` | A parked named watch answered during its own supersession is queued but never sent, in both ADS modes; the cache cannot answer after cancel returns | RF-018: #1498 schedule unobserved with SnapshotCache; wrappers and other caches open |
 | `TestResubscribeAtEqualVersionIsAnsweredOnPin` | Unsubscribe then resubscribe at the unchanged version is answered with a fresh nonce (corpus #431 repaired in the pin) | Held-out corpus mechanism; no model change needed |
 | `TestClearSnapshotOrphansParkedWatchOnPin` | ClearSnapshot drops the node status while the parked watch stays registered; a later SetSnapshot answers nothing; a new request recovers (corpus #505) | RF-007 installation model lacks clear; kgateway ClearSnapshot usage audit open |
+| `TestUnrequestedBootstrapClusterCLAWithholdsEDSForOlderProxy` | A CLA for a cluster the proxy never requests makes the superset check decline its whole EDS response across revisions; the filtered snapshot answers (corpus kgateway #14471, version skew) | RF-007 upstream decline; kgateway filters CLAs to requestable clusters |
 
 Synchronous cache calls permit immediate queue inspection for non-delivery;
 no sleep is needed for declined-watch silence. The lock probe uses a source

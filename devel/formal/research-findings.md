@@ -205,6 +205,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: `TestClearSnapshotOrphansParkedWatchOnPin` shows ClearSnapshot
   drops the node status while its parked watch stays registered and unanswered
   (corpus #505).
+- Evidence added: `TestUnrequestedBootstrapClusterCLAWithholdsEDSForOlderProxy`
+  pins the superset decline that produced kgateway #14471 during a rolling
+  upgrade: one CLA a proxy generation never requests withholds that proxy's
+  whole EDS response across revisions until the snapshot is filtered.
 - Deployment reachability: no production code in this repository calls
   ClearSnapshot; the per-client Delete callback retains the cache entry
   (GCP-A2). The orphaned-watch path is therefore unreachable in the deployed
