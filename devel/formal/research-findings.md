@@ -110,6 +110,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   cached derivation, produce the expected temporal counterexamples. Source
   inventory found no watchdog or periodic re-derivation in the deployed
   proxy syncer or setup, so the deployed profile relies on KRT delivery.
+- Corroboration: kgateway #14047 reports a TrafficPolicy left permanently
+  invalid after a transient OIDC discovery failure until a generation change
+  or restart, and was closed as stale without a fix. That is the
+  no-delivery, no-watchdog configuration of `KrtRecovery.tla` observed in
+  production.
 - Action: collect implementation evidence that KRT fan-out delivery is fair
   for per-client snapshots, or add a watchdog that rereads authoritative
   inputs and prove it refines `WatchdogRederive`; compose with the cache and
@@ -359,7 +364,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records twenty-two dispositions, eleven from discovery and eleven from a classified go-control-plane keyword batch (two held out as unprobed: #431 and #505), with their detail pages
+  `bug-corpus.json` records thirty-one dispositions: eleven from discovery, eleven from a classified go-control-plane batch (its two hold-outs since probed), and nine from a classified kgateway batch, with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Evidence added: the two held-out go-control-plane mechanisms were probed on
   the pin without new model state. #431 is repaired in v0.14.0 (a
