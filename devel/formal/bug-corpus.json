@@ -1021,6 +1021,66 @@
       "fix_status": "closed with a fix 2026-07-27",
       "remaining": "an upgrade-skew test that publishes to a proxy whose bootstrap lacks the local cluster",
       "partition": "discovery"
+    },
+    {
+      "repository": "envoyproxy/envoy",
+      "number": 32283,
+      "url": "https://github.com/envoyproxy/envoy/issues/32283",
+      "visibility": "public",
+      "classification": "repaired-upstream-before-pin",
+      "mechanism": "changing initial_fetch_timeout inside a listener's Rds config created a new RDS subscription that did not reuse the previously received RouteConfiguration, so the listener warmed against an unchanged control plane",
+      "profile": "Envoy 2024",
+      "evidence": "same provider-key mechanism as Envoy #47309 for SDS; the secrets scenario's provider-key phase shows the SDS case is served over SotW on v1.39.1; the RDS case is not probed here",
+      "model": "none",
+      "obligation": "RF-004, RF-027",
+      "fix_status": "closed with a fix 2024-12-10",
+      "remaining": "probe the RDS ConfigSource-bytes change on the pin if kgateway ever varies it",
+      "partition": "discovery"
+    },
+    {
+      "repository": "envoyproxy/envoy",
+      "number": 35675,
+      "url": "https://github.com/envoyproxy/envoy/issues/35675",
+      "visibility": "public",
+      "classification": "protocol-gap-characterized",
+      "mechanism": "ACK is per response and application can be partial; NACK only admits retry, and retry loops are harmful; ACK is not an application receipt",
+      "profile": "xDS protocol",
+      "evidence": "RF-026 measures partial application per type; RF-012 measures the retry loop on a real Envoy and the field (#14453); RF-006 installation receipts and the observability family record that ACK is not activation",
+      "model": "PartialRejection.lean",
+      "obligation": "RF-026, RF-012, RF-009",
+      "fix_status": "open upstream (protocol)",
+      "remaining": "a delivery and application signal beyond ACK",
+      "partition": "discovery"
+    },
+    {
+      "repository": "envoyproxy/envoy",
+      "number": 26032,
+      "url": "https://github.com/envoyproxy/envoy/issues/26032",
+      "visibility": "public",
+      "classification": "plausible-report-not-reproduced",
+      "mechanism": "route configuration rejected at startup under a very large initial configuration",
+      "profile": "Envoy 2023, thousands of clusters and routes",
+      "evidence": "not reproduced; the storm and timeout scenarios run at small scale",
+      "model": "none",
+      "obligation": "RF-004",
+      "fix_status": "closed as not planned 2023-04-21",
+      "remaining": "none unless reproduced at scale",
+      "partition": "discovery"
+    },
+    {
+      "repository": "envoyproxy/envoy",
+      "number": 38246,
+      "url": "https://github.com/envoyproxy/envoy/issues/38246",
+      "visibility": "public",
+      "classification": "plausible-delta-report-related",
+      "mechanism": "after a management-server restart over incremental ADS, LDS NACKed with an inline certificate error although secrets travel through SDS; an Envoy restart moved the NACK to SDS",
+      "profile": "Envoy 1.29 era with Delta ADS",
+      "evidence": "Delta is excluded here; the SotW restart scenario shows a clean reconnect; relates to Envoy Gateway #9519",
+      "model": "none",
+      "obligation": "RF-004, RF-027",
+      "fix_status": "closed as not planned 2025-03-07",
+      "remaining": "re-evaluate if Delta is adopted",
+      "partition": "discovery"
     }
   ]
 }

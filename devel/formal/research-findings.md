@@ -402,7 +402,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records sixty-eight dispositions: eleven from discovery, twenty-one from go-control-plane, sixteen from kgateway, six from Envoy Gateway, seven from Envoy, three from Gloo, and four from solo-kit, with two current hold-outs (EG #9519 and kgateway #14429), with their detail pages
+  `bug-corpus.json` records seventy-two dispositions: eleven from discovery, twenty-one from go-control-plane, sixteen from kgateway, six from Envoy Gateway, eleven from Envoy, three from Gloo, and four from solo-kit, with two current hold-outs (EG #9519 and kgateway #14429), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Evidence added: the two held-out go-control-plane mechanisms were probed on
   the pin without new model state. #431 is repaired in v0.14.0 (a
