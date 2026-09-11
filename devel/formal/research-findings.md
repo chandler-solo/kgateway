@@ -379,7 +379,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
 - Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records thirty-one dispositions: eleven from discovery, eleven from a classified go-control-plane batch (its two hold-outs since probed), and nine from a classified kgateway batch, with their detail pages
+  `bug-corpus.json` records forty-four dispositions: eleven from discovery, eleven from go-control-plane, nine from kgateway, six from Envoy Gateway, and seven from Envoy, with five current hold-outs (EG #9463, #9519; Envoy #21425, #47309; kgateway #14429), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
 - Evidence added: the two held-out go-control-plane mechanisms were probed on
   the pin without new model state. #431 is repaired in v0.14.0 (a
@@ -535,6 +535,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   fabricate `EndpointsHash`, so the randomized trace exaggerates this; the
   branch flip itself is reachable in production whenever a CDS removal
   precedes its CLA removal, or an EDS cluster's CLA arrives after the cluster.
+- Corroboration: Envoy Gateway #8889 reports content-equivalent listener
+  updates draining active WebSocket connections, and Envoy #46383 reports
+  large repeated CDS pushes deferring EDS subscriptions at scale; churn has
+  data-plane costs beyond CPU.
 - Consequence: each occurrence is one spurious EDS push per client. Envoy
   re-applies identical endpoints; go-control-plane answers because the
   version differs. This is a cost and observability issue, not a safety
@@ -604,6 +608,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   the CDS and LDS API implementations, which apply resources one at a time,
   not of SotW handling in general. The cache path resends the rejected EDS
   and RDS versions on every NACK at the same rate as CDS and LDS.
+- Corroboration: Envoy #32880 asks the protocol to specify per-resource
+  versus per-response NACK semantics; the measurements here answer it per
+  type for v1.39.1. Envoy Gateway #9463 reports one invalid TLS secret
+  rejecting an entire SDS update, consistent with whole-response rejection
+  for SDS, which remains to be probed.
 - Consequence: a NACK does not protect unrelated resources from a response
   that also carries an invalid one; it protects only the invalid resource.
   Isolation is better than the atomic-rollback model predicts, but the
