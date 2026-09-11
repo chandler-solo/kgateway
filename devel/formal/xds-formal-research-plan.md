@@ -341,6 +341,14 @@ the ledger entry each item advances. Nothing below closes a phase.
     with two remaining hold-outs (a Delta xDS report and a status-path
     report), both outside the deployed path.
 
+### Fifth tranche, same day
+
+22. RF-001, RF-009: the live `XdsWarming` and `XdsStarvation` suites passed
+    six of six against the research image on an isolated kind cluster; the
+    run is pass/fail only because the controller emits no snapshot trace.
+23. RF-016: the corpus reached fifty-one dispositions with Gloo and solo-kit
+    lineage entries; RF-026 gained the measured per-family table in Lean.
+
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence, RF-003 classification
