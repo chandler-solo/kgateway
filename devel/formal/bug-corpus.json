@@ -269,7 +269,7 @@
       "model": "open (RF-007 installation model lacks clear)",
       "obligation": "RF-007",
       "fix_status": "open upstream; reproduced on v0.14.0",
-      "remaining": "installation model must include clear; audit whether kgateway ever calls ClearSnapshot (the per-client Delete callback retains the entry, GCP-A2)",
+      "remaining": "installation model must include clear; kgateway has no production caller of ClearSnapshot (per-client Delete retains the entry, GCP-A2), so the path is unreachable in the deployed profile unless that changes",
       "partition": "holdout"
     },
     {

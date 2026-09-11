@@ -310,6 +310,19 @@ the ledger entry each item advances. Nothing below closes a phase.
     confirms for every emitted secret edge.
 13. The research harness is lint-clean under make analyze.
 
+### Third tranche, same day
+
+14. RF-027 (new): SDS removal is ACKed and revokes nothing on the pinned
+    Envoy; kgateway revokes by removing the referencing filter, listener, or
+    cluster, confirmed by source audit and a translator fixture that deletes
+    the OAuth2 client Secret.
+15. RF-025, RF-009: a trace scenario with real endpoint translation shows
+    EndpointsHash content-idempotent for pod-set changes; the randomized
+    scenario now ends quiescent so the installation relation is stable.
+16. RF-016: eleven go-control-plane candidates classified against the probes
+    and models; both held-out mechanisms probed on the pin (#431 repaired,
+    #505 reproduced but unreachable: kgateway never calls ClearSnapshot).
+
 ### Revised immediate next work
 
 1. RF-002 and RF-021: compute the resource dependency partition from emitted
