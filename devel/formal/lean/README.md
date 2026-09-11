@@ -40,7 +40,11 @@ and [program plan](../xds-formal-research-plan.md).
   decision left uninstalled in a scenario that installs, is a violation.
   Skipped (coalesced) and identical consecutive decisions are counted.
   A scenario that installs must end quiescent, with its last derived
-  snapshot installed on every type, before the test returns. These
+  snapshot installed on every type, before the test returns. Subtests that
+  reuse a client key emit a boundary event first, which settles the previous
+  segment and resets the per-client relations. A segment that installs
+  fabricated wrappers directly declares itself with a direct boundary, and its
+  installations are counted rather than matched. These
   per-client rules do not replay watches, wire responses, ACK/NACK, or
   activation.
 - `VersionDigest.lean` adds payload revisions, proves the Spec's name-set

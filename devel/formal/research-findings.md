@@ -126,7 +126,14 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   recomputation. install-failed is a violation, and a decision left
   uninstalled in a scenario that installs anything is a violation; the
   twelve transform-only scenarios that never call syncXds have their pending
-  decisions counted. One transform-only test now also installs and asserts
+  decisions counted. Subtests that reuse a client key emit a boundary
+  event that settles the previous segment and resets the relations; without
+  it, a decision from one subtest was matched against an installation from
+  the next and reported as a mismatch in one run. A subtest that installs
+  fabricated wrappers directly (the per-cluster readiness table) declares a
+  direct segment; the relation cannot tell such an installation from a
+  mismatch, so it counts them, and the randomized and real-translation
+  scenarios keep the strict relation. One transform-only test now also installs and asserts
   the served cache. Developing the rule exposed that the transform can emit
   the same decision several times per input change (suppressed by KRT
   equality) and that installations can lag several decisions; both are

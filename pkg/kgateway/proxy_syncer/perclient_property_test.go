@@ -210,6 +210,7 @@ func TestSnapshotPerClientRandomizedEventSequencesConformToSpec(t *testing.T) {
 	for iter := range iters {
 		seed := baseSeed + int64(iter)
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
+			emitXdsTraceBoundary(t.Name(), false)
 			runPropertySeed(t, seed, steps, numClusters)
 		})
 	}

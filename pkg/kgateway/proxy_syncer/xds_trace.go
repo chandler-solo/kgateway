@@ -176,3 +176,36 @@ func snapshotTypeVersions(snap *envoycache.Snapshot) map[string]string {
 	}
 	return versions
 }
+
+// xdsTraceDecisionBoundary marks the start of a subtest within a trace
+// scenario. Subtests in one scenario often reuse a client key with fresh
+// caches, so the checker's per-client relations must not carry across them.
+// The boundary carries the subtest name as its client and no snapshot.
+const (
+	xdsTraceDecisionBoundary = "boundary"
+	// A segment whose test installs fabricated wrappers directly through
+	// syncXds, so installations need not correspond to recorded decisions.
+	xdsTraceDecisionBoundaryDirect = "boundary-direct"
+)
+
+// emitXdsTraceBoundary records a subtest boundary in the trace. Tests whose
+// subtests share client keys call it first thing in each subtest; it is a
+// no-op without a trace sink. directInstalls declares that the segment
+// installs fabricated wrappers directly, so the checker counts rather than
+// matches its installations.
+func emitXdsTraceBoundary(name string, directInstalls bool) {
+	if xdsSnapshotTraceSink == nil {
+		return
+	}
+	decision := xdsTraceDecisionBoundary
+	if directInstalls {
+		decision = xdsTraceDecisionBoundaryDirect
+	}
+	xdsSnapshotTraceSink(XdsSnapshotTraceEvent{
+		Client:             name,
+		Decision:           decision,
+		ReferencedClusters: []string{}, ExemptClusters: []string{},
+		Clusters: []XdsSnapshotTraceCluster{}, Endpoints: []XdsSnapshotTraceEndpoint{},
+		Versions: map[string]string{},
+	})
+}

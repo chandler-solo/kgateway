@@ -321,6 +321,7 @@ func TestSnapshotPerClientFirstPublishWithEmptyEndpoints(t *testing.T) {
 		{name: "missing-CDS", missingCDS: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			emitXdsTraceBoundary(t.Name(), true)
 			g := gomega.NewWithT(t)
 			role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
 			ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})

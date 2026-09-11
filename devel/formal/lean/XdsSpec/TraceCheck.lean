@@ -45,6 +45,12 @@ events against the verified spec, instantiated at `Name := String`:
     with no recorded decision are counted: unit tests call syncXds directly
     with non-deferred wrappers. This relates decision to cache installation
     only; delivery, acceptance, and activation are not yet instrumented.
+    A `boundary` event, emitted at the start of a subtest that reuses client
+    keys, settles the previous segment and resets every per-client relation.
+    A `boundary-direct` event marks a segment whose test installs fabricated
+    wrappers through syncXds directly: its unmatched installations and
+    pending decisions are counted, never violations. Scenario identity is
+    still not a stream identity.
 
 Defer events always conform (whether a defer was *necessary* is a
 liveness question the trace cannot settle); they are parsed and counted
@@ -122,7 +128,7 @@ def parseEvent (line : String) : Except String TraceEvent := do
   let decision ← (← j.getObjVal? "decision").getStr?
   unless ["publish", "publish-first", "publish-resolved",
       "defer-missing-role-snapshot", "defer-endpoints-not-ready",
-      "defer-flip", "defer-first-publish", "installed", "install-failed"].contains decision do
+      "defer-flip", "defer-first-publish", "installed", "install-failed", "boundary", "boundary-direct"].contains decision do
     throw s!"unknown trace decision: {decision}"
   let referenced ← getStrList j "referenced"
   let exempt ← getStrList j "exempt"
@@ -203,6 +209,8 @@ structure TraceSummary where
   /-- Consecutive identical decisions for one client (KRT recomputation with
   an unchanged output, whose event is suppressed). -/
   duplicateDecisions : Nat := 0
+  /-- Subtest boundaries: per-client relations reset at each one. -/
+  boundaries : Nat := 0
   violations : List Violation := []
 
 /-- Identity of the snapshot a decision or installation refers to: the whole
@@ -256,6 +264,12 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   -- client -> EDS version most recently installed (the collection's previous
   -- output once the handler has caught up)
   let mut lastInstalled : List (String × String) := []
+  -- installations observed since the last boundary; decides whether pending
+  -- decisions at a boundary or the terminal are violations or counted
+  let mut segmentInstalls : Nat := 0
+  -- a direct segment installs fabricated wrappers; its installations are
+  -- counted rather than matched and its pending decisions are never violations
+  let mut directSegment : Bool := false
   let mut terminal := false
   for line in lines do
     lineNumber := lineNumber + 1
@@ -314,17 +328,37 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
         match dropThrough queue (versionKey e) with
         | some (skipped, rest) =>
           summary := { summary with installs := summary.installs + 1, superseded := summary.superseded + skipped }
+          segmentInstalls := segmentInstalls + 1
           pendingInstall := (e.client, rest) :: pendingInstall.filter (fun p => p.1 != e.client)
           lastInstalled := (e.client, versionKey e) :: lastInstalled.filter (fun p => p.1 != e.client)
         | none =>
-          if queue.isEmpty then
+          if queue.isEmpty || directSegment then
             summary := { summary with installsWithoutDecision := summary.installsWithoutDecision + 1 }
+            segmentInstalls := segmentInstalls + 1
           else
             mismatch := [("install-mismatch",
               s!"installed snapshot versions {versionKey e} match none of the pending decisions {queue}")]
         summary := { summary with
           violations := summary.violations ++ (found ++ mismatch).map fun (rule, detail) =>
             { lineNumber, client := e.client, rule, detail } }
+      else if e.decision == "boundary" || e.decision == "boundary-direct" then
+        -- Subtest boundary: settle the previous segment and forget every
+        -- per-client relation, since subtests reuse client keys with fresh
+        -- caches (RF-006 scenario identity is not a stream identity).
+        for (client, queue) in pendingInstall do
+          for decided in queue do
+            if segmentInstalls > 0 && !directSegment then
+              summary := { summary with violations := summary.violations ++
+                [{ lineNumber, client, rule := "publish-not-installed",
+                   detail := s!"decided snapshot versions {decided} have no installation receipt before the subtest boundary" }] }
+            else
+              summary := { summary with decisionsNotInstalled := summary.decisionsNotInstalled + 1 }
+        pendingInstall := []
+        lastInstalled := []
+        lastPublished := []
+        segmentInstalls := 0
+        directSegment := e.decision == "boundary-direct"
+        summary := { summary with boundaries := summary.boundaries + 1 }
       else if e.decision == "install-failed" then
         summary := { summary with violations := summary.violations ++
           [{ lineNumber, client := e.client, rule := "install-failed",
@@ -338,7 +372,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   -- transform-only scenarios never call syncXds and are counted instead.
   for (client, queue) in pendingInstall do
     for decided in queue do
-      if summary.installs + summary.installsWithoutDecision > 0 then
+      if segmentInstalls > 0 && !directSegment then
         summary := { summary with violations := summary.violations ++
           [{ lineNumber := 0, client, rule := "publish-not-installed",
              detail := s!"decided snapshot versions {decided} have no installation receipt" }] }
@@ -405,6 +439,30 @@ private def terminalJSON (count : Nat) : String :=
 #guard match checkTrace [eventJSON, eventJSON "publish-first" 2 "v2" "d2", eventJSON "installed" 3, eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
   | .ok summary => summary.violations.isEmpty && summary.installs == 2 && summary.superseded == 0
   | .error _ => false
+private def boundaryJSON (sequence : Nat) : String :=
+  (r#"{"schema":2,"scenario":"fixture","sequence":SEQ,"client":"TestX/subtest","versions":{},"decision":"boundary","referenced":[],"exempt":[],"clusters":[],"endpoints":[],"endpointsVersion":""}"#).replace "SEQ" (toString sequence)
+
+-- Subtest boundaries reset per-client relations. A transform-only segment's
+-- pending decision is counted; an install-wired segment's is a violation; an
+-- installation after the boundary never matches a decision from before it.
+#guard match checkTrace [eventJSON, boundaryJSON 2, eventJSON "publish-first" 3 "v2" "d2", eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
+  | .ok summary => summary.violations.isEmpty && summary.decisionsNotInstalled == 1 && summary.boundaries == 1
+  | .error _ => false
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3 "v2" "d2", boundaryJSON 4, terminalJSON 4] with
+  | .ok summary => summary.violations.map (·.rule) == ["publish-not-installed"]
+  | .error _ => false
+#guard match checkTrace [eventJSON, boundaryJSON 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
+  | .ok summary => summary.violations.isEmpty && summary.installsWithoutDecision == 1 && summary.decisionsNotInstalled == 1
+  | .error _ => false
+-- A direct segment installs fabricated wrappers: unmatched installations and
+-- pending decisions are counted, never violations.
+#guard match checkTrace [(boundaryJSON 1).replace "\"boundary\"" "\"boundary-direct\"", eventJSON "publish-first" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
+  | .ok summary => summary.violations.isEmpty && summary.installsWithoutDecision == 1 && summary.decisionsNotInstalled == 1
+  | .error _ => false
+#guard match checkTrace [boundaryJSON 1, eventJSON "publish-first" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
+  | .ok summary => summary.violations.map (·.rule) == ["install-mismatch"]
+  | .error _ => false
+
 -- An identical consecutive decision is a suppressed KRT recomputation.
 #guard match checkTrace [eventJSON, eventJSON "publish-first" 2, eventJSON "installed" 3, terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.installs == 1 && summary.duplicateDecisions == 1
@@ -468,7 +526,7 @@ def runTraceCheck (paths : List String) : IO UInt32 := do
         IO.println s!"FAIL  {path}: trace contains no events — emitter not wired?"
         ok := false
       else if summary.violations.isEmpty then
-        IO.println s!"PASS  {path}: {summary.events} events ({summary.publishes} publishes, {summary.installs} installs, {summary.superseded} superseded, {summary.installsWithoutDecision} installs-without-decision, {summary.decisionsNotInstalled} decisions-not-installed, {summary.duplicateDecisions} duplicate-decisions, {summary.defers} defers, {summary.churn} version-churn) conform to the spec"
+        IO.println s!"PASS  {path}: {summary.events} events ({summary.publishes} publishes, {summary.installs} installs, {summary.superseded} superseded, {summary.installsWithoutDecision} installs-without-decision, {summary.decisionsNotInstalled} decisions-not-installed, {summary.duplicateDecisions} duplicate-decisions, {summary.boundaries} boundaries, {summary.defers} defers, {summary.churn} version-churn) conform to the spec"
       else
         ok := false
         IO.println s!"FAIL  {path}: {summary.violations.length} violation(s) in {summary.events} events"
