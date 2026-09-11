@@ -294,6 +294,22 @@ the ledger entry each item advances. Nothing below closes a phase.
    decisions per client in order on the full per-type version tuple, with
    explicit accounting for KRT coalescing and suppressed recomputations.
 
+### Second tranche, same day
+
+8. RF-006: installation receipts and the per-client FIFO relation on the
+   full version tuple; the randomized scenario now ends quiescent.
+9. RF-002, RF-021: `xdscheck.DependencyGraphOf` and `Components` compute the
+   publication partition; all golden fixtures already pass xdscheck without
+   warnings, so no fixture has an opaque component.
+10. RF-005: `KrtRecovery.tla` states recovery under explicit fairness; no
+    deployed watchdog exists, so progress rests on KRT delivery.
+11. RF-026: EDS and RDS reject whole responses while CDS and LDS apply valid
+    siblings; the storm measurements cover all four types.
+12. RF-027 (new): SDS removal is ACKed and revokes nothing; kgateway revokes
+    by changing the referencing listener, cluster, or filter, which the audit
+    confirms for every emitted secret edge.
+13. The research harness is lint-clean under make analyze.
+
 ### Revised immediate next work
 
 1. RF-002 and RF-021: compute the resource dependency partition from emitted
@@ -307,6 +323,9 @@ the ledger entry each item advances. Nothing below closes a phase.
 4. RF-006 and RF-009: instrument watch, send, ACK/NACK, and activation, and
    emit traces from a run with real endpoint translation to apply the
    version relation to `EndpointsHash`.
+   Update: the real-translation scenario exists and EndpointsHash was
+   content-idempotent for pod-set changes; the carry-suffix and branch-flip
+   churn mechanisms remain to be reached.
 5. RF-016: classify the frozen corpus beyond the eleven discovery entries,
    starting with the go-control-plane and Envoy candidates that the source
    inventory already names.

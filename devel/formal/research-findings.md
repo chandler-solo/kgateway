@@ -588,9 +588,25 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   forward last-good secrets while holding another type (RF-002) inherits
   this: a held SDS type cannot revoke, but neither can an unheld one by
   deletion alone.
-- Action: audit what kgateway publishes when a referenced Kubernetes TLS
-  Secret is deleted or a BackendTLSPolicy CA is removed, and whether the
-  referencing listener or cluster changes in the same publication; state the
-  chosen revocation semantics in the secret model required by RF-020 and
-  RF-021; extend the probe to validation-context secrets, upstream client
-  certificates, and the standalone SDS server in `pkg/sds`.
+- kgateway audit: downstream listener certificates are inlined into LDS by
+  the listener translator; a deleted Kubernetes Secret yields
+  `InvalidCertificateRef`, the filter chain is not generated, and the
+  listener changes or disappears in the same publication, so revocation
+  travels with LDS. BackendTLSPolicy CA material is inlined into CDS; a
+  missing Secret is an `InvalidCACertificateRef` policy error and the cluster
+  fails closed. The only kgateway-emitted SDS resources on the main ADS are
+  the OAuth2 client and HMAC generic secrets from the traffic policy plugin;
+  a deleted client Secret fails that policy's translation, which removes the
+  OAuth2 filter and its two Secret resources in the same publication, so no
+  filter keeps referencing the removed secret. The system CA reference is
+  the bootstrap static secret, and Istio mTLS secrets come from the
+  istio-agent SDS server, outside this control plane. Residual: Envoy keeps
+  a removed generic secret loaded until restart, since removal revokes
+  nothing; no kgateway filter references it after the policy is dropped.
+- Action: state the revocation semantics in the secret model required by
+  RF-020 and RF-021 (revocation is reference removal or content replacement,
+  never resource deletion); add a translator fixture that deletes the OAuth2
+  client Secret and asserts the filter and both SDS resources leave the
+  snapshot together; extend the probe to validation-context secrets,
+  upstream client certificates, the standalone SDS server in `pkg/sds`, and
+  Delta xDS.
