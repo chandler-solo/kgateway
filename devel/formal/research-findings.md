@@ -25,8 +25,18 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   backend. CDS and the empty CLA publish while an unrelated route configuration
   addition and synthetic generic-secret rotation remain at the initial state.
   This characterizes cache composition, not certificate use or Envoy activation.
+- Temporal model: `WarmTypeStarvationCurrent.cfg` checks the same permanent
+  empty-input abstraction under weakly fair publication. Its expected temporal
+  counterexample keeps rebuilding while the independent update never applies.
+  `WarmTypeStarvationIsolated.cfg` specifies a proposed independent-component
+  publication policy that holds the blocked flip and permits independent
+  progress. The latter is not implemented or a proved refinement of Go.
 - Action: extend to live certificate rotation and choose and model a bounded
   or isolated fallback policy. Repeated finite input is not a temporal proof.
+  For isolation, establish the dependency partition across RDS/LDS/SDS and
+  prove that mixed resource versions do not retain revoked security state or
+  activate dangling references. The abstract independent Boolean assumes that
+  partition; it does not compute it.
   The C0 cold-start correction deliberately retains the warm C3 policy.
 
 ## RF-003 Permanent missing CDS can still starve first publication

@@ -23,6 +23,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         continue
     fi
     case "$name" in
+        WarmTypeStarvationCurrent) model=WarmTypeStarvation; expected=temporal ;;
+        WarmTypeStarvationIsolated) model=WarmTypeStarvation; expected=pass ;;
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
         XdsEnvoyWarming*) model=XdsEnvoyWarming; expected=pass ;;
         XdsPerClientConvergence*) model=XdsPerClientConvergence; expected=pass ;;
