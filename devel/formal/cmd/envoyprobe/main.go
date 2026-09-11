@@ -483,7 +483,13 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// Reconnect backoff and a container restart need more than the warming
+	// schedule's budget.
+	budget := 25 * time.Second
+	if *scenario == "restart" {
+		budget = 90 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	if err = await(ctx, func() bool { code, _, _ := get(admin + "/server_info"); return code == 200 }); err != nil {
 		return fmt.Errorf("admin unavailable: %w", err)
@@ -509,7 +515,17 @@ func run() (runErr error) {
 		return runSecrets(ctx, dir, admin, front, strings.TrimPrefix(tlsPublished, "http://"), strings.TrimPrefix(orphanPublished, "http://"), p, advance, p.secrets)
 	}
 	if *scenario == "restart" {
-		return runRestart(ctx, dir, admin, front, p, restart)
+		return runRestart(ctx, dir, admin, front, p, restart, func() (string, string, error) {
+			if _, err := command("restart", id); err != nil {
+				return "", "", err
+			}
+			newAdmin, err := published("9901/tcp")
+			if err != nil {
+				return "", "", err
+			}
+			newFront, err := published("10000/tcp")
+			return newAdmin, newFront, err
+		})
 	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.

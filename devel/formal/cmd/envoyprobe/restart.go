@@ -81,7 +81,7 @@ func (s *probeServer) requestCount() int {
 	return len(s.requests)
 }
 
-func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, restart func() (func(int) error, error)) error {
+func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, restart func() (func(int) error, error), restartProxy func() (string, string, error)) error {
 	save := func(name string) error {
 		_, body, err := get(admin + "/config_dump")
 		if err != nil {
@@ -180,6 +180,35 @@ func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, r
 		return err
 	}
 	p.record(map[string]any{"event": "observation", "phase": "revision-after-restart", "responses": p.responseCount.Load() - responsesBefore, "traffic": 200})
-	fmt.Println("PASS Envoy restart characterization: warm proxy keeps serving across a controller restart with an empty cache; reconnect requests carry accepted versions and no nonce; equal-version republish is silent; a revision applies")
+
+	// Proxy restart against the warm cache: a fresh Envoy process connects with
+	// no versions and must receive the whole configuration immediately.
+	before = p.requestCount()
+	responsesBefore = p.responseCount.Load()
+	// Ephemeral published ports can move across a container restart, so the
+	// admin and front addresses are re-resolved after it.
+	if admin, front, err = restartProxy(); err != nil {
+		return fmt.Errorf("proxy restart: %w", err)
+	}
+	if err = await(ctx, func() bool { code, _, _ := get(admin + "/server_info"); return code == 200 }); err != nil {
+		return fmt.Errorf("restarted proxy admin unavailable: %w", err)
+	}
+	p.record(map[string]any{"event": "proxy-restart"})
+	if err = await(ctx, func() bool { return p.requestCount()-before >= 4 }); err != nil {
+		return fmt.Errorf("restarted proxy did not request all four types: %w", err)
+	}
+	for _, r := range p.requestsSince(before) {
+		if r.version != "" && r.version != "r2" {
+			return fmt.Errorf("restarted proxy request for %s carried version %q", r.typeURL, r.version)
+		}
+	}
+	if err = await(ctx, func() bool { code, b, _ := get(front + "/"); return code == 200 && b == "probe-upstream" }); err != nil {
+		return fmt.Errorf("restarted proxy did not serve from the warm cache: %w", err)
+	}
+	if err = await(ctx, func() bool { _, d, _ := get(admin + "/config_dump"); return activeClusters(d)["a"] == "2s" }); err != nil {
+		return fmt.Errorf("restarted proxy did not activate the cached revision: %w", err)
+	}
+	p.record(map[string]any{"event": "observation", "phase": "proxy-restart-warm-cache", "responses": p.responseCount.Load() - responsesBefore, "traffic": 200})
+	fmt.Println("PASS Envoy restart characterization: warm proxy keeps serving across a controller restart with an empty cache; reconnect requests carry accepted versions and no nonce; equal-version republish is silent; a revision applies; a restarted proxy is served from the warm cache")
 	return nil
 }

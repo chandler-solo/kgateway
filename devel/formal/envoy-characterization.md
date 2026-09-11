@@ -229,6 +229,7 @@ client's snapshot. Observed on 2026-09-11:
 | Server stops, empty cache takes the port | Envoy reconnects on its own backoff and re-requests all four types with `version_info` equal to its accepted versions and an empty nonce; the empty cache answers nothing; traffic and readiness stay 200 |
 | Same content republished under the same versions | No response is sent (equal versions park every watch); nothing is needed; traffic 200 |
 | Changed CDS content under new versions for every type | Four responses, the cluster rewarms and activates with the new timeout; traffic 200 throughout |
+| Proxy container restarted against the warm cache | The fresh Envoy requests every type with no version; the cache answers all four immediately; the cached revision activates and traffic returns 200. Docker reassigns ephemeral published ports on restart, so the probe re-resolves them |
 
 Conclusions, limited to this binary and cache: a warm proxy is not harmed by
 a control-plane restart whose cache is empty, provided the control plane
@@ -239,7 +240,6 @@ that parks a same-name rewarming (RF-017). Bumping every type's version on a
 revision that changed only CDS produced three content-identical pushes
 (RF-025).
 
-Not covered: a proxy restart (fresh Envoy against a warm cache), a restart
-during warming, and the kgateway first-publish gate's behavior when the
+Not covered: a restart during warming and the kgateway first-publish gate's behavior when the
 reconnected proxy's derived snapshot is deferred (RF-002, RF-003 hold the
 whole first publication for a client with no cache entry).

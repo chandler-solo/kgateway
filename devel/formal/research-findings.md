@@ -93,9 +93,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   multi-resource rejection and SDS rotation, removal, and absence.
 - Evidence added: the `restart` scenario covers a control-plane restart with
   an empty cache against a warm proxy.
-- Action: extend the pinned direct harness to initial-fetch timeouts, proxy
-  restart against a warm cache, worker application observations,
-  validation-context secrets, and Delta xDS.
+- Evidence added: the `restart` scenario also restarts the proxy container
+  against the warm cache; the fresh Envoy is served every type immediately.
+- Action: extend the pinned direct harness to initial-fetch timeouts, restart
+  during warming, worker application observations, validation-context
+  secrets, and Delta xDS.
 
 ## RF-005 Recoverability was described as temporal liveness
 
