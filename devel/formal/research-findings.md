@@ -362,6 +362,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   closure work concentrates on route/cluster/endpoint edges, while the concrete
   checker has a larger, necessarily fallible traversal of listener, transport
   socket, HTTP filter, formatter, and nested typed-config secret references.
+- Evidence added: `xdscheck.DependencyGraphOf` extracts the reference graph the
+  checker traverses, including every secret edge it recognizes, and marks
+  resources with unreadable typed configs opaque (RF-002 partition).
 - Action: extract a versioned resource/reference inventory from emitted protos,
   cover every supported secret edge and deletion/rotation schedule, and add
   held-out fixtures for typed configs the checker cannot unpack. Relate cache

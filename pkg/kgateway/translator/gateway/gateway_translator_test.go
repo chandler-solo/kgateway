@@ -4433,3 +4433,57 @@ func TestDiscoveryNamespaceSelector(t *testing.T) {
 ]`, "base.yaml", "base_select_infra.yaml")
 	})
 }
+
+// RF-002/RF-021: the reference graph of a translated snapshot partitions into
+// publication units with no opaque or dangling members. This does not choose
+// or implement an isolated publication policy; it establishes that the
+// partition the policy needs is computable from emitted protos for this
+// fixture and records how many units it has.
+func TestTranslatedBackendSnapshotDependencyPartition(t *testing.T) {
+	ctx := t.Context()
+
+	dir := fsutils.MustGetThisDir()
+	inputFile := filepath.Join(dir, "testutils/inputs/http-routing/basic.yaml")
+	results, err := translatortest.TestCase{InputFiles: []string{inputFile}}.Run(
+		t,
+		ctx,
+		translatortest.NewScheme(nil),
+		translatortest.ExtraConfig{},
+		func(s *apisettings.Settings) {
+			s.EnableExperimentalGatewayAPIFeatures = true
+			s.EnableAuthMetadata = true
+		},
+	)
+	require.NoError(t, err, "translator test fixture should run")
+
+	gwNN := types.NamespacedName{Namespace: "default", Name: "example-gateway"}
+	result, ok := results[gwNN]
+	require.True(t, ok, "expected translated gateway result for %s", gwNN.String())
+	require.NotNil(t, result.Proxy, "expected translated proxy")
+
+	clusters := append([]*envoyclusterv3.Cluster{}, result.Proxy.ExtraClusters...)
+	clusters = append(clusters, result.Clusters...)
+	graph, findings := xdscheck.DependencyGraphOf(ctx, xdscheck.Snapshot{
+		Listeners: result.Proxy.Listeners,
+		Routes:    result.Proxy.Routes,
+		Clusters:  clusters,
+		Endpoints: result.Endpoints,
+		Secrets:   result.Proxy.Secrets,
+	})
+	require.Empty(t, xdscheck.ErrorFindings(findings), "xdscheck findings: %#v", findings)
+	components := graph.Components()
+	require.NotEmpty(t, components)
+	seen := map[string]int{}
+	for i, component := range components {
+		require.False(t, component.Opaque, "component %d has a member with unreadable references: %v", i, component.Nodes)
+		require.Empty(t, component.Dangling, "component %d references resources absent from the snapshot", i)
+		for _, node := range component.Nodes {
+			seen[node]++
+		}
+	}
+	require.Len(t, seen, len(graph.Nodes), "every emitted resource belongs to exactly one component")
+	for node, count := range seen {
+		require.Equal(t, 1, count, "node %s appears in %d components", node, count)
+	}
+	t.Logf("basic HTTP routing fixture: %d emitted resources in %d publication units", len(graph.Nodes), len(components))
+}

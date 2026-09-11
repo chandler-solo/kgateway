@@ -117,6 +117,12 @@ type Finding struct {
 // invoking Envoy or changing production behavior.
 func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 	c := checker{}
+	return c.run(ctx, s)
+}
+
+// run performs the traversal, recording reference edges when a dependency
+// graph is attached.
+func (c *checker) run(ctx context.Context, s Snapshot) []Finding {
 	c.routes = indexByName(s.Routes, "RouteConfiguration", func(r *envoyroutev3.RouteConfiguration) string {
 		return r.GetName()
 	}, &c.findings)
@@ -138,24 +144,32 @@ func CheckSnapshot(ctx context.Context, s Snapshot) []Finding {
 		return c.findings
 	}
 	for _, listener := range s.Listeners {
+		c.setOrigin(listenerResource(listener.GetName()))
 		c.checkListener(ctx, listener)
 		if c.isCanceled(ctx) {
 			return c.findings
 		}
 	}
 	for _, route := range s.Routes {
+		c.setOrigin(routeResource(route.GetName()))
 		c.checkRouteConfiguration(ctx, route, routeResource(route.GetName()))
 		if c.isCanceled(ctx) {
 			return c.findings
 		}
 	}
 	for _, cluster := range s.Clusters {
+		c.setOrigin(clusterResource(cluster.GetName()))
 		c.checkEDSCluster(cluster)
 		c.checkClusterTransportSockets(cluster)
 	}
 	for _, endpoint := range s.Endpoints {
+		c.setOrigin(clusterLoadAssignmentResource(endpoint.GetClusterName()))
 		c.checkClusterLoadAssignment(endpoint)
 	}
+	for _, secret := range s.Secrets {
+		c.setOrigin(secretResource(secret.GetName()))
+	}
+	c.origin = ""
 
 	return c.findings
 }
@@ -172,6 +186,11 @@ func ErrorFindings(findings []Finding) []Finding {
 }
 
 type checker struct {
+	// graph, when non-nil, receives every emitted node and traversed reference
+	// edge; origin is the top-level resource whose references are being read.
+	graph  *DependencyGraph
+	origin string
+
 	findings  []Finding
 	routes    map[string]*envoyroutev3.RouteConfiguration
 	clusters  map[string]*envoyclusterv3.Cluster
@@ -944,6 +963,7 @@ func (c *checker) requireSecret(secretConfig *envoytlsv3.SdsSecretConfig, resour
 	if name == systemCASecretName {
 		return
 	}
+	c.edge(secretResource(name))
 	if _, ok := c.secrets[name]; ok {
 		return
 	}
@@ -973,6 +993,7 @@ func (c *checker) checkHCMRouteSpecifier(ctx context.Context, listenerName, filt
 	switch routeSpecifier := hcm.GetRouteSpecifier().(type) {
 	case *envoyhcmv3.HttpConnectionManager_Rds:
 		routeName := routeSpecifier.Rds.GetRouteConfigName()
+		c.edge(routeResource(routeName))
 		if _, ok := c.routes[routeName]; !ok {
 			c.add(SeverityError, CodeMissingRouteConfiguration, resource,
 				fmt.Sprintf("listener %q filter chain %q references missing RDS route configuration %q", listenerName, filterChainName, routeName))
@@ -1096,6 +1117,7 @@ func (c *checker) requireCluster(name, resource, routeConfigName, virtualHostNam
 	if name == kgatewaywellknown.BlackholeClusterName {
 		return
 	}
+	c.edge(clusterResource(name))
 	if _, ok := c.clusters[name]; ok {
 		return
 	}
@@ -1110,6 +1132,7 @@ func (c *checker) requireClusterReference(name, resource, field string) {
 	if name == kgatewaywellknown.BlackholeClusterName {
 		return
 	}
+	c.edge(clusterResource(name))
 	if _, ok := c.clusters[name]; ok {
 		return
 	}
@@ -1126,6 +1149,7 @@ func (c *checker) checkEDSCluster(cluster *envoyclusterv3.Cluster) {
 	if expectedName == "" {
 		expectedName = cluster.GetName()
 	}
+	c.edge(clusterLoadAssignmentResource(expectedName))
 	if _, ok := c.endpoints[expectedName]; ok {
 		return
 	}
@@ -1177,7 +1201,30 @@ func (c *checker) isCanceled(ctx context.Context) bool {
 	return true
 }
 
+// setOrigin records an emitted node and makes it the source of subsequent
+// reference edges.
+func (c *checker) setOrigin(id string) {
+	c.origin = id
+	if c.graph != nil {
+		c.graph.addNode(id)
+	}
+}
+
+// edge records that the current origin references target.
+func (c *checker) edge(target string) {
+	if c.graph != nil {
+		c.graph.addEdge(c.origin, target)
+	}
+}
+
+func secretResource(name string) string {
+	return "Secret/" + name
+}
+
 func (c *checker) add(severity, code, resource, message string) {
+	if c.graph != nil && severity == SeverityWarning && isOpaqueCode(code) && c.origin != "" {
+		c.graph.Opaque[c.origin] = code
+	}
 	c.findings = append(c.findings, Finding{
 		Severity: severity,
 		Code:     code,

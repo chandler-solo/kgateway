@@ -51,6 +51,7 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 - Recognized tracing provider service cluster references resolve to emitted clusters.
 - EDS clusters resolve to emitted ClusterLoadAssignments by `service_name`, or by cluster name when `service_name` is empty.
 - Emitted ClusterLoadAssignments correspond to emitted EDS clusters; orphan endpoint resources are reported because they can poison ADS named EDS responses.
+- `DependencyGraphOf` returns the reference graph the checker traversed (listener, route, cluster, endpoint, and secret edges) and `Components` partitions it into publication units, marking resources with unreadable typed configs opaque and keeping dangling references attached; this is the RF-002 isolation prerequisite, not a policy.
 - Basic SDS references from checked TLS transport sockets, OAuth2 HTTP filters, credential-injector injected credentials, and recognized generic-secret formatter configs resolve to emitted secrets.
 - Unsupported dynamic constructs produce warning findings rather than panic.
 

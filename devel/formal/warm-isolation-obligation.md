@@ -21,11 +21,18 @@ that arbitrary mixtures of old and new resources are safe.
 
 ## Required implementation refinement
 
-Before implementing isolation, derive the resource dependency graph from
-actual emitted payloads. It must include listener-to-route, route-to-cluster,
-cluster-to-endpoint, and listener/filter/transport-to-secret references. Shared
-secrets and route configurations can connect otherwise independent resources.
-Unknown typed configs require an explicit conservative disposition.
+`xdscheck.DependencyGraphOf` now derives the reference graph from emitted
+protos along the checker's traversal: listener-to-route, listener or
+route-to-cluster (route actions, filters, access logs, tracing),
+cluster-to-endpoint, and listener/cluster/filter-to-secret. `Components`
+partitions it; shared secrets and route configurations connect otherwise
+independent chains, dangling references stay attached to their component,
+and any typed config the checker cannot unpack marks its resource opaque so
+the component is not independent. The graph is exactly as complete as the
+checker's traversal, which is fallible by construction (RF-021). Unit tests
+cover separation, a shared secret, dangling references, opacity, and the
+blackhole exemption; the basic HTTP routing fixture partitions without opaque
+or dangling members.
 
 Choose a publication unit that preserves reference closure and security
 semantics when a blocked component retains older state. In particular, secret
