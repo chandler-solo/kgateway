@@ -111,6 +111,7 @@ func requirements(root string) (map[key]bool, error) {
 	}
 	req[key{prefix + "devel/testing", "TestFormalAssumptionsDischarged"}] = true
 	req[key{prefix + "devel/testing", "TestProtocolScopeHasExplicitDispositions"}] = true
+	req[key{prefix + "pkg/sds/server", "TestSDSFetchDoesNotAuthorizeNodeIdentity"}] = true
 	return req, nil
 }
 

@@ -104,21 +104,21 @@ entries:
     status: open
     constructionFile: pkg/sds/server/server.go
     constructionAnchor: RegisterSecretDiscoveryServiceServer
-    evidence: separate loopback SDS server is enabled by Istio integration
+    evidence: separate SDS server defaults to loopback; bind address is configurable
     action: RF-020 must model rotation, removal/revocation, last-good policy, reconnect, and client identity
   - id: SDS-DELTA
     surface: SecretDiscoveryService.DeltaSecrets
-    reachability: registered-loopback-surface
+    reachability: registered-network-surface
     status: open
     constructionFile: pkg/sds/server/server.go
     constructionAnchor: RegisterSecretDiscoveryServiceServer
-    evidence: the generated service registration exposes DeltaSecrets on the same loopback server
+    evidence: generated registration exposes DeltaSecrets; RF-023 records configurable bind and identity boundary
     action: RF-020 must characterize whether Envoy can select Delta and cover removal semantics
   - id: SDS-FETCH
     surface: SecretDiscoveryService.FetchSecrets
-    reachability: registered-loopback-surface
+    reachability: registered-network-surface
     status: characterized-only
     constructionFile: pkg/sds/server/server_test.go
     constructionAnchor: FetchSecrets
-    evidence: server tests exercise Fetch but no formal lifecycle model consumes those results
-    action: RF-020 must decide supported status and add security/lifecycle properties or disable the RPC
+    evidence: TestSDSFetchDoesNotAuthorizeNodeIdentity characterizes absent and different Node IDs with synthetic data
+    action: RF-020 and RF-023 must decide supported status, enforce the trust boundary, and add lifecycle properties

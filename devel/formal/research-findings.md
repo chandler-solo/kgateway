@@ -269,3 +269,20 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   Audit versioned protocol requirements before changing nonce handling; this
   probe records existing behavior and does not establish that ignoring stale
   ACKs is itself a protocol defect.
+
+## RF-023 SDS isolation relies on reachability, not the configured client name
+
+- Status: Fetch identity behavior characterized; deployment exposure audit open.
+- Evidence: `TestSDSFetchDoesNotAuthorizeNodeIdentity` uses the production gRPC
+  registration/options and cache with an in-memory transport and synthetic
+  public resource. Absent, matching, and different Node IDs receive the same
+  snapshot without credentials. `Server.ID` ignores Node and returns the
+  configured cache key; the SDS gRPC options install no authentication.
+- Scope correction: `pkg/sds/run.go` defaults `SdsServerAddress` to loopback
+  but reads it from environment. `Server.Run` binds the supplied address.
+  Loopback is a default deployment boundary, not an enforced server invariant.
+- Action: audit chart/environment overrides and network reachability; decide
+  whether to enforce loopback or authenticate supported remote clients. Extend
+  characterization to StreamSecrets and DeltaSecrets. Model the configured
+  client as a cache key and represent the actual trust boundary explicitly.
+  This synthetic probe does not establish exposure in an installed deployment.
