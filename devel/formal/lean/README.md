@@ -33,9 +33,13 @@ and [program plan](../xds-formal-research-plan.md).
   publications permit empty CLAs. Across consecutive publications to one
   client it enforces the version relation from `VersionDigest.lean`: an
   unchanged EDS version with changed CLA content fails (`version-reuse`);
-  unchanged content with a moved version is counted (`version-churn`). This
-  is the first per-client stateful rule; it does not replay cache
-  installation, watches, wire responses, ACK/NACK, or activation.
+  unchanged content with a moved version is counted (`version-churn`).
+  Cache installation receipts emitted after SetSnapshot must match a pending
+  decision for the client in order and be closed; a failed installation, or a
+  decision left uninstalled in a scenario that installs, is a violation.
+  Skipped (coalesced) and identical consecutive decisions are counted. These
+  per-client rules do not replay watches, wire responses, ACK/NACK, or
+  activation.
 - `VersionDigest.lean` adds payload revisions, proves the Spec's name-set
   version is payload-blind, states the digest contract the implementation
   must meet on a run's compared domain, and shows the XOR combiner's

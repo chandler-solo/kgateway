@@ -89,12 +89,24 @@ func (s *ProxyTranslator) syncXds(
 	// and the per-cluster resolution above only carries cluster/CLA pairs —
 	// so we do not rely on a post-hoc MakeConsistent() pass, which would also
 	// have mutated the snapshot shared with the krt cache.
-	if err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+	err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap)
+	if err != nil {
 		// RF-007: SetSnapshot may install the new cache and answer some watches
 		// before returning an error. This is not a transactional rollback. Surface
 		// it rather than silently dropping the update.
 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
 	}
+	// Installation receipt: the content handed to the cache, after any
+	// per-cluster resolution, with the SetSnapshot outcome. Emitted after the
+	// call returns; it records installation, not delivery or acceptance.
+	installDecision := xdsTraceDecisionInstalled
+	if err != nil {
+		installDecision = xdsTraceDecisionInstallFailed
+	}
+	emitXdsSnapshotTrace(proxyKey, installDecision,
+		collectReferencedClusters(snap.Resources[envoycachetypes.Route], snap.Resources[envoycachetypes.Listener]),
+		snapWrap.erroredClusters,
+		snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
 }
 
 // publishedReferencedClusters returns the dataplane-referenced cluster set of

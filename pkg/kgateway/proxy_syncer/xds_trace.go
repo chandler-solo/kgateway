@@ -82,6 +82,11 @@ const (
 	xdsTraceDecisionDeferFlip = "defer-flip"
 	// No cached snapshot and a nonexempt referenced cluster missing from CDS.
 	xdsTraceDecisionDeferFirstPublish = "defer-first-publish"
+	// Cache installation receipts emitted by syncXds after SetSnapshot returns.
+	// They carry the installed snapshot, so the checker can relate the decided
+	// content to the content the cache serves (RF-006, first lifecycle stage).
+	xdsTraceDecisionInstalled     = "installed"
+	xdsTraceDecisionInstallFailed = "install-failed"
 )
 
 // xdsSnapshotTraceSink, when non-nil, observes every snapshotPerClient

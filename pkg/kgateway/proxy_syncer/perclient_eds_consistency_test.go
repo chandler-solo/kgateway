@@ -10,6 +10,7 @@ package proxy_syncer
 // go-control-plane tolerance the fix no longer leans on.
 
 import (
+	"context"
 	"testing"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -17,6 +18,7 @@ import (
 	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	envoyresourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"github.com/onsi/gomega"
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
@@ -100,4 +102,17 @@ func TestSnapshotPerClientPublishesConsistentSnapshotForUnreferencedEDSClusterWi
 	g.Expect(snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-0"),
 		"the EDS cluster must have a (synthesized empty) ClusterLoadAssignment")
 	assertNoXDSCheckErrors(t, snap)
+
+	// Install the decided snapshot: the served cache, not only the transform
+	// output, must be EDS-consistent. This also gives the trace conformance
+	// checker the installation receipt that matches the publish decision.
+	c := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+	wrappers := snapshots.List()
+	g.Expect(wrappers).To(gomega.HaveLen(1))
+	translator := NewProxyTranslator(c)
+	translator.syncXds(context.Background(), wrappers[0])
+	served, err := c.GetSnapshot(ucc.ResourceName())
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	g.Expect(served.GetResources(envoyresourcev3.EndpointType)).To(gomega.HaveKey("cluster-0"),
+		"the installed snapshot must carry the synthesized empty ClusterLoadAssignment")
 }

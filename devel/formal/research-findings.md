@@ -98,15 +98,32 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-006 Snapshot traces are not lifecycle conformance
 
-- Status: strict schema and scenario coverage implemented; first per-client
-  stateful rule (EDS version relation, schema 2) added; lifecycle replay
-  remains open.
+- Status: strict schema and scenario coverage implemented; per-client
+  version relation and cache installation receipts added; wire, acceptance,
+  and activation replay remain open.
 - Evidence: required fields, decisions, sequence gaps/duplicates, empty and
   defer-only traces now fail. Emitter write failures fail the test process.
 - Evidence added: successful test completion emits a terminal scenario/event
   count under the emitter lock. Lean rejects missing/mismatched receipts,
   duplicate terminals, and subsequent events. Negative guards cover suffix
   loss; the required runner still enumerates scenarios independently.
+- Evidence added: syncXds emits `installed` or `install-failed` after
+  SetSnapshot with the installed content. Decisions queue per client in
+  order; each installation must match a pending decision by EDS version and
+  be closed, skipped older decisions count as superseded (KRT coalescing),
+  and an identical consecutive decision counts as a suppressed
+  recomputation. install-failed is a violation, and a decision left
+  uninstalled in a scenario that installs anything is a violation; the
+  twelve transform-only scenarios that never call syncXds have their pending
+  decisions counted. One transform-only test now also installs and asserts
+  the served cache. Developing the rule exposed that the transform can emit
+  the same decision several times per input change (suppressed by KRT
+  equality) and that installations can lag several decisions; both are
+  legitimate and now explicit in the relation. This is the first lifecycle
+  stage beyond the decision itself.
+- Limitation: the relation keys on the EDS version string, so a decision and
+  an installation with different non-EDS content but equal EDS version would
+  match; extend the receipt to all five type versions.
 - Action: add subtest/stream generations and stateful cache/watch/wire/
   application replay. Terminal counts cover emitted events, not transitions
   omitted by instrumentation; audit transition coverage separately.
