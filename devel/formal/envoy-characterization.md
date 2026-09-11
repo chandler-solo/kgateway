@@ -235,6 +235,8 @@ client's snapshot. Observed on 2026-09-11:
 | Proxy container restarted against the warm cache | The fresh Envoy requests every type with no version; the cache answers all four immediately; the cached revision activates and traffic returns 200. Docker reassigns ephemeral published ports on restart, so the probe re-resolves them |
 | Server restarted while a CDS revision is warming (EDS withheld) | Envoy reconnects and re-requests EDS at its accepted version and LDS and RDS at theirs, all with empty nonces, and does not request CDS for the whole five-second window; the empty cache answers nothing; the candidate cluster stays warming; the old active cluster keeps serving 200 |
 | EDS revision published for the warming cluster | Warming completes, the CDS request follows, and the next CDS revision applies; traffic 200 throughout (RF-028; Envoy #36951 and #34334 reproduced over SotW) |
+| Same restart with `use_eds_cache_for_ads` and the EDS fetch timeout disabled (explicit 0s) | Identical to the pause above: EDS, LDS, RDS re-requested, no CDS, still warming, traffic 200 |
+| Same restart with `use_eds_cache_for_ads` and the EDS fetch timeout unset, kgateway's bootstrap shape (Envoy default 15 s) | When the timeout expires the candidate completes from the cached ClusterLoadAssignment without a response; Envoy re-requests EDS at the same accepted version and then CDS; the next CDS revision applies; traffic 200 throughout (window 20 s) |
 
 Conclusions, limited to this binary and cache: a warm proxy is not harmed by
 a control-plane restart whose cache is empty, provided the control plane
@@ -245,7 +247,7 @@ that parks a same-name rewarming (RF-017). Bumping every type's version on a
 revision that changed only CDS produced three content-identical pushes
 (RF-025).
 
-A restart during warming is covered by the last two rows: CDS discovery stays paused across the reconnect, so a client whose EDS is withheld or parked at an equal version after the restart cannot receive a CDS repair until EDS is released (RF-028, RF-014).
+A restart during warming is covered by the last four rows: CDS discovery stays paused across the reconnect, so a client whose EDS is withheld or parked at an equal version after the restart cannot receive a CDS repair until EDS is released or, in kgateway's bootstrap, until the EDS initial fetch timeout (unset, 15 s) lets the EDS cache complete the warming (RF-028, RF-014). The probe's other profiles write an explicit 0s on EDS and RDS sources, which is not kgateway's shape; their indefinite parks apply to that shape.
 
 Not covered: the kgateway first-publish gate's behavior when the
 reconnected proxy's derived snapshot is deferred (RF-002, RF-003 hold the

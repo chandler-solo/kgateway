@@ -22,7 +22,12 @@ EXTENDS Naturals
 \*   request on a new stream even at an equal version (or bumps the version on
 \*   reconnect for clients with warming candidates). It is not implemented and
 \*   is the decision recorded under RF-028 in the plan.
-CONSTANTS EndpointsEventuallyChange, FirstResponseUnconditional
+\* EdsCacheFallback: Envoy's use_eds_cache_for_ads, which kgateway's bootstrap
+\*   enables, completes a warming cluster from the cached ClusterLoadAssignment
+\*   when the EDS config source's initial_fetch_timeout expires. kgateway leaves
+\*   that timeout unset (Envoy default 15 s), so in the deployed profile this
+\*   exit exists and bounds the window; an explicit 0s would remove it.
+CONSTANTS EndpointsEventuallyChange, FirstResponseUnconditional, EdsCacheFallback
 VARIABLES rebuild, warming, edsRequestOpen, serverEdsVersion, clientEdsVersion,
           cdsRequestOpen, repairDelivered
 vars == <<rebuild, warming, edsRequestOpen, serverEdsVersion, clientEdsVersion,
@@ -62,6 +67,16 @@ SendEds == /\ edsRequestOpen
            /\ warming' = FALSE
            /\ UNCHANGED <<rebuild, serverEdsVersion, cdsRequestOpen, repairDelivered>>
 
+\* The EDS initial fetch timeout expires and the cached assignment completes
+\* the warming without a response; the parked request stays open and the
+\* accepted version does not move (measured: the reconnect then re-requests
+\* EDS at the same version and CDS).
+CacheFallback == /\ EdsCacheFallback
+                 /\ warming
+                 /\ warming' = FALSE
+                 /\ UNCHANGED <<rebuild, edsRequestOpen, serverEdsVersion,
+                                clientEdsVersion, cdsRequestOpen, repairDelivered>>
+
 \* Envoy's CDS discovery is paused while a cluster is warming (measured: no
 \* CDS request in the reconnect window). The request appears once warming ends.
 RequestCds == /\ ~warming
@@ -78,9 +93,10 @@ SendCds == /\ cdsRequestOpen
            /\ UNCHANGED <<rebuild, warming, edsRequestOpen, serverEdsVersion,
                           clientEdsVersion>>
 
-Next == Rebuild \/ EndpointChange \/ SendEds \/ RequestCds \/ SendCds
+Next == Rebuild \/ EndpointChange \/ SendEds \/ CacheFallback \/ RequestCds \/ SendCds
 Spec == Init /\ [][Next]_vars /\ WF_vars(Rebuild) /\ WF_vars(EndpointChange)
-             /\ WF_vars(SendEds) /\ WF_vars(RequestCds) /\ WF_vars(SendCds)
+             /\ WF_vars(SendEds) /\ WF_vars(CacheFallback) /\ WF_vars(RequestCds)
+             /\ WF_vars(SendCds)
 
 TypeOK == /\ rebuild \in {0, 1}
           /\ warming \in BOOLEAN

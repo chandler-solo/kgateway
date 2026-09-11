@@ -89,7 +89,7 @@
       "model": "XdsAdsSotw.tla stream reset re-requests every type; a paused-CDS reconnect step is an open action",
       "obligation": "RF-028, RF-014, RF-017",
       "fix_status": "closed report; shipped repair not established",
-      "remaining": "decide the reconnect-while-warming repair (version bump or unconditional first response); add the live restart-during-rewarm suite",
+      "remaining": "window bounded by the EDS initial fetch timeout in kgateway's bootstrap (EDS cache for ADS); decide whether to shorten it or answer the first request unconditionally; add the live restart-during-rewarm suite",
       "partition": "discovery"
     },
     {
@@ -614,7 +614,7 @@
       "model": "XdsAdsSotw.tla stream reset lacks the paused-CDS case",
       "obligation": "RF-028, RF-026",
       "fix_status": "open upstream",
-      "remaining": "the NACK-then-reconnect variant of this report is not yet probed over SotW; the warming-then-reconnect half is",
+      "remaining": "the NACK-then-reconnect variant is not yet probed over SotW; the warming-then-reconnect half is, including the EDS cache fallback in kgateway's bootstrap",
       "partition": "discovery"
     },
     {

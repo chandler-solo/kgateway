@@ -19,6 +19,10 @@ go build -tags e2e -o "$ARTIFACT_DIR/envoyprobe" ./devel/formal/cmd/envoyprobe
 "$ARTIFACT_DIR/envoyprobe" -scenario secrets -out "$ARTIFACT_DIR/secrets"
 "$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -out "$ARTIFACT_DIR/restart-cache"
 "$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -ordered -out "$ARTIFACT_DIR/restart-ordered-cache"
+# RF-028 bootstrap profiles: the EDS cache flag with the timeout disabled keeps the pause;
+# kgateway's shape (flag on, EDS/RDS initial_fetch_timeout unset = 15 s) completes from the cache.
+"$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -eds-cache -out "$ARTIFACT_DIR/restart-cache-eds-cache-disabled-timeout"
+"$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/restart-cache-kgateway-bootstrap"
 "$ARTIFACT_DIR/envoyprobe" -scenario timeouts -out "$ARTIFACT_DIR/timeouts"
 "$ARTIFACT_DIR/envoyprobe" -scenario init -out "$ARTIFACT_DIR/init"
 rm "$ARTIFACT_DIR/envoyprobe"

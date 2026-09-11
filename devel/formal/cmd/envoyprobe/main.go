@@ -50,8 +50,24 @@ func address(port uint32) *envoycorev3.Address {
 	return &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "127.0.0.1", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: port}}}}
 }
 
+// resourceFetchTimeout is the initial_fetch_timeout placed on every EDS and RDS
+// config source the scripted server sends. Zero writes an explicit 0s, which
+// disables the timeout (the probe's historical shape); a negative value leaves
+// the field unset, which is Envoy's 15 s default and what kgateway's
+// translator emits on EDS and RDS config sources; a positive value sets it.
+// The EDS cache fallback (-eds-cache) fires on this timeout's expiry.
+var resourceFetchTimeout time.Duration
+
+// edsCacheEnabled mirrors -eds-cache for scenarios whose expectations depend
+// on whether Envoy may complete a warming cluster from its EDS cache.
+var edsCacheEnabled bool
+
 func ads() *envoycorev3.ConfigSource {
-	return &envoycorev3.ConfigSource{ResourceApiVersion: envoycorev3.ApiVersion_V3, ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}, InitialFetchTimeout: durationpb.New(0)}
+	src := &envoycorev3.ConfigSource{ResourceApiVersion: envoycorev3.ApiVersion_V3, ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}}
+	if resourceFetchTimeout >= 0 {
+		src.InitialFetchTimeout = durationpb.New(resourceFetchTimeout)
+	}
+	return src
 }
 
 func resources(phase int, disablePanic bool) map[string][]*anypb.Any {
@@ -341,6 +357,8 @@ func run() (runErr error) {
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
 	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart (requires -snapshot-cache), timeouts, or init")
+	flag.BoolVar(&edsCacheEnabled, "eds-cache", false, "set envoy.restart_features.use_eds_cache_for_ads in the bootstrap runtime layer, as kgateway's Envoy bootstrap does")
+	flag.DurationVar(&resourceFetchTimeout, "resource-fetch-timeout", 0, "initial_fetch_timeout on EDS and RDS config sources: 0 writes 0s (disabled), negative leaves it unset (Envoy default 15 s, kgateway's shape), positive sets it")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
@@ -444,13 +462,18 @@ func run() (runErr error) {
 	if *scenario == "timeouts" {
 		fetchTimeout = initialFetchTimeout.String()
 	}
+	runtimeLayer := ""
+	if edsCacheEnabled {
+		runtimeLayer = ` "layered_runtime":{"layers":[{"name":"static_layer","static_layer":{"envoy.restart_features.use_eds_cache_for_ads":true}}]},
+`
+	}
 	bootstrap := fmt.Sprintf(`{
  "node":{"id":"formal-probe","cluster":"formal-probe"},
- "admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":9901}}},
+%s "admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":9901}}},
  "dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"}}]},"cds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"%s"},"lds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"%s"}},
  "static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}],
  "listeners":[{"name":"upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"upstream","route_config":{"virtual_hosts":[{"name":"all","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"probe-upstream"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}
-`, fetchTimeout, fetchTimeout, port)
+`, runtimeLayer, fetchTimeout, fetchTimeout, port)
 	cfg := filepath.Join(dir, "bootstrap.json")
 	if err = os.WriteFile(cfg, []byte(bootstrap), 0o600); err != nil {
 		return err
@@ -501,6 +524,10 @@ func run() (runErr error) {
 	budget := 25 * time.Second
 	if *scenario == "restart" {
 		budget = 90 * time.Second
+		if edsCacheEnabled {
+			// The restart-during-warming window waits out the EDS fetch timeout.
+			budget += 2 * effectiveResourceFetchTimeout()
+		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()

@@ -240,9 +240,15 @@ func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, r
 	if err = await(ctx, func() bool { return p.requestCount()-before >= 3 }); err != nil {
 		return fmt.Errorf("Envoy did not reconnect while warming: %w", err)
 	}
+	// With the EDS cache enabled the fallback fires on the EDS initial fetch
+	// timeout; the window must outlast it to observe the CDS request.
+	window := 5 * time.Second
+	if edsCacheEnabled && effectiveResourceFetchTimeout() > 0 {
+		window = effectiveResourceFetchTimeout() + 5*time.Second
+	}
 	// Observe for a bounded window which types the reconnect re-requests.
 	select {
-	case <-time.After(5 * time.Second):
+	case <-time.After(window):
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -262,17 +268,32 @@ func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, r
 	if err = serving("after restart during warming"); err != nil {
 		return err
 	}
-	p.record(map[string]any{"event": "observation", "phase": "restart-during-warming", "requests": reconnectWhileWarming, "cds_requested_within_5s": cdsRequested, "still_warming": stillWarming, "responses": p.responseCount.Load() - responsesBefore, "traffic": 200})
+	// kgateway's bootstrap enables use_eds_cache_for_ads. Measured: the cache
+	// completes a warming cluster only when the EDS config source has a nonzero
+	// initial_fetch_timeout, on its expiry; kgateway emits none, so the pause
+	// below is its profile. With a timeout the fallback fires and CDS is
+	// requested again (RF-028 repair candidate).
+	expectFallback := edsCacheEnabled && effectiveResourceFetchTimeout() > 0
+	p.record(map[string]any{"event": "observation", "phase": "restart-during-warming", "eds_cache": edsCacheEnabled, "resource_fetch_timeout": fetchTimeoutLabel(), "expect_eds_cache_fallback": expectFallback, "requests": reconnectWhileWarming, "window_ms": window.Milliseconds(), "cds_requested_within_window": cdsRequested, "still_warming": stillWarming, "responses": p.responseCount.Load() - responsesBefore, "traffic": 200})
 	// RF-028 (Envoy #36951 and #34334 over SotW): with a cluster warming at
 	// reconnect, the pinned Envoy re-requests EDS at its accepted version and
 	// LDS and RDS, but not CDS, for the whole window; the empty cache answers
 	// nothing, the candidate stays warming, and the old active cluster keeps
 	// serving. A change here means the reconnect semantics moved.
-	if !stillWarming {
-		return errors.New("warming candidate did not survive the reconnect; reassess RF-017 and corpus #36951")
-	}
-	if cdsRequested {
-		return errors.New("CDS was re-requested while warming after the reconnect; the #36951 SotW shape no longer holds, reassess RF-028")
+	if expectFallback {
+		if stillWarming {
+			return errors.New("EDS cache fallback did not complete the warming candidate after the fetch timeout; reassess the RF-028 repair candidate")
+		}
+		if !cdsRequested {
+			return errors.New("CDS was not re-requested after the EDS cache fallback; reassess RF-028")
+		}
+	} else {
+		if !stillWarming {
+			return errors.New("warming candidate did not survive the reconnect; reassess RF-017 and corpus #36951")
+		}
+		if cdsRequested {
+			return errors.New("CDS was re-requested while warming after the reconnect; the #36951 SotW shape no longer holds, reassess RF-028")
+		}
 	}
 	// An EDS revision from the new cache completes warming.
 	if err = advance(4); err != nil {
@@ -303,6 +324,33 @@ func runRestart(ctx context.Context, dir, admin, front string, p *probeServer, r
 		}
 	}
 	p.record(map[string]any{"event": "observation", "phase": "rewarmed-after-restart", "traffic": 200, "cds_requested_after_warming": cdsAfter})
-	fmt.Println("PASS Envoy restart characterization: warm proxy keeps serving across a controller restart with an empty cache; reconnect requests carry accepted versions and no nonce; equal-version republish is silent; a revision applies; a restarted proxy is served from the warm cache; a candidate warming across a controller restart stays warming until an EDS revision")
+	tail := "a candidate warming across a controller restart stays warming until an EDS revision"
+	if edsCacheEnabled && effectiveResourceFetchTimeout() > 0 {
+		tail = "a candidate warming across a controller restart completes from the EDS cache when the fetch timeout expires and CDS is requested again"
+	}
+	fmt.Println("PASS Envoy restart characterization: warm proxy keeps serving across a controller restart with an empty cache; reconnect requests carry accepted versions and no nonce; equal-version republish is silent; a revision applies; a restarted proxy is served from the warm cache; " + tail)
 	return nil
+}
+
+// effectiveResourceFetchTimeout is the EDS/RDS initial_fetch_timeout Envoy
+// applies: the flag value, or Envoy's 15 s default when the field is unset.
+func effectiveResourceFetchTimeout() time.Duration {
+	if resourceFetchTimeout < 0 {
+		return 15 * time.Second
+	}
+	return resourceFetchTimeout
+}
+
+// fetchTimeoutLabel renders the configured EDS/RDS initial_fetch_timeout for
+// observations: "unset" (Envoy default 15 s), "disabled" (explicit 0s), or the
+// duration.
+func fetchTimeoutLabel() string {
+	switch {
+	case resourceFetchTimeout < 0:
+		return "unset"
+	case resourceFetchTimeout == 0:
+		return "disabled"
+	default:
+		return resourceFetchTimeout.String()
+	}
 }

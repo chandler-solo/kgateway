@@ -380,6 +380,11 @@ the ledger entry each item advances. Nothing below closes a phase.
 29. RF-028 action 3: `ReconnectWhileWarming.tla` states the paused-CDS reconnect;
     the equal-version rule fails `EventuallyRepaired` without an endpoint
     change, the proposed unconditional first response passes.
+30. RF-028 corrected: kgateway's bootstrap enables the EDS cache for ADS and
+    leaves the EDS fetch timeout unset (15 s), so the reconnect-while-warming
+    window is bounded by that timeout; measured in two new Envoy profiles,
+    modeled as `EdsCacheFallback`. RF-014 and RF-017 parks are bounded the
+    same way in the deployed bootstrap.
 
 ### What remains and who decides
 
@@ -390,9 +395,10 @@ the ledger entry each item advances. Nothing below closes a phase.
 - Dependency: adopting go-control-plane #1356 through a pseudo-version.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
   fix ancestry, RF-028 live restart during a rewarm, and Delta xDS (excluded).
-- Policy, added with RF-028: whether a reconnecting client with a warming
-  candidate receives an EDS response even at an equal version (a version
-  bump on reconnect or an unconditional first response after connect).
+- Policy, added with RF-028: accept the 15 s EDS-fetch-timeout bound on the
+  reconnect-while-warming window, shorten it with an explicit
+  `initial_fetch_timeout` on EDS sources (RF-003 trade-off), or remove it
+  with an unconditional first response after connect.
 - Proofs: per-type acceptance semantics in the convergence models (RF-026)
   and the composed refinement of Phase 4.
 

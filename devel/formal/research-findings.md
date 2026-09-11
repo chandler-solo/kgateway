@@ -341,6 +341,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   scripted server intentionally bypasses SnapshotCache, so this observation
   alone does not prove the integrated cache/server strands Envoy.
 
+- Bootstrap note (2026-09-11, from RF-028): the indefinite park measured here
+  assumes the EDS config source's initial fetch timeout is disabled. kgateway's
+  bootstrap enables `use_eds_cache_for_ads` and leaves that timeout unset
+  (15 s), so in the deployed profile a same-name rewarming parked at an equal
+  EDS version completes from the cached assignment when the timeout expires.
+  The park is a 15 s window there, not a permanent strand.
+
 ## RF-015 Broad ADS state space is not an established CI receipt
 
 - Status: explicit verification bound, extended run open.
@@ -371,6 +378,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   delivery/ACK skew can place EDS ahead of CDS, and unnecessary replies can
   introduce loops. Extend to real KGW same-name cluster changes, NACK, TLS,
   and multi-client schedules before extracting a product mitigation.
+
+- Bootstrap note (2026-09-11, from RF-028): the indefinite park measured here
+  assumes the EDS config source's initial fetch timeout is disabled. kgateway's
+  bootstrap enables `use_eds_cache_for_ads` and leaves that timeout unset
+  (15 s), so in the deployed profile a same-name rewarming parked at an equal
+  EDS version completes from the cached assignment when the timeout expires.
+  The park is a 15 s window there, not a permanent strand.
 
 ## RF-018 Unsubscribe-all is treated as wildcard by snapshot responses
 
@@ -792,6 +806,37 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   (the live suites restart neither side mid-warming), Delta xDS, and the
   initial-fetch-timeout interaction (warming clusters with no timeout wait
   indefinitely; RF-003 recorded the timeout defaults).
+- Bootstrap correction (same day): kgateway's Envoy bootstrap enables
+  `envoy.restart_features.use_eds_cache_for_ads`, and its EDS and RDS config
+  sources leave `initial_fetch_timeout` unset, which is Envoy's 15 s default
+  (the bootstrap's CDS and LDS sources are the ones set to 0s). The probe had
+  written an explicit 0s on every EDS and RDS source, which disables the
+  timeout and with it the EDS cache fallback. Remeasured with `-eds-cache`:
+  with the timeout disabled the pause holds exactly as above; with the
+  timeout unset (kgateway's shape) the warming candidate completes from the
+  cached ClusterLoadAssignment when the timeout expires, Envoy re-requests
+  EDS at the same accepted version and then CDS, and the next CDS revision
+  applies (`restart-cache-kgateway-bootstrap` profile, observation window
+  20 s). The scripted server never answered EDS; the cache did.
+- Corrected consequence for kgateway: the stuck-repair window after a
+  reconnect during rewarming is bounded by the EDS initial fetch timeout,
+  15 s per warming episode in the deployed bootstrap, for any cluster whose
+  ClusterLoadAssignment Envoy has already received under that name. It is
+  unbounded only if a deployment sets that timeout to 0s on EDS sources, or
+  for a cluster Envoy has never received an assignment for, where the same
+  timeout activates the cluster empty instead (RF-003 timeouts scenario).
+  The same fallback bounds the RF-014 and RF-017 same-name rewarming parks
+  in the deployed bootstrap; those findings were measured with the timeout
+  disabled and their indefinite duration applies to that shape only.
+- Repair candidates, re-ranked: (a) leave as is and document the 15 s
+  bound; (b) set an explicit shorter `initial_fetch_timeout` on kgateway's
+  EDS config sources to shrink the window, at the cost of activating a
+  never-received cluster empty sooner (RF-003 trade-off); (c) the
+  unconditional first response after connect, which removes the window for
+  same-name clusters without touching the timeout. `ReconnectWhileWarming.tla`
+  carries (c) as `FirstResponseUnconditional` and the fallback as
+  `EdsCacheFallback`; both configurations pass. Which to adopt is still the
+  maintainer decision.
 - Action: (1) treat "reconnect while warming" as a required scenario for
   any per-client publication gate: after a restart, a client whose accepted
   EDS version equals the derived version still needs an EDS response for
