@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/prototext"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -4486,4 +4488,76 @@ func TestTranslatedBackendSnapshotDependencyPartition(t *testing.T) {
 		require.Equal(t, 1, count, "node %s appears in %d components", node, count)
 	}
 	t.Logf("basic HTTP routing fixture: %d emitted resources in %d publication units", len(graph.Nodes), len(components))
+}
+
+// RF-027: at the protocol boundary, removing a Secret resource from SDS does
+// not revoke the delivered credential on Envoy, so kgateway must revoke by
+// changing the referencing filter. Deleting the OAuth2 client Secret from the
+// fixture must remove every OAuth2 HTTP filter and both SDS secrets from the
+// snapshot in the same publication, leaving no filter that references a
+// secret Envoy would keep serving.
+func TestTranslatedOAuth2SnapshotDropsFilterAndSecretsWhenClientSecretDeleted(t *testing.T) {
+	ctx := t.Context()
+	dir := fsutils.MustGetThisDir()
+	original, err := os.ReadFile(filepath.Join(dir, "testutils/inputs/traffic-policy/oauth2.yaml"))
+	require.NoError(t, err)
+
+	var kept []string
+	removed := 0
+	for doc := range strings.SplitSeq(string(original), "\n---\n") {
+		if strings.Contains(doc, "kind: Secret") && strings.Contains(doc, "name: oauth-client-secret") {
+			removed++
+			continue
+		}
+		kept = append(kept, doc)
+	}
+	require.Equal(t, 1, removed, "fixture must contain exactly one OAuth2 client Secret")
+	inputFile := filepath.Join(t.TempDir(), "oauth2-without-client-secret.yaml")
+	require.NoError(t, os.WriteFile(inputFile, []byte(strings.Join(kept, "\n---\n")), 0o600))
+
+	translate := func(input string) (translatortest.ActualTestResult, string) {
+		results, err := translatortest.TestCase{InputFiles: []string{input}}.Run(
+			t, ctx, translatortest.NewScheme(nil), translatortest.ExtraConfig{},
+			func(s *apisettings.Settings) {
+				s.EnableExperimentalGatewayAPIFeatures = true
+				s.EnableAuthMetadata = true
+			},
+		)
+		require.NoError(t, err, "translator test fixture should run")
+		result, ok := results[types.NamespacedName{Namespace: "default", Name: "test"}]
+		require.True(t, ok, "expected translated gateway result")
+		require.NotNil(t, result.Proxy, "expected translated proxy")
+		var rendered strings.Builder
+		for _, l := range result.Proxy.Listeners {
+			rendered.WriteString(prototext.Format(l))
+		}
+		return result, rendered.String()
+	}
+
+	// Baseline: the filter and both SDS secrets are present.
+	baseline, baselineListeners := translate(filepath.Join(dir, "testutils/inputs/traffic-policy/oauth2.yaml"))
+	require.Contains(t, baselineListeners, "envoy.filters.http.oauth2", "baseline listeners must carry the OAuth2 filter")
+	var baselineSecretNames []string
+	for _, s := range baseline.Proxy.Secrets {
+		baselineSecretNames = append(baselineSecretNames, s.GetName())
+	}
+	require.Contains(t, strings.Join(baselineSecretNames, ","), "oauth2/client_secret/")
+	require.Contains(t, strings.Join(baselineSecretNames, ","), "oauth2/hmac_secret/")
+
+	// Deleted client Secret: the filter and both SDS secrets leave together.
+	result, listeners := translate(inputFile)
+	require.NotContains(t, listeners, "envoy.filters.http.oauth2",
+		"an OAuth2 filter must not remain once its client Secret is gone; Envoy would keep serving the last SDS secret (RF-027)")
+	require.NotContains(t, listeners, "oauth2/client_secret/", "no listener may still reference the client secret")
+	for _, s := range result.Proxy.Secrets {
+		require.NotContains(t, s.GetName(), "oauth2/", "SDS secret %q must leave the snapshot with its filter", s.GetName())
+	}
+	clusters := append([]*envoyclusterv3.Cluster{}, result.Proxy.ExtraClusters...)
+	clusters = append(clusters, result.Clusters...)
+	findings := xdscheck.CheckSnapshot(ctx, xdscheck.Snapshot{
+		Listeners: result.Proxy.Listeners, Routes: result.Proxy.Routes, Clusters: clusters,
+		Endpoints: result.Endpoints, Secrets: result.Proxy.Secrets,
+	})
+	require.Empty(t, xdscheck.ErrorFindings(findings), "xdscheck findings: %#v", findings)
+	require.NotEmpty(t, result.Proxy.Listeners, "the gateway's listeners must still be published without the OAuth2 filter")
 }

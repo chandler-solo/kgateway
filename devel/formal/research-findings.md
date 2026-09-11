@@ -603,10 +603,15 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   istio-agent SDS server, outside this control plane. Residual: Envoy keeps
   a removed generic secret loaded until restart, since removal revokes
   nothing; no kgateway filter references it after the policy is dropped.
+- Evidence added: `TestTranslatedOAuth2SnapshotDropsFilterAndSecretsWhenClientSecretDeleted`
+  translates the OAuth2 fixture with its client Secret removed. Every OAuth2
+  HTTP filter and both SDS generic secrets leave the snapshot in the same
+  publication, no listener references the client secret, the gateway's
+  listeners are still published, and xdscheck reports no errors. kgateway's
+  only SDS revocation path therefore removes the reference, as RF-027
+  requires.
 - Action: state the revocation semantics in the secret model required by
   RF-020 and RF-021 (revocation is reference removal or content replacement,
-  never resource deletion); add a translator fixture that deletes the OAuth2
-  client Secret and asserts the filter and both SDS resources leave the
-  snapshot together; extend the probe to validation-context secrets,
+  never resource deletion); extend the probe to validation-context secrets,
   upstream client certificates, the standalone SDS server in `pkg/sds`, and
   Delta xDS.
