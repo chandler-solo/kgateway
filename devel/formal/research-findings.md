@@ -57,9 +57,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Status: strict schema and scenario coverage implemented; replay remains open.
 - Evidence: required fields, decisions, sequence gaps/duplicates, empty and
   defer-only traces now fail. Emitter write failures fail the test process.
-- Action: add terminal event-count receipts to detect truncated suffixes,
-  subtest/stream generations, and stateful cache/watch/wire/application replay.
-  Sequence checks cannot detect a missing suffix or entirely omitted scenario.
+- Evidence added: successful test completion emits a terminal scenario/event
+  count under the emitter lock. Lean rejects missing/mismatched receipts,
+  duplicate terminals, and subsequent events. Negative guards cover suffix
+  loss; the required runner still enumerates scenarios independently.
+- Action: add subtest/stream generations and stateful cache/watch/wire/
+  application replay. Terminal counts cover emitted events, not transitions
+  omitted by instrumentation; audit transition coverage separately.
 
 ## RF-007 go-control-plane response model omits real behavior
 

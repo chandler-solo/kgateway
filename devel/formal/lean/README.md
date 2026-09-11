@@ -52,7 +52,9 @@ scenario separately with schema/sequence metadata. It preserves Go JSON
 receipts, scenario logs, traces, and model results. Scenario skips fail.
 The runner also validates required unit run/pass/package outcomes from JSON
 receipts; a skipped required descendant fails. A top-level scenario can contain subtests; scenario identity is not a stream
-identity. A full lifecycle schema and end-of-trace coverage receipt remain
+identity. Each successful trace process emits a terminal scenario/event count;
+the checker rejects a missing suffix receipt or mismatched count. These counts
+cover emitted events only. Full lifecycle instrumentation and replay remain
 RF-006 work.
 
 For a single scenario, from the repository root:

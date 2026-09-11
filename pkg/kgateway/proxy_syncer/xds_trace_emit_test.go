@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"testing"
 )
 
 // When XDS_TRACE_OUT names a file, every snapshotPerClient decision made
@@ -13,10 +14,10 @@ import (
 // runs the tests, and replays the recorded trace against the verified xDS
 // publication spec with `xdsspec trace`. Without the variable this file is
 // inert and the hook stays nil.
-func init() {
+func TestMain(m *testing.M) {
 	path := os.Getenv("XDS_TRACE_OUT")
 	if path == "" {
-		return
+		os.Exit(m.Run())
 	}
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -43,4 +44,25 @@ func init() {
 			panic(fmt.Errorf("write xDS trace: %w", err))
 		}
 	}
+	code := m.Run()
+	mu.Lock()
+	// RF-006: a contiguous prefix is not a complete trace. Emit a terminal
+	// count only after tests and their cleanup have completed successfully.
+	if code == 0 {
+		if err := json.NewEncoder(out).Encode(struct {
+			Schema   int    `json:"schema"`
+			Scenario string `json:"scenario"`
+			Terminal bool   `json:"terminal"`
+			Events   uint64 `json:"events"`
+		}{1, scenario, true, sequence}); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			code = 1
+		}
+	}
+	if err := out.Close(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		code = 1
+	}
+	mu.Unlock()
+	os.Exit(code)
 }

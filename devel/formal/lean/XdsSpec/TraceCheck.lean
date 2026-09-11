@@ -155,10 +155,27 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   let mut summary : TraceSummary := {}
   let mut lineNumber := 0
   let mut sequences : List (String × Nat) := []
+  let mut terminal := false
   for line in lines do
     lineNumber := lineNumber + 1
     if line.isEmpty then
       continue
+    if terminal then return .error "event after terminal receipt"
+    match Json.parse line with
+    | .ok j =>
+      if (j.getObjVal? "terminal").isOk then
+        let receipt : Except String Unit := do
+          unless (← (← j.getObjVal? "terminal").getBool?) do throw "terminal must be true"
+          unless (← (← j.getObjVal? "schema").getNat?) == 1 do throw "unsupported terminal schema"
+          let scenario ← (← j.getObjVal? "scenario").getStr?
+          let count ← (← j.getObjVal? "events").getNat?
+          unless sequences == [(scenario, count)] && count == summary.events do
+            throw "terminal scenario/count mismatch"
+        match receipt with
+        | .error err => return .error err
+        | .ok _ => terminal := true
+        continue
+    | .error _ => pure ()
     match parseEvent line with
     | .error err => return .error s!"line {lineNumber}: malformed trace event: {err}"
     | .ok e =>
@@ -176,6 +193,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       else
         summary := { summary with defers := summary.defers + 1 }
   if summary.events == 0 || summary.publishes == 0 then return .error "trace must contain a publication"
+  if !terminal then return .error "missing terminal receipt (possibly truncated trace)"
   return .ok summary
 
 /-- A first publication may be empty but must still be structurally closed. -/
@@ -201,7 +219,14 @@ private def fails (result : Except String α) : Bool :=
 #guard fails (checkTrace [eventJSON "defer-flip"])
 #guard fails (checkTrace [eventJSON "publish-first" 2])
 #guard fails (checkTrace [eventJSON, eventJSON])
-#guard match checkTrace [eventJSON, eventJSON "publish-first" 2] with
+private def terminalJSON (count : Nat) : String :=
+  r#"{"schema":1,"scenario":"fixture","terminal":true,"events":COUNT}"#.replace "COUNT" (toString count)
+
+#guard fails (checkTrace [eventJSON])
+#guard fails (checkTrace [eventJSON, terminalJSON 2])
+#guard fails (checkTrace [eventJSON, terminalJSON 1, eventJSON])
+#guard fails (checkTrace [eventJSON, terminalJSON 1, terminalJSON 1])
+#guard match checkTrace [eventJSON, eventJSON "publish-first" 2, terminalJSON 2] with
   | .ok summary => summary.publishes == 2 && summary.violations.isEmpty
   | .error _ => false
 
