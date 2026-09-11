@@ -38,7 +38,7 @@ Dependency modules and binary versions are separate identities.
 | Recovery from deferred state | Constructive existence proof | No fairness, wall-clock bound, or guarantee of coherent future input |
 | Finite model safety | Model-checked with bounded names and states | Run output records each explored domain; not arbitrary concurrency |
 | Finite model recovery | Reachability checked | Does not imply eventuality on all fair executions |
-| Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check | Missing CDS still blocks; cache behavior is not Envoy application |
+| Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check, live XdsWarming and XdsStarvation suites passed once against the research image | Missing CDS still blocks; the live suites are pass/fail without traces and the starvation suite is a regression pin, not a #14184 reproducer |
 | Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation drop RF-024 reproduced with a synthetic plugin, fix open |
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
 | GCP named response guard | Contradicted/incomplete; post-pin diff recorded | Equal-version subscriptions and both lost-watch paths omitted; unreleased #1356 retains the parked declined watch and stops the unsubscribe-all leak, request-entry decline unchanged |

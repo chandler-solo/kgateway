@@ -6,7 +6,19 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-001 Cold publication waits for usable endpoints
 
-- Status: fixed on the research branch.
+- Status: fixed on the research branch. Live suites executed.
+- Live evidence (2026-09-11): `TestKgateway/XdsWarming` (three tests) and
+  `TestKgateway/XdsStarvation` (three tests) passed against the research
+  image built from `c23bf8591e` (`ghcr.io/kgateway-dev/kgateway:v1.0.1-dev`,
+  image id `b5121ad85ee07`, envoy-wrapper `90cc9fa71ab40` on the Makefile's
+  `envoyproxy/envoy:v1.39.1`) on a kind cluster `xdsformal` with its own
+  MetalLB pool, `PERSIST_INSTALL=true`, install namespace `kgateway-test`,
+  controller restarts 0. Six of six tests passed in 120 s. The starvation
+  suite's own note applies: it pins anti-starvation properties for an
+  ExternalName reference whose defer window is transient at laptop scale; it
+  is not a reproducer of the #14184 wedge. Run logs are local receipts, not
+  committed.
+
 - Evidence: `TestSnapshotPerClientFirstPublishWithEmptyEndpoints`, the original
   three setup fixtures, Lean cold systems, and `XdsEnvoyWarmingColdEmpty.cfg`.
 - Resolution: first cache publication requires nonexempt referenced CDS, but
@@ -236,9 +248,12 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: `checkreceipts` rejects absent, skipped, failed, malformed,
   or truncated required test outcomes. Workflow runs on all PR changes, uploads
   receipts, and includes bounded TLC and pinned direct Envoy.
-- Evidence added: the required runner now includes a scenario with real
-  endpoint translation and cache installation receipts; live KGW e2e traces
-  remain open.
+- Evidence added: the live `XdsWarming` and `XdsStarvation` suites were
+  executed once against the research image (see RF-001); the run produced no
+  snapshot trace, so the trace relations were not applied to it.
+- Action: emit and check snapshot traces from a live run (the e2e harness
+  would need to set the trace environment on the controller and collect the
+  file); until then live evidence is pass/fail only.
 - Action: add lifecycle trace receipts and live KGW e2e execution. Existence of
   a named Go function is not execution; RF-015 tracks original TLC bounds.
 
