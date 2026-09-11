@@ -1,5 +1,5 @@
 {
-  "scope": "Discovery mechanisms plus classified batches of go-control-plane, kgateway, Envoy Gateway, and Envoy keyword candidates; full inventory dispositions remain unreviewed",
+  "scope": "Discovery mechanisms plus classified keyword-candidate batches from every core repository and the solo-kit lineage; full inventory dispositions remain unreviewed",
   "cutoff_exclusive": "2026-09-10T00:00:00Z",
   "entries": [
     {
@@ -661,6 +661,111 @@
       "fix_status": "open upstream",
       "remaining": "reproduce over Delta or unified xDS if adopted; kgateway keeps ConfigSource constant",
       "partition": "holdout"
+    },
+    {
+      "repository": "solo-io/gloo",
+      "number": 10609,
+      "url": "https://github.com/solo-io/gloo/issues/10609",
+      "visibility": "public",
+      "classification": "observability-gap-cross-implementation",
+      "mechanism": "Gateway status Programmed is set before the proxy has received the configuration",
+      "profile": "Gloo Edge 1.18.7",
+      "evidence": "same family as kgateway #14363 and RF-009: status and readiness are derived from control-plane state, not from delivery or acceptance receipts",
+      "model": "observability property family; installation receipts stop at the cache",
+      "obligation": "RF-009",
+      "fix_status": "open",
+      "remaining": "a delivery-complete signal in the trace and in status",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/gloo",
+      "number": 10541,
+      "url": "https://github.com/solo-io/gloo/issues/10541",
+      "visibility": "public",
+      "classification": "observability-gap-cross-implementation",
+      "mechanism": "the readiness listener is static bootstrap configuration, so a pod is ready before it receives any xDS configuration",
+      "profile": "Gloo Edge v1.17+",
+      "evidence": "envoy-characterization: readiness is process readiness, 200 with empty EDS and, after timeouts, with no routes; kgateway #14363 reports the consequence at scale",
+      "model": "observability property family",
+      "obligation": "RF-009",
+      "fix_status": "open",
+      "remaining": "readiness that depends on delivered configuration",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/gloo",
+      "number": 129,
+      "url": "https://github.com/solo-io/gloo/issues/129",
+      "visibility": "public",
+      "classification": "lineage-pointer",
+      "mechanism": "snapshot hash ignored the client role, so distinct roles could share a snapshot identity",
+      "profile": "migrated to kgateway #129 on 2024-11-13",
+      "evidence": "repository transfer recorded; the mechanism belongs to the identity and version families (RF-008, RF-023)",
+      "model": "none",
+      "obligation": "RF-016 lineage",
+      "fix_status": "closed as migrated",
+      "remaining": "follow the kgateway-side issue if it is classified",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/solo-kit",
+      "number": 231,
+      "url": "https://github.com/solo-io/solo-kit/issues/231",
+      "visibility": "public",
+      "classification": "mechanism-mapped-lineage",
+      "mechanism": "an empty initial snapshot was never emitted, so syncers were not notified of a legitimately empty state",
+      "profile": "solo-kit 2019",
+      "evidence": "the RF-001 cold-start correction on this branch has the same shape: permanently empty input must still publish",
+      "model": "PerClusterReadiness.lean cold systems",
+      "obligation": "RF-001",
+      "fix_status": "closed with a fix 2019-07-31",
+      "remaining": "none",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/solo-kit",
+      "number": 246,
+      "url": "https://github.com/solo-io/solo-kit/issues/246",
+      "visibility": "public",
+      "classification": "churn-lineage",
+      "mechanism": "a previous-hash initialized to zero made the emitter send the first snapshot twice on every start",
+      "profile": "solo-kit 2019",
+      "evidence": "RF-025 records kgateway's own content-identical publications; this is the ancestral form of version churn on startup",
+      "model": "none",
+      "obligation": "RF-025",
+      "fix_status": "closed with a fix 2019-09-01",
+      "remaining": "none",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/solo-kit",
+      "number": 368,
+      "url": "https://github.com/solo-io/solo-kit/issues/368",
+      "visibility": "public",
+      "classification": "mechanism-mapped-lineage",
+      "mechanism": "the fork's ADS server sent per-type responses in arbitrary order, contrary to the CDS, EDS, LDS, RDS ordering the protocol recommends",
+      "profile": "solo-kit control-plane 2020",
+      "evidence": "go-control-plane #218, #235, #526 and GCP-A3: ordered ADS repairs quiet-stream additions; the ACK-skew window remains (RF-010)",
+      "model": "OrderedADS.lean",
+      "obligation": "RF-010",
+      "fix_status": "closed 2020-07-31",
+      "remaining": "none beyond RF-010",
+      "partition": "discovery"
+    },
+    {
+      "repository": "solo-io/solo-kit",
+      "number": 391,
+      "url": "https://github.com/solo-io/solo-kit/issues/391",
+      "visibility": "public",
+      "classification": "nonapplicable-to-publication-model",
+      "mechanism": "a deferred channel close inside a loop closed the snapshot channel more than once",
+      "profile": "solo-kit v0.14.1",
+      "evidence": "emitter lifecycle defect outside the xDS publication and protocol models",
+      "model": "none",
+      "obligation": "none",
+      "fix_status": "closed with a fix 2020-11-17",
+      "remaining": "none",
+      "partition": "discovery"
     }
   ]
 }

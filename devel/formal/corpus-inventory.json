@@ -64,7 +64,7 @@
       "title_body_keyword_candidates": 412,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "solo-io/solo-kit",
@@ -77,7 +77,7 @@
       "title_body_keyword_candidates": 124,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "unreviewed except discovery records in bug-corpus.json"
+      "review_status": "partially reviewed: a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
     },
     {
       "repository": "solo-io/solo-projects",
