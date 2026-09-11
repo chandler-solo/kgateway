@@ -3,14 +3,15 @@ package proxy_syncer
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
-	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -28,28 +29,28 @@ func TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret(t *testing.T) {
 	makeSnapshot := func(revision int) *cache.Snapshot {
 		t.Helper()
 		resources := map[resource.Type][]types.Resource{
-			resource.ClusterType:  {&cluster.Cluster{Name: "old"}},
-			resource.RouteType:    {&route.RouteConfiguration{Name: "unrelated-original"}},
-			resource.ListenerType: {&listener.Listener{Name: "original-listener"}},
-			resource.SecretType: {&tls.Secret{Name: "independent-secret", Type: &tls.Secret_GenericSecret{
-				GenericSecret: &tls.GenericSecret{Secret: &core.DataSource{Specifier: &core.DataSource_InlineString{
+			resource.ClusterType:  {&envoyclusterv3.Cluster{Name: "old"}},
+			resource.RouteType:    {&envoyroutev3.RouteConfiguration{Name: "unrelated-original"}},
+			resource.ListenerType: {&envoylistenerv3.Listener{Name: "original-listener"}},
+			resource.SecretType: {&envoytlsv3.Secret{Name: "independent-secret", Type: &envoytlsv3.Secret_GenericSecret{
+				GenericSecret: &envoytlsv3.GenericSecret{Secret: &envoycorev3.DataSource{Specifier: &envoycorev3.DataSource_InlineString{
 					InlineString: fmt.Sprintf("public-test-revision-%d", revision),
 				}}},
 			}}},
 		}
 		if revision > 1 {
-			resources[resource.ClusterType] = append(resources[resource.ClusterType], &cluster.Cluster{
-				Name: "empty", ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
-				EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{EdsConfig: &core.ConfigSource{ConfigSourceSpecifier: &core.ConfigSource_Ads{Ads: &core.AggregatedConfigSource{}}}},
+			resources[resource.ClusterType] = append(resources[resource.ClusterType], &envoyclusterv3.Cluster{
+				Name: "empty", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
+				EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: &envoycorev3.ConfigSource{ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}}},
 			})
-			resources[resource.EndpointType] = []types.Resource{&endpoint.ClusterLoadAssignment{ClusterName: "empty"}}
-			resources[resource.RouteType] = append(resources[resource.RouteType], &route.RouteConfiguration{Name: "independent-added-route"})
+			resources[resource.EndpointType] = []types.Resource{&envoyendpointv3.ClusterLoadAssignment{ClusterName: "empty"}}
+			resources[resource.RouteType] = append(resources[resource.RouteType], &envoyroutev3.RouteConfiguration{Name: "independent-added-route"})
 			for _, item := range routeResourcesForClusters("empty").Items {
 				resources[resource.RouteType] = append(resources[resource.RouteType], item.Resource)
 			}
 			resources[resource.ListenerType] = append(resources[resource.ListenerType], httpListenerWithRDS(t, "new-listener", "route-config"))
 		}
-		snap, err := cache.NewSnapshot(fmt.Sprint(revision), resources)
+		snap, err := cache.NewSnapshot(strconv.Itoa(revision), resources)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +76,7 @@ func TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret(t *testing.T) {
 		if !proto.Equal(served.GetResources(resource.SecretType)["independent-secret"], initial.GetResources(resource.SecretType)["independent-secret"]) {
 			t.Fatal("secret rotated; reassess RF-002")
 		}
-		if served.GetVersion(resource.ClusterType) != fmt.Sprint(revision) {
+		if served.GetVersion(resource.ClusterType) != strconv.Itoa(revision) {
 			t.Fatal("CDS did not continue advancing")
 		}
 		if _, exists := served.GetResources(resource.EndpointType)["empty"]; !exists {

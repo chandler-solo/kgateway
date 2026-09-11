@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func exportDetails(root, path string, cfg config) error {
 		return err
 	}
 	if len(manifest.Entries) == 0 {
-		return fmt.Errorf("empty detail manifest")
+		return errors.New("empty detail manifest")
 	}
 	allowed := map[string]bool{}
 	for _, repo := range cfg.Repositories {
@@ -33,10 +34,10 @@ func exportDetails(root, path string, cfg config) error {
 	}
 	for _, entry := range manifest.Entries {
 		if !allowed[entry.Repository] || entry.Number < 1 {
-			return fmt.Errorf("detail entry outside scope")
+			return errors.New("detail entry outside scope")
 		}
 		dir := filepath.Join(root, strings.ReplaceAll(entry.Repository, "/", "__"), fmt.Sprintf("details-%d", entry.Number))
-		if err = os.MkdirAll(dir, 0700); err != nil {
+		if err = os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
 		base := fmt.Sprintf("repos/%s/issues/%d", entry.Repository, entry.Number)
@@ -65,7 +66,7 @@ func exportDetails(root, path string, cfg config) error {
 			seen := map[string]bool{}
 			for page := 1; endpoint != ""; page++ {
 				if seen[endpoint] {
-					return fmt.Errorf("detail cursor cycle")
+					return errors.New("detail cursor cycle")
 				}
 				seen[endpoint] = true
 				r, err := cached(filepath.Join(dir, fmt.Sprintf("%s-%05d.json", kind, page)), endpoint)

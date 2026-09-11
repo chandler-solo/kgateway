@@ -3,13 +3,14 @@ package proxy_syncer
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 
-	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -46,23 +47,23 @@ func TestColdMissingReferencedClusterWithholdsAllTypes(t *testing.T) {
 	makeSnapshot := func(revision int, includeGhostCluster bool) *cache.Snapshot {
 		t.Helper()
 		clusters := []types.Resource{
-			&cluster.Cluster{
-				Name: "ready", ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
-				EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{EdsConfig: &core.ConfigSource{ConfigSourceSpecifier: &core.ConfigSource_Ads{Ads: &core.AggregatedConfigSource{}}}},
+			&envoyclusterv3.Cluster{
+				Name: "ready", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS},
+				EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: &envoycorev3.ConfigSource{ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}}},
 			},
 		}
-		endpoints := []types.Resource{&endpoint.ClusterLoadAssignment{
+		endpoints := []types.Resource{&envoyendpointv3.ClusterLoadAssignment{
 			ClusterName: "ready",
-			Endpoints: []*endpoint.LocalityLbEndpoints{{LbEndpoints: []*endpoint.LbEndpoint{{
-				HostIdentifier: &endpoint.LbEndpoint_Endpoint{Endpoint: &endpoint.Endpoint{Address: &core.Address{Address: &core.Address_SocketAddress{
-					SocketAddress: &core.SocketAddress{Address: "10.0.0.1", PortSpecifier: &core.SocketAddress_PortValue{PortValue: 8080}},
+			Endpoints: []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{
+				HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{
+					SocketAddress: &envoycorev3.SocketAddress{Address: "10.0.0.1", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 8080}},
 				}}}},
 			}}}},
 		}}
 		if includeGhostCluster {
-			clusters = append(clusters, &cluster.Cluster{Name: "ghost"})
+			clusters = append(clusters, &envoyclusterv3.Cluster{Name: "ghost"})
 		}
-		routes := []types.Resource{&route.RouteConfiguration{Name: "unrelated-ready-route"}}
+		routes := []types.Resource{&envoyroutev3.RouteConfiguration{Name: "unrelated-ready-route"}}
 		for _, item := range routeResourcesForClusters("ready", "ghost").Items {
 			routes = append(routes, item.Resource)
 		}
@@ -74,13 +75,13 @@ func TestColdMissingReferencedClusterWithholdsAllTypes(t *testing.T) {
 				httpListenerWithRDS(t, "ready-listener", "unrelated-ready-route"),
 				httpListenerWithRDS(t, "shared-listener", "route-config"),
 			},
-			resource.SecretType: {&tls.Secret{Name: "rotating-secret", Type: &tls.Secret_GenericSecret{
-				GenericSecret: &tls.GenericSecret{Secret: &core.DataSource{Specifier: &core.DataSource_InlineString{
+			resource.SecretType: {&envoytlsv3.Secret{Name: "rotating-secret", Type: &envoytlsv3.Secret_GenericSecret{
+				GenericSecret: &envoytlsv3.GenericSecret{Secret: &envoycorev3.DataSource{Specifier: &envoycorev3.DataSource_InlineString{
 					InlineString: fmt.Sprintf("public-test-revision-%d", revision),
 				}}},
 			}}},
 		}
-		snap, err := cache.NewSnapshot(fmt.Sprint(revision), resources)
+		snap, err := cache.NewSnapshot(strconv.Itoa(revision), resources)
 		if err != nil {
 			t.Fatal(err)
 		}

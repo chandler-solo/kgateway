@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -53,7 +53,7 @@ func TestStaleNonceDropsSubscriptionChangeAndWatch(t *testing.T) {
 			})
 
 			first := sendAndReceive(t, s, observed, &discovery.DiscoveryRequest{
-				Node:          &core.Node{Id: kgwNode},
+				Node:          &envoycorev3.Node{Id: kgwNode},
 				TypeUrl:       rsrc.EndpointType,
 				ResourceNames: []string{"a"},
 			})

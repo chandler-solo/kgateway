@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	tls "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoytlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	secretservice "github.com/envoyproxy/go-control-plane/envoy/service/secret/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -26,7 +26,7 @@ func TestSDSFetchDoesNotAuthorizeNodeIdentity(t *testing.T) {
 	defer cancel()
 	s := SetupEnvoySDS(ctx, nil, "configured-client", "127.0.0.1:0")
 	snapshot, err := cache.NewSnapshot("v1", map[resource.Type][]types.Resource{
-		resource.SecretType: {&tls.Secret{Name: "synthetic-public-fixture"}},
+		resource.SecretType: {&envoytlsv3.Secret{Name: "synthetic-public-fixture"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -57,9 +57,9 @@ func TestSDSFetchDoesNotAuthorizeNodeIdentity(t *testing.T) {
 	client := secretservice.NewSecretDiscoveryServiceClient(conn)
 	for _, id := range []string{"", "configured-client", "different-client"} {
 		t.Run("node="+id, func(t *testing.T) {
-			var node *core.Node
+			var node *envoycorev3.Node
 			if id != "" {
-				node = &core.Node{Id: id}
+				node = &envoycorev3.Node{Id: id}
 			}
 			resp, err := client.FetchSecrets(ctx, &discovery.DiscoveryRequest{Node: node})
 			if err != nil {
@@ -68,7 +68,7 @@ func TestSDSFetchDoesNotAuthorizeNodeIdentity(t *testing.T) {
 			if resp.VersionInfo != "v1" || len(resp.Resources) != 1 {
 				t.Fatal("unexpected synthetic snapshot response")
 			}
-			var got tls.Secret
+			var got envoytlsv3.Secret
 			if err := resp.Resources[0].UnmarshalTo(&got); err != nil {
 				t.Fatal(err)
 			}

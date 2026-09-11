@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -48,7 +48,7 @@ func TestQueuedSupersededResponseIsDroppedOnSubscriptionChange(t *testing.T) {
 			// The hook runs inside the server loop, after the request is read
 			// and before the existing watch is closed. Publishing here answers
 			// the parked old watch while its supersession is in progress.
-			var watchesAfterPublish atomic.Int32
+			var watchesAfterPublish atomic.Int64
 			watchesAfterPublish.Store(-1)
 			callbacks := server.CallbackFuncs{StreamRequestFunc: func(_ int64, req *discovery.DiscoveryRequest) error {
 				if !slices.Contains(req.GetResourceNames(), "c") {
@@ -57,7 +57,7 @@ func TestQueuedSupersededResponseIsDroppedOnSubscriptionChange(t *testing.T) {
 				if err := c.SetSnapshot(ctx, kgwNode, kgwEDS(t, "v2", cla("a", 2))); err != nil {
 					return err
 				}
-				watchesAfterPublish.Store(int32(c.GetStatusInfo(kgwNode).GetNumWatches()))
+				watchesAfterPublish.Store(int64(c.GetStatusInfo(kgwNode).GetNumWatches()))
 				return nil
 			}}
 			srv := server.NewServer(ctx, c, callbacks)
@@ -76,7 +76,7 @@ func TestQueuedSupersededResponseIsDroppedOnSubscriptionChange(t *testing.T) {
 				}
 			})
 
-			first := s.exchange(t, &discovery.DiscoveryRequest{Node: &core.Node{Id: kgwNode}, TypeUrl: rsrc.EndpointType, ResourceNames: []string{"a"}})
+			first := s.exchange(t, &discovery.DiscoveryRequest{Node: &envoycorev3.Node{Id: kgwNode}, TypeUrl: rsrc.EndpointType, ResourceNames: []string{"a"}})
 			if first.GetVersionInfo() != "v1" {
 				t.Fatalf("first response version %q", first.GetVersionInfo())
 			}

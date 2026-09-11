@@ -20,11 +20,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
@@ -34,41 +34,43 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 )
 
 func packed(p proto.Message) *anypb.Any {
-	a, err := anypb.New(p)
+	a, err := utils.MessageToAny(p)
 	if err != nil {
 		panic(err)
 	}
 	return a
 }
 
-func address(port uint32) *core.Address {
-	return &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "127.0.0.1", PortSpecifier: &core.SocketAddress_PortValue{PortValue: port}}}}
+func address(port uint32) *envoycorev3.Address {
+	return &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "127.0.0.1", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: port}}}}
 }
 
-func ads() *core.ConfigSource {
-	return &core.ConfigSource{ResourceApiVersion: core.ApiVersion_V3, ConfigSourceSpecifier: &core.ConfigSource_Ads{Ads: &core.AggregatedConfigSource{}}, InitialFetchTimeout: durationpb.New(0)}
+func ads() *envoycorev3.ConfigSource {
+	return &envoycorev3.ConfigSource{ResourceApiVersion: envoycorev3.ApiVersion_V3, ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}, InitialFetchTimeout: durationpb.New(0)}
 }
 
 func resources(phase int, disablePanic bool) map[string][]*anypb.Any {
-	c := &cluster.Cluster{Name: "a", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS}, EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{EdsConfig: ads()}}
+	c := &envoyclusterv3.Cluster{Name: "a", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}, EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: ads()}}
 	if disablePanic {
-		c.CommonLbConfig = &cluster.Cluster_CommonLbConfig{HealthyPanicThreshold: &percent.Percent{Value: 0}}
+		c.CommonLbConfig = &envoyclusterv3.Cluster_CommonLbConfig{HealthyPanicThreshold: &percent.Percent{Value: 0}}
 	}
 	if phase >= 3 {
 		c.ConnectTimeout = durationpb.New(2 * time.Second)
 	}
-	rc := &route.RouteConfiguration{Name: "routes", VirtualHosts: []*route.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*route.Route{{Match: &route.RouteMatch{PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"}}, Action: &route.Route_Route{Route: &route.RouteAction{ClusterSpecifier: &route.RouteAction_Cluster{Cluster: "a"}}}}}}}}
+	rc := &envoyroutev3.RouteConfiguration{Name: "routes", VirtualHosts: []*envoyroutev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*envoyroutev3.Route{{Match: &envoyroutev3.RouteMatch{PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"}}, Action: &envoyroutev3.Route_Route{Route: &envoyroutev3.RouteAction{ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: "a"}}}}}}}}
 	hm := &hcm.HttpConnectionManager{StatPrefix: "probe", RouteSpecifier: &hcm.HttpConnectionManager_Rds{Rds: &hcm.Rds{RouteConfigName: "routes", ConfigSource: ads()}}, HttpFilters: []*hcm.HttpFilter{{Name: "envoy.filters.http.router", ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: packed(&router.Router{})}}}}
-	l := &listener.Listener{Name: "front", Address: &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "0.0.0.0", PortSpecifier: &core.SocketAddress_PortValue{PortValue: 10000}}}}, FilterChains: []*listener.FilterChain{{Filters: []*listener.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &listener.Filter_TypedConfig{TypedConfig: packed(hm)}}}}}}
-	ep := &endpoint.ClusterLoadAssignment{ClusterName: "a"}
+	l := &envoylistenerv3.Listener{Name: "front", Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "0.0.0.0", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 10000}}}}, FilterChains: []*envoylistenerv3.FilterChain{{Filters: []*envoylistenerv3.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &envoylistenerv3.Filter_TypedConfig{TypedConfig: packed(hm)}}}}}}
+	ep := &envoyendpointv3.ClusterLoadAssignment{ClusterName: "a"}
 	if phase >= 2 && phase != 6 {
-		ep.Endpoints = []*endpoint.LocalityLbEndpoints{{LbEndpoints: []*endpoint.LbEndpoint{{HostIdentifier: &endpoint.LbEndpoint_Endpoint{Endpoint: &endpoint.Endpoint{Address: address(10001)}}}}}}
+		ep.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: address(10001)}}}}}}
 	}
 	if phase == 5 {
-		ep.Endpoints[0].LbEndpoints[0].HealthStatus = core.HealthStatus_UNHEALTHY
+		ep.Endpoints[0].LbEndpoints[0].HealthStatus = envoycorev3.HealthStatus_UNHEALTHY
 	}
 	r := map[string][]*anypb.Any{resource.ClusterType: {packed(c)}, resource.ListenerType: {packed(l)}, resource.RouteType: {packed(rc)}}
 	if phase > 0 {
@@ -321,13 +323,13 @@ func run() (runErr error) {
 	scenario := flag.String("scenario", "warming", "resource schedule: warming (default) or references")
 	flag.Parse()
 	if *out == "" {
-		return fmt.Errorf("-out is required")
+		return errors.New("-out is required")
 	}
 	if *scenario != "warming" && *scenario != "references" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario == "references" && *disablePanic {
-		return fmt.Errorf("-scenario references runs with default panic settings")
+		return errors.New("-scenario references runs with default panic settings")
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -340,10 +342,12 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "image.json"), []byte(info), 0o644); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "image.json"), []byte(info), 0o600); err != nil {
 		return err
 	}
-	lis, err := net.Listen("tcp", "0.0.0.0:0")
+	// The Envoy container reaches this scripted ADS server through the Docker
+	// host gateway, so the listener must not be loopback-only.
+	lis, err := net.Listen("tcp", "0.0.0.0:0") //nolint:gosec // G102: reachable from the probe container by design
 	if err != nil {
 		return err
 	}
@@ -365,7 +369,7 @@ func run() (runErr error) {
 		}
 	} else {
 		if *ordered {
-			return fmt.Errorf("-ordered requires -snapshot-cache")
+			return errors.New("-ordered requires -snapshot-cache")
 		}
 		discovery.RegisterAggregatedDiscoveryServiceServer(srv, p)
 	}
@@ -386,7 +390,7 @@ func run() (runErr error) {
  "listeners":[{"name":"upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"upstream","route_config":{"virtual_hosts":[{"name":"all","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"probe-upstream"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}
 `, port)
 	cfg := filepath.Join(dir, "bootstrap.json")
-	if err = os.WriteFile(cfg, []byte(bootstrap), 0o644); err != nil {
+	if err = os.WriteFile(cfg, []byte(bootstrap), 0o600); err != nil {
 		return err
 	}
 	dockerOS, err := command("info", "--format", "{{.OperatingSystem}}")
@@ -404,7 +408,7 @@ func run() (runErr error) {
 	}
 	defer func() {
 		logs, logErr := command("logs", id)
-		writeErr := os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0o644)
+		writeErr := os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0o600)
 		_, cleanupErr := command("rm", "-f", id)
 		runErr = errors.Join(runErr, logErr, writeErr, cleanupErr)
 	}()
@@ -432,7 +436,7 @@ func run() (runErr error) {
 		if e != nil {
 			panic(e)
 		}
-		if e = os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); e != nil {
+		if e = os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); e != nil {
 			panic(e)
 		}
 		return body
@@ -451,7 +455,7 @@ func run() (runErr error) {
 	}
 	code, _, err := get(admin + "/ready")
 	if err != nil || code != 503 {
-		return fmt.Errorf("missing EDS ready status=%d err=%v", code, err)
+		return fmt.Errorf("missing EDS ready status=%d err=%w", code, err)
 	}
 	save("missing-config.json", "/config_dump")
 	p.record(map[string]any{"event": "observation", "phase": "missing", "ready": code})
@@ -484,7 +488,7 @@ func run() (runErr error) {
 	}
 	code, body, err := get(front + "/")
 	if err != nil || code != 200 || body != "probe-upstream" {
-		return fmt.Errorf("rewarming did not preserve old traffic: status=%d err=%v", code, err)
+		return fmt.Errorf("rewarming did not preserve old traffic: status=%d err=%w", code, err)
 	}
 	save("rewarming-config.json", "/config_dump")
 	p.record(map[string]any{"event": "observation", "phase": "rewarming-without-eds-replay", "traffic": 200})
@@ -494,10 +498,10 @@ func run() (runErr error) {
 	if *useCache {
 		// Finite stable-window characterization, not a proof of infinite silence.
 		// Source eligibility plus absence of a future revision is a separate model obligation.
-		for i := 0; i < 8; i++ {
+		for range 8 {
 			_, b, e := get(admin + "/config_dump")
 			if e != nil || !hasCluster(b, true) {
-				return fmt.Errorf("unchanged cache republish unexpectedly completed rewarming: %v", e)
+				return fmt.Errorf("unchanged cache republish unexpectedly completed rewarming: %w", e)
 			}
 			select {
 			case <-ctx.Done():
@@ -540,11 +544,11 @@ func run() (runErr error) {
 		}
 		code, _, err := get(admin + "/ready")
 		if err != nil || code != 200 {
-			return fmt.Errorf("endpoint loss changed process readiness: status=%d err=%v", code, err)
+			return fmt.Errorf("endpoint loss changed process readiness: status=%d err=%w", code, err)
 		}
 		clusterDump := save(fmt.Sprintf("phase-%d-clusters.json", phase), "/clusters?format=json")
 		if phase == 5 && !strings.Contains(clusterDump, `"eds_health_status": "UNHEALTHY"`) {
-			return fmt.Errorf("unhealthy phase did not install unhealthy host")
+			return errors.New("unhealthy phase did not install unhealthy host")
 		}
 		p.record(map[string]any{"event": "observation", "phase": phase, "ready": 200, "traffic": want})
 	}

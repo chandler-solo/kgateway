@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -22,7 +23,7 @@ type (
 
 func check(r io.Reader, required map[key]bool) error {
 	if len(required) == 0 {
-		return fmt.Errorf("no required tests")
+		return errors.New("no required tests")
 	}
 	ran, passed, packages := map[key]bool{}, map[key]bool{}, map[string]bool{}
 	dec := json.NewDecoder(r)
@@ -96,7 +97,7 @@ func requirements(root string) (map[key]bool, error) {
 		return nil, err
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no dependency probe source files")
+		return nil, errors.New("no dependency probe source files")
 	}
 	for _, path := range files {
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -120,7 +121,7 @@ func requirements(root string) (map[key]bool, error) {
 
 func run() error {
 	if len(os.Args) != 3 {
-		return fmt.Errorf("usage: checkreceipts <repository-root> <go-test.jsonl>")
+		return errors.New("usage: checkreceipts <repository-root> <go-test.jsonl>")
 	}
 	req, err := requirements(os.Args[1])
 	if err != nil {

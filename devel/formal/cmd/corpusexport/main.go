@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -50,7 +51,7 @@ func api(endpoint string) (receipt, error) {
 	if strings.HasPrefix(endpoint, "https://") {
 		u, err := url.Parse(endpoint)
 		if err != nil || u.Host != "api.github.com" {
-			return receipt{}, fmt.Errorf("untrusted pagination host")
+			return receipt{}, errors.New("untrusted pagination host")
 		}
 	}
 	out, err := exec.Command("gh", "api", "--include", "--method", "GET", endpoint).Output()
@@ -83,6 +84,7 @@ func api(endpoint string) (receipt, error) {
 	sum := sha256.Sum256(data)
 	return receipt{Next: next, Endpoint: endpoint, Retrieved: time.Now().UTC(), SHA256: hex.EncodeToString(sum[:]), Data: data}, nil
 }
+
 func cached(path, endpoint string) (receipt, error) {
 	if b, err := os.ReadFile(path); err == nil {
 		var r receipt
@@ -105,7 +107,7 @@ func cached(path, endpoint string) (receipt, error) {
 	if err != nil {
 		return receipt{}, err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return receipt{}, err
 	}
@@ -131,6 +133,7 @@ func compileTerms(terms []string) []termMatcher {
 	}
 	return matchers
 }
+
 func keywordHits(text string, matchers []termMatcher) []string {
 	hits := []string{}
 	for _, m := range matchers {
@@ -140,6 +143,7 @@ func keywordHits(text string, matchers []termMatcher) []string {
 	}
 	return hits
 }
+
 func exportRepo(root, repo string, cfg config, cutoff time.Time) error {
 	matchers := compileTerms(cfg.Terms)
 
@@ -147,7 +151,7 @@ func exportRepo(root, repo string, cfg config, cutoff time.Time) error {
 		return fmt.Errorf("invalid repository %q", repo)
 	}
 	dir := filepath.Join(root, strings.ReplaceAll(repo, "/", "__"))
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	meta, err := cached(filepath.Join(dir, "repository.json"), "repos/"+repo)
@@ -204,12 +208,12 @@ func exportRepo(root, repo string, cfg config, cutoff time.Time) error {
 			break
 		}
 		if endpoints[data.Next] {
-			return fmt.Errorf("pagination cursor cycle")
+			return errors.New("pagination cursor cycle")
 		}
 		endpoints[data.Next] = true
 		endpoint = data.Next
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "inventory.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	f, err := os.OpenFile(filepath.Join(dir, "inventory.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -228,12 +232,13 @@ func exportRepo(root, repo string, cfg config, cutoff time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "summary.json"), b, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "summary.json"), b, 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("%s: inventory complete: %d records, %d keyword candidates; all dispositions unreviewed\n", repo, len(records), matched)
 	return nil
 }
+
 func run() error {
 	cfgPath := flag.String("config", "devel/formal/corpus-scope.json", "scope manifest")
 	out := flag.String("out", "", "required private output directory outside repository")
@@ -241,7 +246,7 @@ func run() error {
 	only := flag.String("repo", "", "export only one repository from manifest (resume supported)")
 	flag.Parse()
 	if *out == "" {
-		return fmt.Errorf("-out is required")
+		return errors.New("-out is required")
 	}
 	root, err := filepath.Abs(*out)
 	if err != nil {
@@ -257,9 +262,9 @@ func run() error {
 		return err
 	}
 	if rel == "." || (!strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && rel != "..") {
-		return fmt.Errorf("private exports must be outside current repository directory")
+		return errors.New("private exports must be outside current repository directory")
 	}
-	if err = os.MkdirAll(root, 0700); err != nil {
+	if err = os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
 	raw, err := os.ReadFile(*cfgPath)
@@ -275,7 +280,7 @@ func run() error {
 		return err
 	}
 	if len(cfg.Repositories) == 0 || len(cfg.Terms) == 0 {
-		return fmt.Errorf("empty scope")
+		return errors.New("empty scope")
 	}
 	if *details != "" {
 		return exportDetails(root, *details, cfg)
@@ -291,10 +296,11 @@ func run() error {
 		}
 	}
 	if !matched {
-		return fmt.Errorf("repository not in scope manifest")
+		return errors.New("repository not in scope manifest")
 	}
 	return nil
 }
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

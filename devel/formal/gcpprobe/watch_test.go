@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -20,12 +20,12 @@ const kgwNode = "kgw-probe-node"
 
 type kgwHash struct{}
 
-func (kgwHash) ID(*core.Node) string { return kgwNode }
+func (kgwHash) ID(*envoycorev3.Node) string { return kgwNode }
 
-func kgwEDS(t *testing.T, version string, clas ...*endpoint.ClusterLoadAssignment) *cache.Snapshot {
+func kgwEDS(t *testing.T, version string, class ...*envoyendpointv3.ClusterLoadAssignment) *cache.Snapshot {
 	t.Helper()
-	res := make([]types.Resource, 0, len(clas))
-	for _, c := range clas {
+	res := make([]types.Resource, 0, len(class))
+	for _, c := range class {
 		res = append(res, c)
 	}
 	snap, err := cache.NewSnapshot(version, map[rsrc.Type][]types.Resource{rsrc.EndpointType: res})
@@ -35,10 +35,10 @@ func kgwEDS(t *testing.T, version string, clas ...*endpoint.ClusterLoadAssignmen
 	return snap
 }
 
-func cla(name string, hosts int) *endpoint.ClusterLoadAssignment {
-	c := &endpoint.ClusterLoadAssignment{ClusterName: name}
-	for i := 0; i < hosts; i++ {
-		c.Endpoints = append(c.Endpoints, &endpoint.LocalityLbEndpoints{})
+func cla(name string, hosts int) *envoyendpointv3.ClusterLoadAssignment {
+	c := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
+	for range hosts {
+		c.Endpoints = append(c.Endpoints, &envoyendpointv3.LocalityLbEndpoints{})
 	}
 	return c
 }

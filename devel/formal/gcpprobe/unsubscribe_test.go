@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -82,7 +82,7 @@ func TestUnsubscribeAllResourceLeaksOnWire(t *testing.T) {
 					t.Error("server did not shut down")
 				}
 			})
-			first := s.exchange(t, &discovery.DiscoveryRequest{Node: &core.Node{Id: kgwNode}, TypeUrl: rsrc.EndpointType, ResourceNames: []string{"a"}})
+			first := s.exchange(t, &discovery.DiscoveryRequest{Node: &envoycorev3.Node{Id: kgwNode}, TypeUrl: rsrc.EndpointType, ResourceNames: []string{"a"}})
 			select {
 			case s.recv <- &discovery.DiscoveryRequest{TypeUrl: rsrc.EndpointType, VersionInfo: first.VersionInfo, ResponseNonce: first.Nonce}:
 			case <-time.After(time.Second):

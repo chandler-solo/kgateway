@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -18,7 +18,7 @@ func versionFor(phase int, typ string) string {
 		if phase == 3 || phase == 4 {
 			return "2"
 		}
-		return fmt.Sprint(phase)
+		return strconv.Itoa(phase)
 	}
 	if typ == resource.ClusterType && phase >= 3 {
 		return "rewarm"

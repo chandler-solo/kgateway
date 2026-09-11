@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -32,6 +32,7 @@ func (s *scriptedStream) Recv() (*discovery.DiscoveryRequest, error) {
 		return nil, s.ctx.Err()
 	}
 }
+
 func (s *scriptedStream) Send(r *discovery.DiscoveryResponse) error {
 	select {
 	case s.sent <- r:
@@ -40,6 +41,7 @@ func (s *scriptedStream) Send(r *discovery.DiscoveryResponse) error {
 		return s.ctx.Err()
 	}
 }
+
 func (s *scriptedStream) exchange(t *testing.T, r *discovery.DiscoveryRequest) *discovery.DiscoveryResponse {
 	t.Helper()
 	select {
@@ -64,7 +66,7 @@ func TestRepeatedNackResendsSameVersionAndCorrectionRecovers(t *testing.T) {
 	c := cache.NewSnapshotCache(true, kgwHash{}, nil)
 	publish := func(version string) {
 		t.Helper()
-		snap, err := cache.NewSnapshot(version, map[rsrc.Type][]types.Resource{rsrc.ClusterType: {&cluster.Cluster{Name: "a"}}})
+		snap, err := cache.NewSnapshot(version, map[rsrc.Type][]types.Resource{rsrc.ClusterType: {&envoyclusterv3.Cluster{Name: "a"}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,8 +86,8 @@ func TestRepeatedNackResendsSameVersionAndCorrectionRecovers(t *testing.T) {
 			t.Error("stream did not shut down")
 		}
 	})
-	resp := s.exchange(t, &discovery.DiscoveryRequest{Node: &core.Node{Id: kgwNode}, TypeUrl: rsrc.ClusterType})
-	for i := 0; i < 32; i++ {
+	resp := s.exchange(t, &discovery.DiscoveryRequest{Node: &envoycorev3.Node{Id: kgwNode}, TypeUrl: rsrc.ClusterType})
+	for i := range 32 {
 		previous := resp.GetNonce()
 		resp = s.exchange(t, &discovery.DiscoveryRequest{TypeUrl: rsrc.ClusterType, ResponseNonce: previous, ErrorDetail: &rpcstatus.Status{Code: 3, Message: "scripted rejection"}})
 		if resp.GetVersionInfo() != "rejected" || resp.GetNonce() == previous {

@@ -70,7 +70,7 @@ func TestProtocolScopeHasExplicitDispositions(t *testing.T) {
 				t.Fatalf("anchor %q absent from %s", entry.ConstructionAnchor, entry.ConstructionFile)
 			}
 			if strings.Contains(entry.Action, "RF-") {
-				for _, word := range strings.Fields(entry.Action) {
+				for word := range strings.FieldsSeq(entry.Action) {
 					id := strings.Trim(word, ",.;:()")
 					if strings.HasPrefix(id, "RF-") && !strings.Contains(string(ledger), "## "+id+" ") {
 						t.Errorf("action references missing finding %s", id)

@@ -3,17 +3,18 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
-	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
-	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	router "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
@@ -33,20 +34,20 @@ import (
 // Every phase resends every type at a new version so the observation is about
 // Envoy acceptance, not about which type the scripted server chose to send.
 func referenceResources(phase int) map[string][]*anypb.Any {
-	edsCluster := func(name string) *cluster.Cluster {
-		return &cluster.Cluster{Name: name, ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS}, EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{EdsConfig: ads()}}
+	edsCluster := func(name string) *envoyclusterv3.Cluster {
+		return &envoyclusterv3.Cluster{Name: name, ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}, EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: ads()}}
 	}
-	routeTo := func(prefix, clusterName string) *route.Route {
-		return &route.Route{Match: &route.RouteMatch{PathSpecifier: &route.RouteMatch_Prefix{Prefix: prefix}}, Action: &route.Route_Route{Route: &route.RouteAction{ClusterSpecifier: &route.RouteAction_Cluster{Cluster: clusterName}}}}
+	routeTo := func(prefix, clusterName string) *envoyroutev3.Route {
+		return &envoyroutev3.Route{Match: &envoyroutev3.RouteMatch{PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: prefix}}, Action: &envoyroutev3.Route_Route{Route: &envoyroutev3.RouteAction{ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: clusterName}}}}
 	}
-	httpListener := func(name, statPrefix string, port uint32, inline *route.RouteConfiguration) *listener.Listener {
+	httpListener := func(name, statPrefix string, port uint32, inline *envoyroutev3.RouteConfiguration) *envoylistenerv3.Listener {
 		hm := &hcm.HttpConnectionManager{StatPrefix: statPrefix, HttpFilters: []*hcm.HttpFilter{{Name: "envoy.filters.http.router", ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: packed(&router.Router{})}}}}
 		if inline != nil {
 			hm.RouteSpecifier = &hcm.HttpConnectionManager_RouteConfig{RouteConfig: inline}
 		} else {
 			hm.RouteSpecifier = &hcm.HttpConnectionManager_Rds{Rds: &hcm.Rds{RouteConfigName: "routes", ConfigSource: ads()}}
 		}
-		return &listener.Listener{Name: name, Address: &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: "0.0.0.0", PortSpecifier: &core.SocketAddress_PortValue{PortValue: port}}}}, FilterChains: []*listener.FilterChain{{Filters: []*listener.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &listener.Filter_TypedConfig{TypedConfig: packed(hm)}}}}}}
+		return &envoylistenerv3.Listener{Name: name, Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "0.0.0.0", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: port}}}}, FilterChains: []*envoylistenerv3.FilterChain{{Filters: []*envoylistenerv3.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &envoylistenerv3.Filter_TypedConfig{TypedConfig: packed(hm)}}}}}}
 	}
 
 	a := edsCluster("a")
@@ -56,23 +57,23 @@ func referenceResources(phase int) map[string][]*anypb.Any {
 		a.ConnectTimeout = durationpb.New(3 * time.Second)
 	}
 	clusters := []*anypb.Any{packed(a)}
-	endpoints := []*anypb.Any{packed(&endpoint.ClusterLoadAssignment{ClusterName: "a", Endpoints: []*endpoint.LocalityLbEndpoints{{LbEndpoints: []*endpoint.LbEndpoint{{HostIdentifier: &endpoint.LbEndpoint_Endpoint{Endpoint: &endpoint.Endpoint{Address: address(10001)}}}}}}})}
+	endpoints := []*anypb.Any{packed(&envoyendpointv3.ClusterLoadAssignment{ClusterName: "a", Endpoints: []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: address(10001)}}}}}}})}
 	switch {
 	case phase == 1:
 		// An EDS cluster without eds_cluster_config fails CDS validation.
-		clusters = append(clusters, packed(&cluster.Cluster{Name: "bad", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS}}))
+		clusters = append(clusters, packed(&envoyclusterv3.Cluster{Name: "bad", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}}))
 	case phase >= 2:
 		clusters = append(clusters, packed(edsCluster("b")))
-		endpoints = append(endpoints, packed(&endpoint.ClusterLoadAssignment{ClusterName: "b"}))
+		endpoints = append(endpoints, packed(&envoyendpointv3.ClusterLoadAssignment{ClusterName: "b"}))
 	}
-	rc := &route.RouteConfiguration{Name: "routes", VirtualHosts: []*route.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*route.Route{routeTo("/ghost", "ghost"), routeTo("/", "a")}}}}
+	rc := &envoyroutev3.RouteConfiguration{Name: "routes", VirtualHosts: []*envoyroutev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*envoyroutev3.Route{routeTo("/ghost", "ghost"), routeTo("/", "a")}}}}
 	listeners := []*anypb.Any{packed(httpListener("front", "front", 10000, nil))}
 	if phase >= 3 {
 		target := "ghost"
 		if phase >= 4 {
 			target = "a"
 		}
-		inline := &route.RouteConfiguration{Name: "inline", VirtualHosts: []*route.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*route.Route{routeTo("/", target)}}}}
+		inline := &envoyroutev3.RouteConfiguration{Name: "inline", VirtualHosts: []*envoyroutev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*envoyroutev3.Route{routeTo("/", target)}}}}
 		listeners = append(listeners, packed(httpListener("inline", "inline", 10002, inline)))
 		// A valid change to "front" rides in the response that "inline" makes
 		// Envoy reject, to observe whether LDS rejection is atomic per response.
@@ -156,12 +157,12 @@ func measureStorm(ctx context.Context, p *probeServer, useCache bool, phase stri
 }
 
 func runReferences(ctx context.Context, dir, admin, front, inline string, p *probeServer, advance func(int) error, useCache bool) error {
-	save := func(name, path string) (string, error) {
-		_, body, err := get(admin + path)
+	save := func(name string) (string, error) {
+		_, body, err := get(admin + "/config_dump")
 		if err != nil {
 			return "", err
 		}
-		return body, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
+		return body, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600)
 	}
 	// awaitNack skips NACKs of other types still buffered from an earlier
 	// rejection storm (cache mode) and waits for the expected type.
@@ -204,12 +205,12 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	}
 	code, _, err := get(front + "/ghost")
 	if err != nil || code != 503 {
-		return fmt.Errorf("dangling RDS route status=%d err=%v", code, err)
+		return fmt.Errorf("dangling RDS route status=%d err=%w", code, err)
 	}
 	if err = noNack(300 * time.Millisecond); err != nil {
 		return fmt.Errorf("phase 0: %w", err)
 	}
-	if _, err = save("dangling-rds-config.json", "/config_dump"); err != nil {
+	if _, err = save("dangling-rds-config.json"); err != nil {
 		return err
 	}
 	p.record(map[string]any{"event": "observation", "phase": "dangling-rds-reference", "ready": 200, "ready_route": 200, "dangling_route": 503, "nack": false})
@@ -221,7 +222,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	if err = awaitNack(resource.ClusterType); err != nil {
 		return err
 	}
-	body, err := save("partial-cds-nack-config.json", "/config_dump")
+	body, err := save("partial-cds-nack-config.json")
 	if err != nil {
 		return err
 	}
@@ -235,7 +236,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	}
 	code, b, err := get(front + "/")
 	if err != nil || code != 200 || b != "probe-upstream" {
-		return fmt.Errorf("traffic through the retained cluster after NACK: status=%d err=%v", code, err)
+		return fmt.Errorf("traffic through the retained cluster after NACK: status=%d err=%w", code, err)
 	}
 	p.record(map[string]any{"event": "observation", "phase": "partial-cds-nack", "active_clusters": []string{"a"}, "valid_change_in_rejected_response_applied": true, "traffic": 200})
 	if err = measureStorm(ctx, p, useCache, "partial-cds-nack"); err != nil {
@@ -243,7 +244,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	}
 	// The storm must not change what is applied: a again, still 3s, still 200.
 	if code, b, err = get(front + "/"); err != nil || code != 200 || b != "probe-upstream" {
-		return fmt.Errorf("traffic after the rejection window: status=%d err=%v", code, err)
+		return fmt.Errorf("traffic after the rejection window: status=%d err=%w", code, err)
 	}
 
 	// Phase 2: corrected CDS with a second valid cluster and an empty CLA.
@@ -256,7 +257,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	if err = noNack(300 * time.Millisecond); err != nil {
 		return fmt.Errorf("phase 2: %w", err)
 	}
-	if _, err = save("corrected-cds-config.json", "/config_dump"); err != nil {
+	if _, err = save("corrected-cds-config.json"); err != nil {
 		return err
 	}
 	p.record(map[string]any{"event": "observation", "phase": "corrected-cds", "active_clusters": []string{"a", "b"}, "nack": false})
@@ -268,7 +269,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	if err = awaitNack(resource.ListenerType); err != nil {
 		return err
 	}
-	body, err = save("inline-dangling-lds-nack-config.json", "/config_dump")
+	body, err = save("inline-dangling-lds-nack-config.json")
 	if err != nil {
 		return err
 	}
@@ -281,10 +282,10 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	}
 	code, b, err = get(front + "/")
 	if err != nil || code != 200 || b != "probe-upstream" {
-		return fmt.Errorf("front listener after LDS NACK: status=%d err=%v", code, err)
+		return fmt.Errorf("front listener after LDS NACK: status=%d err=%w", code, err)
 	}
 	if _, _, err = get(inline + "/"); err == nil {
-		return fmt.Errorf("rejected inline listener accepted a connection")
+		return errors.New("rejected inline listener accepted a connection")
 	}
 	p.record(map[string]any{"event": "observation", "phase": "inline-dangling-lds", "nack": true, "front_traffic": 200, "inline_listener": "absent", "valid_change_in_rejected_response_applied": true})
 	if err = measureStorm(ctx, p, useCache, "inline-dangling-lds"); err != nil {
@@ -301,7 +302,7 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 	if err = noNack(300 * time.Millisecond); err != nil {
 		return fmt.Errorf("phase 4: %w", err)
 	}
-	body, err = save("inline-corrected-config.json", "/config_dump")
+	body, err = save("inline-corrected-config.json")
 	if err != nil {
 		return err
 	}
