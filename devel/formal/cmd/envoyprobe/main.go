@@ -78,10 +78,30 @@ func resources(phase int, disablePanic bool) map[string][]*anypb.Any {
 
 type probeServer struct {
 	disablePanic bool
+	// scenario selects the resource schedule: "warming" (default) or
+	// "references" (references.go).
+	scenario string
 	discovery.UnimplementedAggregatedDiscoveryServiceServer
 	updates chan int
-	log     *json.Encoder
-	mu      sync.Mutex
+	// nacks receives the type URL of each NACKed response in scenarios that
+	// expect rejections; the warming scenario treats any NACK as fatal.
+	nacks chan string
+	log   *json.Encoder
+	mu    sync.Mutex
+}
+
+func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
+	if s.scenario == "references" {
+		return referenceResources(phase)
+	}
+	return resources(phase, s.disablePanic)
+}
+
+func (s *probeServer) versionFor(phase int, typ string) string {
+	if s.scenario == "references" {
+		return fmt.Sprintf("r%d", phase)
+	}
+	return versionFor(phase, typ)
 }
 
 func (s *probeServer) record(v any) {
@@ -117,11 +137,11 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 		if r == nil {
 			return nil
 		}
-		rs, ok := resources(phase, s.disablePanic)[typ]
+		rs, ok := s.resourcesFor(phase)[typ]
 		if !ok {
 			return nil
 		}
-		version := versionFor(phase, typ)
+		version := s.versionFor(phase, typ)
 		if sent[typ] == version {
 			return nil
 		}
@@ -152,7 +172,16 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 		case r := <-reqs:
 			s.record(map[string]any{"event": "request", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "error": r.ErrorDetail})
 			if r.ErrorDetail != nil {
-				return fmt.Errorf("Envoy NACK: %v", r.ErrorDetail)
+				if s.scenario != "references" {
+					return fmt.Errorf("Envoy NACK: %v", r.ErrorDetail)
+				}
+				// The rejected version stays recorded as sent, so the NACK is
+				// not answered by resending the same rejected content (the
+				// RF-012 storm shape); the next phase supplies a new version.
+				select {
+				case s.nacks <- r.TypeUrl:
+				default:
+				}
 			}
 			requests[r.TypeUrl] = r
 			if err := send(r.TypeUrl); err != nil {
@@ -273,9 +302,16 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default) or references")
 	flag.Parse()
 	if *out == "" {
 		return fmt.Errorf("-out is required")
+	}
+	if *scenario != "warming" && *scenario != "references" {
+		return fmt.Errorf("unknown -scenario %q", *scenario)
+	}
+	if *scenario == "references" && (*useCache || *disablePanic) {
+		return fmt.Errorf("-scenario references runs only the scripted server with default panic settings")
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -301,7 +337,7 @@ func run() (runErr error) {
 		return err
 	}
 	defer logfile.Close()
-	p := &probeServer{disablePanic: *disablePanic, updates: make(chan int, 1), log: json.NewEncoder(logfile)}
+	p := &probeServer{disablePanic: *disablePanic, scenario: *scenario, updates: make(chan int, 1), nacks: make(chan string, 8), log: json.NewEncoder(logfile)}
 	srv := grpc.NewServer()
 	serverCtx, stopServer := context.WithCancel(context.Background())
 	defer stopServer()
@@ -317,7 +353,7 @@ func run() (runErr error) {
 		}
 		discovery.RegisterAggregatedDiscoveryServiceServer(srv, p)
 	}
-	p.record(map[string]any{"event": "profile", "snapshot_cache": *useCache, "ordered": *ordered, "disable_panic": *disablePanic})
+	p.record(map[string]any{"event": "profile", "scenario": *scenario, "snapshot_cache": *useCache, "ordered": *ordered, "disable_panic": *disablePanic})
 
 	defer srv.Stop()
 	go func() {
@@ -345,7 +381,7 @@ func run() (runErr error) {
 	if !strings.Contains(dockerOS, "Docker Desktop") {
 		runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
 	}
-	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
+	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-p", "127.0.0.1::10002", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
 	id, err := command(runArgs...)
 	if err != nil {
 		return err
@@ -366,6 +402,10 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
+	inline, err := published("10002/tcp")
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	if err = await(ctx, func() bool { code, _, _ := get(admin + "/server_info"); return code == 200 }); err != nil {
@@ -382,6 +422,9 @@ func run() (runErr error) {
 		return body
 	}
 	save("server-info.json", "/server_info")
+	if *scenario == "references" {
+		return runReferences(ctx, dir, admin, front, inline, p, advance)
+	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.
 	if err = await(ctx, func() bool {

@@ -43,7 +43,7 @@ Dependency modules and binary versions are separate identities.
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
 | GCP named response guard | Contradicted/incomplete; post-pin diff recorded | Equal-version subscriptions and both lost-watch paths omitted; unreleased #1356 retains the parked declined watch and stops the unsubscribe-all leak, request-entry decline unchanged |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
-| Envoy initialization/traffic | Directly characterized for two pinned profiles | Empty EDS initializes; panic changes selection; broader ENV-A1 remains open |
+| Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; XOR combiner cancels equal per-resource digests |
 | KRT recovery | Open | Existential model heartbeat is not a deployed progress guarantee |
 | Historical coverage | Complete title/body inventory, eleven detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |

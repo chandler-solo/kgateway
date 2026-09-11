@@ -79,8 +79,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   Envoy usable-endpoint activation guarantee.
 - Evidence added: `envoy-characterization.md` records direct missing/empty/ready,
   same-version rewarming, unhealthy and endpoint-loss probes in both panic modes.
-- Action: extend the pinned direct harness to missing CDS, multi-resource NACK,
-  rewarming, partial rejection, SDS, and startup/application observations.
+- Evidence added: the `references` scenario records a dangling RDS reference
+  (accepted, per-route 503), an inline LDS route to the same absent cluster
+  (listener rejected), and partial CDS/LDS rejection that applies the valid
+  resources of the NACKed response (RF-026).
+- Action: extend the pinned direct harness to SDS absence/rotation,
+  multi-resource RDS/EDS rejection, initial-fetch timeouts, restart, and
+  worker application observations.
 
 ## RF-005 Recoverability was described as temporal liveness
 
@@ -448,3 +453,36 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   check that `EndpointsHash` moves exactly when CLA content moves; the unit
   fixtures cannot establish that. Decide whether `version-churn` becomes a
   failure once fixtures stop fabricating versions.
+
+## RF-026 SotW rejection applies the valid resources of a NACKed response
+
+- Status: directly characterized on Envoy v1.39.1 for CDS and LDS; model
+  fidelity gap open; RDS/EDS/SDS and Delta untested.
+- Evidence: `envoyprobe -scenario references` sends a CDS response with a
+  valid change to cluster `a` and an invalid cluster `bad`. Envoy NACKs the
+  response, its request keeps the previous version, and `a` is nevertheless
+  active with the new connect timeout at the rejected version. The LDS phase
+  repeats this with a valid stat-prefix change to `front` and an invalid
+  inline listener: `front` is active with the new prefix while its dump
+  version stays at the previous version. Receipts are in the `references`
+  artifact directory of `check-envoy.sh`.
+- Model fidelity: `XdsAdsSotw.tla`'s `ClientNack` leaves accepted state and
+  the applied snapshot unchanged, and the Lean convergence machine has no
+  partial-acceptance transition. Both under-approximate Envoy: after a NACK
+  the client can be running a mixture of the previous and the rejected
+  response. The syncXds comment that a rejected snapshot leaves the client on
+  its previous configuration is wrong at Envoy as well as at the cache
+  (RF-007).
+- Consequence: a NACK does not protect unrelated resources from a response
+  that also carries an invalid one; it protects only the invalid resource.
+  Isolation is better than the atomic-rollback model predicts, but the
+  control plane's accepted-version accounting, and any recovery logic that
+  resends "the last accepted version", describe state Envoy is not in. A
+  resend of the rejected version re-applies the valid parts idempotently and
+  repeats the NACK (RF-012).
+- Action: add a partial-acceptance transition to the ADS and convergence
+  models and re-derive which invariants survive; audit kgateway status and
+  readiness reporting that infers applied configuration from ACKed versions;
+  extend the probe to RDS with several route configurations, EDS with several
+  CLAs, SDS, and the SnapshotCache path where the rejected version is resent
+  on every NACK; and record whether Delta xDS behaves the same.

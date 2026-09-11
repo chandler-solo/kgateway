@@ -80,8 +80,8 @@ entries:
     status: partially-characterized
     constructionFile: pkg/kgateway/helm/envoy/templates/configmap.yaml
     constructionAnchor: "api_type: GRPC"
-    evidence: direct and SnapshotCache Envoy profiles in envoy-characterization.md
-    action: RF-004 requires partial NACK, removal, worker application, timeout, reconnect, and multi-resource cases
+    evidence: direct, SnapshotCache, and references Envoy profiles in envoy-characterization.md
+    action: RF-004 requires removal, worker application, timeout, reconnect, SDS, and RDS/EDS multi-resource rejection; RF-026 records partial CDS/LDS acceptance on NACK
   - id: ENVOY-BOOTSTRAP-STATIC
     surface: xDS transport cluster, admin cluster/listener, optional local workload cluster
     reachability: deployed-default

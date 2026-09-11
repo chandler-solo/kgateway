@@ -90,3 +90,40 @@ This is still not a proof of all real client retries or timer schedules.
 The version change is a controlled recovery event, not a proposed universal
 repair. This integration evidence advances RF-014 without closing its broader
 protocol/refinement obligation.
+
+## Reference and rejection scenario
+
+`-scenario references` runs the scripted server with the default panic
+profile and a second dynamic listener on port 10002. It characterizes how the
+pinned binary treats references the control plane has not closed and
+responses it partially rejects. Observed on 2026-09-11 with the image above:
+
+| Phase | Response | Envoy outcome |
+|---|---|---|
+| RDS route to `ghost`, absent from CDS, beside a ready route to `a` | ACK, no NACK in a 300 ms window | Readiness 200; `/` 200 through `a`; `/ghost` 503 |
+| CDS `{a with connect_timeout 3s, bad}` where `bad` is EDS without an EDS config | NACK `Error adding/updating cluster(s) bad`, request version stays `r0` | `a` active at version `r1` with connect_timeout 3s; `bad` absent; traffic 200 |
+| CDS `{a, b}` with an empty CLA for `b` | ACK | Both clusters active |
+| LDS `{front with stat_prefix front-r3, inline}` where `inline` has an inline route to `ghost` | NACK `Error adding/updating listener(s) inline: route: unknown cluster 'ghost'`, request version stays `r2` | `front` active with the new stat prefix while its dump `version_info` stays `r0`; `inline` held only in `error_state`; port 10002 refuses connections; `/` 200 |
+| LDS `inline` repointed to `a` | ACK | Port 10002 serves 200 |
+
+Three conclusions, each limited to this binary and configuration:
+
+- A dangling RDS reference is accepted and degrades only that route. An
+  inline (LDS) route to the same absent cluster is rejected with the whole
+  listener, because Envoy validates clusters for static route configurations
+  by default and not for RDS. kgateway emits RDS routes, so a missing CDS
+  cluster is a per-route 503 at Envoy, not a proxy-wide failure (RF-003,
+  RF-024).
+- SotW rejection is not atomic. Envoy applies every valid cluster or listener
+  in a response and NACKs the response for the invalid ones. The NACK
+  request reports the previous accepted version while the applied resources
+  carry the rejected content. The control plane's "last ACKed version"
+  therefore does not describe what Envoy runs after a NACK (RF-026).
+- The version shown in the config dump after a partial rejection is not
+  consistent across types: the cluster shows the rejected version, the
+  modified listener shows the previous version with new content. Version
+  strings in admin dumps are not an application receipt.
+
+The scripted server does not resend a rejected version on NACK; the next
+phase supplies a new version. It does not test RDS or EDS partial rejection
+(single-resource responses here), Delta xDS, SDS, or worker application.

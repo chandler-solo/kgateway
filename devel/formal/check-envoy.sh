@@ -11,5 +11,6 @@ go build -tags e2e -o "$ARTIFACT_DIR/envoyprobe" ./devel/formal/cmd/envoyprobe
 "$ARTIFACT_DIR/envoyprobe" -disable-panic -out "$ARTIFACT_DIR/no-panic"
 "$ARTIFACT_DIR/envoyprobe" -snapshot-cache -out "$ARTIFACT_DIR/snapshot-cache"
 "$ARTIFACT_DIR/envoyprobe" -snapshot-cache -ordered -out "$ARTIFACT_DIR/ordered-cache"
+"$ARTIFACT_DIR/envoyprobe" -scenario references -out "$ARTIFACT_DIR/references"
 rm "$ARTIFACT_DIR/envoyprobe"
 echo "Direct Envoy receipts: $ARTIFACT_DIR"
