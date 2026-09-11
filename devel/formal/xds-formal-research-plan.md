@@ -370,7 +370,13 @@ the ledger entry each item advances. Nothing below closes a phase.
     forget race (two-proto window), full nested walks in proto.Equal on the
     pinned protobuf, an upgrade-time EDS version move (RF-025), the
     `+noKrtEquals` marker as an unproven injectivity claim (RF-008), and an
-    open question whether `TrafficDistribution` reaches the row hash on main.
+. RF-029 action 1 closed: a Service `trafficDistribution` change reaches
+    `LbEpsEqualityHash` through the upstream hash, and the editor path is
+    versioned by the plugin contribution; the existing krtcollections test
+    plus two new receipts pin it and the receipt gate now runs the
+    `krtcollections` and `endpoints` packages. RF-024 has a fix on a
+    main-based branch (0841e73066), recorded, not ported pending the remedy
+    decision.
 
 ### What remains and who decides
 

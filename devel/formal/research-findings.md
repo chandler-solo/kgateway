@@ -557,6 +557,22 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   `erroredClusters` entry. Audit extension plugins outside this repository
   for the same registration shape before treating the path as unreachable.
 
+- Fix status (2026-09-11): a fix exists on a main-based branch, commit
+  0841e73066 on `worktree-kxds-rf024-nil-translation-errored` (based on main
+  c6fab73abb, not pushed), written by a separate session working from this
+  ledger. `TranslateBackend` returns `buildBlackholeCluster(backend)` with the
+  error on both defensive checks, so the errored-cluster machinery records
+  the row, excludes it from CDS, filters its CLA, and reports status; the nil
+  guard in `NewPerClientEnvoyClusters` remains and logs the discarded error.
+  Tests there: `TestBackendTranslatorReturnsBlackholeForUnsupportedBackendKinds`
+  and `TestUnsupportedBackendTranslationIsRecordedAsErrored`, the inversion of
+  this branch's `TestNilBackendTranslationIsDroppedNotErrored`. Not ported to
+  the research branch: the remedy choice (errored record versus collection-
+  time rejection) is the maintainer decision listed in the plan, and the
+  port must replace the receipt test with the inverted one. Remaining action
+  from that commit: audit out-of-tree plugins for a `BackendInit` without
+  `InitEnvoyBackend`.
+
 ## RF-025 EDS version strings move without content changes
 
 - Status: observed in required trace runs by the schema-2 version relation;
@@ -816,23 +832,34 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   candidates share nested pointers, on every transform pass for every
   client. No benchmark was run here; recorded as the reason a hash-bucket
   hit is not cheap.
-- Candidate 3, hash input coverage (main and the PR): on main the row hash
-  is `LbEpsEqualityHash ^ additionalHash`, where the first covers the
-  endpoint set plus backend policy versioning and the second the endpoint
-  plugins' contributions. `PrioritizeEndpoints` also reads the client's
-  labels and locality (covered by the Client comparison) and, when no plugin
-  set `PriorityInfo`, the backend's `TrafficDistribution`. Whether a Service
-  `trafficDistribution` change reaches `LbEpsEqualityHash` through the
-  backend version fold was not established here. If it does not, the built
-  CLA changes while the row hash and Client are unchanged, KRT drops the
-  update, and the proxy keeps the previous priorities until an endpoint
-  changes. The PR's `combineEndpointHash` adds a load-balancing hash for
-  bucket separation and states that the old key "omitted the load-balancing
-  context", which is the same gap seen from the interning side.
-- Action: (1) add a unit test on main that changes only `TrafficDistribution`
-  on an `EndpointsForBackend` and asserts the row's Equals reports a change;
-  if it does not, that is a staleness defect independent of PR #14604 and a
-  candidate for the RF-024/RF-025 fix batch. (2) In the PR, either take the
+- Candidate 3, hash input coverage (main and the PR), resolved covered: on
+  main the row hash is `LbEpsEqualityHash ^ additionalHash`, where the first
+  covers the endpoint set plus backend policy versioning and the second the
+  endpoint plugins' contributions. `PrioritizeEndpoints` also reads the
+  client's labels and locality (covered by the Client comparison) and, when
+  no plugin set `PriorityInfo`, the backend's `TrafficDistribution`. A
+  Service `trafficDistribution` change does reach `LbEpsEqualityHash`:
+  `NewEndpointsForBackend` writes the distribution byte into the upstream
+  hash, which `pkg/krtcollections` already pins in
+  `TestEndpointsForUpstreamWithDifferentTrafficDistributionButSameEndpoints`
+  (four distributions, identical endpoints, four distinct hashes), and the
+  kubernetes plugin recomputes the backend IR on a spec change because
+  `BackendObjectIR.Equals` compares the field. The editor path is different:
+  `SetTrafficDistribution` assigns
+  without refreshing the hash, so a plugin-driven change is versioned only
+  by that plugin's returned contribution; the one production caller
+  (BackendConfigPolicy's zone-aware hook) returns the policy reference and
+  generation, and its removal drops the contribution to zero, so both
+  directions move the row hash. Two tests added here complete the receipt:
+  `TestSetTrafficDistributionIsVersionedByThePluginContribution`
+  (endpoints) states the editor contract, and
+  `TestUccWithEndpointsRowChangesWhenOnlyTrafficDistributionChanges`
+  (proxy_syncer) is the row-level Equals check action 1 asked for; the
+  existing krtcollections test joins the required receipts. The PR's "omitted the load-balancing context" wording therefore
+  describes bucket separation for interning, not a staleness gap on main.
+- Action: (1) done, covered (see candidate 3); a future endpoint plugin that
+  calls `SetTrafficDistribution` or `SetPriorityInfo` must return a nonzero
+  contribution, which the editor test now states. (2) In the PR, either take the
   `forget` under the same ordering as the transform (drop the entry inside
   the transform when the input's delete is observed, or key retained
   entries by input generation) or document the two-proto window. (3) Record

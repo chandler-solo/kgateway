@@ -440,3 +440,23 @@ func editorTestEndpoint(address, id string) ir.EndpointWithMd {
 		EndpointMd: ir.EndpointMetadata{Labels: map[string]string{"id": id}},
 	}
 }
+
+// The editor's SetTrafficDistribution assigns the field without refreshing
+// LbEpsEqualityHash, so a plugin-driven distribution change is versioned only
+// by that plugin's returned contribution (BackendConfigPolicy's zone-aware hook
+// returns the policy reference and generation). This pins that contract so a
+// future plugin author does not assume the editor versions the write for them
+// (RF-029, devel/formal/research-findings.md).
+func TestSetTrafficDistributionIsVersionedByThePluginContribution(t *testing.T) {
+	backend := ir.NewBackendObjectIR(ir.ObjectSource{Kind: "Service", Namespace: "ns", Name: "svc"}, 8080, "", "")
+	source := ir.NewEndpointsForBackend(backend)
+	source.Add(ir.PodLocality{Region: "r", Zone: "z"}, editorTestEndpoint("10.0.0.1", "ep"))
+	resolver := NewEndpointInputsResolver(EndpointsInputs{EndpointsForBackend: *source})
+
+	before := resolver.Inputs().EndpointsForBackend.LbEpsEqualityHash
+	resolver.SetTrafficDistribution(wellknown.TrafficDistributionPreferSameZone)
+	after := resolver.Inputs().EndpointsForBackend.LbEpsEqualityHash
+
+	assert.Equal(t, before, after, "the editor does not version SetTrafficDistribution; a plugin that calls it must return a nonzero contribution or its change is invisible to KRT")
+	assert.Equal(t, wellknown.TrafficDistributionPreferSameZone, resolver.Inputs().EndpointsForBackend.TrafficDistribution)
+}
