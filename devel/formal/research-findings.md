@@ -155,6 +155,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   declined parked watches. `SetSnapshot` installs before sends can fail.
 - Evidence added: `gcpprobe` reproduces both paths, equal-version subscription,
   and partial installation. `GcpWatch.lean` checks discard and retention policies.
+- Evidence added: `TestClearSnapshotOrphansParkedWatchOnPin` shows ClearSnapshot
+  drops the node status while its parked watch stays registered and unanswered
+  (corpus #505).
 - Action: compose the named-watch model with installation and stream lifecycle;
   distinguish installation from response success. A passing defect probe is
   not a fixed cache. Track repaired watch retention and eligibility separately.
@@ -339,6 +342,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: `corpus-inventory.json` records completed enumeration;
   `bug-corpus.json` records twenty-two dispositions, eleven from discovery and eleven from a classified go-control-plane keyword batch (two held out as unprobed: #431 and #505), with their detail pages
   captured privately. Gloo/kgateway repository IDs prevent lineage loss.
+- Evidence added: the two held-out go-control-plane mechanisms were probed on
+  the pin without new model state. #431 is repaired in v0.14.0 (a
+  resubscription at the unchanged version is answered); #505 reproduces
+  (ClearSnapshot orphans the parked watch).
 - Action: review comments/reviews and linked fixes across the candidate set,
   audit relevant source history and release ancestry, classify every candidate,
   and review non-keyword sources and held-out mechanisms. Search or title/body
