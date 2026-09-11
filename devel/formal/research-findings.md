@@ -332,8 +332,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-024 Backend translation without a plugin is dropped, not errored
 
-- Status: latent implementation path identified by source inventory; not
-  reachable with the three built-in backend plugins; reproducer open.
+- Status: reproduced with a synthetic plugin registration; not reachable with
+  the three built-in backend plugins; fix open.
+- Evidence added: `TestNilBackendTranslationIsDroppedNotErrored` builds the
+  real per-client cluster collection with a contributed group/kind whose
+  `BackendInit` has no `InitEnvoyBackend` and with an unregistered group/kind.
+  Neither backend produces a row, while a backend with pre-existing errors
+  produces a named errored row. `TranslateBackend` does return an error for
+  both dropped backends; the collection discards it with the nil cluster. Fed
+  to `findMissingReferencedClusters`, both names are nonexempt missing
+  references. The test pins the drop and must be inverted when the fix lands.
 - Evidence: `NewPerClientEnvoyClusters` skips a backend whenever
   `TranslateBackend` returns a nil cluster (`backends.go`). That happens when
   the backend's group/kind has no contributed translator or the contributed
