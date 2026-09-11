@@ -799,9 +799,12 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   RF-017); a version bump on reconnect for clients with warming candidates,
   or an unconditional first response after connect, are the candidate
   repairs and need a decision. (2) Extend the live `XdsWarming` suite with a
-  controller restart during a cluster rewarm. (3) Add the reconnect-while-
-  warming step to `XdsAdsSotw.tla`, whose stream reset currently re-requests
-  every type.
+  controller restart during a cluster rewarm. (3) Done: `ReconnectWhileWarming.tla`
+  models the paused-CDS reconnect; the current equal-version rule fails
+  `EventuallyRepaired` unless endpoints change, and the proposed
+  unconditional first response passes. `XdsAdsSotw.tla` still re-requests
+  every type on reset; the pause lives in the dedicated model, matching how
+  RF-003 and RF-005 were treated.
 
 ## RF-029 PR #14604 review candidates: retainer race, nested equality cost, hash input coverage
 

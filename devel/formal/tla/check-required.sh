@@ -30,6 +30,9 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         ColdMissingCdsStarvationCurrent) model=ColdMissingCdsStarvation; expected=temporal ;;
         ColdMissingCdsStarvationTransient) model=ColdMissingCdsStarvation; expected=pass ;;
         ColdMissingCdsStarvationClassified) model=ColdMissingCdsStarvation; expected=pass ;;
+        ReconnectWhileWarmingCurrent) model=ReconnectWhileWarming; expected=temporal ;;
+        ReconnectWhileWarmingEndpointChange) model=ReconnectWhileWarming; expected=pass ;;
+        ReconnectWhileWarmingUnconditionalFirstResponse) model=ReconnectWhileWarming; expected=pass ;;
         WarmTypeStarvationCurrent) model=WarmTypeStarvation; expected=temporal ;;
         WarmTypeStarvationIsolated) model=WarmTypeStarvation; expected=pass ;;
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;

@@ -377,6 +377,9 @@ the ledger entry each item advances. Nothing below closes a phase.
     `krtcollections` and `endpoints` packages. RF-024 has a fix on a
     main-based branch (0841e73066), recorded, not ported pending the remedy
     decision.
+29. RF-028 action 3: `ReconnectWhileWarming.tla` states the paused-CDS reconnect;
+    the equal-version rule fails `EventuallyRepaired` without an endpoint
+    change, the proposed unconditional first response passes.
 
 ### What remains and who decides
 
