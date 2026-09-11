@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
@@ -34,6 +35,11 @@ type XdsSnapshotTraceEvent struct {
 	// EndpointsVersion is the version string of the (filtered) EDS resource
 	// set that would be published.
 	EndpointsVersion string `json:"endpointsVersion"`
+	// Versions holds every resource type's version string in the snapshot the
+	// decision or installation refers to, keyed cluster, endpoint, listener,
+	// route, secret. Empty when no snapshot was built (early defers). The
+	// checker matches installations to decisions on the whole tuple.
+	Versions map[string]string `json:"versions"`
 }
 
 type XdsSnapshotTraceCluster struct {
@@ -101,6 +107,7 @@ func emitXdsSnapshotTrace(
 	erroredClusters []string,
 	clusters envoycache.Resources,
 	endpoints envoycache.Resources,
+	snap *envoycache.Snapshot,
 ) {
 	if xdsSnapshotTraceSink == nil {
 		return
@@ -145,6 +152,27 @@ func emitXdsSnapshotTrace(
 		return cmp.Compare(a.Name, b.Name)
 	})
 	event.EndpointsVersion = endpoints.Version
+	event.Versions = snapshotTypeVersions(snap)
 
 	xdsSnapshotTraceSink(event)
+}
+
+// snapshotTypeVersions projects a snapshot's per-type version strings for the
+// trace. A nil snapshot yields an empty, non-nil map so the field is always
+// present in the emitted JSON.
+func snapshotTypeVersions(snap *envoycache.Snapshot) map[string]string {
+	versions := map[string]string{}
+	if snap == nil {
+		return versions
+	}
+	for name, rt := range map[string]envoycachetypes.ResponseType{
+		"cluster":  envoycachetypes.Cluster,
+		"endpoint": envoycachetypes.Endpoint,
+		"listener": envoycachetypes.Listener,
+		"route":    envoycachetypes.Route,
+		"secret":   envoycachetypes.Secret,
+	} {
+		versions[name] = snap.Resources[rt].Version
+	}
+	return versions
 }

@@ -153,7 +153,7 @@ func snapshotPerClient(
 		if listenerRouteSnapshot == nil {
 			logger.Debug("snapshot missing", "proxy_key", ucc.Role)
 			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferRoleSnapshot,
-				nil, nil, envoycache.Resources{}, envoycache.Resources{})
+				nil, nil, envoycache.Resources{}, envoycache.Resources{}, nil)
 			return nil
 		}
 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
@@ -185,7 +185,7 @@ func snapshotPerClient(
 			logger.Info("per-client endpoints not ready; deferring snapshot", "client", ucc.ResourceName())
 			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferEndpointsNotReady,
 				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-				clustersForUcc.clusters, envoycache.Resources{})
+				clustersForUcc.clusters, envoycache.Resources{}, nil)
 			return nil
 		}
 
@@ -254,11 +254,11 @@ func snapshotPerClient(
 			)
 			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferFlip,
 				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-				clusterResources, endpointRes)
+				clusterResources, endpointRes, snapshot)
 		} else {
 			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionPublish,
 				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
-				clusterResources, endpointRes)
+				clusterResources, endpointRes, snapshot)
 		}
 		logger.Debug("snapshots", "proxy_key", snap.proxyKey,
 			"listeners", resourcesStringer(listenerRouteSnapshot.Listeners).String(),

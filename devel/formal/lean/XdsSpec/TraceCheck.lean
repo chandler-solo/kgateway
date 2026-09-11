@@ -33,7 +33,8 @@ events against the verified spec, instantiated at `Name := String`:
   - Installation receipts (RF-006): syncXds emits `installed` or
     `install-failed` after SetSnapshot returns, carrying the installed
     content. Decisions queue per client in order; an installation must match
-    a pending decision by EDS version (`install-mismatch` otherwise), older
+    a pending decision by its per-type version tuple (`install-mismatch`
+    otherwise), older
     pending decisions it skips are counted as superseded (KRT coalescing),
     and an identical consecutive decision is a suppressed recomputation, not
     a separate installation. Installed content is checked for closure like
@@ -79,6 +80,9 @@ structure TraceEvent where
   clusters : List TraceCluster
   endpoints : List TraceEndpoint
   endpointsVersion : String
+  /-- Every resource type's version in the referenced snapshot; empty for
+  early defers that built no snapshot. -/
+  versions : List (String × String) := []
   deriving Repr
 
 def getStrList (j : Json) (field : String) : Except String (List String) := do
@@ -99,6 +103,14 @@ def parseEndpoint (j : Json) : Except String TraceEndpoint := do
   if name.isEmpty || digest.isEmpty then throw "empty endpoint identity or digest"
   return { name, usable, digest }
 
+/-- The per-type version object, as sorted (type, version) pairs. -/
+def getVersions (j : Json) : Except String (List (String × String)) := do
+  let obj ← (← j.getObjVal? "versions").getObj?
+  let pairs ← obj.toList.mapM fun (k, v) => do
+    let s ← v.getStr?
+    return (k, s)
+  return pairs.mergeSort (fun a b => decide (a.1 ≤ b.1))
+
 def parseEvent (line : String) : Except String TraceEvent := do
   let j ← Json.parse line
   let schema ← (← j.getObjVal? "schema").getNat?
@@ -117,8 +129,11 @@ def parseEvent (line : String) : Except String TraceEvent := do
   let clusters ← (← (← j.getObjVal? "clusters").getArr?).toList.mapM parseCluster
   let endpoints ← (← (← j.getObjVal? "endpoints").getArr?).toList.mapM parseEndpoint
   let endpointsVersion ← (← j.getObjVal? "endpointsVersion").getStr?
+  let versions ← getVersions j
+  if ["publish", "publish-first", "publish-resolved", "installed", "install-failed"].contains decision && versions.isEmpty then
+    throw "publication or installation without per-type versions"
   return { schema, scenario, sequence, client, decision, referenced, exempt,
-           clusters, endpoints, endpointsVersion }
+           clusters, endpoints, endpointsVersion, versions }
 
 /-- A conformance violation found in a trace. -/
 structure Violation where
@@ -189,6 +204,10 @@ structure TraceSummary where
   an unchanged output, whose event is suppressed). -/
   duplicateDecisions : Nat := 0
   violations : List Violation := []
+
+/-- Identity of the snapshot a decision or installation refers to: the whole
+per-type version tuple. -/
+def versionKey (e : TraceEvent) : String := toString e.versions
 
 /-- The EDS content of a publication as (CLA name, content digest) pairs. -/
 def publishedContent (e : TraceEvent) : List (String × String) :=
@@ -282,27 +301,27 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
         -- event when the output is unchanged, so an identical consecutive
         -- decision yields no separate installation.
         let previousOutput := queue.getLast? <|> (lastInstalled.find? (fun p => p.1 == e.client)).map (·.2)
-        if previousOutput == some e.endpointsVersion then
+        if previousOutput == some (versionKey e) then
           summary := { summary with duplicateDecisions := summary.duplicateDecisions + 1 }
         else
-          pendingInstall := (e.client, queue ++ [e.endpointsVersion]) :: pendingInstall.filter (fun p => p.1 != e.client)
+          pendingInstall := (e.client, queue ++ [versionKey e]) :: pendingInstall.filter (fun p => p.1 != e.client)
       else if e.decision == "installed" then
         -- RF-006 first lifecycle stage: the installed content must be closed
         -- and must be the content of the latest decision for this client.
         let found := checkPublish e (requireUsable := false)
         let mut mismatch : List (String × String) := []
         let queue := ((pendingInstall.find? (fun p => p.1 == e.client)).map (·.2)).getD []
-        match dropThrough queue e.endpointsVersion with
+        match dropThrough queue (versionKey e) with
         | some (skipped, rest) =>
           summary := { summary with installs := summary.installs + 1, superseded := summary.superseded + skipped }
           pendingInstall := (e.client, rest) :: pendingInstall.filter (fun p => p.1 != e.client)
-          lastInstalled := (e.client, e.endpointsVersion) :: lastInstalled.filter (fun p => p.1 != e.client)
+          lastInstalled := (e.client, versionKey e) :: lastInstalled.filter (fun p => p.1 != e.client)
         | none =>
           if queue.isEmpty then
             summary := { summary with installsWithoutDecision := summary.installsWithoutDecision + 1 }
           else
             mismatch := [("install-mismatch",
-              s!"installed EDS version {e.endpointsVersion} matches none of the pending decisions {queue}")]
+              s!"installed snapshot versions {versionKey e} match none of the pending decisions {queue}")]
         summary := { summary with
           violations := summary.violations ++ (found ++ mismatch).map fun (rule, detail) =>
             { lineNumber, client := e.client, rule, detail } }
@@ -322,7 +341,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       if summary.installs + summary.installsWithoutDecision > 0 then
         summary := { summary with violations := summary.violations ++
           [{ lineNumber := 0, client, rule := "publish-not-installed",
-             detail := s!"decided EDS version {decided} has no installation receipt" }] }
+             detail := s!"decided snapshot versions {decided} have no installation receipt" }] }
       else
         summary := { summary with decisionsNotInstalled := summary.decisionsNotInstalled + 1 }
   return .ok summary
@@ -331,7 +350,8 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
 private def firstEmpty : TraceEvent :=
   { client := "cold", decision := "publish-first", referenced := ["c"],
     exempt := [], clusters := [⟨"c", true, "service"⟩],
-    endpoints := [⟨"service", false, "d1"⟩], endpointsVersion := "v1" }
+    endpoints := [⟨"service", false, "d1"⟩], endpointsVersion := "v1",
+    versions := [("cluster", "c1"), ("endpoint", "v1"), ("listener", "l1"), ("route", "r1"), ("secret", "s1")] }
 
 #guard (checkPublish firstEmpty false).isEmpty
 #guard !(checkPublish firstEmpty true).isEmpty
@@ -350,8 +370,8 @@ private def previousV1 : Option (String × List (String × String)) := some ("v1
 
 private def eventJSON (decision : String := "publish-first") (sequence : Nat := 1)
     (version : String := "v1") (digest : String := "d1") (schema : Nat := 2)
-    (client : String := "cold") : String :=
-  (r#"{"schema":SCHEMA,"scenario":"fixture","sequence":SEQ,"client":"CLIENT","decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false,"digest":"DIGEST"}],"endpointsVersion":"VERSION"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision |>.replace "VERSION" version |>.replace "DIGEST" digest |>.replace "SCHEMA" (toString schema) |>.replace "CLIENT" client
+    (client : String := "cold") (routeVersion : String := "r1") : String :=
+  (r#"{"schema":SCHEMA,"scenario":"fixture","sequence":SEQ,"client":"CLIENT","versions":{"secret":"s1","endpoint":"VERSION","route":"ROUTEV","cluster":"c1","listener":"l1"},"decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false,"digest":"DIGEST"}],"endpointsVersion":"VERSION"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision |>.replace "VERSION" version |>.replace "DIGEST" digest |>.replace "SCHEMA" (toString schema) |>.replace "CLIENT" client |>.replace "ROUTEV" routeVersion
 
 private def fails (result : Except String α) : Bool :=
   match result with | .error _ => true | .ok _ => false
@@ -396,6 +416,13 @@ private def terminalJSON (count : Nat) : String :=
 #guard match checkTrace [eventJSON, eventJSON "installed" 2 "v9", terminalJSON 2] with
   | .ok summary => summary.violations.map (·.rule) == ["install-mismatch"]
   | .error _ => false
+-- Equal EDS version but a different route version is still a mismatch.
+#guard match checkTrace [eventJSON, eventJSON "installed" 2 "v1" "d1" 2 "cold" "r2", terminalJSON 2] with
+  | .ok summary => summary.violations.map (·.rule) == ["install-mismatch"]
+  | .error _ => false
+-- A publication without per-type versions is malformed.
+#guard fails (parseEvent ((eventJSON).replace r#""versions":{"secret":"s1","endpoint":"v1","route":"r1","cluster":"c1","listener":"l1"},"# ""))
+#guard fails (parseEvent ((eventJSON).replace r#"{"secret":"s1","endpoint":"v1","route":"r1","cluster":"c1","listener":"l1"}"# "{}"))
 #guard match checkTrace [eventJSON, eventJSON "install-failed" 2, terminalJSON 2] with
   | .ok summary => summary.violations.map (·.rule) == ["install-failed"] && summary.decisionsNotInstalled == 1
   | .error _ => false

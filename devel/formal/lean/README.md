@@ -35,7 +35,8 @@ and [program plan](../xds-formal-research-plan.md).
   unchanged EDS version with changed CLA content fails (`version-reuse`);
   unchanged content with a moved version is counted (`version-churn`).
   Cache installation receipts emitted after SetSnapshot must match a pending
-  decision for the client in order and be closed; a failed installation, or a
+  decision for the client in order on the full per-type version tuple and be
+  closed; a failed installation, or a
   decision left uninstalled in a scenario that installs, is a violation.
   Skipped (coalesced) and identical consecutive decisions are counted. These
   per-client rules do not replay watches, wire responses, ACK/NACK, or

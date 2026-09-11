@@ -121,9 +121,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   equality) and that installations can lag several decisions; both are
   legitimate and now explicit in the relation. This is the first lifecycle
   stage beyond the decision itself.
-- Limitation: the relation keys on the EDS version string, so a decision and
-  an installation with different non-EDS content but equal EDS version would
-  match; extend the receipt to all five type versions.
+- Evidence added: every decision and installation event carries the
+  per-type version tuple (cluster, endpoint, listener, route, secret); the
+  installation relation matches on the whole tuple, so a route or secret
+  change with an unchanged EDS version cannot pair with the wrong decision.
+  Publications or installations without the tuple are malformed.
 - Action: add subtest/stream generations and stateful cache/watch/wire/
   application replay. Terminal counts cover emitted events, not transitions
   omitted by instrumentation; audit transition coverage separately.

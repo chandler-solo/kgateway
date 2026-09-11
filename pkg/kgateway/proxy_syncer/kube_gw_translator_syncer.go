@@ -68,18 +68,18 @@ func (s *ProxyTranslator) syncXds(
 				)
 				emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionDeferFirstPublish,
 					refs, snapWrap.erroredClusters,
-					snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
+					snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint], snap)
 				return
 			}
 			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishFirst,
 				refs, snapWrap.erroredClusters,
-				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
+				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint], snap)
 		} else {
 			snap = resolveDeferredPerCluster(snapWrap, published)
 			publishedRefs := publishedReferencedClusters(published)
 			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishResolved,
 				publishedRefsForTrace(snap, publishedRefs), snapWrap.erroredClusters,
-				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
+				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint], snap)
 		}
 	}
 
@@ -106,7 +106,7 @@ func (s *ProxyTranslator) syncXds(
 	emitXdsSnapshotTrace(proxyKey, installDecision,
 		collectReferencedClusters(snap.Resources[envoycachetypes.Route], snap.Resources[envoycachetypes.Listener]),
 		snapWrap.erroredClusters,
-		snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint])
+		snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint], snap)
 }
 
 // publishedReferencedClusters returns the dataplane-referenced cluster set of
