@@ -262,3 +262,53 @@ Exit: the agreed scope inventory is accounted for, critical properties have appr
 - Git state and GitHub were not mutated. The plan was subsequently moved into `devel/formal/` at the user's request; scratch validation artifacts remain outside the branch.
 
 Local inputs: `~/t/formal_agent.txt`, `~/t/formal_agent2.txt`, `~/t/go-control-plane-v0.14.0-formal-review.md`, and `~/t/go-control-plane-main-review.md`. Review logs: `/tmp/xds-formal-review-check.log`, `/tmp/xds-gcp-review-probes.log`, and `/tmp/xds-gcp-review-nack.log`.
+
+## Status update, September 11, 2026
+
+Work since the review, in commit order on `chandler/kxdsformalmethods`, with
+the ledger entry each item advances. Nothing below closes a phase.
+
+1. RF-003: cache-boundary probe and weakly fair TLC model for a permanently
+   missing referenced cluster on a cold proxy; a proposed classification
+   policy is modeled, not implemented.
+2. RF-024 (new): a backend whose translation returns no cluster is dropped
+   without an errored record; reproduced with a synthetic plugin.
+3. RF-008: `VersionDigest.lean` states the digest contract and proves the
+   name-set abstraction payload-blind; schema-2 traces carry per-CLA digests
+   and the checker fails version reuse per client. RF-025 (new) records
+   version churn from the carry suffix and the branch-dependent version
+   function.
+4. RF-007, RF-018: probes replayed against unreleased upstream revisions
+   through `gcpprobe/replay-profile.sh`; #1356 repairs the probed unsubscribe
+   leak and retains the declined parked watch; #1498 targets a schedule the
+   real SnapshotCache cannot produce, which a new probe constructs.
+5. RF-004, RF-026 (new): the direct Envoy `references` scenario shows a
+   dangling RDS reference is a per-route 503, an inline LDS reference rejects
+   the listener, and SotW rejection applies the valid siblings of a NACKed
+   CDS or LDS response while the request reports the previous version.
+   `PartialRejection.lean` states which properties each semantics keeps.
+   kgateway derives only metrics and a log from NACKs.
+6. RF-012: the same scenario through SnapshotCache measures the NACK resend
+   recurrence on a real Envoy in both ADS modes.
+7. RF-006: syncXds emits installation receipts; the checker relates them to
+   decisions per client in order on the full per-type version tuple, with
+   explicit accounting for KRT coalescing and suppressed recomputations.
+
+### Revised immediate next work
+
+1. RF-002 and RF-021: compute the resource dependency partition from emitted
+   protos in `xdscheck` and validate it on translator fixtures; this is the
+   prerequisite for any isolated publication policy.
+2. RF-005 and KRT-A1: state the dropped fan-out recovery as a weakly fair TLC
+   specification with an explicit watchdog action, and record which fairness
+   assumption the deployed code actually satisfies.
+3. RF-026: add a partial-acceptance transition to the convergence models and
+   extend the direct probe to RDS, EDS, and SDS multi-resource rejection.
+4. RF-006 and RF-009: instrument watch, send, ACK/NACK, and activation, and
+   emit traces from a run with real endpoint translation to apply the
+   version relation to `EndpointsHash`.
+5. RF-016: classify the frozen corpus beyond the eleven discovery entries,
+   starting with the go-control-plane and Envoy candidates that the source
+   inventory already names.
+6. RF-003 and RF-024: choose the fail-closed classification for a
+   permanently unresolved reference and record a nil translation as errored.
