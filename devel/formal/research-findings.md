@@ -262,11 +262,23 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   do not construct that schedule, so its effect is unobserved. Neither change
   is in a released root module; v0.14.0 is the newest tag at the 2026-09-04
   checkout. The earlier attribution of the probed repair to #1498 was wrong.
+- Evidence added: `TestQueuedSupersededResponseIsDroppedOnSubscriptionChange`
+  builds the #1498 shape with the real cache by publishing from the request
+  callback while a parked named watch is being superseded. The cache answers
+  and discards the parked watch, yet only the new watch's response reaches
+  the wire in both ADS modes: ordered ADS drains and drops same-type queued
+  responses before creating the new watch, and default mode abandons the old
+  per-watch channel. Because fan-out and cancel serialize on the cache mutex,
+  SnapshotCache cannot answer a watch after cancel returns, so the #1498
+  injection point does not exist for it. The probe also passes at
+  `1cd122661`.
 - Action: enforce subscription-aware eligibility/filtering at cache and send
   boundaries, and test empty responses, full-state types, wildcard history,
   and queued supersession. GCP PR #1498 adds a send-time subscription filter
-  in newer source. Ancestry validated: unreleased. Remaining: construct the
-  queued-supersession schedule #1498 targets against the real ordered server,
+  in newer source. Ancestry validated: unreleased. The real-cache schedule is
+  constructed and shows no leak on the pin, so #1498 is not a kgateway fix
+  lead for SnapshotCache; #1356 is. Remaining: audit any cache wrapper or
+  alternative cache for responses after cancellation before relying on this,
   and decide whether kgateway adopts a pseudo-version or waits for a release.
   KGW deployment reachability and the complete stream/queue refinement remain
   open.

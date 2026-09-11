@@ -22,14 +22,14 @@
       "number": 1498,
       "url": "https://github.com/envoyproxy/go-control-plane/pull/1498",
       "visibility": "public",
-      "classification": "source-reviewed-fix-lead",
+      "classification": "source-reviewed-fix; mechanism unobserved with deployed cache",
       "mechanism": "send boundary filters queued superseded responses against the current subscription (ordered ADS shared channel)",
       "profile": "merge 1cd1226616f558556e55d2b483aafcd6dead00e2 (2026-07-02); absent from v0.14.0 and from every root-module tag at the 2026-09-04 checkout",
-      "evidence": "patch; gcpprobe/replay-profile.sh at 1cd122661 shows no additional change beyond bf9b60b56 for the probed schedules",
+      "evidence": "patch; gcpprobe/TestQueuedSupersededResponseIsDroppedOnSubscriptionChange constructs the schedule with the real SnapshotCache in both ADS modes and observes no leak on v0.14.0 or at 1cd122661",
       "model": "GcpSubscription.lean; queued supersession remains open",
       "obligation": "RF-018",
       "fix_status": "merged upstream, unreleased in any root module; the probed unsubscribe-all leak is repaired earlier by #1356, not by this change",
-      "remaining": "construct the queued-supersession schedule this change targets against the real ordered server; decide pseudo-version adoption",
+      "remaining": "audit wrappers and non-snapshot caches for responses after cancellation; decide pseudo-version adoption",
       "partition": "discovery"
     },
     {
