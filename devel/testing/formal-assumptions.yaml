@@ -41,10 +41,13 @@ assumptions:
   - id: IMPL-A1
     summary: EDS digests are assumed collision-free for compared revisions; finite corpus tests cannot prove injectivity
     status: open
-    plannedDischarge: RF-008 requires payload revisions in the model and an explicit collision or revision-allocation contract
-    specFile: devel/formal/lean/XdsSpec/Spec.lean
+    plannedDischarge: RF-008. VersionDigest.lean states the contract (determinism plus collision freedom on the compared domain) and proves the name-set abstraction is payload-blind; the schema-2 trace rule detects version reuse per client at runtime. The collision assumption itself remains an assumption; a revision allocator would discharge it at the cost of content-idempotent versions.
+    specFile: devel/formal/lean/XdsSpec/VersionDigest.lean
     specAnchors:
-      - versionEq
+      - DigestContract
+      - nameSetVersion_blind
+      - payload_change_changes_digest
+      - xorDigest_cancels
     dischargedBy:
       - file: pkg/kgateway/proxy_syncer/perclient_version_property_test.go
         test: TestFilterEndpointResourcesForClusters_VersionDigestProperties

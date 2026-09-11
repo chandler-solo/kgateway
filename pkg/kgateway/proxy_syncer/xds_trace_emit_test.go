@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 		mu.Lock()
 		defer mu.Unlock()
 		sequence++
-		event.Schema, event.Scenario, event.Sequence = 1, scenario, sequence
+		event.Schema, event.Scenario, event.Sequence = xdsTraceSchema, scenario, sequence
 		line, err := json.Marshal(event)
 		if err != nil {
 			panic(fmt.Errorf("marshal xDS trace: %w", err))
@@ -54,7 +54,7 @@ func TestMain(m *testing.M) {
 			Scenario string `json:"scenario"`
 			Terminal bool   `json:"terminal"`
 			Events   uint64 `json:"events"`
-		}{1, scenario, true, sequence}); err != nil {
+		}{xdsTraceSchema, scenario, true, sequence}); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			code = 1
 		}

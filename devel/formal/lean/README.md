@@ -26,13 +26,21 @@ and [program plan](../xds-formal-research-plan.md).
   and C3 warm transition holds. `ClientIdentity.lean` and `OrderedADS.lean`
   explore bounded identity and delivery schedules. A safe removal transition
   observes route deactivation; a timer alone does not establish that guard.
-- `TraceCheck.lean` checks individual snapshot decisions. Schema 1 requires
+- `TraceCheck.lean` checks individual snapshot decisions. Schema 2 requires
   scenario/client identities, contiguous sequence numbers starting at one,
-  known decisions, explicit arrays, and typed resource fields. Each checked
-  trace must contain a publication. First publications permit empty CLAs.
-  This catches missing interior records and malformed events, but cannot
-  detect a lost suffix or prove lifecycle conformance. It does not replay
-  cache installation, watches, wire responses, ACK/NACK, or activation.
+  known decisions, explicit arrays, typed resource fields, and a content
+  digest per CLA. Each checked trace must contain a publication. First
+  publications permit empty CLAs. Across consecutive publications to one
+  client it enforces the version relation from `VersionDigest.lean`: an
+  unchanged EDS version with changed CLA content fails (`version-reuse`);
+  unchanged content with a moved version is counted (`version-churn`). This
+  is the first per-client stateful rule; it does not replay cache
+  installation, watches, wire responses, ACK/NACK, or activation.
+- `VersionDigest.lean` adds payload revisions, proves the Spec's name-set
+  version is payload-blind, states the digest contract the implementation
+  must meet on a run's compared domain, and shows the XOR combiner's
+  structural cancellation collision. It does not prove the Go hash
+  collision free (IMPL-A1 remains an assumption).
 
 The [assumption ledger](ASSUMPTIONS.md) distinguishes characterization from
 open obligations. Its Go test checks declarations and anchors, not execution

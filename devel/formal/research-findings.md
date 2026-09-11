@@ -93,7 +93,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-006 Snapshot traces are not lifecycle conformance
 
-- Status: strict schema and scenario coverage implemented; replay remains open.
+- Status: strict schema and scenario coverage implemented; first per-client
+  stateful rule (EDS version relation, schema 2) added; lifecycle replay
+  remains open.
 - Evidence: required fields, decisions, sequence gaps/duplicates, empty and
   defer-only traces now fail. Emitter write failures fail the test process.
 - Evidence added: successful test completion emits a terminal scenario/event
@@ -118,11 +120,28 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-008 Finite hash evidence overstated as injectivity
 
-- Status: assumption reopened; payload/version refinement remains open.
+- Status: contract stated and runtime detection added; the collision
+  assumption itself remains open.
 - Evidence: finite-width XOR digests cannot be injective over unbounded content;
   the current Lean version abstraction omits same-name payload changes.
-- Action: add payload revisions and a collision assumption or revision allocator;
-  retain finite-corpus tests as characterization only.
+- Evidence added: `VersionDigest.lean` adds payload revisions and proves the
+  Spec's name-set version cannot distinguish a same-name payload change, so
+  the convergence proofs' version claims are name-set claims. It states
+  `DigestContract` (determinism on content-equal sets, collision freedom on
+  the compared domain) and derives both directions the checker enforces.
+  `xorDigest_cancels` records that two resources with equal per-resource
+  digests cancel to the empty set's version, a combiner-level collision.
+  Schema-2 snapshot traces now carry each CLA's FNV-1a digest, and
+  `TraceCheck.lean` fails a run where a client's EDS version is unchanged
+  while its CLA content changed (`version-reuse`) and counts unchanged
+  content with a moved version (`version-churn`). This is the first
+  per-client stateful trace rule.
+- Action: decide between keeping the collision assumption (documented, with
+  the trace rule as the detector) and a revision allocator (collision free
+  but no longer idempotent for equivalent content, which PR #14516's churn
+  suppression relies on). Review any nonzero `version-churn` count from the
+  required runner against the carry-forward version suffix and fixture
+  passthrough versions before treating it as an implementation defect.
 
 ## RF-009 Required evidence execution and CI coverage
 
@@ -362,3 +381,43 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   backend plugin lacking `InitEnvoyBackend` and assert the resulting
   `erroredClusters` entry. Audit extension plugins outside this repository
   for the same registration shape before treating the path as unreachable.
+
+## RF-025 EDS version strings move without content changes
+
+- Status: observed in required trace runs by the schema-2 version relation;
+  counted as `version-churn`, not failed; production reachability of one
+  mechanism confirmed by source, the other needs a real-translation trace.
+- Evidence: the required runner's `TestSnapshotPerClientRandomizedEventSequencesConformToSpec`
+  trace records twelve publications whose (CLA name, digest) content equals
+  the client's previous publication while the EDS version string differs.
+  `TestSnapshotPerClientEndpointOnlyUpdateOnlyChangesEDSVersion` records one.
+  No `version-reuse` violation occurred in any scenario.
+- Mechanism 1, carry-forward suffix: `resolveDeferredPerCluster` versions a
+  held-flip composition as `<candidate filtered version>-carry-<hash of
+  carried names>`. When the carried set restores exactly the previously
+  published content, the version still moves. The trace shows a candidate
+  whose filtered set was one CLA (its version equals that CLA's digest)
+  gaining the carried CLA back and publishing identical content under a new
+  version. This is implementation behavior, not a fixture artifact.
+- Mechanism 2, branch-dependent version function: `filterEndpointResourcesForClusters`
+  returns the endpoint collection's own version (`EndpointsHash`, derived
+  from translation inputs in `cla.go`) when nothing is dropped or
+  synthesized, and an XOR of per-CLA proto digests otherwise. The same
+  content therefore has two version strings depending on whether an
+  unrelated CLA was filtered or synthesized in that revision. Unit fixtures
+  fabricate `EndpointsHash`, so the randomized trace exaggerates this; the
+  branch flip itself is reachable in production whenever a CDS removal
+  precedes its CLA removal, or an EDS cluster's CLA arrives after the cluster.
+- Consequence: each occurrence is one spurious EDS push per client. Envoy
+  re-applies identical endpoints; go-control-plane answers because the
+  version differs. This is a cost and observability issue, not a safety
+  violation, and it is the same class that PR #14516 fixed for label hashing.
+  It also shows that `EndpointsHash` and the proto digest are not the same
+  version function, so IMPL-A1 must be stated for both.
+- Action: version the EDS resource set from the published CLA protos on every
+  branch, including the carried composition, so equal content yields equal
+  version; or document the churn as accepted. Emit traces from a run with the
+  real `translateEndpoints` (envtest or e2e) and apply the version relation to
+  check that `EndpointsHash` moves exactly when CLA content moves; the unit
+  fixtures cannot establish that. Decide whether `version-churn` becomes a
+  failure once fixtures stop fabricating versions.

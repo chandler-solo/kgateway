@@ -64,13 +64,25 @@ listener activation, and traffic.
 
 ## IMPL-A1 EDS version digest
 
-**Open (RF-008).** `versionEq` uses name-set equality, omitting same-name
-payload changes. Go hashes endpoint protos and XORs resource hashes. The
-finite digest cannot be injective over an unbounded content domain.
-`TestFilterEndpointResourcesForClusters_VersionDigestProperties` checks
-determinism, order invariance, and no collisions in its finite corpus; it
-cannot prove universal injectivity. Add payload revisions and state a
-collision assumption or define an explicit revision-allocation contract.
+**Open (RF-008); contract stated, runtime detection added.** `versionEq`
+uses name-set equality. `VersionDigest.lean` proves that abstraction is
+blind to a same-name payload change (`nameSetVersion_blind`), so the
+convergence proofs' version statements are about name sets only. Go hashes
+each deterministically marshalled CLA with 64-bit FNV-1a and XORs the
+results; `xorDigest_cancels` shows the combiner alone can collide when two
+resources share a per-resource digest. No finite digest is injective over
+unbounded content, so `DigestContract` assumes determinism on content-equal
+sets and collision freedom only on the domain a run compares.
+
+Evidence: `TestFilterEndpointResourcesForClusters_VersionDigestProperties`
+checks determinism, order invariance, and no collisions in its finite corpus.
+Schema-2 traces carry each CLA's digest, and `TraceCheck.lean` fails a run in
+which one client's EDS version is unchanged while its content changed
+(`version-reuse`) and counts unchanged content with a moved version
+(`version-churn`). These detect violations in observed runs; they do not
+prove the assumption. A monotonic revision allocator would discharge the
+collision assumption but would make equivalent content produce distinct
+versions, defeating the churn suppression that PR #14516 relies on.
 
 ## KRT-A1 Eventual coherent inputs
 

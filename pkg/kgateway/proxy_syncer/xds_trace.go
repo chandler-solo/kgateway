@@ -3,10 +3,12 @@ package proxy_syncer
 import (
 	"cmp"
 	"slices"
+	"strconv"
 
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 )
 
@@ -45,7 +47,17 @@ type XdsSnapshotTraceCluster struct {
 type XdsSnapshotTraceEndpoint struct {
 	Name   string `json:"name"`
 	Usable bool   `json:"usable"`
+	// Digest is the decimal form of the same per-resource content hash that
+	// filterEndpointResourcesForClusters XORs into the EDS version. It lets
+	// the trace checker relate consecutive publications for one client:
+	// an unchanged version must carry unchanged content (RF-008). The
+	// digest exposes no endpoint addresses.
+	Digest string `json:"digest"`
 }
+
+// xdsTraceSchema is the snapshot trace schema version. Schema 2 added the
+// per-endpoint content digest; the checker rejects other schemas.
+const xdsTraceSchema = 2
 
 // Decisions recorded by the trace hook. The trace conformance checker
 // (devel/formal/lean/XdsSpec/TraceCheck.lean) validates the invariants on
@@ -121,6 +133,7 @@ func emitXdsSnapshotTrace(
 		event.Endpoints = append(event.Endpoints, XdsSnapshotTraceEndpoint{
 			Name:   cla.GetClusterName(),
 			Usable: clusterLoadAssignmentHasUsableEndpoint(item),
+			Digest: strconv.FormatUint(utils.HashProto(cla), 10),
 		})
 	}
 	slices.SortFunc(event.Endpoints, func(a, b XdsSnapshotTraceEndpoint) int {

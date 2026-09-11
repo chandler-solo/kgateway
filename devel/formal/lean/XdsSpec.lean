@@ -7,3 +7,4 @@ import XdsSpec.Liveness
 import XdsSpec.PerClusterReadiness
 import XdsSpec.OrderedADS
 import XdsSpec.ClientIdentity
+import XdsSpec.VersionDigest

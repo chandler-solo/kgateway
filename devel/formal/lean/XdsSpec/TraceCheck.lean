@@ -19,12 +19,16 @@ events against the verified spec, instantiated at `Name := String`:
     cluster in the same snapshot — issue 14184's
     `NoOrphanEndpointResources`.
 
-Version digest discipline (assumption IMPL-A1) is deliberately NOT
-checked at trace level: unit fixtures fabricate `EndpointsHash` values,
-so version strings from different tests sharing a client name collide
-meaninglessly. The real hash function's digest properties are discharged
-by `TestFilterEndpointResourcesForClusters_VersionDigestProperties`
-instead.
+  - Version relation (RF-008, IMPL-A1): schema 2 carries the per-CLA
+    content digest that the implementation XORs into the EDS version. For
+    consecutive publications to one client within a scenario, an unchanged
+    `endpointsVersion` with changed (name, digest) content is a
+    `version-reuse` violation: Envoy would not be sent the new endpoints.
+    Unchanged content with a changed version is counted as `version-churn`
+    and reported; it is a spurious push, not a safety violation, and unit
+    fixtures may fabricate passthrough versions. Both directions are the
+    contract stated in VersionDigest.lean; the rule detects a violation in
+    the observed run and proves nothing about unobserved content.
 
 Defer events always conform (whether a defer was *necessary* is a
 liveness question the trace cannot settle); they are parsed and counted
@@ -46,10 +50,11 @@ structure TraceCluster where
 structure TraceEndpoint where
   name : String
   usable : Bool
+  digest : String
   deriving Repr
 
 structure TraceEvent where
-  schema : Nat := 1
+  schema : Nat := 2
   scenario : String := "fixture"
   sequence : Nat := 1
   client : String
@@ -75,13 +80,14 @@ def parseCluster (j : Json) : Except String TraceCluster := do
 def parseEndpoint (j : Json) : Except String TraceEndpoint := do
   let name ← (← j.getObjVal? "name").getStr?
   let usable ← (← j.getObjVal? "usable").getBool?
-  if name.isEmpty then throw "empty endpoint identity"
-  return { name, usable }
+  let digest ← (← j.getObjVal? "digest").getStr?
+  if name.isEmpty || digest.isEmpty then throw "empty endpoint identity or digest"
+  return { name, usable, digest }
 
 def parseEvent (line : String) : Except String TraceEvent := do
   let j ← Json.parse line
   let schema ← (← j.getObjVal? "schema").getNat?
-  if schema != 1 then throw s!"unsupported schema: {schema}"
+  if schema != 2 then throw s!"unsupported schema: {schema}"
   let scenario ← (← j.getObjVal? "scenario").getStr?
   let sequence ← (← j.getObjVal? "sequence").getNat?
   let client ← (← j.getObjVal? "client").getStr?
@@ -149,12 +155,39 @@ structure TraceSummary where
   events : Nat := 0
   publishes : Nat := 0
   defers : Nat := 0
+  /-- Publications whose EDS content matched the client's previous
+  publication while the version string changed (spurious pushes). -/
+  churn : Nat := 0
   violations : List Violation := []
+
+/-- The EDS content of a publication as (CLA name, content digest) pairs. -/
+def publishedContent (e : TraceEvent) : List (String × String) :=
+  e.endpoints.map fun ep => (ep.name, ep.digest)
+
+def contentEq (a b : List (String × String)) : Bool :=
+  a.all (b.contains ·) && b.all (a.contains ·)
+
+/-- Per-client version relation between consecutive publications (RF-008).
+Returns a `version-reuse` violation when the version string is unchanged
+but the content is not, and `true` in the second component when the
+content is unchanged but the version moved (churn). -/
+def checkVersionRelation (previous : Option (String × List (String × String)))
+    (e : TraceEvent) : List (String × String) × Bool :=
+  match previous with
+  | none => ([], false)
+  | some (version, content) =>
+    let same := contentEq content (publishedContent e)
+    if version == e.endpointsVersion && !same then
+      ([("version-reuse",
+        s!"EDS version {version} unchanged while CLA content changed: {content} -> {publishedContent e}")], false)
+    else
+      ([], same && version != e.endpointsVersion)
 
 def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   let mut summary : TraceSummary := {}
   let mut lineNumber := 0
   let mut sequences : List (String × Nat) := []
+  let mut lastPublished : List (String × String × List (String × String)) := []
   let mut terminal := false
   for line in lines do
     lineNumber := lineNumber + 1
@@ -166,7 +199,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       if (j.getObjVal? "terminal").isOk then
         let receipt : Except String Unit := do
           unless (← (← j.getObjVal? "terminal").getBool?) do throw "terminal must be true"
-          unless (← (← j.getObjVal? "schema").getNat?) == 1 do throw "unsupported terminal schema"
+          unless (← (← j.getObjVal? "schema").getNat?) == 2 do throw "unsupported terminal schema"
           let scenario ← (← j.getObjVal? "scenario").getStr?
           let count ← (← j.getObjVal? "events").getNat?
           unless sequences == [(scenario, count)] && count == summary.events do
@@ -187,8 +220,13 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       if ["publish", "publish-first", "publish-resolved"].contains e.decision then
         summary := { summary with publishes := summary.publishes + 1 }
         let found := checkPublish e (requireUsable := e.decision == "publish")
+        let previous := (lastPublished.find? (fun entry => entry.1 == e.client)).map (·.2)
+        let (versionFound, churned) := checkVersionRelation previous e
+        lastPublished := (e.client, e.endpointsVersion, publishedContent e) ::
+          lastPublished.filter (fun entry => entry.1 != e.client)
         summary := { summary with
-          violations := summary.violations ++ found.map fun (rule, detail) =>
+          churn := summary.churn + (if churned then 1 else 0),
+          violations := summary.violations ++ (found ++ versionFound).map fun (rule, detail) =>
             { lineNumber, client := e.client, rule, detail } }
       else
         summary := { summary with defers := summary.defers + 1 }
@@ -200,15 +238,27 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
 private def firstEmpty : TraceEvent :=
   { client := "cold", decision := "publish-first", referenced := ["c"],
     exempt := [], clusters := [⟨"c", true, "service"⟩],
-    endpoints := [⟨"service", false⟩], endpointsVersion := "v1" }
+    endpoints := [⟨"service", false, "d1"⟩], endpointsVersion := "v1" }
 
 #guard (checkPublish firstEmpty false).isEmpty
 #guard !(checkPublish firstEmpty true).isEmpty
 #guard !(checkPublish { firstEmpty with clusters := [] } false).isEmpty
 #guard !(checkPublish { firstEmpty with endpoints := [] } false).isEmpty
-#guard !(checkPublish { firstEmpty with endpoints := [⟨"orphan", false⟩] } false).isEmpty
-private def eventJSON (decision : String := "publish-first") (sequence : Nat := 1) : String :=
-  (r#"{"schema":1,"scenario":"fixture","sequence":SEQ,"client":"cold","decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false}],"endpointsVersion":"v1"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision
+#guard !(checkPublish { firstEmpty with endpoints := [⟨"orphan", false, "d2"⟩] } false).isEmpty
+
+-- Version relation guards (RF-008). The first publication has no
+-- predecessor; a later one is compared with the client's previous content.
+private def previousV1 : Option (String × List (String × String)) := some ("v1", [("service", "d1")])
+#guard checkVersionRelation none firstEmpty == ([], false)
+#guard checkVersionRelation previousV1 firstEmpty == ([], false)
+#guard (checkVersionRelation previousV1 { firstEmpty with endpoints := [⟨"service", true, "d9"⟩] }).1.map (·.1) == ["version-reuse"]
+#guard checkVersionRelation previousV1 { firstEmpty with endpoints := [⟨"service", true, "d9"⟩], endpointsVersion := "v2" } == ([], false)
+#guard checkVersionRelation previousV1 { firstEmpty with endpointsVersion := "v2" } == ([], true)
+
+private def eventJSON (decision : String := "publish-first") (sequence : Nat := 1)
+    (version : String := "v1") (digest : String := "d1") (schema : Nat := 2)
+    (client : String := "cold") : String :=
+  (r#"{"schema":SCHEMA,"scenario":"fixture","sequence":SEQ,"client":"CLIENT","decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false,"digest":"DIGEST"}],"endpointsVersion":"VERSION"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision |>.replace "VERSION" version |>.replace "DIGEST" digest |>.replace "SCHEMA" (toString schema) |>.replace "CLIENT" client
 
 private def fails (result : Except String α) : Bool :=
   match result with | .error _ => true | .ok _ => false
@@ -220,7 +270,7 @@ private def fails (result : Except String α) : Bool :=
 #guard fails (checkTrace [eventJSON "publish-first" 2])
 #guard fails (checkTrace [eventJSON, eventJSON])
 private def terminalJSON (count : Nat) : String :=
-  r#"{"schema":1,"scenario":"fixture","terminal":true,"events":COUNT}"#.replace "COUNT" (toString count)
+  r#"{"schema":2,"scenario":"fixture","terminal":true,"events":COUNT}"#.replace "COUNT" (toString count)
 
 #guard fails (checkTrace [eventJSON])
 #guard fails (checkTrace [eventJSON, terminalJSON 2])
@@ -228,6 +278,24 @@ private def terminalJSON (count : Nat) : String :=
 #guard fails (checkTrace [eventJSON, terminalJSON 1, terminalJSON 1])
 #guard match checkTrace [eventJSON, eventJSON "publish-first" 2, terminalJSON 2] with
   | .ok summary => summary.publishes == 2 && summary.violations.isEmpty
+  | .error _ => false
+
+-- Schema 1 traces and events without a content digest are rejected.
+#guard fails (parseEvent (eventJSON (schema := 1)))
+#guard fails (parseEvent (r#"{"schema":2,"scenario":"fixture","sequence":1,"client":"cold","decision":"publish-first","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false}],"endpointsVersion":"v1"}"#))
+-- Version reuse with changed content is a violation; churn is counted.
+#guard match checkTrace [eventJSON, eventJSON "publish-resolved" 2 "v1" "d2", terminalJSON 2] with
+  | .ok summary => summary.violations.map (·.rule) == ["version-reuse"] && summary.churn == 0
+  | .error _ => false
+#guard match checkTrace [eventJSON, eventJSON "publish-resolved" 2 "v2" "d1", terminalJSON 2] with
+  | .ok summary => summary.violations.isEmpty && summary.churn == 1
+  | .error _ => false
+#guard match checkTrace [eventJSON, eventJSON "publish-resolved" 2 "v2" "d2", terminalJSON 2] with
+  | .ok summary => summary.violations.isEmpty && summary.churn == 0
+  | .error _ => false
+-- Histories are per client: another client may reuse the version string.
+#guard match checkTrace [eventJSON, eventJSON "publish-first" 2 "v1" "d2" 2 "warm", terminalJSON 2] with
+  | .ok summary => summary.violations.isEmpty && summary.churn == 0
   | .error _ => false
 
 def runTraceCheck (paths : List String) : IO UInt32 := do
@@ -243,7 +311,7 @@ def runTraceCheck (paths : List String) : IO UInt32 := do
         IO.println s!"FAIL  {path}: trace contains no events — emitter not wired?"
         ok := false
       else if summary.violations.isEmpty then
-        IO.println s!"PASS  {path}: {summary.events} events ({summary.publishes} publishes, {summary.defers} defers) conform to the spec"
+        IO.println s!"PASS  {path}: {summary.events} events ({summary.publishes} publishes, {summary.defers} defers, {summary.churn} version-churn) conform to the spec"
       else
         ok := false
         IO.println s!"FAIL  {path}: {summary.violations.length} violation(s) in {summary.events} events"
