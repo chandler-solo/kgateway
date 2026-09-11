@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -86,8 +87,27 @@ type probeServer struct {
 	// nacks receives the type URL of each NACKed response in scenarios that
 	// expect rejections; the warming scenario treats any NACK as fatal.
 	nacks chan string
-	log   *json.Encoder
-	mu    sync.Mutex
+	// nackCount and responseCount total every NACK request and every response
+	// observed on the wire in either server mode.
+	nackCount     atomic.Int64
+	responseCount atomic.Int64
+	log           *json.Encoder
+	mu            sync.Mutex
+}
+
+// observeNack records a NACK. The warming scenario treats any NACK as fatal;
+// the references scenario expects them and does not resend the rejected
+// version from the scripted server (the cache path resends it, RF-012).
+func (s *probeServer) observeNack(typ string) error {
+	if s.scenario != "references" {
+		return fmt.Errorf("Envoy NACK of %s", typ)
+	}
+	s.nackCount.Add(1)
+	select {
+	case s.nacks <- typ:
+	default:
+	}
+	return nil
 }
 
 func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
@@ -147,6 +167,7 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 		}
 		nonce++
 		out := &discovery.DiscoveryResponse{TypeUrl: typ, Resources: rs, VersionInfo: version, Nonce: strconv.Itoa(nonce)}
+		s.responseCount.Add(1)
 		s.record(map[string]any{"event": "response", "type": typ, "version": version, "nonce": out.Nonce, "phase": phase})
 		if err := st.Send(out); err != nil {
 			return err
@@ -172,15 +193,10 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 		case r := <-reqs:
 			s.record(map[string]any{"event": "request", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "error": r.ErrorDetail})
 			if r.ErrorDetail != nil {
-				if s.scenario != "references" {
-					return fmt.Errorf("Envoy NACK: %v", r.ErrorDetail)
-				}
-				// The rejected version stays recorded as sent, so the NACK is
-				// not answered by resending the same rejected content (the
-				// RF-012 storm shape); the next phase supplies a new version.
-				select {
-				case s.nacks <- r.TypeUrl:
-				default:
+				// The rejected version stays recorded as sent, so the scripted
+				// server does not answer a NACK by resending the rejected content.
+				if err := s.observeNack(r.TypeUrl); err != nil {
+					return err
 				}
 			}
 			requests[r.TypeUrl] = r
@@ -310,8 +326,8 @@ func run() (runErr error) {
 	if *scenario != "warming" && *scenario != "references" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
-	if *scenario == "references" && (*useCache || *disablePanic) {
-		return fmt.Errorf("-scenario references runs only the scripted server with default panic settings")
+	if *scenario == "references" && *disablePanic {
+		return fmt.Errorf("-scenario references runs with default panic settings")
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -423,7 +439,7 @@ func run() (runErr error) {
 	}
 	save("server-info.json", "/server_info")
 	if *scenario == "references" {
-		return runReferences(ctx, dir, admin, front, inline, p, advance)
+		return runReferences(ctx, dir, admin, front, inline, p, advance, *useCache)
 	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.

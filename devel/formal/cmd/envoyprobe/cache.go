@@ -32,7 +32,7 @@ func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ord
 	c := cache.NewSnapshotCache(true, cache.IDHash{}, nil)
 	publish := func(phase int) error {
 		rs := map[resource.Type][]cachetypes.Resource{}
-		for typ, items := range resources(phase, p.disablePanic) {
+		for typ, items := range p.resourcesFor(phase) {
 			for _, item := range items {
 				msg, err := item.UnmarshalNew()
 				if err != nil {
@@ -46,7 +46,7 @@ func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ord
 			return err
 		}
 		for typ := range rs {
-			snap.Resources[cache.GetResponseType(typ)].Version = versionFor(phase, typ)
+			snap.Resources[cache.GetResponseType(typ)].Version = p.versionFor(phase, typ)
 		}
 		err = c.SetSnapshot(ctx, "formal-probe", snap)
 		var failure any
@@ -63,11 +63,12 @@ func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ord
 		StreamRequestFunc: func(_ int64, r *discovery.DiscoveryRequest) error {
 			p.record(map[string]any{"event": "request", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "error": r.ErrorDetail})
 			if r.ErrorDetail != nil {
-				return fmt.Errorf("Envoy NACK: %v", r.ErrorDetail)
+				return p.observeNack(r.TypeUrl)
 			}
 			return nil
 		},
 		StreamResponseFunc: func(_ context.Context, _ int64, _ *discovery.DiscoveryRequest, r *discovery.DiscoveryResponse) {
+			p.responseCount.Add(1)
 			p.record(map[string]any{"event": "response", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.Nonce})
 		},
 	}

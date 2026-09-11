@@ -192,6 +192,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence: `TestRepeatedNackResendsSameVersionAndCorrectionRecovers` drives
   32 repeated NACKs through the actual cache/server and receives the same
   version with fresh nonces, then receives a corrected snapshot.
+- Evidence added: `envoyprobe -scenario references -snapshot-cache` measures
+  the recurrence with a real Envoy v1.39.1: about 6,800 CDS NACK round trips
+  and about 3,900 LDS NACK round trips in two seconds, in both ADS modes,
+  each re-applying the valid siblings (RF-026) and re-rejecting the invalid
+  resource; a corrected snapshot ends it. One machine, concurrency one.
 - Action: model rejected payload identity, damping/reset/cancellation and healthy
   type/client progress. The scripted recurrence is not a real-Envoy CPU estimate.
 
@@ -488,6 +493,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   currently infers applied configuration from accepted versions. The metric
   cannot distinguish a wholesale rejection from one whose valid siblings
   applied; both raise the same per-type gauge.
+- Cache path: through SnapshotCache the rejected snapshot is resent on every
+  NACK (RF-012), so the partial application recurs thousands of times per
+  second until a corrected snapshot arrives; applied state and traffic were
+  unchanged across the window.
 - Consequence: a NACK does not protect unrelated resources from a response
   that also carries an invalid one; it protects only the invalid resource.
   Isolation is better than the atomic-rollback model predicts, but the

@@ -131,7 +131,31 @@ func hasNames(got []string, want ...string) bool {
 }
 
 // runReferences drives the "references" scenario after Envoy's admin is up.
-func runReferences(ctx context.Context, dir, admin, front, inline string, p *probeServer, advance func(int) error) error {
+// measureStorm observes NACK and response counts over a window after a
+// rejection. The scripted server never resends a rejected version, so the
+// window must stay quiet; the SnapshotCache path answers every NACK with the
+// same rejected version (RF-012) and the window measures that recurrence on a
+// real Envoy. A rate from one machine is a characterization, not a budget.
+func measureStorm(ctx context.Context, p *probeServer, useCache bool, phase string) error {
+	const window = 2 * time.Second
+	nacks0, responses0 := p.nackCount.Load(), p.responseCount.Load()
+	select {
+	case <-time.After(window):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	nacks, responses := p.nackCount.Load()-nacks0, p.responseCount.Load()-responses0
+	p.record(map[string]any{"event": "observation", "phase": phase + "-storm-window", "snapshot_cache": useCache, "window_ms": window.Milliseconds(), "nacks": nacks, "responses": responses})
+	if !useCache && (nacks != 0 || responses != 0) {
+		return fmt.Errorf("%s: scripted server saw %d NACKs and %d responses in a quiet window", phase, nacks, responses)
+	}
+	if useCache && nacks < 2 {
+		return fmt.Errorf("%s: SnapshotCache path did not resend the rejected version (%d NACKs in %s); reassess RF-012", phase, nacks, window)
+	}
+	return nil
+}
+
+func runReferences(ctx context.Context, dir, admin, front, inline string, p *probeServer, advance func(int) error, useCache bool) error {
 	save := func(name, path string) (string, error) {
 		_, body, err := get(admin + path)
 		if err != nil {
@@ -139,24 +163,36 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 		}
 		return body, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644)
 	}
+	// awaitNack skips NACKs of other types still buffered from an earlier
+	// rejection storm (cache mode) and waits for the expected type.
 	awaitNack := func(typ string) error {
-		select {
-		case got := <-p.nacks:
-			if got != typ {
-				return fmt.Errorf("expected NACK of %s, got %s", typ, got)
+		for {
+			select {
+			case got := <-p.nacks:
+				if got == typ {
+					return nil
+				}
+			case <-ctx.Done():
+				return fmt.Errorf("no NACK of %s observed: %w", typ, ctx.Err())
 			}
-			return nil
-		case <-ctx.Done():
-			return fmt.Errorf("no NACK of %s observed: %w", typ, ctx.Err())
 		}
 	}
+	// noNack is count based: it starts after the caller has observed the
+	// corrected state applied, so a storm from the previous phase has ended.
 	noNack := func(window time.Duration) error {
-		select {
-		case got := <-p.nacks:
-			return fmt.Errorf("unexpected NACK of %s", got)
-		case <-time.After(window):
-			return nil
+		for len(p.nacks) > 0 {
+			<-p.nacks
 		}
+		before := p.nackCount.Load()
+		select {
+		case <-time.After(window):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if delta := p.nackCount.Load() - before; delta != 0 {
+			return fmt.Errorf("unexpected %d NACK(s) after the corrected state was applied", delta)
+		}
+		return nil
 	}
 
 	// Phase 0: RDS reference to a cluster absent from CDS.
@@ -202,6 +238,13 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 		return fmt.Errorf("traffic through the retained cluster after NACK: status=%d err=%v", code, err)
 	}
 	p.record(map[string]any{"event": "observation", "phase": "partial-cds-nack", "active_clusters": []string{"a"}, "valid_change_in_rejected_response_applied": true, "traffic": 200})
+	if err = measureStorm(ctx, p, useCache, "partial-cds-nack"); err != nil {
+		return err
+	}
+	// The storm must not change what is applied: a again, still 3s, still 200.
+	if code, b, err = get(front + "/"); err != nil || code != 200 || b != "probe-upstream" {
+		return fmt.Errorf("traffic after the rejection window: status=%d err=%v", code, err)
+	}
 
 	// Phase 2: corrected CDS with a second valid cluster and an empty CLA.
 	if err = advance(2); err != nil {
@@ -244,6 +287,9 @@ func runReferences(ctx context.Context, dir, admin, front, inline string, p *pro
 		return fmt.Errorf("rejected inline listener accepted a connection")
 	}
 	p.record(map[string]any{"event": "observation", "phase": "inline-dangling-lds", "nack": true, "front_traffic": 200, "inline_listener": "absent", "valid_change_in_rejected_response_applied": true})
+	if err = measureStorm(ctx, p, useCache, "inline-dangling-lds"); err != nil {
+		return err
+	}
 
 	// Phase 4: the inline route repointed to a present cluster.
 	if err = advance(4); err != nil {

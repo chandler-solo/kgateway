@@ -127,3 +127,29 @@ Three conclusions, each limited to this binary and configuration:
 The scripted server does not resend a rejected version on NACK; the next
 phase supplies a new version. It does not test RDS or EDS partial rejection
 (single-resource responses here), Delta xDS, SDS, or worker application.
+
+### Rejection through the actual cache and server
+
+`-scenario references -snapshot-cache` and `-ordered` route the same schedule
+through the root go-control-plane SnapshotCache and SotW server. The
+dangling-reference and partial-acceptance observations are unchanged. The
+difference is what follows a NACK: the scripted server never resends a
+rejected version, while the cache path answers each NACK, whose request
+carries the previous version, with the same rejected snapshot. Measured over
+a two-second window on one arm64 developer machine with Envoy at concurrency
+one inside Docker:
+
+| Rejection | Server mode | NACKs in 2 s | Responses in 2 s |
+|---|---|---|---|
+| CDS `{a, bad}` | default ADS | 6816 | 6816 |
+| CDS `{a, bad}` | ordered ADS | 6860 | 6860 |
+| LDS `{front, inline}` | default ADS | 3846 | 3846 |
+| LDS `{front, inline}` | ordered ADS | 3904 | 3904 |
+
+Each round trip re-delivers the valid siblings, which Envoy re-applies as
+no-ops, and re-rejects the invalid resource. Traffic through the retained
+cluster stayed 200 during the window, and a corrected snapshot ended the
+recurrence in every run. These are real-Envoy recurrence measurements for
+RF-012 on one machine; they are not a CPU budget or a rate that transfers to
+other hardware, concurrency, or resource sizes. The scripted profile's window
+stays at zero NACKs and zero responses.

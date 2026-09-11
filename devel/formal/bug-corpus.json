@@ -10,7 +10,7 @@
       "classification": "mechanism-reproduced",
       "mechanism": "unchanged rejected payload is resent on matching NACK",
       "profile": "GCP v0.14.0",
-      "evidence": "gcpprobe/TestRepeatedNackResendsSameVersionAndCorrectionRecovers",
+      "evidence": "gcpprobe/TestRepeatedNackResendsSameVersionAndCorrectionRecovers; envoyprobe -scenario references -snapshot-cache measures about 6,800 CDS and 3,900 LDS NACK round trips per two seconds with a real Envoy v1.39.1",
       "model": "open rejected-payload/retry machine",
       "obligation": "RF-012",
       "fix_status": "not fixed by closed issue status",
