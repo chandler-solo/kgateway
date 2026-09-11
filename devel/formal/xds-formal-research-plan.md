@@ -411,22 +411,26 @@ the ledger entry each item advances. Nothing below closes a phase.
 
 ### Revised immediate next work
 
-1. RF-002 and RF-021: compute the resource dependency partition from emitted
-   protos in `xdscheck` and validate it on translator fixtures; this is the
-   prerequisite for any isolated publication policy.
-2. RF-005 and KRT-A1: state the dropped fan-out recovery as a weakly fair TLC
-   specification with an explicit watchdog action, and record which fairness
-   assumption the deployed code actually satisfies.
-3. RF-026: add a partial-acceptance transition to the convergence models and
-   extend the direct probe to RDS, EDS, and SDS multi-resource rejection.
-4. RF-006 and RF-009: instrument watch, send, ACK/NACK, and activation, and
-   emit traces from a run with real endpoint translation to apply the
-   version relation to `EndpointsHash`.
-   Update: the real-translation scenario exists and EndpointsHash was
-   content-idempotent for pod-set changes; the carry-suffix and branch-flip
-   churn mechanisms remain to be reached.
-5. RF-016: classify the frozen corpus beyond the eleven discovery entries,
-   starting with the go-control-plane and Envoy candidates that the source
-   inventory already names.
-6. RF-003 and RF-024: choose the fail-closed classification for a
-   permanently unresolved reference and record a nil translation as errored.
+Status as of 2026-09-11 evening (items 1 to 6 as originally listed):
+
+1. RF-002 and RF-021 partition in `xdscheck`: done (`DependencyGraphOf`,
+   `Components`, all fixtures pass without warnings). The isolated
+   publication policy that would consume it is a maintainer decision.
+2. RF-005 and KRT-A1 fairness specification: done (`KrtRecovery.tla`, four
+   configurations); no deployed watchdog, so progress rests on KRT delivery.
+3. RF-026 per-type acceptance: done in Lean (`PartialRejection.lean`
+   per-family table and the two surviving-invariant theorems) and measured
+   for all five families. Not added to `XdsAdsSotw.tla`, whose single
+   resource per type cannot express a valid sibling; widening it is the
+   RF-015 deferred model.
+4. RF-006 and RF-009 traces with real endpoint translation: done for the
+   in-process scenarios (schema 2, installation receipts, version relation);
+   live runs stay pass/fail until a controller trace flag exists (decision).
+5. RF-016 corpus: seventy-two dispositions; further classification is
+   open-ended and proceeds only when a new report names a mechanism.
+6. RF-003 and RF-024 classification and errored recording: RF-024 has a fix
+   on a main-based branch (0841e73066) and a second instance in the
+   shared-base stack; the remedy and the RF-003 bound are decisions.
+
+Nothing in this list can advance without one of the decisions above, except
+item 5, which has no natural end.
