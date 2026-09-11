@@ -133,3 +133,36 @@ private def observedAtomic : State :=
   | .ok _ => true | _ => false
 
 end XdsSpec.PartialRejection
+
+namespace XdsSpec.PartialRejection
+
+/-- The main-ADS resource families kgateway publishes. -/
+inductive ResourceFamily where
+  | cds | lds | eds | rds | sds
+  deriving BEq, Repr
+
+/-- Rejection semantics per family as measured on Envoy v1.39.1 by the
+`references`, `rejection`, and `secrets` scenarios of envoyprobe. CDS and LDS
+apply the valid siblings of a NACKed response (their API implementations add
+resources one at a time); EDS, RDS, and SDS reject the whole response, whether
+the failure is caught during decoding or during construction. This is a
+recorded observation about one binary, not a protocol guarantee. -/
+def measuredSemantics : ResourceFamily → Semantics
+  | .cds => .partialAcceptance
+  | .lds => .partialAcceptance
+  | .eds => .atomicRejection
+  | .rds => .atomicRejection
+  | .sds => .atomicRejection
+
+/-- Which property a family keeps after a NACK, by the measured semantics. -/
+def keepsValidSiblingIsolated (f : ResourceFamily) : Bool :=
+  measuredSemantics f == .partialAcceptance
+
+def keepsAcceptedVersionDescribesApplied (f : ResourceFamily) : Bool :=
+  measuredSemantics f == .atomicRejection
+
+#guard keepsValidSiblingIsolated .cds && keepsValidSiblingIsolated .lds
+#guard !(keepsValidSiblingIsolated .eds) && !(keepsValidSiblingIsolated .rds) && !(keepsValidSiblingIsolated .sds)
+#guard keepsAcceptedVersionDescribesApplied .eds && !(keepsAcceptedVersionDescribesApplied .cds)
+
+end XdsSpec.PartialRejection
