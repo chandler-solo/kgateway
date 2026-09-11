@@ -83,9 +83,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   (accepted, per-route 503), an inline LDS route to the same absent cluster
   (listener rejected), and partial CDS/LDS rejection that applies the valid
   resources of the NACKed response (RF-026).
-- Action: extend the pinned direct harness to SDS absence/rotation,
-  multi-resource RDS/EDS rejection, initial-fetch timeouts, restart, and
-  worker application observations.
+- Evidence added: the `rejection` and `secrets` scenarios cover EDS and RDS
+  multi-resource rejection and SDS rotation, removal, and absence.
+- Action: extend the pinned direct harness to initial-fetch timeouts,
+  restart, worker application observations, validation-context secrets, and
+  Delta xDS.
 
 ## RF-005 Recoverability was described as temporal liveness
 
@@ -360,6 +362,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   SecretDiscoveryService on a loopback server. This exposes StreamSecrets,
   DeltaSecrets, and FetchSecrets; tests use Fetch. It is separate from the main
   ADS server and its per-client publication gate.
+- Evidence added: the direct `secrets` scenario characterizes rotation,
+  removal, and a never-delivered secret over SotW ADS (RF-027). Removal is
+  ACKed and revokes nothing.
 - Action: model secret rotation, deletion/revocation, last-good versus
   fail-closed behavior, version reuse, reconnect, identity, and partial send.
   Determine which three RPC modes are supported and disable unused modes or
@@ -377,6 +382,8 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence added: `xdscheck.DependencyGraphOf` extracts the reference graph the
   checker traverses, including every secret edge it recognizes, and marks
   resources with unreadable typed configs opaque (RF-002 partition).
+- Evidence added: the direct `secrets` scenario covers the downstream TLS
+  certificate edge for rotation, removal, and absence (RF-027).
 - Action: extract a versioned resource/reference inventory from emitted protos,
   cover every supported secret edge and deletion/rotation schedule, and add
   held-out fixtures for typed configs the checker cannot unpack. Relate cache
@@ -562,3 +569,28 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   extend the probe to RDS with several route configurations, EDS with several
   CLAs, SDS, and the SnapshotCache path where the rejected version is resent
   on every NACK; and record whether Delta xDS behaves the same.
+
+## RF-027 SDS removal does not revoke a delivered certificate
+
+- Status: directly characterized on Envoy v1.39.1 over SotW ADS; kgateway
+  deletion behavior audit open.
+- Evidence: `envoyprobe -scenario secrets` rotates a TLS listener's SDS
+  certificate in place, then sends an SDS response that no longer carries the
+  subscribed secret. Envoy ACKs the empty response, advances its accepted
+  version, keeps the secret active in its dump, and keeps completing
+  handshakes with the last delivered certificate for the whole observation
+  window. A listener whose secret never arrives stays warming and refuses
+  connections while readiness and other listeners are unaffected.
+- Consequence: at the protocol boundary, removing a Secret resource is not a
+  revocation mechanism. Revocation requires replacing the secret's content
+  or removing every listener and cluster that references it in the same or
+  an earlier publication. Any publication policy that retains or carries
+  forward last-good secrets while holding another type (RF-002) inherits
+  this: a held SDS type cannot revoke, but neither can an unheld one by
+  deletion alone.
+- Action: audit what kgateway publishes when a referenced Kubernetes TLS
+  Secret is deleted or a BackendTLSPolicy CA is removed, and whether the
+  referencing listener or cluster changes in the same publication; state the
+  chosen revocation semantics in the secret model required by RF-020 and
+  RF-021; extend the probe to validation-context secrets, upstream client
+  certificates, and the standalone SDS server in `pkg/sds`.

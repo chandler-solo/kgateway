@@ -89,6 +89,8 @@ type probeServer struct {
 	// nacks receives the type URL of each NACKed response in scenarios that
 	// expect rejections; the warming scenario treats any NACK as fatal.
 	nacks chan string
+	// secrets holds the per-run certificates for the "secrets" scenario.
+	secrets secretSchedule
 	// nackCount and responseCount total every NACK request and every response
 	// observed on the wire in either server mode.
 	nackCount     atomic.Int64
@@ -118,6 +120,8 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return referenceResources(phase)
 	case "rejection":
 		return rejectionResources(phase)
+	case "secrets":
+		return s.secrets.resources(phase)
 	default:
 		return resources(phase, s.disablePanic)
 	}
@@ -191,7 +195,7 @@ func (s *probeServer) StreamAggregatedResources(st discovery.AggregatedDiscovery
 			if phase == 4 {
 				delete(sent, resource.EndpointType)
 			} // explicitly replay the unchanged CLA
-			for _, typ := range []string{resource.ClusterType, resource.EndpointType, resource.ListenerType, resource.RouteType} {
+			for _, typ := range []string{resource.ClusterType, resource.EndpointType, resource.ListenerType, resource.RouteType, resource.SecretType} {
 				if err := send(typ); err != nil {
 					return err
 				}
@@ -324,12 +328,12 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, or rejection")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, or secrets")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
@@ -362,6 +366,14 @@ func run() (runErr error) {
 	}
 	defer logfile.Close()
 	p := &probeServer{disablePanic: *disablePanic, scenario: *scenario, updates: make(chan int, 1), nacks: make(chan string, 8), log: json.NewEncoder(logfile)}
+	if *scenario == "secrets" {
+		if p.secrets.first, err = newProbeCertificate("cert-1"); err != nil {
+			return err
+		}
+		if p.secrets.second, err = newProbeCertificate("cert-2"); err != nil {
+			return err
+		}
+	}
 	srv := grpc.NewServer()
 	serverCtx, stopServer := context.WithCancel(context.Background())
 	defer stopServer()
@@ -405,7 +417,7 @@ func run() (runErr error) {
 	if !strings.Contains(dockerOS, "Docker Desktop") {
 		runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
 	}
-	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-p", "127.0.0.1::10002", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
+	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-p", "127.0.0.1::10002", "-p", "127.0.0.1::10004", "-p", "127.0.0.1::10006", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
 	id, err := command(runArgs...)
 	if err != nil {
 		return err
@@ -430,6 +442,14 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
+	tlsPublished, err := published("10004/tcp")
+	if err != nil {
+		return err
+	}
+	orphanPublished, err := published("10006/tcp")
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	if err = await(ctx, func() bool { code, _, _ := get(admin + "/server_info"); return code == 200 }); err != nil {
@@ -451,6 +471,9 @@ func run() (runErr error) {
 	}
 	if *scenario == "rejection" {
 		return runRejection(ctx, dir, admin, front, inline, p, advance, *useCache)
+	}
+	if *scenario == "secrets" {
+		return runSecrets(ctx, dir, admin, front, strings.TrimPrefix(tlsPublished, "http://"), strings.TrimPrefix(orphanPublished, "http://"), p, advance, p.secrets)
 	}
 	// Wait for a concrete warming cluster rather than assuming elapsed time
 	// means the missing-EDS state has been reached.

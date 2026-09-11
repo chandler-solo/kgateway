@@ -183,3 +183,35 @@ the recurrence.
 
 This scenario does not cover an EDS failure that passes constraint
 validation but fails at application, SDS, or Delta xDS.
+
+### Secret delivery, rotation, and removal
+
+`-scenario secrets` drives SDS over ADS, the way kgateway's main server
+delivers Secret resources. A TLS listener on port 10004 takes its certificate
+from SDS secret `cert`; a plain listener and a ready EDS cluster stand beside
+it. Certificates are generated per run inside the probe; keys travel only in
+the SDS response and Envoy redacts them in its dump. Observed on 2026-09-11:
+
+| Phase | Response | Envoy outcome |
+|---|---|---|
+| Initial `cert` (CN cert-1) | ACK | Readiness 200; handshake serves cert-1; dump shows `cert` active |
+| Same name, new content (CN cert-2) | ACK | Handshake serves cert-2 without listener drain; no NACK |
+| SDS response for the subscribed name carries no resource | ACK, request version advances to the empty response's version | Handshake keeps serving cert-2 for the whole 400 ms window; dump still shows `cert` active; no NACK |
+| New TLS listener referencing secret `never`, which the server never sends | ACK for LDS | Listener held warming with `never` in warming secrets; no handshake on its port; readiness stays 200; other listeners unaffected |
+
+Two conclusions, limited to this binary and SotW SDS over ADS:
+
+- Removal is not revocation. Dropping a secret from the SDS response is
+  accepted and changes nothing in the data plane; the last delivered
+  certificate keeps serving. A control plane that deletes a Secret resource
+  in response to revocation has revoked nothing unless it also replaces the
+  secret's content or removes every listener and cluster that references it
+  (RF-027). This is the concrete shape of the plan's warning that retaining
+  last-good state can silently preserve revoked credentials.
+- A missing secret holds only its own listener. Process readiness and the
+  other listeners are unaffected, which matches the per-resource warming
+  seen for missing EDS, and the held listener refuses connections rather than
+  serving without TLS.
+
+Not covered: validation-context (CA) secrets, upstream client certificates,
+SDS over its own gRPC service as `pkg/sds` exposes, NACKed secrets, and Delta.
