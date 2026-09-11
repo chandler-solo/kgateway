@@ -41,6 +41,11 @@ and [program plan](../xds-formal-research-plan.md).
   must meet on a run's compared domain, and shows the XOR combiner's
   structural cancellation collision. It does not prove the Go hash
   collision free (IMPL-A1 remains an assumption).
+- `PartialRejection.lean` is the RF-026 descriptive model of SotW rejection
+  for a two-resource response. The atomic abstraction blocks a valid sibling
+  behind an unrelated invalid resource; the observed Envoy semantics applies
+  the sibling and leaves the accepted version behind. The CLI checks that
+  each semantics violates exactly the property the other keeps.
 
 The [assumption ledger](ASSUMPTIONS.md) distinguishes characterization from
 open obligations. Its Go test checks declarations and anchors, not execution

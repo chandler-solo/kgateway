@@ -473,6 +473,21 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   response. The syncXds comment that a rejected snapshot leaves the client on
   its previous configuration is wrong at Envoy as well as at the cache
   (RF-007).
+- Model added: `PartialRejection.lean` states both semantics for a two-resource
+  response. Over a bounded graph the atomic abstraction violates
+  `ValidSiblingIsolated` and the observed partial semantics violates
+  `AcceptedVersionDescribesApplied`; `ServerViewMatchesClientVersion` holds
+  under both because the NACK request reports the old version honestly. The
+  invariants that survive partial acceptance are therefore those stated over
+  applied content, not over accepted versions.
+- kgateway audit: `pkg/kgateway/setup/envoy_error.go` is the only NACK
+  consumer. It increments `envoy_xds_rejects_total`, raises
+  `envoy_xds_rejects_active` per gateway and type, and logs once per
+  (stream, gateway, type). No status condition, readiness signal, rollback,
+  or resend suppression is derived from ACKs or NACKs, so no kgateway logic
+  currently infers applied configuration from accepted versions. The metric
+  cannot distinguish a wholesale rejection from one whose valid siblings
+  applied; both raise the same per-type gauge.
 - Consequence: a NACK does not protect unrelated resources from a response
   that also carries an invalid one; it protects only the invalid resource.
   Isolation is better than the atomic-rollback model predicts, but the

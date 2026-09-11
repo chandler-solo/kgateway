@@ -8,3 +8,4 @@ import XdsSpec.PerClusterReadiness
 import XdsSpec.OrderedADS
 import XdsSpec.ClientIdentity
 import XdsSpec.VersionDigest
+import XdsSpec.PartialRejection

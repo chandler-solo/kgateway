@@ -226,6 +226,18 @@ def runModelCheck : IO UInt32 := do
     ok := (← runSafetyExpectation ⟨GcpSubscription.system honorSubscription,
       [("OnlyRequested", GcpSubscription.onlyRequested)],
       if honorSubscription then none else some "OnlyRequested"⟩) && ok
+  IO.println ""
+  IO.println "SotW rejection semantics (RF-026): each semantics breaks the property the other keeps"
+  ok := (← runSafetyExpectation ⟨PartialRejection.capped .atomicRejection,
+    [("ValidSiblingIsolated", PartialRejection.validSiblingIsolated)], some "ValidSiblingIsolated"⟩) && ok
+  ok := (← runSafetyExpectation ⟨PartialRejection.capped .atomicRejection,
+    [("AcceptedVersionDescribesApplied", PartialRejection.acceptedVersionDescribesApplied),
+     ("ServerViewMatchesClientVersion", PartialRejection.serverViewMatchesClientVersion)], none⟩) && ok
+  ok := (← runSafetyExpectation ⟨PartialRejection.capped .partialAcceptance,
+    [("AcceptedVersionDescribesApplied", PartialRejection.acceptedVersionDescribesApplied)], some "AcceptedVersionDescribesApplied"⟩) && ok
+  ok := (← runSafetyExpectation ⟨PartialRejection.capped .partialAcceptance,
+    [("ValidSiblingIsolated", PartialRejection.validSiblingIsolated),
+     ("ServerViewMatchesClientVersion", PartialRejection.serverViewMatchesClientVersion)], none⟩) && ok
   if ok then
     IO.println "all model-check expectations held"
     return 0
