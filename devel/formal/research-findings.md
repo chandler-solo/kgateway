@@ -41,11 +41,35 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-003 Permanent missing CDS can still starve first publication
 
-- Status: open implementation limitation.
+- Status: open implementation limitation; cache-boundary and temporal
+  evidence added, policy decision open.
 - Evidence: `syncXds` still defers with no cache and nonempty `missingReferenced`.
-- Action: reproduce permanent derivation failure separately from transient lag
-  and select an explicit fail-closed/degraded outcome. Do not synthesize a
-  security-sensitive replacement cluster or assume a future ready event.
+- Evidence added: `TestColdMissingReferencedClusterWithholdsAllTypes` drives
+  actual `syncXds` and SnapshotCache through ten deferred revisions whose
+  routes reference a cluster absent from CDS. The cold proxy receives no
+  snapshot of any type, including a ready unrelated listener, route, cluster,
+  endpoint assignment, and rotating secret; every decision is
+  `defer-first-publish`. The same reference recorded as errored publishes
+  everything else fail closed, and a reference that later arrives publishes on
+  that revision. Nothing in `syncXds` distinguishes the two arrivals.
+- Temporal model: `ColdMissingCdsStarvation.tla` checks the first-publication
+  guard under weakly fair rebuilds. `Current.cfg` (permanent absence) produces
+  the expected progress violation; `Transient.cfg` (input assumed to become
+  coherent) converges; `Classified.cfg` specifies a proposed policy that
+  records a still-unresolved reference as errored after an abstract bound,
+  and `NoSilentDanglingPublish` holds in all three. The bound, its trigger,
+  and whether the classification is per proxy or per derivation are not
+  chosen by the model, and the policy is not implemented.
+- Source paths that can make a reference permanently missing without an
+  errored record are tracked under RF-024.
+- Action: choose and implement an explicit outcome for a reference that stays
+  unresolved: classify as errored after a bound derived from the startup
+  probe budget, or surface a status condition and keep waiting. Do not
+  synthesize a security-sensitive replacement cluster or assume a future
+  ready event. Verify that the chosen policy refines the model's
+  `Classify` step, and reproduce the warm variant: a permanently missing
+  newly referenced cluster holds RDS/LDS/SDS the same way RF-002's empty
+  backend does.
 
 ## RF-004 Envoy activation assumption is unproven
 
@@ -305,3 +329,28 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   characterization to StreamSecrets and DeltaSecrets. Model the configured
   client as a cache key and represent the actual trust boundary explicitly.
   This synthetic probe does not establish exposure in an installed deployment.
+
+## RF-024 Backend translation without a plugin is dropped, not errored
+
+- Status: latent implementation path identified by source inventory; not
+  reachable with the three built-in backend plugins; reproducer open.
+- Evidence: `NewPerClientEnvoyClusters` skips a backend whenever
+  `TranslateBackend` returns a nil cluster (`backends.go`). That happens when
+  the backend's group/kind has no contributed translator or the contributed
+  `BackendInit` has no `InitEnvoyBackend`. The returned error is discarded
+  with the cluster, so the backend appears in neither the CDS resource set nor
+  `erroredClusters`. Every other failure path returns a named blackhole
+  cluster with an error and is recorded as errored.
+- Consequence: a route that references such a backend has a permanently
+  missing, nonexempt cluster. Under the research policy this withholds a cold
+  proxy's entire first publication (RF-003) and holds a warm proxy's
+  RDS/LDS/SDS flip indefinitely (RF-002). On the baseline policy the same
+  input yields a per-route 503 for RDS routes and a listener rejection for
+  inline or TCP proxy routes. The policy converts a per-route failure into a
+  per-proxy one.
+- Action: record a nil translation result as an errored cluster so the
+  existing fail-closed exemption applies, or reject such backends at
+  collection time with a status condition. Add a probe with a synthetic
+  backend plugin lacking `InitEnvoyBackend` and assert the resulting
+  `erroredClusters` entry. Audit extension plugins outside this repository
+  for the same registration shape before treating the path as unreachable.

@@ -39,6 +39,7 @@ Dependency modules and binary versions are separate identities.
 | Finite model safety | Model-checked with bounded names and states | Run output records each explored domain; not arbitrary concurrency |
 | Finite model recovery | Reachability checked | Does not imply eventuality on all fair executions |
 | Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check | Missing CDS still blocks; cache behavior is not Envoy application |
+| Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation path RF-024 has no reproducer |
 | Snapshot trace validity | Per-event structural checks | No payload-version, lifecycle, acceptance, or activation replay |
 | GCP named response guard | Contradicted/incomplete | Equal-version subscriptions and both lost-watch paths omitted |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
