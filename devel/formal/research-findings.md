@@ -20,8 +20,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Status: open implementation limitation.
 - Evidence: `resolveDeferredPerCluster` holds RDS/LDS/SDS while a newly
   referenced backend has no usable endpoints, potentially forever.
-- Action: add a permanent-empty warm transition with unrelated route and
-  certificate changes; choose and model a bounded or isolated fallback policy.
+- Evidence added: `TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret` drives
+  actual `syncXds` and SnapshotCache through nine revisions with an empty new
+  backend. CDS and the empty CLA publish while an unrelated route configuration
+  addition and synthetic generic-secret rotation remain at the initial state.
+  This characterizes cache composition, not certificate use or Envoy activation.
+- Action: extend to live certificate rotation and choose and model a bounded
+  or isolated fallback policy. Repeated finite input is not a temporal proof.
   The C0 cold-start correction deliberately retains the warm C3 policy.
 
 ## RF-003 Permanent missing CDS can still starve first publication
