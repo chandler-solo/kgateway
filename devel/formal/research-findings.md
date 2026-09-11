@@ -241,6 +241,22 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   suppression relies on). Review any nonzero `version-churn` count from the
   required runner against the carry-forward version suffix and fixture
   passthrough versions before treating it as an implementation defect.
+- Review note, PR #14604 (head 5da2acd8ec, unmerged), relayed from a
+  review session and checked against the diff: the PR changes the
+  `UccWithEndpoints` marker from `+krtEqualsTodo` to `+noKrtEquals
+  EndpointsHash is a content hash over the same inputs`. That is an equality
+  claim: KRT treats a row as unchanged when Client, endpointsName, and
+  EndpointsHash match, without comparing the CLA. The interner the PR adds
+  verifies protobuf equality before sharing a proto, but KRT change
+  detection does not, so the claim needs both halves of `DigestContract`:
+  `sound` (equal inputs give equal hashes, which the fold provides) and
+  `injectiveOn` (equal hashes give equal built CLAs), which is assumed, not
+  proven, on main and in the PR alike. A collision or an uncovered input
+  produces a row KRT never republishes, which no snapshot trace can see
+  because no publication happens; `version-reuse` detects only published
+  staleness. The marker should say the assumption, or the Equals should
+  compare the CLA digest it already has access to. See RF-029 for the
+  input-coverage question.
 
 ## RF-009 Required evidence execution and CI coverage
 
@@ -558,6 +574,17 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   whose filtered set was one CLA (its version equals that CLA's digest)
   gaining the carried CLA back and publishing identical content under a new
   version. This is implementation behavior, not a fixture artifact.
+- Review note, PR #14604 (head 5da2acd8ec, unmerged): the per-client EDS
+  version string is the XOR of every row's EndpointsHash
+  (`perclient.go`, the EndpointResources transform), and the PR replaces the
+  row hash `LbEpsEqualityHash ^ additionalHash` with an FNV-1a fold of three
+  parts. Every EDS version string therefore changes on upgrade to a build
+  carrying the PR while no CLA content changes: one content-identical EDS
+  push per connected client, which Envoy ACKs; names are unchanged so no
+  warming or rejection follows. This is a one-time instance of this
+  finding's churn, and the trace rule would count it as `version-churn`
+  across an upgrade boundary. The local-cluster row hash is separate and
+  unchanged.
 - Mechanism 2, branch-dependent version function: `filterEndpointResourcesForClusters`
   returns the endpoint collection's own version (`EndpointsHash`, derived
   from translation inputs in `cla.go`) when nothing is dropped or
@@ -759,3 +786,56 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   controller restart during a cluster rewarm. (3) Add the reconnect-while-
   warming step to `XdsAdsSotw.tla`, whose stream reset currently re-requests
   every type.
+
+## RF-029 PR #14604 review candidates: retainer race, nested equality cost, hash input coverage
+
+- Status: candidates relayed from a review session of kgateway PR #14604
+  ("proxy_syncer: intern equivalent per-client CLAs", head 5da2acd8ec,
+  unmerged) and checked here against the PR diff, the pinned protobuf
+  source, and the pinned krt source. None is reproduced by a test on this
+  branch; none is a correctness defect in delivered xDS content.
+- Candidate 1, retainer forget race (`pkg/kgateway/proxy_syncer/cla.go` in
+  the PR, `claRetainer.forget` called from a `RegisterBatch` delete hook on
+  `kgatewayEndpoints`): in the pinned krt every registered handler is a
+  `processorListener` with its own queue goroutine (`processor.go`), so the
+  derived collection's transform and the delete hook run concurrently with
+  no ordering between them. A backend deleted and recreated in quick
+  succession can run the recreate's transform, which seeds from and then
+  replaces the retained set, before the late `forget` for the delete drops
+  that same entry. The next pass then interns from nothing: already stored
+  rows keep their proto (their Equals reports no change) while newcomers get
+  a fresh instance, so equal clients hold two protos until the next endpoint
+  change, contrary to the type comment's convergence claim. Bounded, memory
+  only, self-healing on the next content change.
+- Candidate 2, nested equality cost: the pinned protobuf
+  (`google.golang.org/protobuf` v1.36.12 pre-release) short-circuits only at
+  the top level (`proto/equal.go`, identical pointers) and its fast-path
+  `equalMessage` in `internal/impl/equal.go` walks every field of nested
+  messages with no pointer-identity check. The interner's confirmation
+  therefore costs a full walk over every `LbEndpoint` even when the two
+  candidates share nested pointers, on every transform pass for every
+  client. No benchmark was run here; recorded as the reason a hash-bucket
+  hit is not cheap.
+- Candidate 3, hash input coverage (main and the PR): on main the row hash
+  is `LbEpsEqualityHash ^ additionalHash`, where the first covers the
+  endpoint set plus backend policy versioning and the second the endpoint
+  plugins' contributions. `PrioritizeEndpoints` also reads the client's
+  labels and locality (covered by the Client comparison) and, when no plugin
+  set `PriorityInfo`, the backend's `TrafficDistribution`. Whether a Service
+  `trafficDistribution` change reaches `LbEpsEqualityHash` through the
+  backend version fold was not established here. If it does not, the built
+  CLA changes while the row hash and Client are unchanged, KRT drops the
+  update, and the proxy keeps the previous priorities until an endpoint
+  changes. The PR's `combineEndpointHash` adds a load-balancing hash for
+  bucket separation and states that the old key "omitted the load-balancing
+  context", which is the same gap seen from the interning side.
+- Action: (1) add a unit test on main that changes only `TrafficDistribution`
+  on an `EndpointsForBackend` and asserts the row's Equals reports a change;
+  if it does not, that is a staleness defect independent of PR #14604 and a
+  candidate for the RF-024/RF-025 fix batch. (2) In the PR, either take the
+  `forget` under the same ordering as the transform (drop the entry inside
+  the transform when the input's delete is observed, or key retained
+  entries by input generation) or document the two-proto window. (3) Record
+  the upgrade-time EDS version move (RF-025 note) in the PR's release notes.
+  (4) The `+noKrtEquals` marker wording should state the injectivity
+  assumption (RF-008 note).

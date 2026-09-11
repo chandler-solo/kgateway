@@ -365,7 +365,12 @@ the ledger entry each item advances. Nothing below closes a phase.
     leaves the reconnected Envoy re-requesting EDS, LDS, and RDS but not CDS
     until an EDS revision completes the warming; Envoy #36951 and #34334
     reproduce over SotW in both ADS modes. A withheld or equal-version-parked
-    EDS after a restart therefore blocks CDS repairs (RF-014, RF-017).
+. RF-029 (new, candidates): PR #14604 review items relayed from a peer
+    session and checked against the diff and pinned sources: a retainer
+    forget race (two-proto window), full nested walks in proto.Equal on the
+    pinned protobuf, an upgrade-time EDS version move (RF-025), the
+    `+noKrtEquals` marker as an unproven injectivity claim (RF-008), and an
+    open question whether `TrafficDistribution` reaches the row hash on main.
 
 ### What remains and who decides
 
