@@ -349,6 +349,16 @@ the ledger entry each item advances. Nothing below closes a phase.
 23. RF-016: the corpus reached fifty-one dispositions with Gloo and solo-kit
     lineage entries; RF-026 gained the measured per-family table in Lean.
 
+### Sixth tranche, same day
+
+24. RF-016: seventy-two dispositions after second go-control-plane, kgateway,
+    and Envoy batches; kgateway #14453 corroborates the RF-012 resend loop in
+    the field, and #14453, #14447, #13830, #13841 form an accepted-by-kgateway,
+    rejected-by-Envoy family whose NACK never reaches status (RF-026).
+25. RF-007: the version-skew EDS blackout of kgateway #14471 is pinned through
+    the real cache; the production binary never installs the trace sink, so
+    live runs stay pass/fail until RF-009 adds a trace flag.
+
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence, RF-003 classification
