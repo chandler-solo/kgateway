@@ -389,6 +389,9 @@ the ledger entry each item advances. Nothing below closes a phase.
     unsupported backends the same way in `TranslateBackendBase`, and lowers
     the snapshot-deferral log to Debug; both recorded from the peer review
     and verified read-only at that head.
+32. RF-028 action 2, RF-009: the live XdsWarming suite gained a controller
+    restart while the new cluster warms; four of four tests passed on a fresh
+    kind cluster. Pass/fail only, no trace.
 
 ### What remains and who decides
 
@@ -398,7 +401,7 @@ the ledger entry each item advances. Nothing below closes a phase.
   behavior and belong to the maintainers.
 - Dependency: adopting go-control-plane #1356 through a pseudo-version.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
-  fix ancestry, RF-028 live restart during a rewarm, and Delta xDS (excluded).
+  fix ancestry, and Delta xDS (excluded).
 - Policy, added with RF-028: accept the 15 s EDS-fetch-timeout bound on the
   reconnect-while-warming window, shorten it with an explicit
   `initial_fetch_timeout` on EDS sources (RF-003 trade-off), or remove it

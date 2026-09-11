@@ -125,7 +125,7 @@ func (s *testingSuite) TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic() {
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeNewManifest)
 	s.Require().NoError(err, "can retarget route to new service before endpoints exist")
-	s.eventuallyRouteObserved(routeName, gatewayNamespace)
+	s.eventuallyRouteObserved(routeName)
 
 	s.assertActiveClusterIsPresent(oldClusterName)
 	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
@@ -162,7 +162,7 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeWeightedManifest)
 	s.Require().NoError(err, "can update route to weighted old/new backends before new endpoints exist")
-	s.eventuallyRouteObserved(routeName, gatewayNamespace)
+	s.eventuallyRouteObserved(routeName)
 
 	s.assertActiveClusterIsPresent(oldClusterName)
 	s.assertGatewayServesConsistently(hostName, oldBody, 10*time.Second, 500*time.Millisecond)
@@ -190,7 +190,7 @@ func (s *testingSuite) TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic() {
 func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, startupServiceRouteManifest)
 	s.Require().NoError(err, "can publish startup route and service before endpoints exist")
-	s.eventuallyRouteObserved(startupRouteName, gatewayNamespace)
+	s.eventuallyRouteObserved(startupRouteName)
 
 	s.assertGatewayStatusConsistently(startupHostName, http.StatusNotFound, 10*time.Second, 500*time.Millisecond)
 
@@ -213,15 +213,15 @@ func (s *testingSuite) TestInitialRouteWaitsForEDSBeforeBecomingActive() {
 	s.assertGatewayServesConsistently(startupHostName, startupBody, 5*time.Second, time.Second)
 }
 
-func (s *testingSuite) eventuallyRouteObserved(routeName, routeNamespace string) {
+func (s *testingSuite) eventuallyRouteObserved(routeName string) {
 	s.TestInstallation.AssertionsT(s.T()).Gomega.Eventually(func(g gomega.Gomega) {
 		route := &gwv1.HTTPRoute{}
 		err := s.TestInstallation.ClusterContext.Client.Get(
 			s.Ctx,
-			types.NamespacedName{Name: routeName, Namespace: routeNamespace},
+			types.NamespacedName{Name: routeName, Namespace: gatewayNamespace},
 			route,
 		)
-		g.Expect(err).NotTo(gomega.HaveOccurred(), "can get HTTPRoute %s/%s", routeNamespace, routeName)
+		g.Expect(err).NotTo(gomega.HaveOccurred(), "can get HTTPRoute %s/%s", gatewayNamespace, routeName)
 
 		generation := route.GetGeneration()
 		g.Expect(route.Status.Parents).NotTo(gomega.BeEmpty(), "HTTPRoute should have parent status")
@@ -232,7 +232,7 @@ func (s *testingSuite) eventuallyRouteObserved(routeName, routeNamespace string)
 			}
 		}
 		g.Expect(false).To(gomega.BeTrue(), "HTTPRoute %s/%s has not observed generation %d; status: %+v",
-			routeNamespace, routeName, generation, route.Status)
+			gatewayNamespace, routeName, generation, route.Status)
 	}).WithContext(s.Ctx).WithTimeout(time.Minute).WithPolling(500 * time.Millisecond).Should(gomega.Succeed())
 }
 
@@ -352,4 +352,60 @@ func (s *testingSuite) gatewayCurlOptions(host string) []curl.Option {
 		curl.WithPath("/"),
 		curl.WithConnectionTimeout(2),
 	}
+}
+
+// TestRouteUpdateSurvivesControllerRestartWhileNewClusterWarms is the live
+// half of RF-028 (devel/formal/research-findings.md): a route is retargeted
+// to a service with no endpoints, which leaves the new cluster warming while
+// the old one serves, and the control plane restarts in that window. Envoy
+// pauses CDS discovery while a cluster warms and does not re-request CDS on
+// the reconnect until the warming ends; in kgateway's bootstrap the EDS
+// initial fetch timeout (unset, 15 s) bounds that pause. The test asserts the
+// deployed system's observable contract across the restart: old traffic never
+// breaks, and once the new backend exists the reconnected proxy still
+// converges to it.
+func (s *testingSuite) TestRouteUpdateSurvivesControllerRestartWhileNewClusterWarms() {
+	s.TestInstallation.AssertionsT(s.T()).EventuallyHTTPRouteCondition(
+		s.Ctx,
+		routeName,
+		gatewayNamespace,
+		gwv1.RouteConditionAccepted,
+		metav1.ConditionTrue,
+	)
+	s.assertGatewayEventuallyServes(hostName, oldBody)
+	s.assertActiveClusterIsPresent(oldClusterName)
+
+	err := s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, routeNewManifest)
+	s.Require().NoError(err, "can retarget route to new service before endpoints exist")
+	s.eventuallyRouteObserved(routeName)
+	s.assertActiveClusterIsPresent(oldClusterName)
+	s.assertGatewayServesConsistently(hostName, oldBody, 3*time.Second, 500*time.Millisecond)
+
+	// Controller restart while the new cluster is warming: the proxy reconnects
+	// to an empty cache and keeps its retained configuration.
+	err = s.TestInstallation.Actions.Kubectl().RestartDeploymentAndWait(s.Ctx, "kgateway",
+		"-n", s.TestInstallation.Metadata.InstallNamespace)
+	s.Require().NoError(err, "can restart the kgateway controller while the new cluster warms")
+	s.assertGatewayServesConsistently(hostName, oldBody, 5*time.Second, 500*time.Millisecond)
+	s.assertActiveClusterIsPresent(oldClusterName)
+
+	err = s.TestInstallation.Actions.Kubectl().ApplyFile(s.Ctx, backendNewManifest)
+	s.Require().NoError(err, "can create the new backend after the controller restart")
+	s.TestInstallation.AssertionsT(s.T()).EventuallyObjectsExist(
+		s.Ctx,
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "warming-new", Namespace: gatewayNamespace}},
+	)
+	s.TestInstallation.AssertionsT(s.T()).EventuallyPodsRunning(
+		s.Ctx,
+		gatewayNamespace,
+		metav1.ListOptions{LabelSelector: testdefaults.WellKnownAppLabel + "=warming-new"},
+		time.Minute,
+		500*time.Millisecond,
+	)
+
+	// Convergence after the restart must not depend on a second input change:
+	// the reconnected proxy receives the new cluster's endpoints and flips.
+	s.assertActiveClusterIsPresent(newClusterName)
+	s.assertGatewayEventuallyServes(hostName, newBody)
+	s.assertGatewayServesConsistently(hostName, newBody, 5*time.Second, time.Second)
 }

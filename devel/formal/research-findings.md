@@ -826,8 +826,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   entry's EDS version is typically equal to the proxy's accepted version,
   so the reconnect EDS request parks under the equal-version rule and the
   warming never completes until content changes.
-- Not covered: a kgateway controller against a real proxy in this state
-  (the live suites restart neither side mid-warming), Delta xDS, and the
+- Not covered: Delta xDS, and the
   initial-fetch-timeout interaction (warming clusters with no timeout wait
   indefinitely; RF-003 recorded the timeout defaults).
 - Bootstrap correction (same day): kgateway's Envoy bootstrap enables
@@ -861,6 +860,18 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   carries (c) as `FirstResponseUnconditional` and the fallback as
   `EdsCacheFallback`; both configurations pass. Which to adopt is still the
   maintainer decision.
+- Live evidence (2026-09-11): `TestKgateway/XdsWarming/TestRouteUpdateSurvivesControllerRestartWhileNewClusterWarms`
+  passed on a fresh `xdsformal` kind cluster against the research image
+  built from c23bf8591e (production code unchanged since). The route is
+  retargeted to a service with no endpoints, the old cluster keeps serving,
+  the kgateway deployment is restarted in that window, old traffic is
+  asserted consistent across the restart, and after the new backend appears
+  the reconnected proxy activates the new cluster and serves it. The three
+  pre-existing XdsWarming tests passed in the same run (four of four). The
+  run is pass/fail without a snapshot trace (RF-009), so it establishes the
+  observable contract (no old-traffic break, convergence after the restart
+  without a second input change), not the CDS pause or the 15 s bound
+  themselves; those remain direct-Envoy measurements.
 - Action: (1) treat "reconnect while warming" as a required scenario for
   any per-client publication gate: after a restart, a client whose accepted
   EDS version equals the derived version still needs an EDS response for
@@ -868,7 +879,8 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   RF-017); a version bump on reconnect for clients with warming candidates,
   or an unconditional first response after connect, are the candidate
   repairs and need a decision. (2) Extend the live `XdsWarming` suite with a
-  controller restart during a cluster rewarm. (3) Done: `ReconnectWhileWarming.tla`
+  controller restart during a cluster rewarm: done, see the live evidence
+  above. (3) Done: `ReconnectWhileWarming.tla`
   models the paused-CDS reconnect; the current equal-version rule fails
   `EventuallyRepaired` unless endpoints change, and the proposed
   unconditional first response passes. `XdsAdsSotw.tla` still re-requests
