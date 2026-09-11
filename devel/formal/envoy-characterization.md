@@ -243,3 +243,36 @@ revision that changed only CDS produced three content-identical pushes
 Not covered: a restart during warming and the kgateway first-publish gate's behavior when the
 reconnected proxy's derived snapshot is deferred (RF-002, RF-003 hold the
 whole first publication for a client with no cache entry).
+
+### Initial fetch timeouts and a route ahead of its cluster
+
+`-scenario timeouts` sets a two-second `initial_fetch_timeout` on the
+bootstrap CDS and LDS sources and on every ADS config source, then withholds
+dependencies. The other scenarios disable the timeout to isolate the control
+plane; this one measures what Envoy does on its own. Observed on 2026-09-11:
+
+| Step | Envoy behavior |
+|---|---|
+| CDS `{a}` and an RDS listener; EDS and RDS never sent | EDS times out after 2 s and `a` activates with no hosts; RDS times out 2 s later and the listener activates with no routes; readiness arrived after about 3.95 s; requests answer 404; no NACK |
+| RDS `/ -> b` with `b` absent from CDS | 503 |
+| CDS `{a, b}`; EDS for `b` never sent | `b` activates empty after about 2.03 s; 503 |
+| EDS for `b` | 200 without a reconnect |
+
+Conclusions, limited to this binary and configuration:
+
+- Envoy bounds every missing dependency itself. With the default 15 s (this
+  run used 2 s), a cluster whose EDS never arrives becomes active and empty
+  and a listener whose RDS never arrives becomes active with no routes;
+  readiness then follows. The two timeouts composed sequentially here: the
+  cluster-manager phase completed before the listener phase's timer ran, so
+  a proxy missing both waited the sum. This is the data-plane counterpart of
+  the RF-003 classification question: Envoy already converts an
+  indefinitely missing dependency into a degraded active state after a
+  bound, while the research policy withholds the whole first publication
+  for a cache-less client indefinitely.
+- A route published ahead of its cluster (RF-010) serves 503, not 404, and
+  recovers as soon as the cluster and its endpoints arrive, with no
+  reconnect and no NACK.
+
+Not covered: the default 15 s value, timeouts during a warm update rather
+than initialization, and interaction with the kgateway readiness gate.

@@ -68,6 +68,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   chosen by the model, and the policy is not implemented.
 - Source paths that can make a reference permanently missing without an
   errored record are tracked under RF-024.
+- Data-plane bound: the direct `timeouts` scenario shows Envoy converts a
+  dependency that never arrives into a degraded active state after its
+  initial fetch timeout (2 s in the run, 15 s by default), a cluster with no
+  hosts or a listener with no routes, and then reports ready. Any
+  classification bound chosen here should be compared with that default:
+  withholding longer than Envoy would wait trades a degraded proxy for an
+  unconfigured one.
 - Action: choose and implement an explicit outcome for a reference that stays
   unresolved: classify as errored after a bound derived from the startup
   probe budget, or surface a status condition and keep waiting. Do not
@@ -95,9 +102,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   an empty cache against a warm proxy.
 - Evidence added: the `restart` scenario also restarts the proxy container
   against the warm cache; the fresh Envoy is served every type immediately.
-- Action: extend the pinned direct harness to initial-fetch timeouts, restart
-  during warming, worker application observations, validation-context
-  secrets, and Delta xDS.
+- Evidence added: the `timeouts` scenario measures the initial fetch timeout
+  for missing EDS and RDS, their sequential composition through the init
+  manager phases, and a route ahead of its cluster (503, no NACK).
+- Action: extend the pinned direct harness to restart during warming, worker
+  application observations, validation-context secrets, and Delta xDS.
 
 ## RF-005 Recoverability was described as temporal liveness
 
@@ -235,6 +244,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence: ordering probes exhibit ACK-skew and removal windows in both modes;
   Lean graceful removal requires observed deactivation. Setup now supports
   `EnableOrderedAds`, so earlier documentation of non-adoption was stale.
+- Evidence added: the direct `timeouts` scenario shows a route published
+  ahead of its cluster answers 503 until the cluster and its endpoints arrive,
+  then recovers without a reconnect; the ordering window is a 503 window,
+  not a rejection.
 - Action: characterize actual application barriers, delayed/NACKed updates, and
   timeout policy. Do not equate a finite grace timer with route deactivation.
 

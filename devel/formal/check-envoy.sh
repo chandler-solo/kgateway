@@ -19,5 +19,6 @@ go build -tags e2e -o "$ARTIFACT_DIR/envoyprobe" ./devel/formal/cmd/envoyprobe
 "$ARTIFACT_DIR/envoyprobe" -scenario secrets -out "$ARTIFACT_DIR/secrets"
 "$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -out "$ARTIFACT_DIR/restart-cache"
 "$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -ordered -out "$ARTIFACT_DIR/restart-ordered-cache"
+"$ARTIFACT_DIR/envoyprobe" -scenario timeouts -out "$ARTIFACT_DIR/timeouts"
 rm "$ARTIFACT_DIR/envoyprobe"
 echo "Direct Envoy receipts: $ARTIFACT_DIR"

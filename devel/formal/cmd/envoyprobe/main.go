@@ -126,6 +126,8 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return s.secrets.resources(phase)
 	case "restart":
 		return restartResources(phase)
+	case "timeouts":
+		return timeoutResources(phase)
 	default:
 		return resources(phase, s.disablePanic)
 	}
@@ -336,12 +338,12 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, or restart (requires -snapshot-cache)")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart (requires -snapshot-cache), or timeouts")
 	flag.Parse()
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
@@ -431,13 +433,19 @@ func run() (runErr error) {
 		return adv, nil
 	}
 	port := lis.Addr().(*net.TCPAddr).Port
+	// Bootstrap CDS and LDS initial fetch timeouts: disabled except in the
+	// timeouts scenario, which measures them.
+	fetchTimeout := "0s"
+	if *scenario == "timeouts" {
+		fetchTimeout = initialFetchTimeout.String()
+	}
 	bootstrap := fmt.Sprintf(`{
  "node":{"id":"formal-probe","cluster":"formal-probe"},
  "admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":9901}}},
- "dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"}}]},"cds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"0s"},"lds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"0s"}},
+ "dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"}}]},"cds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"%s"},"lds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"%s"}},
  "static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}],
  "listeners":[{"name":"upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"upstream","route_config":{"virtual_hosts":[{"name":"all","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"probe-upstream"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}
-`, port)
+`, fetchTimeout, fetchTimeout, port)
 	cfg := filepath.Join(dir, "bootstrap.json")
 	if err = os.WriteFile(cfg, []byte(bootstrap), 0o600); err != nil {
 		return err
@@ -513,6 +521,9 @@ func run() (runErr error) {
 	}
 	if *scenario == "secrets" {
 		return runSecrets(ctx, dir, admin, front, strings.TrimPrefix(tlsPublished, "http://"), strings.TrimPrefix(orphanPublished, "http://"), p, advance, p.secrets)
+	}
+	if *scenario == "timeouts" {
+		return runTimeouts(ctx, dir, admin, front, p, advance)
 	}
 	if *scenario == "restart" {
 		return runRestart(ctx, dir, admin, front, p, restart, func() (string, string, error) {
