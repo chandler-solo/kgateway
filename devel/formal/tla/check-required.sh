@@ -23,6 +23,10 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         continue
     fi
     case "$name" in
+        KrtRecoveryDroppedFanout) model=KrtRecovery; expected=temporal ;;
+        KrtRecoveryWatchdogStaleReplay) model=KrtRecovery; expected=temporal ;;
+        KrtRecoveryCoherentInput) model=KrtRecovery; expected=pass ;;
+        KrtRecoveryWatchdog) model=KrtRecovery; expected=pass ;;
         ColdMissingCdsStarvationCurrent) model=ColdMissingCdsStarvation; expected=temporal ;;
         ColdMissingCdsStarvationTransient) model=ColdMissingCdsStarvation; expected=pass ;;
         ColdMissingCdsStarvationClassified) model=ColdMissingCdsStarvation; expected=pass ;;

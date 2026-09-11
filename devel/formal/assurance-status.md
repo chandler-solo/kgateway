@@ -48,7 +48,7 @@ Dependency modules and binary versions are separate identities.
 | Cache installation receipts | Trace relation from decision to installation on the per-type version tuple (RF-006) | Delivery, acceptance, and activation not instrumented; transform-only scenarios counted |
 | Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; XOR combiner cancels equal per-resource digests |
-| KRT recovery | Open | Existential model heartbeat is not a deployed progress guarantee |
+| KRT recovery | Open; temporal claim stated with explicit fairness (RF-005) | No deployed watchdog exists; progress rests on KRT delivery, which is unverified; a stale-replay watchdog would not help |
 | Historical coverage | Complete title/body inventory, eleven detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |
 | Protocol/feature coverage | Source-anchored reachability inventory | Every known registered/deployed path has a disposition; most nondefault paths still need characterization and modeling |
 

@@ -86,13 +86,22 @@ versions, defeating the churn suppression that PR #14516 relies on.
 
 ## KRT-A1 Eventual coherent inputs
 
-**Open.** A dropped fan-out can leave a client permanently partial. The
-abstract `heartbeatRederive` supplies a coherent candidate, and
+**Open; fairness stated.** A dropped fan-out can leave a client permanently
+partial. The abstract `heartbeatRederive` supplies a coherent candidate, and
 `stuck_client_has_recovery_path` proves existence of a recovery path. Neither
 proves that a production timer runs, reads authoritative truth, obtains
-coherent inputs, or receives fair downstream execution. Watchdog execution,
-permanent empty/invalid input, and scheduling assumptions require separate
-implementation evidence and temporal properties (RF-005).
+coherent inputs, or receives fair downstream execution.
+
+`../tla/KrtRecovery.tla` states the temporal claim under explicit weak
+fairness. Source inventory found no watchdog, ticker, or periodic
+re-derivation in `pkg/kgateway/proxy_syncer` or `pkg/kgateway/setup`, so
+the heartbeat action has no implementation counterpart. The deployed
+profile is `KrtRecoveryCoherentInput`: convergence of a deferred-partial
+client rests entirely on KRT eventually delivering the missing dependency.
+Without that assumption the property fails, and a watchdog that replays the
+stuck cached derivation fails too; only a watchdog that rereads
+authoritative inputs restores it. Whether KRT delivery is fair in
+production remains implementation evidence to collect (RF-005).
 
 ## IMPL-A2 Per-client isolation
 

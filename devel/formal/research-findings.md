@@ -93,8 +93,17 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Evidence: `CheckerTests.lean` reaches G from A/B, but the corresponding
   weakly fair TLC model cycles A/B forever. `stuck_client_has_recovery_path`
   proves existence, not eventual scheduling or a wall-clock bound.
-- Action: use explicit fair temporal specifications for progress; state and
-  validate coherent-input and watchdog execution assumptions in composition.
+- Evidence added: `KrtRecovery.tla` states the recovery claim with explicit
+  weak fairness under four assumptions. Only KRT dependency delivery or a
+  watchdog that rereads authoritative inputs makes a deferred-partial client
+  converge; no delivery and no watchdog, or a watchdog replaying the stuck
+  cached derivation, produce the expected temporal counterexamples. Source
+  inventory found no watchdog or periodic re-derivation in the deployed
+  proxy syncer or setup, so the deployed profile relies on KRT delivery.
+- Action: collect implementation evidence that KRT fan-out delivery is fair
+  for per-client snapshots, or add a watchdog that rereads authoritative
+  inputs and prove it refines `WatchdogRederive`; compose with the cache and
+  Envoy models under the same fairness.
 
 ## RF-006 Snapshot traces are not lifecycle conformance
 
