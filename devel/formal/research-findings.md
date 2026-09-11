@@ -96,6 +96,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   newly referenced cluster holds RDS/LDS/SDS the same way RF-002's empty
   backend does.
 
+- Observability note (2026-09-11, from the shared-base CDS stack review, head
+  5da2acd8ec, verified read-only): the stack lowers the "per-client inputs
+  not ready; deferring snapshot" log in `perclient.go` from Info to Debug,
+  citing per-client volume at startup. That line is the only default-level
+  signal that a client's snapshot is being withheld, which RF-003's
+  permanent-missing case and RF-009's live evidence both depend on. If the
+  downgrade lands, the deferral needs another default-visible signal: a
+  gauge of currently deferred clients derived from collection state, or a
+  rate-limited Info line per client after the deferral exceeds a bound.
+
 ## RF-004 Envoy activation assumption is unproven
 
 - Status: partly characterized directly; ENV-A1 remains open beyond tested profiles.
@@ -586,6 +596,20 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   port must replace the receipt test with the inverted one. Remaining action
   from that commit: audit out-of-tree plugins for a `BackendInit` without
   `InitEnvoyBackend`.
+- Second instance, shared-base CDS stack (head 5da2acd8ec; PRs #14600,
+  #14691 to #14695, #14604), relayed by the review session and verified here
+  read-only at that head: `TranslateBackendBase` in
+  `pkg/kgateway/translator/irtranslator/backend.go` returns nil for a
+  group/kind with no contributed translator or a `BackendInit` without
+  `InitEnvoyBackend`, and the base transform in `proxy_syncer/backends.go`
+  turns a nil base into no row (as does its renamed-cluster guard), so the
+  stack drops the same backends with no errored record, no CLA filtering,
+  and no status. The stack's `TestTranslateBackendBase_NilForUnsupportedGroupKind`
+  pins the drop and must be inverted with the fix; the main-branch fix
+  0841e73066 does not apply there because `TranslateBackend` no longer
+  exists in that shape. Action: whichever lands first, the other needs the
+  same blackhole-with-error return in `TranslateBackendBase` and a row for
+  the errored base.
 
 ## RF-025 EDS version strings move without content changes
 
@@ -914,3 +938,8 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   the upgrade-time EDS version move (RF-025 note) in the PR's release notes.
   (4) The `+noKrtEquals` marker wording should state the injectivity
   assumption (RF-008 note).
+- Relayed, not verified here (same review, head 5da2acd8ec): the stack's
+  `objectContentEquals` compares object annotations that nothing per-client
+  reads, so an annotation-only change on a backend recomputes every client's
+  row for it, a fan-out amplifier in the RF-025 family rather than a
+  staleness. Recorded for the stack's review; no ledger action beyond this.

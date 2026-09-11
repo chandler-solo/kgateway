@@ -385,6 +385,10 @@ the ledger entry each item advances. Nothing below closes a phase.
     window is bounded by that timeout; measured in two new Envoy profiles,
     modeled as `EdsCacheFallback`. RF-014 and RF-017 parks are bounded the
     same way in the deployed bootstrap.
+31. RF-024, RF-003, RF-009: the shared-base CDS stack (head 5da2acd8ec) drops
+    unsupported backends the same way in `TranslateBackendBase`, and lowers
+    the snapshot-deferral log to Debug; both recorded from the peer review
+    and verified read-only at that head.
 
 ### What remains and who decides
 
