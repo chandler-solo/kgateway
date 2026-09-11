@@ -359,6 +359,14 @@ the ledger entry each item advances. Nothing below closes a phase.
     the real cache; the production binary never installs the trace sink, so
     live runs stay pass/fail until RF-009 adds a trace flag.
 
+### Seventh tranche, same day
+
+26. RF-028 (new): a controller restart while a CDS revision is warming
+    leaves the reconnected Envoy re-requesting EDS, LDS, and RDS but not CDS
+    until an EDS revision completes the warming; Envoy #36951 and #34334
+    reproduce over SotW in both ADS modes. A withheld or equal-version-parked
+    EDS after a restart therefore blocks CDS repairs (RF-014, RF-017).
+
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence, RF-003 classification
@@ -367,7 +375,10 @@ the ledger entry each item advances. Nothing below closes a phase.
   behavior and belong to the maintainers.
 - Dependency: adopting go-control-plane #1356 through a pseudo-version.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
-  fix ancestry, RF-004 restart during warming and Delta xDS (excluded).
+  fix ancestry, RF-028 live restart during a rewarm, and Delta xDS (excluded).
+- Policy, added with RF-028: whether a reconnecting client with a warming
+  candidate receives an EDS response even at an equal version (a version
+  bump on reconnect or an unconditional first response after connect).
 - Proofs: per-type acceptance semantics in the convergence models (RF-026)
   and the composed refinement of Phase 4.
 

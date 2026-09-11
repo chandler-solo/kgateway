@@ -137,7 +137,7 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 
 func (s *probeServer) versionFor(phase int, typ string) string {
 	if s.scenario == "restart" {
-		return restartVersion(phase)
+		return restartVersion(phase, typ)
 	}
 	if s.scenario != "warming" {
 		return fmt.Sprintf("r%d", phase)

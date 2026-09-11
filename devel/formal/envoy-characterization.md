@@ -233,6 +233,8 @@ client's snapshot. Observed on 2026-09-11:
 | Same content republished under the same versions | No response is sent (equal versions park every watch); nothing is needed; traffic 200 |
 | Changed CDS content under new versions for every type | Four responses, the cluster rewarms and activates with the new timeout; traffic 200 throughout |
 | Proxy container restarted against the warm cache | The fresh Envoy requests every type with no version; the cache answers all four immediately; the cached revision activates and traffic returns 200. Docker reassigns ephemeral published ports on restart, so the probe re-resolves them |
+| Server restarted while a CDS revision is warming (EDS withheld) | Envoy reconnects and re-requests EDS at its accepted version and LDS and RDS at theirs, all with empty nonces, and does not request CDS for the whole five-second window; the empty cache answers nothing; the candidate cluster stays warming; the old active cluster keeps serving 200 |
+| EDS revision published for the warming cluster | Warming completes, the CDS request follows, and the next CDS revision applies; traffic 200 throughout (RF-028; Envoy #36951 and #34334 reproduced over SotW) |
 
 Conclusions, limited to this binary and cache: a warm proxy is not harmed by
 a control-plane restart whose cache is empty, provided the control plane
@@ -243,7 +245,9 @@ that parks a same-name rewarming (RF-017). Bumping every type's version on a
 revision that changed only CDS produced three content-identical pushes
 (RF-025).
 
-Not covered: a restart during warming and the kgateway first-publish gate's behavior when the
+A restart during warming is covered by the last two rows: CDS discovery stays paused across the reconnect, so a client whose EDS is withheld or parked at an equal version after the restart cannot receive a CDS repair until EDS is released (RF-028, RF-014).
+
+Not covered: the kgateway first-publish gate's behavior when the
 reconnected proxy's derived snapshot is deferred (RF-002, RF-003 hold the
 whole first publication for a client with no cache entry).
 

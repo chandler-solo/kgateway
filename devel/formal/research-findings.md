@@ -705,3 +705,57 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   never resource deletion); extend the probe to validation-context secrets,
   upstream client certificates, the standalone SDS server in `pkg/sds`, and
   Delta xDS.
+
+## RF-028 Reconnect during rewarming does not re-request CDS
+
+- Status: directly characterized on Envoy v1.39.1 over SotW ADS through the
+  real v0.14.0 SnapshotCache in both ADS modes; kgateway exposure follows
+  from RF-001 and RF-003 and is not yet exercised end to end.
+- Evidence: `envoyprobe -scenario restart` (both `-snapshot-cache` profiles)
+  publishes a CDS revision whose cluster `a` has a new connect timeout and
+  withholds the EDS revision, so the candidate cluster is warming while the
+  old active `a` keeps serving. The ADS server is then stopped and a fresh
+  server with an empty cache takes the port. Within the five-second window
+  after the reconnect Envoy re-requests EDS at its accepted version `r2`,
+  LDS at `r3`, and RDS at `r3`, each with an empty nonce, and never
+  requests CDS. The empty cache answers nothing, the candidate stays
+  warming, and traffic stays 200 on the old cluster. Publishing an EDS
+  revision completes the warming, after which Envoy issues its CDS request
+  and the next CDS revision applies. Recorded observations:
+  `restart-during-warming` (`cds_requested_within_5s: false`,
+  `still_warming: true`, `responses: 0`, `traffic: 200`) and
+  `rewarmed-after-restart` (`cds_requested_after_warming: true`) in the
+  gate artifacts for `restart-cache` and `restart-ordered-cache`.
+- Mechanism: while a cluster is warming Envoy pauses CDS discovery until the
+  warming cluster initializes; a stream reconnect during that pause resumes
+  the other types but the paused CDS subscription is not re-sent until the
+  pause lifts. Envoy #36951 and #34334 report this shape over Delta xDS; the
+  same shape holds over SotW on the pinned binary, so those corpus entries
+  move from "Delta only" to "shared mechanism, reproduced over SotW".
+- Consequence for kgateway: a controller restart or ADS stream reset while a
+  proxy is rewarming a cluster leaves that proxy without a CDS request. Any
+  publication policy that withholds EDS for that client (RF-001 cold gate,
+  RF-002 and RF-003 whole-type holds, or RF-017's parked equal-version
+  rewarming) keeps the candidate warming, and CDS cannot progress until an
+  EDS response for the warming cluster arrives. The proxy is not broken in
+  the interim: the previously active cluster keeps serving. But a CDS-only
+  repair, such as removing the misconfigured cluster, cannot reach the proxy
+  until EDS is released. On the deployed path this is the RF-014 same-version
+  EDS requirement composed with a reconnect: after a restart the new cache
+  entry's EDS version is typically equal to the proxy's accepted version,
+  so the reconnect EDS request parks under the equal-version rule and the
+  warming never completes until content changes.
+- Not covered: a kgateway controller against a real proxy in this state
+  (the live suites restart neither side mid-warming), Delta xDS, and the
+  initial-fetch-timeout interaction (warming clusters with no timeout wait
+  indefinitely; RF-003 recorded the timeout defaults).
+- Action: (1) treat "reconnect while warming" as a required scenario for
+  any per-client publication gate: after a restart, a client whose accepted
+  EDS version equals the derived version still needs an EDS response for
+  the warming cluster, which the equal-version park does not send (RF-014,
+  RF-017); a version bump on reconnect for clients with warming candidates,
+  or an unconditional first response after connect, are the candidate
+  repairs and need a decision. (2) Extend the live `XdsWarming` suite with a
+  controller restart during a cluster rewarm. (3) Add the reconnect-while-
+  warming step to `XdsAdsSotw.tla`, whose stream reset currently re-requests
+  every type.
