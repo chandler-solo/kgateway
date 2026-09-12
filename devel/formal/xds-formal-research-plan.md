@@ -408,7 +408,8 @@ the ledger entry each item advances. Nothing below closes a phase.
     and closed the second RF-024 instance, the retainer race (both orders,
     the second with ce4e553ab3 written today), the nested equality cost, the
     marker wording, and the annotation comparison, and added a withheld-
-    clients gauge. Only the upgrade-time EDS version release note is open.
+    clients gauge. The upgrade-time EDS version release note landed on #14604
+    the same day; nothing in RF-029 remains open.
 36. RF-012, RF-025: fixes written on two main-based branches (NACK resend
     suppression decorator; content-and-cluster-derived EDS versions). The
     RF-025 fix showed the policy fold in the EDS version was what completed
