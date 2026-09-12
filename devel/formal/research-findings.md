@@ -259,6 +259,22 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 - Action: compose the named-watch model with installation and stream lifecycle;
   distinguish installation from response success. A passing defect probe is
   not a fixed cache. Track repaired watch retention and eligibility separately.
+- Upstream fix stack (2026-09-12, chandler-solo/go-control-plane PRs 1 to 7
+  plus a new eighth layer, reviewed and amended in
+  `~/go-control-plane_chandler-fix-gh-stack`): request-entry retention of a
+  declined named watch (PR 2), status retained across ClearSnapshot with
+  read-locked cancels (PR 3), opt-in subscription-filtered ADS responses
+  that answer the #14471 skew and this entry's decline (PR 4), opt-in NACK
+  damping (PR 5, RF-012), sends outside the cache locks (PR 6, RF-011),
+  opt-in stale-nonce subscription updates (PR 7, RF-022), and a new layer,
+  `chandler/xds-answer-first-snapshot`, that answers a watch opened before
+  the node had any snapshot regardless of its held version (RF-028's
+  empty-cache reconnect gap, the case kgateway #14703 works around). The
+  queued-supersession and unsubscribe wire probes hold on the lock-free
+  layer under repetition. kgateway follow-through once the stack lands and
+  the pin moves: enable filtered responses and drop the bootstrap-name and
+  errored-cluster CLA filters; enable damping and drop the decorator's NACK
+  rule; drop the reconnect rule; re-run gcpprobe as the acceptance check.
 
 ## RF-008 Finite hash evidence overstated as injectivity
 
