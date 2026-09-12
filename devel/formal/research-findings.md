@@ -105,6 +105,10 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   downgrade lands, the deferral needs another default-visible signal: a
   gauge of currently deferred clients derived from collection state, or a
   rate-limited Info line per client after the deferral exceeds a bound.
+- Stack update (2026-09-12): the stack keeps the line at Debug but adds a
+  gauge of clients whose snapshot is currently withheld (e6136dbcb2), which
+  is the default-visible signal asked for above. Residual: no per-client
+  identification without raising the log level.
 
 ## RF-004 Envoy activation assumption is unproven
 
@@ -631,6 +635,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   exists in that shape. Action: whichever lands first, the other needs the
   same blackhole-with-error return in `TranslateBackendBase` and a row for
   the errored base.
+- Stack update (2026-09-12): done in the stack at fae9ef8cd8 ("never return
+  a nil base") and e004fa5920 ("record renamed and unsupported backends as
+  errored bases"); `TranslateBackendBase` returns the blackhole cluster with
+  the error on both checks. The main-branch fix 0841e73066 remains the fix
+  for main without the stack.
 
 ## RF-025 EDS version strings move without content changes
 
@@ -971,6 +980,23 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   the upgrade-time EDS version move (RF-025 note) in the PR's release notes.
   (4) The `+noKrtEquals` marker wording should state the injectivity
   assumption (RF-008 note).
+- Stack head update (2026-09-12): the review above was against 5da2acd8ec.
+  The branch behind #14604 moved to cdd54cda9a (pushed) and ce4e553ab3
+  (local, `~/k_14343-as-gh-stack`), and most of this entry is now closed
+  there. Candidate 1: `forgetIfAbsent` (1c4a7002d4) drops a retained entry
+  only when the backend is absent from the source collection when the delete
+  is handled, which covers the late-delete order; `keepIfPresent`
+  (ce4e553ab3, written today) re-checks presence after the pass stores its
+  entry, which covers the mirror order where a second delete is handled
+  before the re-add's pass stores and the entry would otherwise leak for a
+  gone backend. Candidate 2: `cla_equal.go` compares CLAs with an
+  identity-aware walk that short-circuits shared nested pointers and falls
+  back to `proto.Equal` for fields it does not model. Action (4): the
+  `+noKrtEquals` wording now states the collision assumption and what relies
+  on it (1aab97a66e). The relayed annotation item: `objectContentEquals` now
+  compares generation and labels only (3a091286c2). Still open: action (3),
+  the PR body's release note is `NONE` while every EDS version string moves
+  once on upgrade.
 - Relayed, not verified here (same review, head 5da2acd8ec): the stack's
   `objectContentEquals` compares object annotations that nothing per-client
   reads, so an annotation-only change on a backend recomputes every client's

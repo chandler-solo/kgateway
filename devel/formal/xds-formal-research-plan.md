@@ -404,6 +404,11 @@ the ledger entry each item advances. Nothing below closes a phase.
     `client-identity-heals-on-drift` obligation flipped to covered by
     upstream's tests and the xdsidentityrace suite. The quiet-stream hole in
     `ClientIdentity.lean` remains.
+35. RF-024, RF-029, RF-003: the shared-base stack moved past the reviewed head
+    and closed the second RF-024 instance, the retainer race (both orders,
+    the second with ce4e553ab3 written today), the nested equality cost, the
+    marker wording, and the annotation comparison, and added a withheld-
+    clients gauge. Only the upgrade-time EDS version release note is open.
 
 ### What remains and who decides
 
