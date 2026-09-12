@@ -104,9 +104,15 @@ func (b *BaseCluster) NeedsInlineCLA() bool {
 // TranslateBackendBase performs the UCC-invariant phase of cluster translation. The
 // returned BaseCluster can be shared across all UCCs targeting this backend.
 //
-// Returns nil when the backend GK has no contributed translator, or its
-// contributed translator has no InitEnvoyBackend hook — configuration errors
-// that prevent producing even a blackhole cluster.
+// Every failure, including a backend whose group/kind has no contributed
+// translator or whose translator has no InitEnvoyBackend hook, returns the
+// named blackhole cluster with Error set; the result is never nil. The
+// consumer records such a base as errored, which excludes the cluster from
+// CDS, filters its ClusterLoadAssignment out of EDS, and reports the error on
+// the Backend. Returning nil here used to drop the backend from every one of
+// those paths at once: no cluster, no errored record, no status, and a CLA
+// left in EDS with no cluster to claim it (formal research finding RF-024,
+// devel/formal/research-findings.md on the chandler/kxdsformalmethods branch).
 //
 // kctx is the KRT context of the transform producing the base; endpoint
 // plugins' PerClientEndpointsMayApply predicates fetch through it, so the base
@@ -118,8 +124,19 @@ func (t *BackendTranslator) TranslateBackendBase(
 ) *BaseCluster {
 	gk := backend.GetGroupKind()
 	process, ok := t.ContributedBackends[gk]
-	if !ok || process.InitEnvoyBackend == nil {
-		return nil
+	if !ok {
+		logger.Error("backend has no contributed translator", "backend", backend.GetName(), "groupKind", gk.String())
+		return &BaseCluster{
+			Cluster: buildBlackholeCluster(backend),
+			Error:   errors.New("no backend translator found for " + gk.String()),
+		}
+	}
+	if process.InitEnvoyBackend == nil {
+		logger.Error("backend plugin has no cluster initializer", "backend", backend.GetName(), "groupKind", gk.String())
+		return &BaseCluster{
+			Cluster: buildBlackholeCluster(backend),
+			Error:   errors.New("no backend plugin found for " + gk.String()),
+		}
 	}
 
 	if backend.Errors != nil {
@@ -591,6 +608,14 @@ func initializeCluster(b *ir.BackendObjectIR) *envoyclusterv3.Cluster {
 		CommonLbConfig:                createCommonLbConfig(b),
 	}
 	return out
+}
+
+// BlackholeCluster is the named, endpoint-less STATIC cluster that stands in
+// for a backend whose translation failed. It is the Cluster of every errored
+// BaseCluster, and consumers that must record a failure of their own under the
+// backend's cluster name build theirs here so the shape stays the same.
+func BlackholeCluster(b *ir.BackendObjectIR) *envoyclusterv3.Cluster {
+	return buildBlackholeCluster(b)
 }
 
 func buildBlackholeCluster(b *ir.BackendObjectIR) *envoyclusterv3.Cluster {
