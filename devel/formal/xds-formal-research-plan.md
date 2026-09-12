@@ -423,6 +423,16 @@ the ledger entry each item advances. Nothing below closes a phase.
     silent. RF-014 and RF-017 same-name rewarms on a live stream are not this
     path; they rest on the EDS version moving with the cluster version.
 
+38. RF-007, RF-011, RF-012, RF-022, RF-028: the go-control-plane fix stack in
+    the fork was reviewed and amended layer by layer (read-locked cancels,
+    logged declines and the ordering trade for filtered responses, the
+    rejected-state subscription-change test for damping, the install-then-
+    send contract on SetSnapshot, the stale-expansion response stated and
+    pinned) and gained an eighth layer answering a watch opened before the
+    first snapshot regardless of version. Every library-side ledger item now
+    has an upstream branch; landing them and the kgateway follow-through are
+    the remaining steps.
+
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence (both bounded by #14698
