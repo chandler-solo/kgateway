@@ -56,6 +56,18 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   activate dangling references. The abstract independent Boolean assumes that
   partition; it does not compute it.
   The C0 cold-start correction deliberately retains the warm C3 policy.
+- Bounding fix (2026-09-12): kgateway PR #14698 (head 3497fda23e, base
+  #14604's branch, the port of the hybrid publication engine into the gh
+  stack; the original fork PR chandler-solo #41 was closed in its favor the
+  same day) resolves a deferred build per cluster: previously published
+  clusters that vanished are carried forward with their assignments, a
+  previously referenced cluster whose assignment row vanished publishes a
+  synthesized empty, and only a route flip onto a newly referenced,
+  not-yet-derived cluster holds routes, listeners and secrets at their
+  published versions. That hold is released at `KGW_PER_CLIENT_PUBLISH_BUDGET`
+  (default 15 s). The whole-type hold this entry describes therefore becomes
+  a bounded flip hold; the isolation and revocation-precedence questions in
+  the action below remain, since the held types are still held together.
 
 ## RF-003 Permanent missing CDS can still starve first publication
 
@@ -95,6 +107,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   `Classify` step, and reproduce the warm variant: a permanently missing
   newly referenced cluster holds RDS/LDS/SDS the same way RF-002's empty
   backend does.
+- Bounding fix (2026-09-12): kgateway PR #14698 (see RF-002) arms one timer
+  per never-published client; at `KGW_PER_CLIENT_PUBLISH_BUDGET` expiry the
+  latest deferred snapshot is published as is, with synthesized empty
+  assignments for underived references, so the pod binds its listeners and
+  routes to still-missing clusters return 503. A client that reported a
+  prior accepted version on connect stays withheld while any referenced
+  cluster is missing from CDS. This is the "surface and keep waiting"
+  branch of the action below for warm clients and a time-bounded publish
+  for cold ones; it is not the errored classification the model's
+  `Classify` step describes, so the refinement obligation stands.
 
 - Observability note (2026-09-11, from the shared-base CDS stack review, head
   5da2acd8ec, verified read-only): the stack lowers the "per-client inputs

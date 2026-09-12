@@ -425,7 +425,8 @@ the ledger entry each item advances. Nothing below closes a phase.
 
 ### What remains and who decides
 
-- Policy: RF-002 isolation and revocation precedence, RF-003 classification
+- Policy: RF-002 isolation and revocation precedence (both bounded by #14698
+  since the fork PR closed), RF-003 classification
   bound (compare with Envoy's 15 s default), RF-024 errored recording,
   RF-025 churn as a gate failure (fix branch exists), RF-012 NACK damping
   (fix branch exists; merging it is the decision). These change product
