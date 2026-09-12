@@ -927,6 +927,21 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   carries (c) as `FirstResponseUnconditional` and the fallback as
   `EdsCacheFallback`; both configurations pass. Which to adopt is still the
   maintainer decision.
+- Fix (2026-09-12, option c): branch `chandler/14184-stack-respond-on-reconnect`
+  on top of the gh stack's `chandler/14184-stack-eds-content-version`
+  (worktree `~/git/kgateway/.claude/worktrees/14184-stack-respond-on-reconnect`,
+  not pushed). The cache decorator that carries the NACK rule (renamed
+  `watchPolicy`) gains a second rule: a request with no error detail, no
+  nonce and a held version is a reconnecting proxy's first request; for the
+  endpoint type the decorator clears the version so the current or next
+  snapshot answers it. Setting `KGW_XDS_RESPOND_ON_RECONNECT`, default on;
+  counter `envoy_xds_reconnect_responses_total`. Re-measured first: on the
+  new go-control-plane pin the empty-cache restart pause is unchanged and an
+  equal-version republish to the parked watch is still silent, while against
+  a warm cache the pin already answers a fresh stream's first request of any
+  type (nothing returned on the stream yet), so the rule is scoped to the
+  empty-cache-then-republish path and to EDS, the type a warming cluster
+  waits on. Both facts are pinned by tests on the undecorated cache.
 - Live evidence (2026-09-11): `TestKgateway/XdsWarming/TestRouteUpdateSurvivesControllerRestartWhileNewClusterWarms`
   passed on a fresh `xdsformal` kind cluster against the research image
   built from c23bf8591e (production code unchanged since). The route is

@@ -414,6 +414,13 @@ the ledger entry each item advances. Nothing below closes a phase.
     RF-025 fix showed the policy fold in the EDS version was what completed
     policy-driven rewarms (RF-014); the cluster version is now folded in
     deliberately, and the trace checker's churn rule should exempt it.
+37. RF-028 option (c) implemented on the gh stack branch
+    `chandler/14184-stack-respond-on-reconnect`: a reconnecting proxy's first
+    endpoint request is answered regardless of its held version. The new pin
+    already answers fresh-stream requests against a warm cache; the rule
+    covers the empty-cache restart path where an equal-version republish is
+    silent. RF-014 and RF-017 same-name rewarms on a live stream are not this
+    path; they rest on the EDS version moving with the cluster version.
 
 ### What remains and who decides
 
@@ -426,10 +433,9 @@ the ledger entry each item advances. Nothing below closes a phase.
   merged it on 2026-09-12.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
   fix ancestry, and Delta xDS (excluded).
-- Policy, added with RF-028: accept the 15 s EDS-fetch-timeout bound on the
-  reconnect-while-warming window, shorten it with an explicit
-  `initial_fetch_timeout` on EDS sources (RF-003 trade-off), or remove it
-  with an unconditional first response after connect.
+- Policy, added with RF-028: option (c), the unconditional first endpoint
+  response after connect, is implemented on the stack branch; merging it is
+  the decision. The 15 s bound remains for deployments that disable it.
 - Proofs: per-type acceptance semantics in the convergence models (RF-026)
   and the composed refinement of Phase 4.
 
