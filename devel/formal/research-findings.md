@@ -200,12 +200,19 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-007 go-control-plane response model omits real behavior
 
-- Status: dependency defects characterized at root module v0.14.0; model refinement open.
+- Status: dependency defects characterized at root module v0.14.0; the pin
+  moved on 2026-09-12 (upstream kgateway #14654, go-control-plane
+  `1cd122661`, #1498 including #1356): the declined parked watch is now
+  retained and delivered to, the request-entry decline still registers no
+  watch; model refinement open.
 - Lineage: replaying the probes against unreleased upstream `bf9b60b56`
   (#1356) and `1cd122661` (#1498) shows the parked declined watch is retained
   there (GCP-A5 repaired expectation) while the request-entry decline still
   registers no watch. No root-module release contains either change as of
-  the 2026-09-04 checkout. See `gcpprobe/README.md` profile diff and
+  the 2026-09-04 checkout. Update 2026-09-12: `1cd122661` is now the
+  root pin via the upstream merge; `TestParkedNamedWatchIsRetainedOnDeclinedResponse`
+  asserts retention and delivery of the next aligned snapshot, and
+  `TestDeclinedNewRequestRegistersNoWatch` still passes as a defect probe. See `gcpprobe/README.md` profile diff and
   `gcpprobe/replay-profile.sh`.
 - Evidence: `CreateWatch` responds at equal version for new unreturned names;
   declined immediate requests are not registered; `respondSOTWWatches` deletes
@@ -374,7 +381,13 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 ## RF-017 Real cache/server can strand same-name cluster rewarming
 
 - Status: reproduced integration defect/limitation with v0.14.0 and Envoy
-  v1.39.1; mitigation remains open.
+  v1.39.1; mitigation remains open. Pin update 2026-09-12: the discard half
+  of the strand (a declined parked watch deleted, GCP-A5) is repaired in the
+  new go-control-plane pin, so a proxy parked behind a misaligned snapshot is
+  delivered the next aligned one without re-requesting; the equal-version
+  park itself is unchanged (`TestResubscribeAtEqualVersionIsAnsweredOnPin`
+  and the envoyprobe warming scenario behave as before), so the same-name
+  rewarming window remains and is bounded only by the bootstrap note below.
 - Evidence: `envoyprobe -snapshot-cache` changes CDS connect timeout while EDS
   names/content/version stay fixed. Envoy re-requests EDS at its accepted
   version; cache eligibility parks the watch. Unchanged SetSnapshot completes
@@ -398,9 +411,17 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-018 Unsubscribe-all is treated as wildcard by snapshot responses
 
-- Status: reproduced cache and wire defect in root v0.14.0, both ADS modes.
-- Evidence: `TestUnsubscribeAllStillReceivesResourcesFromCache` covers immediate
-  and parked response paths. `TestUnsubscribeAllResourceLeaksOnWire` uses the
+- Status: repaired in the root pin as of 2026-09-12 (go-control-plane
+  `1cd122661` via upstream kgateway #14654); reproduced in v0.14.0 before
+  that, both ADS modes.
+- Evidence on the new pin: `TestUnsubscribeAllReceivesNothingFromCache`
+  (immediate and parked entry paths: no response, no watch registered, a
+  later snapshot answers nothing) and `TestUnsubscribeAllLeaksNothingOnWire`
+  (both ADS modes: no watch parks, a changed snapshot sends nothing, a
+  resubscribe at the old version is answered with the new content). The
+  earlier defect probes were inverted in place rather than deleted.
+- Evidence (v0.14.0, before the pin moved): `TestUnsubscribeAllStillReceivesResourcesFromCache` covered immediate
+  and parked response paths. `TestUnsubscribeAllResourceLeaksOnWire` used the
   actual cache/server: after named subscription, an empty names list clears
   the subscription, but a later changed snapshot still sends that resource.
   `GcpSubscription.lean` needs distinct legacy-wildcard and unsubscribe-all
@@ -431,9 +452,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   constructed and shows no leak on the pin, so #1498 is not a kgateway fix
   lead for SnapshotCache; #1356 is. Remaining: audit any cache wrapper or
   alternative cache for responses after cancellation before relying on this,
-  and decide whether kgateway adopts a pseudo-version or waits for a release.
-  KGW deployment reachability and the complete stream/queue refinement remain
-  open.
+  and decide whether kgateway adopts a pseudo-version or waits for a release
+  (done upstream: #14654 adopted the pseudo-version). KGW deployment
+  reachability and the complete stream/queue refinement remain open.
 
 ## RF-016 Historical inventory is not completed bug coverage
 

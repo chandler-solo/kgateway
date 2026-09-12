@@ -118,11 +118,17 @@ obligations:
       - reaugmentFalseCloseBugSystem
       - quietStreamStuckBugSystem
       - countsMatchStreams
-    status: divergent
-    note: the current uniqueclients.go derives the identity ONCE, on the stream's first request (the spec's frozenIdentityBugSystem) - a first request racing the pod/node informers freezes a stale identity for the stream's lifetime. PR https://github.com/kgateway-dev/kgateway/pull/14244 implements the safe system (per-request re-derivation, close on drift, keep on transient failure, pinned original role); its unit tests (TestUniqueClientsReidentifyOnPodChange, TestUniqueClientsFollowUpWithReusedAugmentedNode) and e2e suite (test/e2e/features/xdsidentityrace) discharge the safe-system obligations when it lands. Note the safe system still has the quietStreamStuckBugSystem hole - the heal needs a DiscoveryRequest to arrive, so on a quiet stream staleness is bounded only by the next config push (disclosed non-goal in the PR; a server-side request source such as the KRT-A1 watchdog or gRPC MaxConnectionAge would close it). The refcount algebra relies on assumption GCP-A4 (per-stream callback serialization + error-path OnStreamClosed).
-    divergencePins:
+    status: covered
+    note: upstream #14582 (merged into main 2026-09-11, into this branch 2026-09-12 at f895d2fbbb) implements the safe system - per-request re-derivation, close on genuine drift, keep the established identity on transient lookup failure, pinned original role. The former divergence pin TestUniqueClientsIdentityFrozenAtFirstRequest failed on the merge exactly as its comment predicted and was removed; upstream's unit tests below and the xdsidentityrace e2e suite discharge the obligation. The quietStreamStuckBugSystem hole remains - the heal needs a DiscoveryRequest to arrive, so on a quiet stream staleness is bounded only by the next config push (a server-side request source such as the KRT-A1 watchdog or gRPC MaxConnectionAge would close it). The refcount algebra relies on assumption GCP-A4.
+    tests:
       - file: pkg/krtcollections/uniqueclients_test.go
-        test: TestUniqueClientsIdentityFrozenAtFirstRequest
+        test: TestUniqueClientsReidentifyOnPodChange
+      - file: pkg/krtcollections/uniqueclients_test.go
+        test: TestUniqueClientsFollowUpWithReusedAugmentedNode
+      - file: pkg/krtcollections/uniqueclients_test.go
+        test: TestUniqueClientsKeepIdentityWhenPodLookupFails
+      - file: pkg/krtcollections/uniqueclients_test.go
+        test: TestUniqueClientsLocalClusterGatingSurvivesIdentityReDerivation
   - id: errored-cluster-fails-closed
     summary: an errored cluster (e.g. invalid BackendTLSPolicy) leaves the served CDS so its routes 5xx, and is never carried forward from a previous snapshot - even while a route flip is held for an unrelated cluster
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean

@@ -392,6 +392,18 @@ the ledger entry each item advances. Nothing below closes a phase.
 32. RF-028 action 2, RF-009: the live XdsWarming suite gained a controller
     restart while the new cluster warms; four of four tests passed on a fresh
     kind cluster. Pass/fail only, no trace.
+33. RF-007, RF-017, RF-018, GCP-A5: upstream main merged (f895d2fbbb), moving
+    the go-control-plane pin to `1cd122661` (#1498 incl. #1356). Three
+    dependency probes inverted to the repaired behavior: declined parked
+    watches are retained and delivered to; unsubscribe-all gets nothing and
+    parks nothing. Request-entry decline, NACK resend, stale-nonce drop, the
+    blocking immediate send, and the version-skew withhold are unchanged.
+34. Client identity: upstream #14582 (per-request identity re-derivation,
+    close on drift) arrived with the same merge; the branch's divergence pin
+    failed as its comment predicted and was removed, and the
+    `client-identity-heals-on-drift` obligation flipped to covered by
+    upstream's tests and the xdsidentityrace suite. The quiet-stream hole in
+    `ClientIdentity.lean` remains.
 
 ### What remains and who decides
 
@@ -399,7 +411,8 @@ the ledger entry each item advances. Nothing below closes a phase.
   bound (compare with Envoy's 15 s default), RF-024 errored recording,
   RF-025 churn as a gate failure, RF-012 NACK damping. These change product
   behavior and belong to the maintainers.
-- Dependency: adopting go-control-plane #1356 through a pseudo-version.
+- Dependency: done; upstream #14654 adopted the pseudo-version and the branch
+  merged it on 2026-09-12.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
   fix ancestry, and Delta xDS (excluded).
 - Policy, added with RF-028: accept the 15 s EDS-fetch-timeout bound on the

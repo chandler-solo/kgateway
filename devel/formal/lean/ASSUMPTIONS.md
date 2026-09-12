@@ -112,9 +112,14 @@ streams, cache-wide locks, and stale callbacks remain composition obligations.
 
 ## GCP-A5 Named-watch lifecycle characterization
 
-**Implementation-characterized defects, not repaired.** `gcpprobe` exercises
-both declined-watch paths and equal-version new subscriptions using the root
-module. `GcpWatch.lean` explicitly checks the v0.14.0 loss counterexample and
-proposed retention policy over 534 finite states. This seam supplements the
+**Implementation-characterized; the publish-entry half repaired in the pin.**
+`gcpprobe` exercises both declined-watch paths and equal-version new
+subscriptions using the root module. Since the 2026-09-12 merge the root pin
+is go-control-plane `1cd122661`: a declined parked watch is retained and the
+next aligned snapshot is delivered to it (`TestParkedNamedWatchIsRetainedOnDeclinedResponse`),
+which is the retention policy `GcpWatch.lean` proposed; the request-entry
+decline still registers no watch (`TestDeclinedNewRequestRegistersNoWatch`).
+`GcpWatch.lean` keeps the v0.14.0 loss counterexample and the retention
+policy over 534 finite states, so both pins remain explained. This seam supplements the
 incomplete GCP-A1 guard; it does not yet refine the composed convergence proof.
 RF-007 tracks cache installation, stream state, and that refinement.

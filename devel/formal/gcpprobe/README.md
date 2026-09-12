@@ -1,8 +1,11 @@
 # go-control-plane characterization
 
 Run `CGO_ENABLED=0 go test -tags e2e -count=1 -v ./devel/formal/gcpprobe`.
-These tests import the **root go.mod dependency**, currently v0.14.0. They do
-not copy or patch cache/server source. The earlier local probes supplied the
+These tests import the **root go.mod dependency**, currently
+`v0.14.1-0.20260702184136-1cd1226616f5` (upstream `1cd122661`, #1498, which
+includes the #1356 cache response rewrite; adopted by upstream kgateway
+#14654 and merged here on 2026-09-12). Before that merge the pin was v0.14.0.
+They do not copy or patch cache/server source. The earlier local probes supplied the
 watch scenarios; this harness has its own response helpers and stream, joins
 its goroutines, and does not need upstream test files or a vet exception.
 
@@ -12,8 +15,8 @@ do not simply delete or relax the assertion to keep the suite green.
 
 | Test | Observation | Model or open action |
 |---|---|---|
-| `TestParkedNamedWatchIsDiscardedOnDeclinedResponse` | Decline deletes waiter; realignment alone does not deliver; a new request recovers | `GcpWatch.lean`, RF-007 |
-| `TestDeclinedNewRequestRegistersNoWatch` | Immediate decline leaves no waiter | `GcpWatch.lean`, RF-007 |
+| `TestParkedNamedWatchIsRetainedOnDeclinedResponse` | Decline retains the waiter; the next aligned snapshot is delivered without a new request (repaired since the pin moved; v0.14.0 deleted the waiter) | `GcpWatch.lean` retention policy, RF-007, GCP-A5 |
+| `TestDeclinedNewRequestRegistersNoWatch` | Immediate decline still leaves no waiter on the current pin (upstream TODO) | `GcpWatch.lean`, RF-007 |
 | `TestEqualVersionRespondsForNewlySubscribedResource` | Same version can answer unreturned B | `GcpWatch.lean`, reopened GCP-A1 |
 | `TestWildcardWatchIsNeverDeclined` | This legacy wildcard fixture bypasses named superset check | Wildcard/unsubscribe history still open |
 | `TestInstallationSurvivesPartialResponseFailure` | CDS answered, EDS blocked/canceled, new cache remains, EDS waiter retained | RF-007, multi-stage installation model open |
@@ -39,12 +42,13 @@ Retention cannot make an incompatible snapshot eligible; new revision/valid
 subscription and eventual execution are separate obligations. Model versions
 wrap in the finite domain; RF-008 still governs production digest semantics.
 
-The subscription audit adds `TestUnsubscribeAllStillReceivesResourcesFromCache`
-(immediate and parked paths) and `TestUnsubscribeAllResourceLeaksOnWire`
+The subscription audit adds `TestUnsubscribeAllReceivesNothingFromCache`
+(immediate and parked paths) and `TestUnsubscribeAllLeaksNothingOnWire`
 (default and ordered real server). Empty names after a named subscription are
-not legacy wildcard, yet v0.14.0 sends resources after a version change.
-RF-018 and `GcpSubscription.lean` record this distinct mechanism. GCP #1498's
-send-time guard is a fix-lineage lead; no dependency upgrade is applied here.
+not legacy wildcard. v0.14.0 sent resources after a version change; the
+current pin answers an unsubscribed watch on neither path, parks no watch for
+it, and answers a later resubscribe with the new content. RF-018 and
+`GcpSubscription.lean` record the mechanism and its repair.
 
 ## Profile diff against post-pin revisions
 
@@ -68,6 +72,7 @@ Attribution: the only cache/server changes between v0.14.0 and `bf9b60b56`
 are #1356 and a Go toolchain bump, so the three repaired observations belong
 to #1356. #1498 filters queued responses against the current subscription at
 send time; the probes here do not construct the queued-supersession schedule
-it targets, so its effect is unobserved, not absent. The probes in this
-directory continue to assert v0.14.0 behavior because that is the branch pin;
-on an upgrade they must be inverted to the repaired expectations above.
+it targets, so its effect is unobserved, not absent. On 2026-09-12 the branch
+merged upstream main, whose #14654 moved the pin to `1cd122661`; the three
+probes above were inverted to the repaired expectations in the same change,
+and the unchanged-observation column still holds on the new pin.

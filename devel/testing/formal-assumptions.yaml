@@ -99,7 +99,7 @@ assumptions:
         test: TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient
   - id: GCP-A5
     status: characterized
-    summary: v0.14.0 discards both declined named-watch entries and answers equal-version requests for new unreturned resources; retention is a proposed policy, not a dependency fix
+    summary: the pinned go-control-plane (1cd122661 since 2026-09-12) retains a declined parked named watch and delivers the next aligned snapshot to it, still registers no watch for a declined new request, and answers equal-version requests for new unreturned resources; v0.14.0 discarded both declined entries
     specFile: devel/formal/lean/XdsSpec/GcpWatch.lean
     specAnchors:
       - immediateEligible
@@ -107,7 +107,7 @@ assumptions:
       - retainDeclined
     dischargedBy:
       - file: devel/formal/gcpprobe/watch_test.go
-        test: TestParkedNamedWatchIsDiscardedOnDeclinedResponse
+        test: TestParkedNamedWatchIsRetainedOnDeclinedResponse
       - file: devel/formal/gcpprobe/watch_test.go
         test: TestDeclinedNewRequestRegistersNoWatch
       - file: devel/formal/gcpprobe/watch_test.go

@@ -14,10 +14,12 @@ import (
 	server "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 )
 
-// RF-018: empty names after an explicit subscription means unsubscribe-all,
-// not legacy wildcard. v0.14.0 respond/createResponse inspect the raw empty
-// name list instead of that subscription state and send unrequested resources.
-func TestUnsubscribeAllStillReceivesResourcesFromCache(t *testing.T) {
+// RF-018, repaired expectation: empty names after an explicit subscription
+// means unsubscribe-all, not legacy wildcard. v0.14.0 respond/createResponse
+// inspected the raw empty name list and sent unrequested resources. The
+// #1356 cache response rewrite, in the pin since upstream #14654, answers an
+// unsubscribed watch on neither entry path and registers no watch for it.
+func TestUnsubscribeAllReceivesNothingFromCache(t *testing.T) {
 	for _, entry := range []string{"immediate", "parked"} {
 		t.Run(entry, func(t *testing.T) {
 			c := cache.NewSnapshotCache(true, kgwHash{}, nil)
@@ -40,22 +42,23 @@ func TestUnsubscribeAllStillReceivesResourcesFromCache(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(cancel)
-			if entry == "parked" {
-				expectSilence(t, ch, "equal-version unsubscribe parks")
-				if err = c.SetSnapshot(context.Background(), kgwNode, kgwEDS(t, "v2", cla("a", 2))); err != nil {
-					t.Fatal(err)
-				}
+			expectSilence(t, ch, "unsubscribe-all is answered on the "+entry+" path: the v0.14.0 leak is back; reassess RF-018")
+			if n := c.GetStatusInfo(kgwNode).GetNumWatches(); n != 0 {
+				t.Fatalf("unsubscribe-all registered %d watch(es); the pin registers none", n)
 			}
-			got := expectResponse(t, ch, "v0.14.0 sends to unsubscribe-all")
-			if _, ok := got.GetReturnedResources()["a"]; !ok {
-				t.Fatal("unrequested-resource behavior changed; assess repair and update RF-018")
+			if err = c.SetSnapshot(context.Background(), kgwNode, kgwEDS(t, "v3", cla("a", 2))); err != nil {
+				t.Fatal(err)
 			}
+			expectSilence(t, ch, "a later snapshot answers an unsubscribed watch: the v0.14.0 leak is back; reassess RF-018")
 		})
 	}
 }
 
 // Exercise the real server as well: no injected stale Response or mock cache.
-func TestUnsubscribeAllResourceLeaksOnWire(t *testing.T) {
+// On the pin the empty-names request parks no watch in either ADS mode, a
+// changed snapshot sends nothing, and a resubscribe at the old version is
+// answered with the new content.
+func TestUnsubscribeAllLeaksNothingOnWire(t *testing.T) {
 	for _, ordered := range []bool{false, true} {
 		name := "default"
 		if ordered {
@@ -88,23 +91,36 @@ func TestUnsubscribeAllResourceLeaksOnWire(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("unsubscribe request not consumed")
 			}
-			deadline := time.Now().Add(time.Second)
-			for c.GetStatusInfo(kgwNode).GetNumWatches() != 1 {
-				if time.Now().After(deadline) {
-					t.Fatal("unsubscribe watch did not park")
+			// The server processes the request asynchronously; give it a bounded
+			// window in which a v0.14.0-style parked watch would have appeared.
+			deadline := time.Now().Add(300 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				if n := c.GetStatusInfo(kgwNode).GetNumWatches(); n != 0 {
+					t.Fatalf("unsubscribe-all parked %d watch(es): the v0.14.0 leak path is back; reassess RF-018", n)
 				}
-				time.Sleep(time.Millisecond)
+				time.Sleep(5 * time.Millisecond)
 			}
 			if err := c.SetSnapshot(ctx, kgwNode, kgwEDS(t, "v2", cla("a", 2))); err != nil {
 				t.Fatal(err)
 			}
 			select {
 			case got := <-s.sent:
-				if got.TypeUrl != rsrc.EndpointType || len(got.Resources) != 1 {
-					t.Fatalf("unexpected response: %v", got)
+				t.Fatalf("unrequested response leaked after unsubscribe-all: %v; reassess RF-018", got)
+			case <-time.After(500 * time.Millisecond):
+			}
+			// A resubscribe at the old accepted version is answered with the new content.
+			select {
+			case s.recv <- &discovery.DiscoveryRequest{TypeUrl: rsrc.EndpointType, ResourceNames: []string{"a"}, VersionInfo: first.VersionInfo}:
+			case <-time.After(time.Second):
+				t.Fatal("resubscribe request not consumed")
+			}
+			select {
+			case got := <-s.sent:
+				if got.TypeUrl != rsrc.EndpointType || len(got.Resources) != 1 || got.VersionInfo != "v2" {
+					t.Fatalf("unexpected resubscribe response: %v", got)
 				}
 			case <-time.After(time.Second):
-				t.Fatal("unrequested response no longer leaks; assess upstream repair and RF-018")
+				t.Fatal("resubscribe after unsubscribe-all was not answered")
 			}
 		})
 	}

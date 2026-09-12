@@ -1,5 +1,7 @@
 // Package gcpprobe characterizes the real cache selected by the root go.mod.
-// RF-007: passing lost-watch tests reproduce v0.14.0 defects, not fixes.
+// RF-007: a passing probe reproduces the pinned module's behavior, defect or
+// repair; the pin moved from v0.14.0 to the 2026-07-02 pre-release (#1498,
+// which includes the #1356 cache response rewrite) with upstream #14654.
 package gcpprobe
 
 import (
@@ -63,11 +65,12 @@ func expectSilence(t *testing.T, ch chan cache.Response, what string) {
 	}
 }
 
-// GCP-A5 (SetSnapshot path): a parked named EDS watch is deleted when a new
-// snapshot cannot be sent to it (superset declined), so the proxy's pending
-// request is stranded; a later aligned snapshot is not delivered; only a
-// new request recovers.
-func TestParkedNamedWatchIsDiscardedOnDeclinedResponse(t *testing.T) {
+// GCP-A5 (SetSnapshot path), repaired expectation: a parked named EDS watch
+// that a new snapshot cannot be sent to (superset declined) is retained, and
+// a later aligned snapshot is delivered to it without a new request. v0.14.0
+// deleted the watch and stranded the proxy until it re-requested; the #1356
+// cache response rewrite, in the pin since upstream #14654, retains it.
+func TestParkedNamedWatchIsRetainedOnDeclinedResponse(t *testing.T) {
 	ctx := context.Background()
 	c := cache.NewSnapshotCache(true /* ads */, kgwHash{}, nil)
 	if err := c.SetSnapshot(ctx, kgwNode, kgwEDS(t, "v1", cla("a", 1))); err != nil {
@@ -100,28 +103,30 @@ func TestParkedNamedWatchIsDiscardedOnDeclinedResponse(t *testing.T) {
 	}
 	expectSilence(t, ch2, "superset declined {a} watch against {a,b}")
 
-	// GCP-A5: correct behavior is 1 (retained). v0.14.0 deletes it.
-	if n := c.GetStatusInfo(kgwNode).GetNumWatches(); n != 0 {
-		t.Fatalf("declined watch RETAINED (%d open): the discard defect is fixed — invert this probe and update the ledger", n)
+	// GCP-A5 repaired expectation: the declined watch stays registered.
+	if n := c.GetStatusInfo(kgwNode).GetNumWatches(); n != 1 {
+		t.Fatalf("declined watch not retained (%d open): the v0.14.0 discard defect is back; reassess RF-007, RF-017 and GCP-A5", n)
 	}
 
-	// A converging snapshot (b gone, a changed) has nothing to answer.
+	// A converging snapshot (b gone, a changed) is delivered to the retained
+	// watch; no new request is needed.
 	if err := c.SetSnapshot(ctx, kgwNode, kgwEDS(t, "v3", cla("a", 2))); err != nil {
 		t.Fatal(err)
 	}
-	expectSilence(t, ch2, "converging snapshot against a discarded watch (GCP-A5: correct behavior is delivery)")
-
-	// Only a NEW request (Envoy re-requesting after a CDS apply) recovers.
-	ch3 := make(chan cache.Response, 1)
-	if _, err := c.CreateWatch(req, sub, ch3); err != nil {
-		t.Fatal(err)
+	got := expectResponse(t, ch2, "converging snapshot delivered to the retained watch")
+	if v := got.GetResponseVersion(); v != "v3" {
+		t.Fatalf("retained watch answered with version %q, want v3", v)
 	}
-	expectResponse(t, ch3, "new request against the aligned v3 snapshot")
+	if _, ok := got.GetReturnedResources()["a"]; !ok || len(got.GetReturnedResources()) != 1 {
+		t.Fatalf("retained watch answered with resources %v, want exactly a", got.GetReturnedResources())
+	}
 }
 
-// GCP-A5 (CreateWatch path): a NEW named request the current snapshot cannot
-// satisfy is neither answered nor registered as a watch, so a later aligned
-// snapshot is not delivered either.
+// GCP-A5 (CreateWatch path), still a defect on the pin: a NEW named request
+// the current snapshot cannot satisfy is neither answered nor registered as a
+// watch, so a later aligned snapshot is not delivered either. Upstream marks
+// this path with a TODO; main's ads_watch_retention_test documents the same
+// residual.
 func TestDeclinedNewRequestRegistersNoWatch(t *testing.T) {
 	ctx := context.Background()
 	c := cache.NewSnapshotCache(true, kgwHash{}, nil)
@@ -211,9 +216,5 @@ func TestWildcardWatchIsNeverDeclined(t *testing.T) {
 
 func ackResponse(resp cache.Response, sub *stream.Subscription, req *cache.Request) {
 	sub.SetReturnedResources(resp.GetReturnedResources())
-	version, err := resp.GetVersion()
-	if err != nil {
-		panic(err) // All fixtures use materialized snapshots, not passthrough responses.
-	}
-	req.VersionInfo = version
+	req.VersionInfo = resp.GetResponseVersion()
 }

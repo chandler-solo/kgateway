@@ -12,7 +12,7 @@ Profile `research-2026-09-10`, read from the post-merge branch:
 |---|---|
 | Baseline cold-start correction | `8c451a4b5bcf072b7c43159be2a4069eefe2fc5e` |
 | Go | `1.26.7` |
-| go-control-plane cache/server | `v0.14.0` |
+| go-control-plane cache/server | `v0.14.1-0.20260702184136-1cd1226616f5` (upstream `1cd122661`, #1498 incl. #1356; was `v0.14.0` until 2026-09-12) |
 | Envoy protos | `v1.37.1-0.20260529185539-1175069dbb2c` |
 | Contrib protos | `v1.36.1-0.20260529185539-1175069dbb2c` |
 | Ratelimit protos | `v0.1.1-0.20250507123352-93990c5ec02f` |
