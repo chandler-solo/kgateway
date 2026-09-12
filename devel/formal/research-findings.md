@@ -1046,9 +1046,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   back to `proto.Equal` for fields it does not model. Action (4): the
   `+noKrtEquals` wording now states the collision assumption and what relies
   on it (1aab97a66e). The relayed annotation item: `objectContentEquals` now
-  compares generation and labels only (3a091286c2). Still open: action (3),
-  the PR body's release note is `NONE` while every EDS version string moves
-  once on upgrade.
+  compares generation and labels only (3a091286c2). Action (3) closed
+  2026-09-12: the PR's release note now states that every EDS version string
+  changes once when the upgraded control plane starts and each connected
+  Envoy receives one content-identical EDS push. Nothing in this entry
+  remains open.
 - Relayed, not verified here (same review, head 5da2acd8ec): the stack's
   `objectContentEquals` compares object annotations that nothing per-client
   reads, so an annotation-only change on a backend recomputes every client's
