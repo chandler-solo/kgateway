@@ -324,6 +324,20 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 ## RF-012 Rejected version repeats on matching NACK
 
 - Status: characterized dependency behavior; retry/isolation policy open.
+- Fix (2026-09-12): branch `chandler/xds-suppress-nack-resend`, commit
+  0d6a79470b, based on main 23c2c8ea40 (worktree
+  `~/git/kgateway/.claude/worktrees/xds-suppress-nack-resend`, not pushed).
+  A decorator around the SnapshotCache records the last version sent per
+  cache node and type from the server's response callback; a request
+  carrying an error detail whose type's current snapshot version equals
+  that last-sent version is handed to the cache claiming the current
+  version, so the cache parks the watch until the snapshot changes. A NACK
+  after the snapshot moved passes through and is answered at once. Setting
+  `KGW_XDS_SUPPRESS_NACK_RESEND`, default on; counter
+  `envoy_xds_nack_resends_suppressed_total`. Six harness tests in both ADS
+  modes plus a test that pins the loop on the undecorated cache. This is a
+  kgateway-side remedy; the resend itself remains library behavior on the
+  current pin.
 - Evidence: `TestRepeatedNackResendsSameVersionAndCorrectionRecovers` drives
   32 repeated NACKs through the actual cache/server and receives the same
   version with fresh nonces, then receives a corrected snapshot.
@@ -703,6 +717,29 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   check that `EndpointsHash` moves exactly when CLA content moves; the unit
   fixtures cannot establish that. Decide whether `version-churn` becomes a
   failure once fixtures stop fabricating versions.
+- Fix (2026-09-12): branch `chandler/xds-eds-content-version`, commit
+  38869f7c37, based on main 23c2c8ea40 (worktree
+  `~/git/kgateway/.claude/worktrees/xds-eds-content-version`, not pushed).
+  Each endpoint row carries `ContentHash`, a digest of the built assignment;
+  the client's EDS version is a sorted FNV-1a fold of (name, content digest,
+  cluster version digest) over the published set, recomputed after the
+  static and errored filters. The `-errors-` suffix and the XOR of input
+  hashes are gone, so input-only changes (policy generation bumps, plugin
+  contributions resolving identically, an upgrade that changes the input
+  fold) no longer push, and a filtered set shares its version with a
+  directly built set of equal content.
+- Design finding from that fix, relevant to RF-014 and RF-017: the input
+  hash's policy fold was load-bearing. A BackendTLSPolicy change alters the
+  cluster, Envoy rebuilds it and re-requests EDS at its accepted version,
+  and only a moved EDS version answers that request; content-only
+  versioning would have left every policy-driven rebuild warming until the
+  bootstrap's 15 s EDS fetch timeout (`TestPerClientSnapshotUpdatesWhenBackendTLSPolicyConflictsAddedLater`
+  caught it). The fix therefore folds each assignment's cluster version in,
+  which re-pushes an unchanged assignment exactly when its cluster changed
+  and never otherwise. `version-churn` in the trace checker will count
+  those CDS-coupled pushes; they are the RF-014 requirement, not churn, and
+  the rule should be refined to exempt an EDS push whose cluster version
+  moved in the same publication before churn becomes a gate failure.
 
 ## RF-026 SotW rejection applies the valid resources of a NACKed response
 
