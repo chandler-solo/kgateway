@@ -409,12 +409,18 @@ the ledger entry each item advances. Nothing below closes a phase.
     the second with ce4e553ab3 written today), the nested equality cost, the
     marker wording, and the annotation comparison, and added a withheld-
     clients gauge. Only the upgrade-time EDS version release note is open.
+36. RF-012, RF-025: fixes written on two main-based branches (NACK resend
+    suppression decorator; content-and-cluster-derived EDS versions). The
+    RF-025 fix showed the policy fold in the EDS version was what completed
+    policy-driven rewarms (RF-014); the cluster version is now folded in
+    deliberately, and the trace checker's churn rule should exempt it.
 
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence, RF-003 classification
   bound (compare with Envoy's 15 s default), RF-024 errored recording,
-  RF-025 churn as a gate failure, RF-012 NACK damping. These change product
+  RF-025 churn as a gate failure (fix branch exists), RF-012 NACK damping
+  (fix branch exists; merging it is the decision). These change product
   behavior and belong to the maintainers.
 - Dependency: done; upstream #14654 adopted the pseudo-version and the branch
   merged it on 2026-09-12.
