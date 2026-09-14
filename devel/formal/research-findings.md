@@ -18,6 +18,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   ExternalName reference whose defer window is transient at laptop scale; it
   is not a reproducer of the #14184 wedge. Run logs are local receipts, not
   committed.
+- Correction (2026-09-13): the cold resolution recorded above matches what the
+  product chose, but the live evidence cited here ran this branch's own
+  `XdsWarming` suite, whose three tests assert the superseded warm hold. See
+  the correction under RF-002. Read the six-of-six result as evidence about
+  the research image, not about the shipping behavior.
 
 - Evidence: `TestSnapshotPerClientFirstPublishWithEmptyEndpoints`, the original
   three setup fixtures, Lean cold systems, and `XdsEnvoyWarmingColdEmpty.cfg`.
@@ -68,6 +73,38 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   (default 15 s). The whole-type hold this entry describes therefore becomes
   a bounded flip hold; the isolation and revocation-precedence questions in
   the action below remain, since the held types are still held together.
+- Correction (2026-09-13): #14698 does not merely bound the warm hold, it
+  removes it for any backend whose assignment was derived. Its
+  `findMissingReferencedEndpointResources` tests presence, meaning whether the
+  per-client collection derived a ClusterLoadAssignment at all, where this
+  branch's version tests contents through
+  `clusterLoadAssignmentHasUsableEndpoint`. The PR states the reason in the
+  function's own comment: a derived assignment with zero usable endpoints is
+  the backend's known truth, since scale-to-zero and crashlooping backends are
+  steady states rather than races (#14352). Three arguments support that and
+  none is answerable by tuning a bound. The control plane cannot distinguish
+  "pods still starting" from "empty on purpose", and an ExternalName Service
+  never produces EndpointSlices at all. Holding a flip onto a scale-to-zero
+  backend is self-sustaining: no flip, so no traffic, so no scale-up, so no
+  endpoints, so no flip. And the hold freezes a client's routes, listeners and
+  secrets together, so it blocks certificate rotation, which
+  `TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret` on this branch
+  demonstrates as a property rather than reporting as a defect.
+- There is no open decision here. The C3 warm policy is superseded rather than
+  bounded, and it was never proposed: no pull request has ever been opened for
+  `chandler/kxdsformalmethods`. The stack also rewrote the live suite to assert
+  the opposite case by case. `TestRouteUpdateToEmptyBackendPublishesTruth`,
+  `TestWeightedRouteToEmptyBackendServesMixedTruth`,
+  `TestInitialRouteToEmptyBackendServes503UntilReady` and
+  `TestSteadyStateEmptyBackendSurvivesControllerRestart` replace the three
+  `...Waits...` tests and the restart test this branch carries.
+- Action: strip the contents gate from this branch so it stops pinning a policy
+  the product rejected. That is `clusterLoadAssignmentHasUsableEndpoint` and
+  the `unusableReferenced` wrapper field in `perclient.go`, the warm hold in
+  `resolveDeferredPerCluster`, `TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret`,
+  and the three `...Waits...` tests in the live warming suite. Keep the formal
+  harness, which is what this branch exists for. Until that lands, this
+  branch's e2e image encodes a superseded policy.
 
 ## RF-003 Permanent missing CDS can still starve first publication
 

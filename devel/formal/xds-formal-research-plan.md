@@ -433,10 +433,18 @@ the ledger entry each item advances. Nothing below closes a phase.
     has an upstream branch; landing them and the kgateway follow-through are
     the remaining steps.
 
+39. RF-001, RF-002 corrected: the product chose presence semantics for endpoint
+    readiness, so a derived-but-empty backend never defers a publication. This
+    branch's contents gate is superseded, not merely bounded, and was never
+    proposed as a pull request. The stack rewrote the live warming suite to
+    assert the opposite case by case. Recorded as a correction with an action
+    to strip the gate from this branch; it is not an open decision.
+
 ### What remains and who decides
 
-- Policy: RF-002 isolation and revocation precedence (both bounded by #14698
-  since the fork PR closed), RF-003 classification
+- Policy: RF-002 isolation and revocation precedence (the endpoint-readiness
+  half is settled, see the correction in the ledger; isolation and revocation
+  precedence remain), RF-003 classification
   bound (compare with Envoy's 15 s default), RF-024 errored recording,
   RF-025 churn as a gate failure (fix branch exists), RF-012 NACK damping
   (fix branch exists; merging it is the decision). These change product
