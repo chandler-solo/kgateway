@@ -440,6 +440,14 @@ the ledger entry each item advances. Nothing below closes a phase.
     assert the opposite case by case. Recorded as a correction with an action
     to strip the gate from this branch; it is not an open decision.
 
+40. RF-030 (new): the kgateway stack tip 70cc3ae209 was run live for the first
+    time with all five publication changes composed. Eight of eight tests
+    passed across XdsWarming, XdsStarvation and XdsIdentityRace, and the
+    controller counters show no NACKs, no inconsistent snapshot, no budget
+    expiry and no withheld client, with the reconnect rule firing four times.
+    Held flips and cluster carry-forward went unexercised and stay
+    unit-tested only.
+
 ### What remains and who decides
 
 - Policy: RF-002 isolation and revocation precedence (the endpoint-readiness
@@ -452,7 +460,8 @@ the ledger entry each item advances. Nothing below closes a phase.
 - Dependency: done; upstream #14654 adopted the pseudo-version and the branch
   merged it on 2026-09-12.
 - Evidence: RF-009 live e2e traces, RF-016 remaining candidates and linked
-  fix ancestry, and Delta xDS (excluded).
+  fix ancestry, RF-030's unexercised carry-forward and held-flip paths, and
+  Delta xDS (excluded).
 - Policy, added with RF-028: option (c), the unconditional first endpoint
   response after connect, is implemented on the stack branch; merging it is
   the decision. The 15 s bound remains for deployments that disable it.

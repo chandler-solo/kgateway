@@ -803,6 +803,14 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   contributions resolving identically, an upgrade that changes the input
   fold) no longer push, and a filtered set shares its version with a
   directly built set of equal content.
+- Live evidence (2026-09-14), same run as RF-030: across all eight tests of
+  the three xDS suites the controller recorded no client rejections at all.
+  Both `kgateway_envoy_xds_nacks_total` and `kgateway_envoy_xds_rejects_total`
+  stayed unregistered, meaning zero increments, so Envoy accepted every
+  snapshot the content-derived version function produced. That is evidence
+  the new version function emits nothing Envoy rejects. It is not a
+  measurement of churn reduction: no counter reports pushes avoided, so the
+  claim that input-only changes no longer push still rests on unit tests.
 - Design finding from that fix, relevant to RF-014 and RF-017: the input
   hash's policy fold was load-bearing. A BackendTLSPolicy change alters the
   cluster, Envoy rebuilds it and re-requests EDS at its accepted version,
@@ -815,6 +823,33 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   those CDS-coupled pushes; they are the RF-014 requirement, not churn, and
   the rule should be refined to exempt an EDS push whose cluster version
   moved in the same publication before churn becomes a gate failure.
+
+## RF-030 Stack composition measured live
+
+- Status: the five publication changes were run together against a real
+  cluster for the first time on 2026-09-14; no defect found.
+- Setup: kgateway stack tip 70cc3ae209 (PRs #14698 through #14703 composed),
+  images `v1.0.2-stack` built from that tip, rebuilt `xdsformal` kind cluster
+  with its own MetalLB pool, `PERSIST_INSTALL=true`, install namespace
+  `kgateway-test`.
+- Result: `XdsWarming` four of four, `XdsStarvation` three of three,
+  `XdsIdentityRace` one of one. Eight of eight.
+- Controller counters after the runs, which is the part the suites cannot
+  assert for themselves. Three transient deferrals were recorded for a
+  not-yet-derived assignment, one on the warming gateway and two on the
+  starvation gateway, and the currently-deferred gauge was zero for both
+  gateways at the end. Every other publication counter stayed at zero: no
+  snapshot failed go-control-plane's consistency check, no publication
+  reached the `KGW_PER_CLIENT_PUBLISH_BUDGET` expiry, no client was left
+  withheld, no route flip was held, and no cluster was carried forward.
+- Reading: the deferrals resolved on their own well inside the budget, which
+  is the shape the bounded-publication design intends, and the composition
+  produced nothing Envoy rejected. The absence of held flips and carried
+  clusters also means those two paths of #14698 went unexercised here, so
+  they remain unit-tested only.
+- Action: exercise the carry-forward and held-flip paths live, and add a
+  counter or trace for pushes suppressed by the content-derived version so
+  RF-025's churn claim becomes measurable rather than inferred.
 
 ## RF-026 SotW rejection applies the valid resources of a NACKed response
 
@@ -1017,6 +1052,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   type (nothing returned on the stream yet), so the rule is scoped to the
   empty-cache-then-republish path and to EDS, the type a warming cluster
   waits on. Both facts are pinned by tests on the undecorated cache.
+- Live evidence (2026-09-14), stack tip 70cc3ae209 on a rebuilt `xdsformal`
+  kind cluster, image `v1.0.2-stack`: the reconnect rule fires in production
+  shape. `kgateway_envoy_xds_reconnect_responses_total` for the endpoint type
+  reached 4 across the three xDS suites, so a reconnecting proxy's first
+  endpoint request really is answered at a version it already held, on the
+  controller-restart tests that produce that shape. Unit tests could only
+  show the cache boundary; this shows the path is reached with a real Envoy.
+  The run does not establish the counterfactual, that those four responses
+  each averted a 15 s warming pause; no counter distinguishes a reconnect
+  that would have parked from one the cache would have answered anyway.
 - Live evidence (2026-09-11): `TestKgateway/XdsWarming/TestRouteUpdateSurvivesControllerRestartWhileNewClusterWarms`
   passed on a fresh `xdsformal` kind cluster against the research image
   built from c23bf8591e (production code unchanged since). The route is
