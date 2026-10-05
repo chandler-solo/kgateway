@@ -14,6 +14,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -135,7 +136,8 @@ func (ltm *LoadTestManager) CreateGateways(gatewayNames []string) error {
 	return nil
 }
 
-// WaitForGatewayReadiness blocks until every created gateway reports a Programmed listener.
+// WaitForGatewayReadiness blocks until every created gateway reports a Programmed
+// listener and its proxy deployment has completed its rollout.
 // The timeout error reports the last observed listener conditions and proxy pod state.
 func (ltm *LoadTestManager) WaitForGatewayReadiness(timeout time.Duration) error {
 	timeoutCh := time.After(timeout)
@@ -168,8 +170,8 @@ func (ltm *LoadTestManager) WaitForGatewayReadiness(timeout time.Duration) error
 	}
 }
 
-// gatewayReadiness reports whether the gateway has a Programmed listener, and
-// if not, why.
+// gatewayReadiness checks both listener programming and proxy readiness. A
+// Programmed listener alone does not mean the Service has a ready proxy endpoint.
 func (ltm *LoadTestManager) gatewayReadiness(gateway *gwv1.Gateway) (bool, string) {
 	namespacedName := types.NamespacedName{
 		Name:      gateway.Name,
@@ -190,6 +192,18 @@ func (ltm *LoadTestManager) gatewayReadiness(gateway *gwv1.Gateway) (bool, strin
 	for _, listener := range currentGateway.Status.Listeners {
 		for _, condition := range listener.Conditions {
 			if condition.Type == string(gwv1.ListenerConditionProgrammed) && condition.Status == metav1.ConditionTrue {
+				deployment := &appsv1.Deployment{}
+				if err := ltm.testInstallation.ClusterContext.Client.Get(ltm.ctx, namespacedName, deployment); err != nil {
+					return false, fmt.Sprintf("gateway %s proxy deployment read failed: %v", namespacedName, err)
+				}
+				desiredReplicas := int32(1)
+				if deployment.Spec.Replicas != nil {
+					desiredReplicas = *deployment.Spec.Replicas
+				}
+				if desiredReplicas < 1 || !deploymentRolloutReady(deployment, deployment.Generation, desiredReplicas) {
+					return false, fmt.Sprintf("gateway %s proxy deployment not ready: %s",
+						namespacedName, deploymentRolloutStatus(deployment))
+				}
 				return true, ""
 			}
 		}
