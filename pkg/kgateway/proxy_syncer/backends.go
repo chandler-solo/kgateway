@@ -377,9 +377,10 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 	}
 	clusters := envoycache.NewResourcesWithTTL(strconv.FormatUint(clustersHash, 10), clustersProto)
 	if len(clusters.Items) != len(clustersProto) {
-		// Two rows shared a name and the payload kept only one of them, so the
-		// set built above may name an endpoint resource nothing published needs.
-		edsNames = edsNamesOf(clusters.Items)
+		// Two rows shared a name and the payload kept only the later one, so
+		// the EDS names and digest built above may cover a cluster nothing
+		// publishes; rebuild both from the rows the payload kept.
+		edsNames, edsClustersDigest = publishedEDSNamesAndDigest(rows)
 	}
 	// Base rows arrive in map order; sort so Equals compares like with like.
 	slices.SortFunc(perClientErrors, func(a, b uccWithCluster) int { return cmp.Compare(a.Name, b.Name) })
@@ -394,6 +395,27 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 		perClientErrors:     perClientErrors,
 		resourceName:        ucc.ResourceName(),
 	}
+}
+
+// publishedEDSNamesAndDigest resolves the endpoint names and EDS cluster digest
+// of the clusters a payload built from rows publishes. Like
+// envoycache.NewResourcesWithTTL, the last non-errored row with a given name wins.
+func publishedEDSNamesAndDigest(rows []uccWithCluster) (map[string]struct{}, uint64) {
+	published := make(map[string]uccWithCluster, len(rows))
+	for _, c := range rows {
+		if c.Error == nil {
+			published[envoycache.GetResourceName(c.Cluster.ResourceWithTTL().Resource)] = c
+		}
+	}
+	edsNames := make(map[string]struct{}, len(published))
+	var digest uint64
+	for _, c := range published {
+		if edsName, eds := endpointResourceNameForCluster(c.Cluster.ResourceWithTTL()); eds {
+			digest ^= edsEntryDigest(c.Name, c.ClusterVersion)
+			edsNames[edsName] = struct{}{}
+		}
+	}
+	return edsNames, digest
 }
 
 // StatusClusters returns the status projection built by

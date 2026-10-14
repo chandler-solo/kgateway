@@ -67,6 +67,9 @@ func TestClientRequiredEDSNamesMatchesMergedPayload(t *testing.T) {
 		{name: "gateway cluster renames a row cluster's assignment", extra: []envoycachetypes.ResourceWithTTL{
 			resource(edsTestCluster("s", "now-eds")),
 		}},
+		{name: "two gateway clusters share a name", extra: []envoycachetypes.ResourceWithTTL{
+			resource(edsTestCluster("gw", "gw-svc")), resource(staticTestCluster("gw")),
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -87,7 +90,8 @@ func TestClientRequiredEDSNamesMatchesMergedPayload(t *testing.T) {
 }
 
 // TestAssembledEDSNamesFollowThePublishedPayload covers two rows with one name:
-// the payload keeps only the later one, and the row's EDS names must agree.
+// the payload keeps only the later one, and the row's EDS names and EDS
+// cluster digest must agree with a row assembled without the dropped one.
 func TestAssembledEDSNamesFollowThePublishedPayload(t *testing.T) {
 	g := gomega.NewWithT(t)
 	ucc := ir.NewUniquelyConnectedClient("role", "ns", nil, ir.PodLocality{})
@@ -98,4 +102,10 @@ func TestAssembledEDSNamesFollowThePublishedPayload(t *testing.T) {
 	})
 	g.Expect(row.edsNames).To(gomega.Equal(edsNamesOf(row.clusters.Items)))
 	g.Expect(row.edsNames).To(gomega.Equal(map[string]struct{}{"a": {}}))
+
+	deduped := assemblePerClientClusters(ucc, []uccWithCluster{
+		publishedClusterRow(ucc, staticTestCluster("dup")),
+		publishedClusterRow(ucc, edsTestCluster("a", "")),
+	})
+	g.Expect(row.edsClustersDigest).To(gomega.Equal(deduped.edsClustersDigest), "a dropped duplicate must not move the EDS version")
 }

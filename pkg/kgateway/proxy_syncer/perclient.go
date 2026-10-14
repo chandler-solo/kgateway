@@ -641,12 +641,18 @@ func clientRequiredEDSNames(
 	bootstrapEndpoint string,
 ) requiredEDSNames {
 	required := requiredEDSNames{base: row.edsNames}
+	seen := make(map[string]struct{}, len(extraClusters))
 	for _, item := range extraClusters {
-		if _, shadows := row.clusters.Items[envoycache.GetResourceName(item.Resource)]; shadows {
-			// The gateway's cluster replaces a row cluster, and maybe the
-			// endpoint name the row resolved for it; resolve from scratch.
+		name := envoycache.GetResourceName(item.Resource)
+		_, shadows := row.clusters.Items[name]
+		_, repeats := seen[name]
+		if shadows || repeats {
+			// The gateway's cluster replaces a row cluster or an earlier
+			// gateway cluster, and maybe the endpoint name resolved for it;
+			// resolve from scratch.
 			return requiredEDSNames{base: edsNamesOf(merged)}.with(bootstrapEndpoint)
 		}
+		seen[name] = struct{}{}
 		if name, eds := endpointResourceNameForCluster(item); eds {
 			required = required.with(name)
 		}
