@@ -512,7 +512,7 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 //
 // The second return value is the set of endpoint resource names that were
 // synthesized. Referenced clusters backed by a synthesized CLA mark the
-// wrapper deferred (classifyReferencedEndpointResources) so a route flip
+// wrapper deferred (findMissingReferencedEndpointResources) so a route flip
 // does not land on a cluster whose endpoints simply have not been derived
 // yet; synthesized empties still reach Envoy for clusters no route targets,
 // and on the bounded publish paths (publishGate), where active-with-no-hosts
@@ -533,15 +533,18 @@ func filterEndpointsForEDSNames(
 	contentHashes map[string]uint64,
 	digest uint64,
 ) (envoycache.Resources, map[string]struct{}, uint64) {
-	kept := 0
-	for name, item := range endpoints.Items {
-		if isCLA(item) && required.has(name) {
-			kept++
+	// Names are distinct, so when the counts match and every item is a
+	// required CLA, every required name is covered too.
+	unfiltered := len(endpoints.Items) == required.len()
+	if unfiltered {
+		for name, item := range endpoints.Items {
+			if !isCLA(item) || !required.has(name) {
+				unfiltered = false
+				break
+			}
 		}
 	}
-	// Every kept name is required and names are distinct, so equal counts
-	// mean every required name is covered too.
-	if kept == len(endpoints.Items) && kept == required.len() {
+	if unfiltered {
 		return endpoints, nil, digest
 	}
 	filteredEndpoints := make([]envoycachetypes.ResourceWithTTL, 0, required.len())
@@ -552,19 +555,9 @@ func filterEndpointsForEDSNames(
 	}
 	// Synthesize empty assignments for EDS clusters that have no derived CLA
 	// so the published snapshot stays EDS-consistent.
-	synthesized := make(map[string]struct{})
-	synthesize := func(names map[string]struct{}) {
-		for name := range names {
-			if isCLA(endpoints.Items[name]) {
-				continue
-			}
-			empty := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
-			filteredEndpoints = append(filteredEndpoints, envoycachetypes.ResourceWithTTL{Resource: empty})
-			synthesized[name] = struct{}{}
-		}
-	}
-	synthesize(required.base)
-	synthesize(required.extra)
+	var synthesized map[string]struct{}
+	filteredEndpoints, synthesized = appendEmptyCLAs(filteredEndpoints, synthesized, endpoints.Items, required.base, required.removed)
+	filteredEndpoints, synthesized = appendEmptyCLAs(filteredEndpoints, synthesized, endpoints.Items, required.extra, nil)
 	var filteredDigest uint64
 	for _, item := range filteredEndpoints {
 		name := envoycache.GetResourceName(item.Resource)
@@ -582,33 +575,61 @@ func isCLA(item envoycachetypes.ResourceWithTTL) bool {
 	return ok
 }
 
+// appendEmptyCLAs appends an empty assignment for each name in names, less
+// those in skip, that endpoints has no CLA for, and records it in
+// synthesized, which it allocates on first use.
+func appendEmptyCLAs(
+	out []envoycachetypes.ResourceWithTTL,
+	synthesized map[string]struct{},
+	endpoints map[string]envoycachetypes.ResourceWithTTL,
+	names, skip map[string]struct{},
+) ([]envoycachetypes.ResourceWithTTL, map[string]struct{}) {
+	for name := range names {
+		if _, skipped := skip[name]; skipped || isCLA(endpoints[name]) {
+			continue
+		}
+		out = append(out, envoycachetypes.ResourceWithTTL{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}})
+		if synthesized == nil {
+			synthesized = make(map[string]struct{})
+		}
+		synthesized[name] = struct{}{}
+	}
+	return out, synthesized
+}
+
 // requiredEDSNames is the set of endpoint resource names a client's CDS
-// payload requires: base plus the names in extra, which never repeat a name
-// in base. base is usually the per-client cluster row's set, held by
-// reference rather than copied into a new set on every snapshot build; it
-// must not be written to.
+// payload requires: base, less the names in removed, plus the names in extra.
+// removed is a subset of base and extra never repeats a name in base. base is
+// usually the per-client cluster row's set, held by reference rather than
+// copied into a new set on every snapshot build; it must not be written to.
 type requiredEDSNames struct {
-	base  map[string]struct{}
-	extra map[string]struct{}
+	base    map[string]struct{}
+	removed map[string]struct{}
+	extra   map[string]struct{}
 }
 
 func (r requiredEDSNames) has(name string) bool {
 	if _, ok := r.base[name]; ok {
-		return true
+		_, gone := r.removed[name]
+		return !gone
 	}
 	_, ok := r.extra[name]
 	return ok
 }
 
 func (r requiredEDSNames) len() int {
-	return len(r.base) + len(r.extra)
+	return len(r.base) - len(r.removed) + len(r.extra)
 }
 
 // with returns r plus names, skipping empty ones. It never writes to base,
-// but may add to extra in place, so use only the returned value.
+// but may change removed and extra in place, so use only the returned value.
 func (r requiredEDSNames) with(names ...string) requiredEDSNames {
 	for _, name := range names {
-		if name == "" || r.has(name) {
+		if name == "" {
+			continue
+		}
+		if _, ok := r.base[name]; ok {
+			delete(r.removed, name)
 			continue
 		}
 		if r.extra == nil {
@@ -616,6 +637,16 @@ func (r requiredEDSNames) with(names ...string) requiredEDSNames {
 		}
 		r.extra[name] = struct{}{}
 	}
+	return r
+}
+
+// without returns r less name, which must be in base. It never writes to
+// base, but may change removed in place, so use only the returned value.
+func (r requiredEDSNames) without(name string) requiredEDSNames {
+	if r.removed == nil {
+		r.removed = make(map[string]struct{})
+	}
+	r.removed[name] = struct{}{}
 	return r
 }
 
@@ -630,14 +661,39 @@ func edsNamesOf(clusters map[string]envoycachetypes.ResourceWithTTL) map[string]
 	return names
 }
 
+// addEDSName adds name to names and, when it is already there, counts the
+// clusters that share it in shared, which it allocates on first use. A name
+// in names but not in shared is required by exactly one cluster.
+func addEDSName(names map[string]struct{}, shared map[string]int, name string) map[string]int {
+	if _, ok := names[name]; !ok {
+		names[name] = struct{}{}
+		return shared
+	}
+	if shared == nil {
+		shared = make(map[string]int)
+	}
+	if shared[name] == 0 {
+		shared[name] = 1
+	}
+	shared[name]++
+	return shared
+}
+
 // clientRequiredEDSNames resolves the endpoint names a client's merged CDS
 // payload requires, starting from the set the cluster row already resolved.
 // extraClusters are the gateway translation's own clusters, which the
-// snapshot merges over the row's by name; merged is the payload the snapshot
-// publishes. The row's set is trusted only while merged is exactly the row's
-// clusters plus extraClusters; a payload that differs in size, such as one a
-// later step filtered, is resolved from scratch so its endpoints never outlive
-// the clusters that need them.
+// snapshot merges over the row's by name, the last one winning; merged is the
+// payload the snapshot publishes.
+//
+// A gateway cluster that shadows a row cluster removes the row cluster's
+// endpoint name unless another, unshadowed row cluster shares it, which the
+// row's sharedEDSNames counts. So the cost scales with extraClusters, not
+// with the row.
+//
+// The row's set is trusted only while merged is exactly the row's clusters
+// merged with extraClusters; a payload that differs in size, such as one a
+// later step filtered, is resolved from scratch so its endpoints never
+// outlive the clusters that need them.
 func clientRequiredEDSNames(
 	row *clustersWithErrors,
 	extraClusters []envoycachetypes.ResourceWithTTL,
@@ -645,24 +701,44 @@ func clientRequiredEDSNames(
 	bootstrapEndpoint string,
 ) requiredEDSNames {
 	required := requiredEDSNames{base: row.edsNames}
-	seen := make(map[string]struct{}, len(extraClusters))
-	for _, item := range extraClusters {
-		name := envoycache.GetResourceName(item.Resource)
-		_, shadows := row.clusters.Items[name]
-		_, repeats := seen[name]
-		if shadows || repeats {
-			// The gateway's cluster replaces a row cluster or an earlier
-			// gateway cluster, and maybe the endpoint name resolved for it;
-			// resolve from scratch.
+	if len(extraClusters) == 0 {
+		if len(merged) != len(row.clusters.Items) {
 			return requiredEDSNames{base: edsNamesOf(merged)}.with(bootstrapEndpoint)
 		}
-		seen[name] = struct{}{}
-		if name, eds := endpointResourceNameForCluster(item); eds {
-			required = required.with(name)
+		return required.with(bootstrapEndpoint)
+	}
+	// The last gateway cluster with a given name is the one merged keeps.
+	extras := make(map[string]envoycachetypes.ResourceWithTTL, len(extraClusters))
+	for _, item := range extraClusters {
+		extras[envoycache.GetResourceName(item.Resource)] = item
+	}
+	wantLen := len(row.clusters.Items)
+	var shadowed map[string]int
+	for name := range extras {
+		rowCluster, shadows := row.clusters.Items[name]
+		if !shadows {
+			wantLen++
+			continue
+		}
+		if edsName, eds := endpointResourceNameForCluster(rowCluster); eds {
+			if shadowed == nil {
+				shadowed = make(map[string]int)
+			}
+			shadowed[edsName]++
 		}
 	}
-	if len(merged) != len(row.clusters.Items)+len(extraClusters) {
+	if len(merged) != wantLen {
 		return requiredEDSNames{base: edsNamesOf(merged)}.with(bootstrapEndpoint)
+	}
+	for edsName, count := range shadowed {
+		if count >= max(row.sharedEDSNames[edsName], 1) {
+			required = required.without(edsName)
+		}
+	}
+	for _, item := range extras {
+		if edsName, eds := endpointResourceNameForCluster(item); eds {
+			required = required.with(edsName)
+		}
 	}
 	return required.with(bootstrapEndpoint)
 }

@@ -172,6 +172,12 @@ type clustersWithErrors struct {
 	// from every cluster proto on each build. Read-only once built.
 	// +noKrtEquals derived from clusters, which clustersHash covers
 	edsNames map[string]struct{}
+	// sharedEDSNames counts the clusters requiring each name in edsNames that
+	// more than one cluster requires, so a gateway cluster shadowing one of
+	// them can tell whether the name is still required. Nil when none share.
+	// Read-only once built.
+	// +noKrtEquals derived from clusters, which clustersHash covers
+	sharedEDSNames map[string]int
 	// perClientErrors are the rows whose Error was produced for this client
 	// alone, sorted by cluster name; the status projection reads them. Base
 	// errors are attributed from the base rows instead, once rather than once
@@ -350,6 +356,7 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 		erroredClustersHash uint64
 		erroredClusters     []string
 		perClientErrors     []uccWithCluster
+		sharedEDSNames      map[string]int
 	)
 	edsNames := make(map[string]struct{}, len(rows))
 	for _, c := range rows {
@@ -372,15 +379,15 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 		clustersHash ^= c.ClusterVersion
 		if edsName, eds := endpointResourceNameForCluster(resource); eds {
 			edsClustersDigest ^= edsEntryDigest(c.Name, c.ClusterVersion)
-			edsNames[edsName] = struct{}{}
+			sharedEDSNames = addEDSName(edsNames, sharedEDSNames, edsName)
 		}
 	}
 	clusters := envoycache.NewResourcesWithTTL(strconv.FormatUint(clustersHash, 10), clustersProto)
 	if len(clusters.Items) != len(clustersProto) {
 		// Two rows shared a name and the payload kept only the later one, so
-		// the EDS names and digest built above may cover a cluster nothing
-		// publishes; rebuild both from the rows the payload kept.
-		edsNames, edsClustersDigest = publishedEDSNamesAndDigest(rows)
+		// the EDS names, sharing counts, and digest built above may cover a
+		// cluster nothing publishes; rebuild them from the rows the payload kept.
+		edsNames, sharedEDSNames, edsClustersDigest = publishedEDSNames(rows)
 	}
 	// Base rows arrive in map order; sort so Equals compares like with like.
 	slices.SortFunc(perClientErrors, func(a, b uccWithCluster) int { return cmp.Compare(a.Name, b.Name) })
@@ -388,6 +395,7 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 	return &clustersWithErrors{
 		clusters:            clusters,
 		edsNames:            edsNames,
+		sharedEDSNames:      sharedEDSNames,
 		erroredClusters:     erroredClusters,
 		clustersHash:        clustersHash,
 		edsClustersDigest:   edsClustersDigest,
@@ -397,10 +405,10 @@ func assemblePerClientClusters(ucc ir.UniquelyConnectedClient, rows []uccWithClu
 	}
 }
 
-// publishedEDSNamesAndDigest resolves the endpoint names and EDS cluster digest
-// of the clusters a payload built from rows publishes. Like
+// publishedEDSNames resolves the endpoint names, their sharing counts, and the
+// EDS cluster digest of the clusters a payload built from rows publishes. Like
 // envoycache.NewResourcesWithTTL, the last non-errored row with a given name wins.
-func publishedEDSNamesAndDigest(rows []uccWithCluster) (map[string]struct{}, uint64) {
+func publishedEDSNames(rows []uccWithCluster) (map[string]struct{}, map[string]int, uint64) {
 	published := make(map[string]uccWithCluster, len(rows))
 	for _, c := range rows {
 		if c.Error == nil {
@@ -408,14 +416,17 @@ func publishedEDSNamesAndDigest(rows []uccWithCluster) (map[string]struct{}, uin
 		}
 	}
 	edsNames := make(map[string]struct{}, len(published))
-	var digest uint64
+	var (
+		shared map[string]int
+		digest uint64
+	)
 	for _, c := range published {
 		if edsName, eds := endpointResourceNameForCluster(c.Cluster.ResourceWithTTL()); eds {
 			digest ^= edsEntryDigest(c.Name, c.ClusterVersion)
-			edsNames[edsName] = struct{}{}
+			shared = addEDSName(edsNames, shared, edsName)
 		}
 	}
-	return edsNames, digest
+	return edsNames, shared, digest
 }
 
 // StatusClusters returns the status projection built by
