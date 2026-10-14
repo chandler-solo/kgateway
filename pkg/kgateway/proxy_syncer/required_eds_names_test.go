@@ -51,6 +51,8 @@ func TestClientRequiredEDSNamesMatchesMergedPayload(t *testing.T) {
 		name      string
 		extra     []envoycachetypes.ResourceWithTTL
 		bootstrap string
+		// drop names clusters a later step removes from the merged payload.
+		drop []string
 	}{
 		{name: "row only"},
 		{name: "bootstrap name", bootstrap: "local"},
@@ -70,6 +72,10 @@ func TestClientRequiredEDSNamesMatchesMergedPayload(t *testing.T) {
 		{name: "two gateway clusters share a name", extra: []envoycachetypes.ResourceWithTTL{
 			resource(edsTestCluster("gw", "gw-svc")), resource(staticTestCluster("gw")),
 		}},
+		{name: "a later step filters a row cluster out of the payload", drop: []string{"a"}},
+		{name: "a later step filters a gateway cluster out of the payload", extra: []envoycachetypes.ResourceWithTTL{
+			resource(edsTestCluster("gw-eds", "")),
+		}, drop: []string{"gw-eds"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,6 +85,9 @@ func TestClientRequiredEDSNamesMatchesMergedPayload(t *testing.T) {
 			merged := maps.Clone(row.clusters.Items)
 			for _, item := range tc.extra {
 				merged[envoycache.GetResourceName(item.Resource)] = item
+			}
+			for _, name := range tc.drop {
+				delete(merged, name)
 			}
 			want := requiredSet(g, requiredEDSNames{base: edsNamesOf(merged)}.with(tc.bootstrap))
 

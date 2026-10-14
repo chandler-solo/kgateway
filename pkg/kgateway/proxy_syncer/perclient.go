@@ -633,7 +633,11 @@ func edsNamesOf(clusters map[string]envoycachetypes.ResourceWithTTL) map[string]
 // clientRequiredEDSNames resolves the endpoint names a client's merged CDS
 // payload requires, starting from the set the cluster row already resolved.
 // extraClusters are the gateway translation's own clusters, which the
-// snapshot merges over the row's by name; merged is that merged payload.
+// snapshot merges over the row's by name; merged is the payload the snapshot
+// publishes. The row's set is trusted only while merged is exactly the row's
+// clusters plus extraClusters; a payload that differs in size, such as one a
+// later step filtered, is resolved from scratch so its endpoints never outlive
+// the clusters that need them.
 func clientRequiredEDSNames(
 	row *clustersWithErrors,
 	extraClusters []envoycachetypes.ResourceWithTTL,
@@ -656,6 +660,9 @@ func clientRequiredEDSNames(
 		if name, eds := endpointResourceNameForCluster(item); eds {
 			required = required.with(name)
 		}
+	}
+	if len(merged) != len(row.clusters.Items)+len(extraClusters) {
+		return requiredEDSNames{base: edsNamesOf(merged)}.with(bootstrapEndpoint)
 	}
 	return required.with(bootstrapEndpoint)
 }
