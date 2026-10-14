@@ -41,7 +41,7 @@ func TestFilterEndpointResourcesForClusters_SynthesizesEmptyCLAForEDSClusterWith
 	})
 	endpoints := envoycache.NewResourcesWithTTL("v1", nil) // no CLA for eds-x
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	g.Expect(out.Items).To(gomega.HaveKey("eds-x"), "an EDS cluster without a CLA must get a synthesized assignment")
 	cla, ok := out.Items["eds-x"].Resource.(*envoyendpointv3.ClusterLoadAssignment)

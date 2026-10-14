@@ -207,11 +207,16 @@ func NewProxySyncer(
 
 type ProxyTranslator struct {
 	xdsCache envoycache.SnapshotCache
+	// published remembers each client's EDS version contributions so a
+	// carried-forward assignment keeps its last published one. Pointer so the
+	// state is shared across ProxyTranslator copies.
+	published *publishedEndpointHashes
 }
 
 func NewProxyTranslator(xdsCache envoycache.SnapshotCache) ProxyTranslator {
 	return ProxyTranslator{
-		xdsCache: xdsCache,
+		xdsCache:  xdsCache,
+		published: newPublishedEndpointHashes(),
 	}
 }
 

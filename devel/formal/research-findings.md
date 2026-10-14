@@ -824,6 +824,30 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   the rule should be refined to exempt an EDS push whose cluster version
   moved in the same publication before churn becomes a gate failure.
 
+- Zero-marshal revision (2026-10-14), this branch and the two fix branches:
+  review of the content-digest fix found it marshals every assignment (and,
+  on the carry path, every cluster) per publication, about 1 µs plus 0.25 µs
+  per endpoint per assignment, with no safety property depending on the
+  digest. The fix is restated as a version rule over the inputs already
+  hashed by translation, `eds_set_version.go`: every publication path
+  (passthrough, static and errored filters, bootstrap-synthesized
+  assignments, carry-forward) versions the published set as the XOR of one
+  contribution per published assignment, where a built row contributes its
+  `EndpointsHash`, a carried assignment contributes the hash it was last
+  published under (remembered per client beside the cache write), and a
+  synthesized assignment contributes a hash of its name. The passthrough
+  version is byte-identical to the pre-fix string, so a client whose set
+  needs no filtering sees no upgrade push; mechanism 1 (carry suffix) and
+  mechanism 2 (branch-dependent version function) are both closed because
+  no path has its own version function any more. What it does not close:
+  an input-only change (a policy generation bump that leaves the built
+  assignment unchanged) still pushes, which is the pre-fix behavior and the
+  RF-014 coupling the previous revision had to re-add by hand; and a
+  derived empty assignment and a synthesized one for the same name version
+  differently, which is a push on the hold-to-derived transition, not a
+  churn loop. The CDS carry suffix is unchanged. `version-churn` in the
+  trace checker still counts the input-only pushes.
+
 ## RF-030 Stack composition measured live
 
 - Status: the five publication changes were run together against a real

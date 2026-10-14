@@ -56,7 +56,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaticClusterCLAs(t *testing.
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-cluster"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -81,7 +81,7 @@ func TestFilterEndpointResourcesForClusters_ReturnsOriginalWhenNoFiltering(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-only"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected 1 endpoint resource, got %d", len(out.Items))
@@ -102,7 +102,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersAndEndpoints(t *testing
 	emptyClusters := envoycache.NewResourcesWithTTL("v1", nil)
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(emptyClusters, emptyEndpoints, nil, nil)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -115,7 +115,7 @@ func TestFilterEndpointResourcesForClusters_EmptyClustersNonEmptyEndpoints(t *te
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "any"}},
 	})
 
-	out := filterEndpointResourcesForClusters(emptyClusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(emptyClusters, endpoints, nil, nil)
 
 	if len(out.Items) != 0 {
 		t.Fatalf("expected no endpoint resources when no EDS clusters are emitted, got %d", len(out.Items))
@@ -128,7 +128,7 @@ func TestFilterEndpointResourcesForClusters_EmptyEndpoints(t *testing.T) {
 	})
 	emptyEndpoints := envoycache.NewResourcesWithTTL("v1", nil)
 
-	out := filterEndpointResourcesForClusters(clusters, emptyEndpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, emptyEndpoints, nil, nil)
 
 	if len(out.Items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(out.Items))
@@ -150,7 +150,7 @@ func TestFilterEndpointResourcesForClusters_MixedStaticAndNonStatic(t *testing.T
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "eds-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	if len(out.Items) != 2 {
 		t.Fatalf("expected 2 endpoint resources (eds-a, eds-b), got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -178,7 +178,7 @@ func TestFilterEndpointResourcesForClusters_FiltersStaleClusterLoadAssignments(t
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "cluster-b"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -211,7 +211,7 @@ func TestFilterEndpointResourcesForClusters_UsesEDSServiceName(t *testing.T) {
 		{Resource: &envoyendpointv3.ClusterLoadAssignment{ClusterName: "service-a"}},
 	})
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, nil)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, nil)
 
 	if len(out.Items) != 1 {
 		t.Fatalf("expected only the service-name CLA required by CDS, got %d: %v", len(out.Items), mapKeys(out.Items))
@@ -2294,7 +2294,7 @@ func TestFilterEndpointResourcesDropsErroredClusterCLAs(t *testing.T) {
 	})
 	bootstrapNames := map[string]struct{}{"local-cluster": {}}
 
-	out := filterEndpointResourcesForClusters(clusters, endpoints, bootstrapNames)
+	out, _ := filterEndpointResourcesForClusters(clusters, endpoints, nil, bootstrapNames)
 
 	g.Expect(out.Items).To(gomega.HaveKey("healthy-cluster"))
 	g.Expect(out.Items).To(gomega.HaveKey("local-cluster"),
@@ -2316,7 +2316,7 @@ func TestFilterEndpointResourcesDropsErroredClusterCLAs(t *testing.T) {
 		}},
 	})
 
-	recovered := filterEndpointResourcesForClusters(recoveredClusters, endpoints, bootstrapNames)
+	recovered, _ := filterEndpointResourcesForClusters(recoveredClusters, endpoints, nil, bootstrapNames)
 
 	g.Expect(recovered.Items).To(gomega.HaveKey("errored-cluster"),
 		"leaving the error state must republish the recovered cluster's CLA")

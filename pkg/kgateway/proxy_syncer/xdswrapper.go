@@ -47,6 +47,10 @@ type XdsSnapWrapper struct {
 	// usable endpoint. Sorted.
 	// +noKrtEquals (derived: a change implies an EDS version change)
 	unusableReferenced []string
+	// endpointHashes maps each assignment in snap to the hash it is versioned
+	// by (eds_set_version.go); syncXds remembers it for carry-forward.
+	// +noKrtEquals folded into the EDS version compared by Equals
+	endpointHashes map[string]uint64
 }
 
 func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {

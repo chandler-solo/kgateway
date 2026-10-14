@@ -37,6 +37,10 @@ type clustersWithErrors struct {
 
 type endpointsWithUccName struct {
 	endpoints envoycache.Resources
+	// rowHashes maps each assignment name to the hash of the row that built
+	// it; the published subset is versioned from it (eds_set_version.go).
+	// +noKrtEquals folded into endpoints.Version
+	rowHashes map[string]uint64
 	// bootstrapEndpointNames are the CLA names contributed by the extra endpoint
 	// collections passed to snapshotPerClient: resources whose cluster lives in the
 	// Envoy bootstrap rather than in CDS (today, the zone-aware local cluster built
@@ -132,15 +136,18 @@ func snapshotPerClient(
 			endpointsForUcc = append(endpointsForUcc, extraEndpointsForUcc...)
 		}
 		endpointsProto := make([]envoycachetypes.ResourceWithTTL, 0, len(endpointsForUcc))
+		rowHashes := make(map[string]uint64, len(endpointsForUcc))
 		var endpointsHash uint64
 		for _, ep := range endpointsForUcc {
 			endpointsProto = append(endpointsProto, envoycachetypes.ResourceWithTTL{Resource: ep.Endpoints})
+			rowHashes[ep.Endpoints.GetClusterName()] = ep.EndpointsHash
 			endpointsHash ^= ep.EndpointsHash
 		}
 
 		endpointResources := envoycache.NewResourcesWithTTL(strconv.FormatUint(endpointsHash, 10), endpointsProto)
 		return &endpointsWithUccName{
 			endpoints:              endpointResources,
+			rowHashes:              rowHashes,
 			bootstrapEndpointNames: bootstrapEndpointNames,
 			resourceName:           ucc.ResourceName(),
 		}
@@ -218,9 +225,10 @@ func snapshotPerClient(
 		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
 		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
 		// longer present in CDS can make go-control-plane suppress ADS responses.
-		endpointRes := filterEndpointResourcesForClusters(
+		endpointRes, endpointHashes := filterEndpointResourcesForClusters(
 			clusterResources,
 			clientEndpointResources.endpoints,
+			clientEndpointResources.rowHashes,
 			clientEndpointResources.bootstrapEndpointNames,
 		)
 		// Post-synthesis every EDS cluster has a CLA, so this reports exactly
@@ -237,6 +245,7 @@ func snapshotPerClient(
 		snap.unusableReferenced = unusableClusters
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
+		snap.endpointHashes = endpointHashes
 		snapshot := &envoycache.Snapshot{}
 		snapshot.Resources[envoycachetypes.Cluster] = clusterResources
 		snapshot.Resources[envoycachetypes.Endpoint] = endpointRes
@@ -621,8 +630,9 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 func filterEndpointResourcesForClusters(
 	clusters envoycache.Resources,
 	endpoints envoycache.Resources,
+	rowHashes map[string]uint64,
 	bootstrapEndpointNames map[string]struct{},
-) envoycache.Resources {
+) (envoycache.Resources, map[string]uint64) {
 	requiredEndpointNames := make(map[string]struct{}, len(bootstrapEndpointNames))
 	for name := range bootstrapEndpointNames {
 		requiredEndpointNames[name] = struct{}{}
@@ -634,7 +644,6 @@ func filterEndpointResourcesForClusters(
 	}
 	covered := make(map[string]struct{}, len(requiredEndpointNames))
 	filteredEndpoints := make([]envoycachetypes.ResourceWithTTL, 0, len(endpoints.Items))
-	var resourcesHash uint64
 	for _, item := range endpoints.Items {
 		cla, ok := item.Resource.(*envoyendpointv3.ClusterLoadAssignment)
 		if !ok {
@@ -645,7 +654,6 @@ func filterEndpointResourcesForClusters(
 		}
 		filteredEndpoints = append(filteredEndpoints, item)
 		covered[cla.GetClusterName()] = struct{}{}
-		resourcesHash ^= utils.HashProto(cla)
 	}
 	// Synthesize empty assignments for EDS clusters that have no CLA yet so the
 	// published snapshot stays EDS-consistent.
@@ -656,11 +664,12 @@ func filterEndpointResourcesForClusters(
 		}
 		empty := &envoyendpointv3.ClusterLoadAssignment{ClusterName: name}
 		filteredEndpoints = append(filteredEndpoints, envoycachetypes.ResourceWithTTL{Resource: empty})
-		resourcesHash ^= utils.HashProto(empty)
 		synthesized++
 	}
 	if synthesized == 0 && len(filteredEndpoints) == len(endpoints.Items) {
-		return endpoints
+		return endpoints, rowHashes
 	}
-	return envoycache.NewResourcesWithTTL(strconv.FormatUint(resourcesHash, 10), filteredEndpoints)
+	filtered := envoycache.NewResourcesWithTTL("", filteredEndpoints)
+	hashes := endpointSetHashes(filtered.Items, rowHashes, nil)
+	return versionEndpointSet(filtered, hashes), hashes
 }

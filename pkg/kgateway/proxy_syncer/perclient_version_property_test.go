@@ -10,6 +10,8 @@ import (
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
 )
 
 // TestFilterEndpointResourcesForClusters_VersionDigestProperties discharges
@@ -72,9 +74,10 @@ func TestFilterEndpointResourcesForClusters_VersionDigestProperties(t *testing.T
 		endpointResources = append(endpointResources, envoycachetypes.ResourceWithTTL{
 			Resource: cla("stale-not-in-cds", 80),
 		})
-		out := filterEndpointResourcesForClusters(
+		out, _ := filterEndpointResourcesForClusters(
 			envoycache.NewResourcesWithTTL("v-in", clusterResources),
 			envoycache.NewResourcesWithTTL("v-in", endpointResources),
+			contentRowHashes(endpointResources),
 			nil,
 		)
 		return out.Version
@@ -141,4 +144,16 @@ func TestFilterEndpointResourcesForClusters_VersionDigestProperties(t *testing.T
 			fmt.Printf("corpus %-18s -> version %s\n", name, v)
 		}
 	}
+}
+
+// contentRowHashes stands in for row hashes with each assignment's content
+// digest, so the property test exercises the version fold with
+// content-derived inputs: the filter versions the published subset from the
+// hashes it is given (eds_set_version.go), and this test checks that fold.
+func contentRowHashes(items []envoycachetypes.ResourceWithTTL) map[string]uint64 {
+	out := make(map[string]uint64, len(items))
+	for _, item := range items {
+		out[envoycache.GetResourceName(item.Resource)] = utils.HashProto(item.Resource)
+	}
+	return out
 }

@@ -33,6 +33,7 @@ func (s *ProxyTranslator) syncXds(
 	logger.Debug("syncing xds snapshot", "proxy_key", proxyKey)
 
 	logger.Log(ctx, logging.LevelTrace, "syncing xds snapshot", "proxy_key", proxyKey)
+	publishedHashes := snapWrap.endpointHashes
 
 	if snapWrap.deferred {
 		// Per-cluster readiness resolution (spec:
@@ -75,7 +76,7 @@ func (s *ProxyTranslator) syncXds(
 				refs, snapWrap.erroredClusters,
 				snap.Resources[envoycachetypes.Cluster], snap.Resources[envoycachetypes.Endpoint], snap)
 		} else {
-			snap = resolveDeferredPerCluster(snapWrap, published)
+			snap, publishedHashes = resolveDeferredPerCluster(snapWrap, published, s.published.lookup(proxyKey))
 			publishedRefs := publishedReferencedClusters(published)
 			emitXdsSnapshotTrace(proxyKey, xdsTraceDecisionPublishResolved,
 				publishedRefsForTrace(snap, publishedRefs), snapWrap.erroredClusters,
@@ -90,6 +91,8 @@ func (s *ProxyTranslator) syncXds(
 	// so we do not rely on a post-hoc MakeConsistent() pass, which would also
 	// have mutated the snapshot shared with the krt cache.
 	err := s.xdsCache.SetSnapshot(ctx, proxyKey, snap)
+	// Recorded regardless of err: installation precedes the sends that can fail.
+	s.published.record(proxyKey, publishedHashes)
 	if err != nil {
 		// RF-007: SetSnapshot may install the new cache and answer some watches
 		// before returning an error. This is not a transactional rollback. Surface
@@ -145,7 +148,11 @@ func publishedRefsForTrace(snap *envoycache.Snapshot, publishedRefs map[string]s
 //     versions (so nothing flips onto the unready cluster), the held routes'
 //     cluster/CLA dependencies are carried forward, and the new CDS/EDS —
 //     including the warming cluster — still goes out.
-func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot) *envoycache.Snapshot {
+//
+// lastPublished answers for assignments copied from the published snapshot
+// with the hash each was last published under (eds_set_version.go). The returned map
+// holds the contributions of the composed EDS set.
+func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot, lastPublished func(string) (uint64, bool)) (*envoycache.Snapshot, map[string]uint64) {
 	publishedRefs := publishedReferencedClusters(published)
 	oldClusters := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
 
@@ -203,6 +210,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 	// its cluster) for carryRefs missing from the new build.
 	newClusters := composed.Resources[envoycachetypes.Cluster]
 	newEndpoints := composed.Resources[envoycachetypes.Endpoint]
+	edsHashes := snapWrap.endpointHashes
 	oldEndpoints := published.GetResourcesAndTTL(envoyresourcev3.EndpointType)
 	erroredSet := stringSet(snapWrap.erroredClusters)
 	var carried []string
@@ -256,8 +264,11 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 			Version: fmt.Sprintf("%s-carry-%d", newClusters.Version, carryHash),
 			Items:   clusterItems,
 		}
+		// The carried assignments keep the contribution they were published
+		// under, so the composed set is versioned like a direct publication.
+		edsHashes = endpointSetHashes(endpointItems, snapWrap.endpointHashes, lastPublished)
 		composed.Resources[envoycachetypes.Endpoint] = envoycache.Resources{
-			Version: fmt.Sprintf("%s-carry-%d", newEndpoints.Version, carryHash),
+			Version: endpointSetVersion(edsHashes),
 			Items:   endpointItems,
 		}
 		logger.Info("carried forward previously-published clusters",
@@ -266,7 +277,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		)
 	}
 
-	return composed
+	return composed, edsHashes
 }
 
 func cloneResourceItems(items map[string]envoycachetypes.ResourceWithTTL) map[string]envoycachetypes.ResourceWithTTL {
