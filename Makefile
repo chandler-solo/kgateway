@@ -573,6 +573,16 @@ view-test-coverage:
 formal-lean: ## Re-check the Lean xDS spec proofs, model-check it, and conformance-check an implementation trace against it
 	devel/formal/lean/check.sh
 
+.PHONY: formal-regression-harness formal-stack-regressions formal-legacy-contents
+formal-regression-harness: ## Check that regression receipts reject missing, skipped, or wrong failures
+	python3 -B -m unittest discover -s devel/formal/regressions -p '*_test.py'
+
+formal-stack-regressions: formal-regression-harness ## Reproduce reviewed stack 14817 defects on its immutable source
+	python3 -B devel/formal/regressions/check.py --profile stack-14817 $(FORMAL_REGRESSION_ARGS)
+
+formal-legacy-contents: formal-regression-harness ## Preserve the superseded warm contents-gate counterexample
+	python3 -B devel/formal/regressions/check.py --profile historical-contents-gate $(FORMAL_REGRESSION_ARGS)
+
 #----------------------------------------------------------------------------------
 # Container Structure Tests
 #----------------------------------------------------------------------------------

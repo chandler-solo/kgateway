@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
-	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoytcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
@@ -36,8 +35,8 @@ type endpointsWithUccName struct {
 	// by NewPerClientLocalClusterEndpoints). filterEndpointResourcesForClusters keeps
 	// them even though no CDS cluster names them.
 	//
-	// Not compared directly: a name is part of the CLA content hashed into
-	// endpoints.Version, which Equals does compare.
+	// Not compared directly: the endpoint name contributes to the row-input
+	// hash folded into endpoints.Version, which Equals does compare.
 	// +noKrtEquals
 	bootstrapEndpointNames map[string]struct{}
 	resourceName           string
@@ -59,7 +58,7 @@ func (c endpointsWithUccName) Equals(k endpointsWithUccName) bool {
 // just ships what this produces.
 //
 // Missing Gateway or endpoint inputs return nil, leaving the cached snapshot
-// intact. Once those inputs exist, the wrapper records missing or unusable
+// intact. Once those inputs exist, the wrapper records missing or underived
 // referenced clusters so syncXds can apply per-cluster readiness rules against
 // the previously published snapshot.
 //
@@ -126,12 +125,12 @@ func snapshotPerClient(
 		// derived collection is valid. A missing cluster collection is treated
 		// as empty, then checked against the actual route references below.
 		//
-		// CDS gaps and unusable endpoints are recorded on the wrapper. syncXds
+		// CDS gaps and underived endpoint rows are recorded on the wrapper. syncXds
 		// defers first publication only for nonexempt missing CDS clusters;
 		// synthesized or actual empty CLAs publish on first cache installation.
 		// With an existing snapshot it retains the warm-transition policy:
 		// carry missing old clusters, publish scale-to-zero truth, and hold a
-		// flip to a newly referenced unready backend. That hold affects entire
+		// flip to a newly referenced backend with an underived row. That hold affects entire
 		// route/listener/secret types and is not a general anti-starvation rule.
 		//
 		// Returning nil for missing input emits a collection Delete, whose
@@ -165,9 +164,10 @@ func snapshotPerClient(
 			clusterResources.Version = strconv.FormatUint(clustersForUcc.clustersHash^listenerRouteSnapshot.ClustersHash, 10)
 			clusterResources.Items = clustersProto
 		}
-		// Per-cluster readiness (spec: devel/formal/lean/XdsSpec/PerClusterReadiness.lean).
-		// A referenced cluster that is missing from CDS or has no usable
-		// endpoint no longer defers the whole snapshot; the gaps are recorded
+		// Current guard: devel/formal/lean/XdsSpec/DerivedEndpointTruth.lean.
+		// PerClusterReadiness.lean retains the historical contents-gate model.
+		// A referenced cluster that is missing from CDS or has no derived
+		// endpoint row no longer defers the whole snapshot; the gaps are recorded
 		// on the wrapper and syncXds resolves them per cluster against the
 		// currently-published snapshot: carry forward what was published
 		// before (make-before-break), publish the truth for previously-
@@ -187,18 +187,18 @@ func snapshotPerClient(
 			clientEndpointResources.rowHashes,
 			clientEndpointResources.bootstrapEndpointNames,
 		)
-		// Post-synthesis every EDS cluster has a CLA, so this reports exactly
-		// the referenced clusters whose CLA has no usable endpoint.
-		unusableClusters := findMissingReferencedEndpointResources(
+		// Check the derived rows before synthesis. An empty or unhealthy derived
+		// assignment is backend truth; only an absent row can hold a warm flip.
+		missingEndpointClusters := findMissingReferencedEndpointResources(
 			listenerRouteSnapshot.ReferencedClusters,
 			clusterResources.Items,
-			endpointRes.Items,
+			clientEndpointResources.endpoints.Items,
 			clustersForUcc.erroredClusters,
 		)
 
-		snap.deferred = len(missingClusters) > 0 || len(unusableClusters) > 0
+		snap.deferred = len(missingClusters) > 0 || len(missingEndpointClusters) > 0
 		snap.missingReferenced = missingClusters
-		snap.unusableReferenced = unusableClusters
+		snap.missingEndpointsReferenced = missingEndpointClusters
 		snap.erroredClusters = clustersForUcc.erroredClusters
 		snap.proxyKey = ucc.ResourceName()
 		snap.endpointHashes = endpointHashes
@@ -215,7 +215,7 @@ func snapshotPerClient(
 				"snapshot has unready referenced clusters; syncXds will resolve per cluster",
 				"client", ucc.ResourceName(),
 				"missing_clusters", missingClusters,
-				"unusable_clusters", unusableClusters,
+				"missing_endpoint_clusters", missingEndpointClusters,
 			)
 			emitXdsSnapshotTrace(ucc.ResourceName(), xdsTraceDecisionDeferFlip,
 				listenerRouteSnapshot.ReferencedClusters, clustersForUcc.erroredClusters,
@@ -396,8 +396,8 @@ func findMissingReferencedEndpointResources(
 		if !requiresEndpointResource {
 			continue
 		}
-		endpointResource, ok := endpoints[endpointResourceName]
-		if ok && clusterLoadAssignmentHasUsableEndpoint(endpointResource) {
+		_, ok = endpoints[endpointResourceName]
+		if ok {
 			continue
 		}
 		missingEndpointClusters = append(missingEndpointClusters, name)
@@ -405,27 +405,6 @@ func findMissingReferencedEndpointResources(
 	slices.Sort(missingEndpointClusters)
 
 	return missingEndpointClusters
-}
-
-// RF-013: this publication-policy predicate is not an Envoy host-selection
-// oracle. Panic mode can select UNHEALTHY hosts, while active health checks,
-// ejection, and transport failure can prevent traffic to other listed hosts.
-func clusterLoadAssignmentHasUsableEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
-	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
-	if !ok {
-		return false
-	}
-	for _, locality := range cla.GetEndpoints() {
-		for _, lbEndpoint := range locality.GetLbEndpoints() {
-			if lbEndpoint.GetHealthStatus() == envoycorev3.HealthStatus_UNHEALTHY {
-				continue
-			}
-			if lbEndpoint.GetEndpoint() != nil {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func endpointResourceNameForCluster(resource envoycachetypes.ResourceWithTTL) (string, bool) {
@@ -563,10 +542,8 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 // relying on the cache tolerating a dangling EDS cluster, and it lets Envoy
 // treat such a cluster as active-with-no-hosts immediately instead of stalling
 // its warming on an absent EDS resource until the initial-fetch timeout.
-// Referenced clusters whose only CLA is a synthesized empty are marked unready
-// by findMissingReferencedEndpointResources, which checks for a
-// usable endpoint; syncXds permits referenced empty CLAs on first publication
-// and for previously referenced backends, but holds warm flips to new backends.
+// findMissingReferencedEndpointResources checks the input rows before this
+// synthesis. Derived empty assignments never hold a route flip.
 //
 // Clusters dropped from CDS because backend translation failed are covered by
 // the same rule: their CLA is not required by any published cluster, so it goes
@@ -575,7 +552,7 @@ func collectProtoClusterReferencesFromValue(v protoreflect.Value, referencedClus
 // the entire EDS response, freezing endpoints for every healthy cluster on that
 // proxy until it reconnects.
 //
-// The version is a content hash of the resources actually published, which is
+// The version folds the selected row contributions (eds_set_version.go), which is
 // what makes an error -> recovery flap visible: go-control-plane's SOTW push
 // path only responds when the snapshot version differs from the watch's
 // last-acked version, so a recovered cluster whose endpoints never changed

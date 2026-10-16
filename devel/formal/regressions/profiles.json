@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "profiles": {
+    "stack-14817": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "e7b569a1fb786a58a81cb5c0364d57769786b67d",
+      "base": "982e29797b5028ca22d5c4ce41d06f427a8cdcd3",
+      "package": "pkg/kgateway/proxy_syncer",
+      "fixture": "fixtures/stack14817_test.go.txt",
+      "expected": "fail",
+      "tests": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "an endpoint/route recomputation must not bypass the configured ahead interval",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "an old release timer must not overwrite a newer coherent publication",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "cluster removal expiry must not release the independent flip budget early",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "carrying a must not overwrite the current assignment also consumed by b",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "unused plugin claims must not re-admit destinations for every gateway",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "rejecting an invalid claim must preserve the emit-all fallback",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "an opaque cluster-bearing extension cannot prove the emission set complete",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "a weighted cluster header is an unbounded runtime selector too",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "a retained listener still depends on this cluster"
+      },
+      "setup_build_error": "undefined: newNackResendSuppressor"
+    },
+    "historical-contents-gate": {
+      "repository": "chandler-solo/kgateway",
+      "revision": "a4cf59d6d80372ca9d0baaa4cfe543c228bf1857",
+      "package": "pkg/kgateway/proxy_syncer",
+      "fixture": "fixtures/warm_starvation_legacy_test.go.txt",
+      "replace_file": "warm_starvation_test.go",
+      "expected": "pass",
+      "tests": {
+        "TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret": ""
+      }
+    }
+  },
+  "downstream": {
+    "repository": "kgw-ent workspace (not a deployment)",
+    "revision": "1bc4cde8b4edc780135c98d2268f43289978373c",
+    "kgateway_revision": "acd13c6f53d1",
+    "reviewed_adoption_obligations": [
+      "wire NewControlPlane NACK and reconnect settings",
+      "port HasPriorXDSVersion, HasColdStreamSince and atomic RunIfDisconnected while preserving authenticated Gateway roles and identity drift",
+      "cover peering CDS/EDS coupling, enterprise filters and standalone SDS on enterprise Envoy and FIPS binaries"
+    ],
+    "automated_adoption_coverage": false
+  }
+}

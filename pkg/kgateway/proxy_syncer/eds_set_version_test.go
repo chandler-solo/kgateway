@@ -41,6 +41,15 @@ func TestEndpointSetVersionIsOrderIndependent(t *testing.T) {
 	require.Equal(t, v1, v2)
 }
 
+// Negative control from the randomized fixture: distinct contributions can
+// collide as sets even when no two individual contributions are equal.
+// This characterizes the XOR combiner, not a discovered production hash input.
+func TestEndpointSetVersionDistinctContributionsCanCollide(t *testing.T) {
+	before := endpointSetVersion(map[string]uint64{"cluster-3": 16})
+	after := endpointSetVersion(map[string]uint64{"cluster-0": 18, "cluster-1": 20, "cluster-3": 22})
+	require.Equal(t, before, after, "16 == 18^20^22; per-row distinctness is insufficient")
+}
+
 // A row that changes behind a filter still moves the filtered version, and a
 // row that recovers its inputs restores the version it had.
 func TestEndpointSetVersionFollowsRowHashes(t *testing.T) {

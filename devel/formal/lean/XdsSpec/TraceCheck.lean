@@ -14,30 +14,36 @@ events against the verified spec, instantiated at `Name := String`:
   - EDS presence: every referenced EDS cluster's ClusterLoadAssignment
     (by service_name or cluster name) must be present. Empty assignments
     are permitted for first cache publication and per-cluster resolution.
-    Only the fully ready transform decision requires usable endpoints.
+    Derived empty assignments are valid on every publication path. Usability is descriptive only.
   - No orphan CLAs: every published CLA must be induced by an EDS
     cluster in the same snapshot — issue 14184's
     `NoOrphanEndpointResources`.
 
-  - Version relation (RF-008, IMPL-A1): schema 2 carries the per-CLA
-    content digest that the implementation XORs into the EDS version. For
+  - Version relation (RF-008, IMPL-A1): schema 2 carries a trace-only per-CLA
+    content digest; production versions fold row-input contributions. For
     consecutive publications to one client within a scenario, an unchanged
     `endpointsVersion` with changed (name, digest) content is a
     `version-reuse` violation: Envoy would not be sent the new endpoints.
     Unchanged content with a changed version is counted as `version-churn`
-    and reported; it is a spurious push, not a safety violation, and unit
-    fixtures may fabricate passthrough versions. Both directions are the
-    contract stated in VersionDigest.lean; the rule detects a violation in
-    the observed run and proves nothing about unobserved content.
+    and reported, not failed. Input-only revisions can legitimately produce
+    this result under RF-025's October 14 rule. The stronger content-idempotent
+    contract in VersionDigest.lean is not the implemented contract. This rule
+    detects version reuse in observed runs, not collision freedom generally.
 
   - Installation receipts (RF-006): syncXds emits `installed` or
     `install-failed` after SetSnapshot returns, carrying the installed
-    content. Decisions queue per client in order; an installation must match
+    content. Transform decisions queue per client in order; an installation must match
     a pending decision by its per-type version tuple (`install-mismatch`
     otherwise), older
     pending decisions it skips are counted as superseded (KRT coalescing),
-    and an identical consecutive decision is a suppressed recomputation, not
-    a separate installation. Installed content is checked for closure like
+    and an identical consecutive transform decision is a suppressed recomputation, not
+    a separate installation. `publish-first` and `publish-resolved` happen in
+    the publisher, immediately before installation: they enter ahead of queued
+    transform decisions. A newer candidate may already exist while the handler
+    finishes an older deferred wrapper. Resolving that wrapper must not mark
+    the newer candidate superseded. This assumes one publisher per client;
+    explicit candidate IDs and concurrent publishers remain a refinement gap.
+    Installed content is checked for closure like
     a publish; `install-failed` is a violation. In a scenario that installs
     anything, a decision still pending at the terminal is
     `publish-not-installed`; transform-only scenarios that never call
@@ -148,16 +154,10 @@ structure Violation where
   rule : String
   detail : String
 
-/-- Check a publish event. `requireUsable` distinguishes the publish
-kinds: a coherent transform publish ("publish") requires every referenced
-EDS cluster to carry a usable endpoint; a per-cluster resolution
-("publish-resolved", emitted by syncXds) only requires the CLA to exist —
-a previously-referenced cluster legitimately publishes an empty CLA when
-its endpoints scale to zero (spec case C2), and held-flip compositions gate
-usability upstream in the unit tests. First cache publication
-("publish-first") also requires presence, not usable endpoints: there is
-no cached route flip to protect. All three decisions check CDS closure
-and orphan CLAs. These event checks do not prove transition conformance. -/
+/-- Check structural publication closure. Current publication decisions require
+CLA presence, including derived empties. `requireUsable = true` preserves the
+superseded contents-gate checker as a negative control; the active trace relation
+never selects it. Neither predicate establishes delivery or application. -/
 def checkPublish (e : TraceEvent) (requireUsable : Bool) :
     List (String × String) := Id.run do
   let mut violations := []
@@ -167,8 +167,7 @@ def checkPublish (e : TraceEvent) (requireUsable : Bool) :
   unless NameSet.subset required cdsNames do
     violations := violations ++ [("publish-closure",
       s!"referenced clusters {required} not all present in CDS {cdsNames}")]
-  -- EDS readiness: every referenced EDS cluster has a CLA (and, for coherent
-  -- transform publishes, one with a usable endpoint).
+  -- Every referenced EDS cluster has a CLA. The optional contents check is historical.
   for c in e.clusters do
     if c.eds && required.contains c.name then
       match e.endpoints.find? (·.name == c.edsName) with
@@ -192,7 +191,7 @@ structure TraceSummary where
   publishes : Nat := 0
   defers : Nat := 0
   /-- Publications whose EDS content matched the client's previous
-  publication while the version string changed (spurious pushes). -/
+  publication while the version changed. Row-input/CDS-coupled pushes may be legitimate. -/
   churn : Nat := 0
   /-- Cache installation receipts matched to a preceding publish decision. -/
   installs : Nat := 0
@@ -257,9 +256,8 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
   let mut lineNumber := 0
   let mut sequences : List (String × Nat) := []
   let mut lastPublished : List (String × String × List (String × String)) := []
-  -- client -> EDS versions of publish decisions not yet installed, oldest
-  -- first. Installations arrive in decision order but may skip decisions
-  -- that KRT coalesced before the handler ran.
+  -- Transform candidates queue in derivation order. Final publisher decisions
+  -- enter at the head, since the handler may lag newer transform candidates.
   let mut pendingInstall : List (String × List String) := []
   -- client -> EDS version most recently installed (the collection's previous
   -- output once the handler has caught up)
@@ -301,7 +299,7 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
       summary := { summary with events := summary.events + 1 }
       if ["publish", "publish-first", "publish-resolved"].contains e.decision then
         summary := { summary with publishes := summary.publishes + 1 }
-        let found := checkPublish e (requireUsable := e.decision == "publish")
+        let found := checkPublish e (requireUsable := false)
         let previous := (lastPublished.find? (fun entry => entry.1 == e.client)).map (·.2)
         let (versionFound, churned) := checkVersionRelation previous e
         lastPublished := (e.client, e.endpointsVersion, publishedContent e) ::
@@ -315,7 +313,9 @@ def checkTrace (lines : List String) : Except String TraceSummary := Id.run do
         -- event when the output is unchanged, so an identical consecutive
         -- decision yields no separate installation.
         let previousOutput := queue.getLast? <|> (lastInstalled.find? (fun p => p.1 == e.client)).map (·.2)
-        if previousOutput == some (versionKey e) then
+        if e.decision != "publish" then
+          pendingInstall := (e.client, versionKey e :: queue) :: pendingInstall.filter (fun p => p.1 != e.client)
+        else if previousOutput == some (versionKey e) then
           summary := { summary with duplicateDecisions := summary.duplicateDecisions + 1 }
         else
           pendingInstall := (e.client, queue ++ [versionKey e]) :: pendingInstall.filter (fun p => p.1 != e.client)
@@ -402,7 +402,7 @@ private def previousV1 : Option (String × List (String × String)) := some ("v1
 #guard checkVersionRelation previousV1 { firstEmpty with endpoints := [⟨"service", true, "d9"⟩], endpointsVersion := "v2" } == ([], false)
 #guard checkVersionRelation previousV1 { firstEmpty with endpointsVersion := "v2" } == ([], true)
 
-private def eventJSON (decision : String := "publish-first") (sequence : Nat := 1)
+private def eventJSON (decision : String := "publish") (sequence : Nat := 1)
     (version : String := "v1") (digest : String := "d1") (schema : Nat := 2)
     (client : String := "cold") (routeVersion : String := "r1") : String :=
   (r#"{"schema":SCHEMA,"scenario":"fixture","sequence":SEQ,"client":"CLIENT","versions":{"secret":"s1","endpoint":"VERSION","route":"ROUTEV","cluster":"c1","listener":"l1"},"decision":"DECISION","referenced":["c"],"exempt":[],"clusters":[{"name":"c","eds":true,"edsName":"service"}],"endpoints":[{"name":"service","usable":false,"digest":"DIGEST"}],"endpointsVersion":"VERSION"}"#).replace "SEQ" (toString sequence) |>.replace "DECISION" decision |>.replace "VERSION" version |>.replace "DIGEST" digest |>.replace "SCHEMA" (toString schema) |>.replace "CLIENT" client |>.replace "ROUTEV" routeVersion
@@ -414,7 +414,7 @@ private def fails (result : Except String α) : Bool :=
 #guard fails (parseEvent (eventJSON "publsih"))
 #guard fails (checkTrace [])
 #guard fails (checkTrace [eventJSON "defer-flip"])
-#guard fails (checkTrace [eventJSON "publish-first" 2])
+#guard fails (checkTrace [eventJSON "publish" 2])
 #guard fails (checkTrace [eventJSON, eventJSON])
 private def terminalJSON (count : Nat) : String :=
   r#"{"schema":2,"scenario":"fixture","terminal":true,"events":COUNT}"#.replace "COUNT" (toString count)
@@ -423,7 +423,7 @@ private def terminalJSON (count : Nat) : String :=
 #guard fails (checkTrace [eventJSON, terminalJSON 2])
 #guard fails (checkTrace [eventJSON, terminalJSON 1, eventJSON])
 #guard fails (checkTrace [eventJSON, terminalJSON 1, terminalJSON 1])
-#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3 "v2" "d2", eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish" 3 "v2" "d2", eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
   | .ok summary => summary.publishes == 2 && summary.installs == 2 && summary.superseded == 0 && summary.violations.isEmpty
   | .error _ => false
 -- Installation receipts (RF-006): a decision must reach the cache with the
@@ -432,11 +432,11 @@ private def terminalJSON (count : Nat) : String :=
   | .ok summary => summary.violations.isEmpty && summary.decisionsNotInstalled == 1
   | .error _ => false
 -- A scenario that installs anything must install every decision.
-#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3 "v2" "d2", terminalJSON 3] with
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish" 3 "v2" "d2", terminalJSON 3] with
   | .ok summary => summary.violations.map (·.rule) == ["publish-not-installed"]
   | .error _ => false
 -- Installations lag decisions in order (handler behind the transform).
-#guard match checkTrace [eventJSON, eventJSON "publish-first" 2 "v2" "d2", eventJSON "installed" 3, eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
+#guard match checkTrace [eventJSON, eventJSON "publish" 2 "v2" "d2", eventJSON "installed" 3, eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
   | .ok summary => summary.violations.isEmpty && summary.installs == 2 && summary.superseded == 0
   | .error _ => false
 private def boundaryJSON (sequence : Nat) : String :=
@@ -445,10 +445,10 @@ private def boundaryJSON (sequence : Nat) : String :=
 -- Subtest boundaries reset per-client relations. A transform-only segment's
 -- pending decision is counted; an install-wired segment's is a violation; an
 -- installation after the boundary never matches a decision from before it.
-#guard match checkTrace [eventJSON, boundaryJSON 2, eventJSON "publish-first" 3 "v2" "d2", eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
+#guard match checkTrace [eventJSON, boundaryJSON 2, eventJSON "publish" 3 "v2" "d2", eventJSON "installed" 4 "v2" "d2", terminalJSON 4] with
   | .ok summary => summary.violations.isEmpty && summary.decisionsNotInstalled == 1 && summary.boundaries == 1
   | .error _ => false
-#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3 "v2" "d2", boundaryJSON 4, terminalJSON 4] with
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish" 3 "v2" "d2", boundaryJSON 4, terminalJSON 4] with
   | .ok summary => summary.violations.map (·.rule) == ["publish-not-installed"]
   | .error _ => false
 #guard match checkTrace [eventJSON, boundaryJSON 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
@@ -456,19 +456,19 @@ private def boundaryJSON (sequence : Nat) : String :=
   | .error _ => false
 -- A direct segment installs fabricated wrappers: unmatched installations and
 -- pending decisions are counted, never violations.
-#guard match checkTrace [(boundaryJSON 1).replace "\"boundary\"" "\"boundary-direct\"", eventJSON "publish-first" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
+#guard match checkTrace [(boundaryJSON 1).replace "\"boundary\"" "\"boundary-direct\"", eventJSON "publish" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.installsWithoutDecision == 1 && summary.decisionsNotInstalled == 1
   | .error _ => false
-#guard match checkTrace [boundaryJSON 1, eventJSON "publish-first" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
+#guard match checkTrace [boundaryJSON 1, eventJSON "publish" 2, eventJSON "installed" 3 "v9", terminalJSON 3] with
   | .ok summary => summary.violations.map (·.rule) == ["install-mismatch"]
   | .error _ => false
 
 -- An identical consecutive decision is a suppressed KRT recomputation.
-#guard match checkTrace [eventJSON, eventJSON "publish-first" 2, eventJSON "installed" 3, terminalJSON 3] with
+#guard match checkTrace [eventJSON, eventJSON "publish" 2, eventJSON "installed" 3, terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.installs == 1 && summary.duplicateDecisions == 1
   | .error _ => false
 -- ...also when the recomputation arrives after the installation it equals.
-#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3, terminalJSON 3] with
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish" 3, terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.installs == 1 && summary.duplicateDecisions == 1
   | .error _ => false
 #guard match checkTrace [eventJSON, eventJSON "installed" 2 "v9", terminalJSON 2] with
@@ -484,10 +484,10 @@ private def boundaryJSON (sequence : Nat) : String :=
 #guard match checkTrace [eventJSON, eventJSON "install-failed" 2, terminalJSON 2] with
   | .ok summary => summary.violations.map (·.rule) == ["install-failed"] && summary.decisionsNotInstalled == 1
   | .error _ => false
-#guard match checkTrace [eventJSON, eventJSON "publish-first" 2 "v2" "d2", eventJSON "installed" 3 "v2" "d2", terminalJSON 3] with
+#guard match checkTrace [eventJSON, eventJSON "publish" 2 "v2" "d2", eventJSON "installed" 3 "v2" "d2", terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.superseded == 1 && summary.installs == 1
   | .error _ => false
-#guard match checkTrace [eventJSON "installed", eventJSON "publish-first" 2, eventJSON "installed" 3, terminalJSON 3] with
+#guard match checkTrace [eventJSON "installed", eventJSON "publish" 2, eventJSON "installed" 3, terminalJSON 3] with
   | .ok summary => summary.violations.isEmpty && summary.installsWithoutDecision == 1 && summary.installs == 1
   | .error _ => false
 -- An installed snapshot is checked for closure like a publish.
@@ -509,7 +509,7 @@ private def boundaryJSON (sequence : Nat) : String :=
   | .ok summary => summary.violations.isEmpty && summary.churn == 0
   | .error _ => false
 -- Histories are per client: another client may reuse the version string.
-#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish-first" 3 "v1" "d2" 2 "warm", eventJSON "installed" 4 "v1" "d2" 2 "warm", terminalJSON 4] with
+#guard match checkTrace [eventJSON, eventJSON "installed" 2, eventJSON "publish" 3 "v1" "d2" 2 "warm", eventJSON "installed" 4 "v1" "d2" 2 "warm", terminalJSON 4] with
   | .ok summary => summary.violations.isEmpty && summary.churn == 0
   | .error _ => false
 
@@ -533,5 +533,19 @@ def runTraceCheck (paths : List String) : IO UInt32 := do
         for v in summary.violations do
           IO.println s!"  line {v.lineNumber} client {v.client} [{v.rule}]: {v.detail}"
   return if ok then 0 else 1
+
+-- A later coherent candidate can be derived before an older deferred wrapper
+-- is resolved. Its subsequent installation is not a rollback or a lost receipt.
+#guard match checkTrace [eventJSON "publish" 1 "v2" "d2",
+    eventJSON "publish-resolved" 2 "v1" "d1", eventJSON "installed" 3 "v1" "d1",
+    eventJSON "publish" 4 "v3" "d3", eventJSON "installed" 5 "v2" "d2",
+    eventJSON "installed" 6 "v3" "d3", terminalJSON 6] with
+  | .ok summary => summary.violations.isEmpty && summary.installs == 3 && summary.superseded == 0
+  | .error _ => false
+-- Final publisher decisions are not coalesced, even with identical versions.
+#guard match checkTrace [eventJSON "publish-first" 1, eventJSON "installed" 2,
+    eventJSON "publish-resolved" 3, eventJSON "installed" 4, terminalJSON 4] with
+  | .ok summary => summary.violations.isEmpty && summary.installs == 2 && summary.duplicateDecisions == 0
+  | .error _ => false
 
 end XdsSpec.Trace

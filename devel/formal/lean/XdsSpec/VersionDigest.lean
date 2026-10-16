@@ -6,9 +6,11 @@ XdsSpec.VersionDigest: payload revisions and the version-digest contract
 resource names. That abstraction supports the closure and named-response
 proofs, but it forgets payload changes: a ClusterLoadAssignment whose
 endpoints change while its name stays the same has the same name-set
-version. The implementation (`filterEndpointResourcesForClusters`) versions
-EDS by XOR-combining a 64-bit FNV-1a digest of each deterministically
-marshalled CLA, so it does see payload changes, subject to collisions.
+version. Correction, October 16, 2026: RF-025's October 14 implementation versions
+EDS by XOR-folding row-input hashes, remembered carried contributions, and
+name hashes for synthesized empties. It does not marshal CLAs for versions.
+A changed input may leave identical CLA bytes with a different version. Trace
+content digests are computed separately, only when tracing is enabled.
 
 This module records that gap honestly:
 
@@ -16,17 +18,16 @@ This module records that gap honestly:
   - `nameSetVersion_blind` proves the Spec abstraction cannot distinguish a
     same-name payload change. Anything the Spec proves about versions is a
     statement about name sets only.
-  - `DigestContract` states what the implementation's version function must
-    satisfy for the run being checked: determinism on content-equal sets and
+  - `DigestContract` states a stronger, historical content-based contract: determinism on content-equal sets and
     collision freedom on an explicitly named domain. Both are assumptions
     about the concrete hash on the finite set of contents that a run
     compares. No finite-width digest is injective over unbounded content
     (pigeonhole); the contract therefore carries a `domain` rather than
     claiming global injectivity.
   - `payload_change_changes_digest` and `content_stable_keeps_digest` are the
-    two directions the trace checker enforces per client at runtime
-    (`version-reuse` and `version-churn` in TraceCheck.lean), using the same
-    per-resource digests the implementation XORs.
+    two directions of that abstract contract. TraceCheck.lean rejects observed
+    `version-reuse` but only counts `version-churn`; legitimate row-input
+    changes need not satisfy the content-idempotence direction.
   - `xorDigest` is the implementation's combiner. `xorDigest_pair_comm` shows
     it is order independent for a pair; `xorDigest_cancels` shows that two
     resources with equal per-resource digests contribute nothing, so their

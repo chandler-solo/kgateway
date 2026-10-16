@@ -3,6 +3,7 @@ package proxy_syncer
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	udpaannontations "github.com/cncf/xds/go/udpa/annotations"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
@@ -24,29 +25,24 @@ var UseDetailedUnmarshalling = !envutils.IsEnvTruthy("DISABLE_DETAILED_SNAP_UNMA
 type XdsSnapWrapper struct {
 	snap *envoycache.Snapshot
 	// erroredClusters contains clusters that encountered errors during backend translation
-	// TODO: this is not used anywhere, we need surface this somewhere
-	// +noKrtEquals
+	// and must not be restored by carry-forward.
 	erroredClusters []string
-	// +noKrtEquals
-	proxyKey string
+	proxyKey        string
 	// deferred marks a snapshot built while some referenced cluster was not
 	// ready (see snapshotPerClient's guards). syncXds resolves it per cluster
 	// against the currently-published snapshot: previously-published clusters
-	// are carried forward, previously-referenced clusters with no usable
-	// endpoints publish their truth (scale-to-zero), and only a route flip
-	// onto a newly-referenced not-yet-ready cluster is held back.
+	// are carried forward, derived empty assignments publish their truth,
+	// and only a route flip
+	// onto a newly-referenced cluster with an underived CLA row is held back.
 	// Without a cached snapshot, only missing CDS prevents publication;
 	// referenced clusters with empty CLAs publish immediately.
-	// +noKrtEquals (derived from snapshot contents whose per-type versions Equals compares)
 	deferred bool
 	// missingReferenced lists referenced clusters absent from this snapshot's
 	// CDS (translation lagging, or the backend is gone). Sorted.
-	// +noKrtEquals (derived: a change implies a CDS or RDS/LDS version change)
 	missingReferenced []string
-	// unusableReferenced lists referenced EDS clusters whose CLA carries no
-	// usable endpoint. Sorted.
-	// +noKrtEquals (derived: a change implies an EDS version change)
-	unusableReferenced []string
+	// missingEndpointsReferenced lists referenced EDS clusters without a derived
+	// CLA row before empty-assignment synthesis. Sorted.
+	missingEndpointsReferenced []string
 	// endpointHashes maps each assignment in snap to the hash it is versioned
 	// by (eds_set_version.go); syncXds remembers it for carry-forward.
 	// +noKrtEquals folded into the EDS version compared by Equals
@@ -61,7 +57,14 @@ func (p XdsSnapWrapper) WithSnapshot(snap *envoycache.Snapshot) XdsSnapWrapper {
 var _ krt.ResourceNamer = XdsSnapWrapper{}
 
 func (p XdsSnapWrapper) Equals(in XdsSnapWrapper) bool {
-	// check that all the versions are the equal
+	// Publication decisions also depend on derivation state, not only bytes.
+	if p.proxyKey != in.proxyKey || p.deferred != in.deferred ||
+		!slices.Equal(p.missingReferenced, in.missingReferenced) ||
+		!slices.Equal(p.missingEndpointsReferenced, in.missingEndpointsReferenced) ||
+		!slices.Equal(p.erroredClusters, in.erroredClusters) {
+		return false
+	}
+	// Compare the per-type versions as well.
 	for i, r := range p.snap.Resources {
 		if r.Version != in.snap.Resources[i].Version {
 			return false

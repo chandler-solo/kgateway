@@ -50,7 +50,7 @@ func (s *ProxyTranslator) syncXds(
 		//   - only a route flip onto a NEWLY-referenced not-yet-ready cluster
 		//     is held: routes/listeners/secrets stay at the published
 		//     versions while the new clusters warm in the background, and the
-		//     flip goes out in a later snapshot once they are usable (C3 —
+		//     flip goes out in a later snapshot once their rows are derived (C3 —
 		//     which also gives the flip the reference-ahead shape: the CDS
 		//     carrying a new cluster is published in an earlier snapshot than
 		//     the RDS that uses it).
@@ -142,9 +142,9 @@ func publishedRefsForTrace(snap *envoycache.Snapshot, publishedRefs map[string]s
 //     carried forward together with their CLAs;
 //   - if every remaining gap is a previously-referenced cluster (present in
 //     the published routes' reference set), the new routes publish as-is —
-//     including empty CLAs for scale-to-zero clusters;
+//     including derived empty CLAs;
 //   - otherwise some gap is a newly-referenced cluster that has never been
-//     ready: routes, listeners, and secrets are held at their published
+//     derived: routes, listeners, and secrets are held at their published
 //     versions (so nothing flips onto the unready cluster), the held routes'
 //     cluster/CLA dependencies are carried forward, and the new CDS/EDS —
 //     including the warming cluster — still goes out.
@@ -158,7 +158,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 
 	// A gap blocks the route flip only if the published config was not
 	// already using the cluster: a previously-referenced cluster that is
-	// missing gets carried forward, and one with no usable endpoints
+	// missing gets carried forward, and one with a derived empty assignment
 	// publishes its truth (C2).
 	var flipBlocking []string
 	for _, name := range snapWrap.missingReferenced {
@@ -167,7 +167,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		}
 		flipBlocking = append(flipBlocking, name)
 	}
-	for _, name := range snapWrap.unusableReferenced {
+	for _, name := range snapWrap.missingEndpointsReferenced {
 		if _, wasReferenced := publishedRefs[name]; wasReferenced {
 			continue // previously-referenced: truth (empty CLA) publishes
 		}
@@ -197,7 +197,7 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 			"proxy_key", snapWrap.proxyKey,
 			"flip_blocking", flipBlocking,
 		)
-		for name := range publishedRefs {
+		for name := range retainedClusterDependencies(published, snapWrap.erroredClusters) {
 			carryRefs[name] = struct{}{}
 		}
 	} else {
@@ -250,8 +250,10 @@ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.Res
 		if !requiresEndpointResource {
 			continue
 		}
-		if oldCla, ok := oldEndpoints[claName]; ok {
-			endpointItems[claName] = oldCla
+		if _, current := endpointItems[claName]; !current {
+			if oldCla, ok := oldEndpoints[claName]; ok {
+				endpointItems[claName] = oldCla
+			}
 		}
 	}
 	if len(carried) > 0 {

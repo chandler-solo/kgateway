@@ -4,7 +4,7 @@ assumptions:
   - id: GCP-A1
     summary: the simplified named EDS response guard omits equal-version subscription responses and declined-watch disposition
     status: open
-    plannedDischarge: RF-007 requires modeling both CreateWatch and SetSnapshot paths, returned resources, and watch loss against v0.14.0
+    plannedDischarge: RF-007 requires modeling both CreateWatch and SetSnapshot paths, returned resources, and watch loss against v0.14.1-0.20260702184136-1cd1226616f5; parked-decline and unsubscribe repairs are present, immediate declines still lose requests
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - canRespond
@@ -26,22 +26,22 @@ assumptions:
   - id: ENV-A1
     summary: the abstract convergence activation guard requires dependency closure; a general Envoy usable-endpoint activation guarantee is unproven and must not constrain first publication
     status: open
-    plannedDischarge: directly characterize the pinned Envoy without the kgateway readiness gate, separating initialized empty clusters from traffic-usable clusters. Existing warming e2e tests characterize the warm control-plane policy, not an Envoy first-publication guarantee.
+    plannedDischarge: extend the recorded direct-Envoy profiles to the current upstream and enterprise/FIPS binaries; separate initialized empty clusters, accepted configuration, and traffic. Updated warming e2e scenarios require a fresh live run.
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - activateNew
       - activeSnapshotClosed
     dischargedBy:
       - file: test/e2e/features/xds_warming/suite.go
-        test: TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic
+        test: TestRouteUpdateToEmptyBackendPublishesTruth
       - file: test/e2e/features/xds_warming/suite.go
-        test: TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic
+        test: TestWeightedRouteToEmptyBackendServesMixedTruth
       - file: test/e2e/features/xds_warming/suite.go
-        test: TestInitialRouteWaitsForEDSBeforeBecomingActive
+        test: TestInitialRouteToEmptyBackendServes503UntilReady
   - id: IMPL-A1
-    summary: EDS digests are assumed collision-free for compared revisions; finite corpus tests cannot prove injectivity
+    summary: EDS row-contribution folds are assumed collision-free for compared revisions; finite corpus tests cannot prove injectivity
     status: open
-    plannedDischarge: RF-008. VersionDigest.lean states the contract (determinism plus collision freedom on the compared domain) and proves the name-set abstraction is payload-blind; the schema-2 trace rule detects version reuse per client at runtime. The collision assumption itself remains an assumption; a revision allocator would discharge it at the cost of content-idempotent versions.
+    plannedDischarge: RF-008. VersionDigest.lean states the contract (determinism plus collision freedom on the compared domain) and proves the name-set abstraction is payload-blind; the schema-2 trace rule detects version reuse per client at runtime. The collision assumption itself remains an assumption; a revision allocator would discharge it at the cost of input-idempotent versions. RF-025 October 14 uses no-marshal row contributions; equal bytes alone do not imply equal versions.
     specFile: devel/formal/lean/XdsSpec/VersionDigest.lean
     specAnchors:
       - DigestContract

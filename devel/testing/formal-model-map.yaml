@@ -20,7 +20,7 @@ obligations:
       - coldStarvationBugSystem
       - coldClosed
     status: covered
-    note: cache absence is not evidence that Envoy is cold. Empty endpoint truth can replace a warm proxy's retained state after controller restart. This does not change the warm C3 policy or solve permanent missing-CDS starvation.
+    note: cache absence is not evidence that Envoy is cold. Empty endpoint truth can replace a warm proxy's retained state after controller restart. Warm C3 now tests row presence, not contents. Permanent missing-CDS starvation remains open on the research profile.
     tests:
       - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
         test: TestSnapshotPerClientFirstPublishWithEmptyEndpoints
@@ -40,32 +40,35 @@ obligations:
       - publishA
       - truthPublishedA
     status: covered
-    note: implemented by the per-cluster resolution in syncXds (resolveDeferredPerCluster) - a previously-referenced cluster with no usable endpoints publishes its truth instead of deferring the snapshot.
+    note: derived empty truth now publishes directly; absent rows are classified separately before synthesis. The historical model retains its contents gate for comparison.
     tests:
       - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
         test: TestSnapshotPerClientScaleToZeroPublishesEmptyCLA
-  - id: C3-flip-gated-on-usable-endpoint
-    summary: with an existing cached snapshot, the route flip onto a newly-referenced cluster waits for a CLA with a usable endpoint; first cache publication follows C0
-    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+  - id: C3-derived-empty-publishes-truth
+    summary: a derived CLA permits a warm route flip even when empty; only a missing row can defer it
+    specFile: devel/formal/lean/XdsSpec/DerivedEndpointTruth.lean
     specAnchors:
-      - flipRoutes
-      - flipWasGated
+      - mayPublish
+      - emptyTruthPublishes
+      - healthDoesNotGate
     status: covered
+    note: cache-boundary policy checks, not proof of Go refinement or Envoy application; legacy contents-gate counterexamples remain separately pinned
     tests:
       - file: pkg/kgateway/proxy_syncer/perclient_test.go
-        test: TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEndpoint
+        test: TestSnapshotPerClientDerivedEmptyEndpointPublishesRouteTruth
+      - file: pkg/kgateway/proxy_syncer/warm_starvation_test.go
+        test: TestWarmDerivedEmptyBackendPublishesUnrelatedRouteAndSecret
       - file: test/e2e/features/xds_warming/suite.go
-        test: TestRouteUpdateWaitsForNewEDSBeforeBreakingOldTraffic
+        test: TestRouteUpdateToEmptyBackendPublishesTruth
       - file: test/e2e/features/xds_warming/suite.go
-        test: TestWeightedRouteWaitsForAllEDSBeforeSplittingTraffic
-  - id: C3-isolation-warming-cluster-does-not-block-others
-    summary: while a newly-referenced cluster warms, route/listener/secret types are held while other clusters' endpoint updates keep publishing
-    specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean
+        test: TestWeightedRouteToEmptyBackendServesMixedTruth
+  - id: C3-underived-flip-isolation
+    summary: an underived newly referenced backend holds routing types while other endpoint updates can publish
+    specFile: devel/formal/lean/XdsSpec/DerivedEndpointTruth.lean
     specAnchors:
-      - truthLagsA
-      - truthPublishedA
+      - missingRowDefers
     status: covered
-    note: implemented by the held-flip composition in syncXds - routes/listeners/secrets stay at their published versions while the warming cluster and all unrelated updates keep flowing (which also gives the flip the reference-ahead shape).
+    note: the research branch still has no bounded publication timers; the pinned stack has separate timer regressions
     tests:
       - file: pkg/kgateway/proxy_syncer/perclient_percluster_test.go
         test: TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip
@@ -94,7 +97,7 @@ obligations:
     specAnchors:
       - stuck_client_has_recovery_path
     status: open
-    note: proven sufficient in the spec; the Go mechanism is the defer watchdog (fix/defer-watchdog branch). Discharge tracked as assumption KRT-A1 in formal-assumptions.yaml.
+    note: the theorem supplies a coherent future candidate and proves an existing recovery path, not temporal progress. No production watchdog is established here. KRT fairness/refinement remains KRT-A1.
   - id: ordered-ADS-delivery-windows
     summary: route updates must never reach the wire before the CDS carrying their cluster, and cluster removals must never reach the wire before the RDS de-referencing them; three real windows exist (busy-stream randomization, ACK skew, combined removals)
     specFile: devel/formal/lean/XdsSpec/OrderedADS.lean

@@ -1,4 +1,11 @@
 /-
+HISTORICAL CONTENTS-GATE PROFILE (superseded September 13, 2026).
+The warm C3 systems below preserve the original models and counterexamples.
+Their `safeSystem` name means safe for that historical policy, not the current
+Go implementation. DerivedEndpointTruth.lean covers the selected presence-based
+policy; bounds, timers, delivery, and application require separate models.
+-/
+/-
 XdsSpec.PerClusterReadiness: the guard-#3 granularity question.
 
 `snapshotPerClient` gates publication on per-cluster facts ("does this
@@ -53,7 +60,7 @@ and the trace checker's no-orphan-cla rule.
 
 Connection to the implementation: every obligation here is mapped to
 the Go test that discharges it in devel/testing/formal-model-map.yaml,
-gated by TestFormalModelMap. The safe system is implemented: the
+gated by TestFormalModelMap. In the historical research profile, the safe system was implemented: the
 transform records per-cluster gaps on the wrapper instead of deferring
 the snapshot, and syncXds resolves them against the currently-published
 snapshot (resolveDeferredPerCluster in kube_gw_translator_syncer.go) —

@@ -114,12 +114,17 @@ func requirements(root string) (map[key]bool, error) {
 	req[key{prefix + "devel/testing", "TestProtocolScopeHasExplicitDispositions"}] = true
 	req[key{prefix + "pkg/sds/server", "TestSDSFetchDoesNotAuthorizeNodeIdentity"}] = true
 	req[key{prefix + "pkg/sds/server", "TestSDSStreamAndDeltaServeAnyNodeIdentity"}] = true
-	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestWarmDerivedEmptyBackendPublishesUnrelatedRouteAndSecret"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestColdMissingReferencedClusterWithholdsAllTypes"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestUnsupportedBackendTranslationIsExemptFromPublicationGate"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestUccWithEndpointsRowChangesWhenOnlyTrafficDistributionChanges"}] = true
 	req[key{prefix + "pkg/krtcollections", "TestEndpointsForUpstreamWithDifferentTrafficDistributionButSameEndpoints"}] = true
 	req[key{prefix + "pkg/kgateway/endpoints", "TestSetTrafficDistributionIsVersionedByThePluginContribution"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestCarryPreservesCurrentSharedAssignment"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestHeldListenersKeepAncillaryDependencies"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestRetainedDependenciesConservativelyHandleDynamicAndOpaqueConfig"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestWrapperEqualityIncludesDerivationState"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestEndpointSetVersionDistinctContributionsCanCollide"}] = true
 	return req, nil
 }
 

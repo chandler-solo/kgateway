@@ -18,11 +18,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// RF-002: repeated candidates cannot rotate an unrelated secret or add an
-// unrelated route configuration while a newly referenced backend remains empty.
-// This is a cache-boundary probe; it does not submit these fixtures to Envoy.
-// This pins the research policy's limitation, not a desired product guarantee.
-func TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret(t *testing.T) {
+// RF-002 correction: a derived empty backend must not freeze unrelated types.
+// The original counterexample is retained in devel/formal/regressions/fixtures
+// and executed against its immutable historical research revision.
+func TestWarmDerivedEmptyBackendPublishesUnrelatedRouteAndSecret(t *testing.T) {
 	ctx := context.Background()
 	c := cache.NewSnapshotCache(true, cache.IDHash{}, nil)
 	translator := NewProxyTranslator(c)
@@ -60,21 +59,27 @@ func TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret(t *testing.T) {
 	translator.syncXds(ctx, XdsSnapWrapper{snap: initial, proxyKey: "warm"})
 	for revision := 2; revision <= 10; revision++ {
 		candidate := makeSnapshot(revision)
-		translator.syncXds(ctx, XdsSnapWrapper{snap: candidate, proxyKey: "warm", deferred: true, unusableReferenced: []string{"empty"}})
+		missing := findMissingReferencedEndpointResources(
+			map[string]struct{}{"empty": {}}, candidate.Resources[types.Cluster].Items,
+			candidate.Resources[types.Endpoint].Items, nil)
+		if len(missing) != 0 {
+			t.Fatal("derived empty assignment incorrectly classified as absent")
+		}
+		translator.syncXds(ctx, XdsSnapWrapper{snap: candidate, proxyKey: "warm", deferred: len(missing) > 0, missingEndpointsReferenced: missing})
 		served, err := c.GetSnapshot("warm")
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, typ := range []resource.Type{resource.RouteType, resource.ListenerType, resource.SecretType} {
-			if served.GetVersion(typ) != "1" {
-				t.Fatalf("revision %d: held type %s changed; reassess RF-002", revision, typ)
+			if served.GetVersion(typ) != strconv.Itoa(revision) {
+				t.Fatalf("revision %d: type %s did not publish the latest truth", revision, typ)
 			}
 		}
-		if _, exists := served.GetResources(resource.RouteType)["independent-added-route"]; exists {
-			t.Fatal("unrelated route was not held; reassess RF-002")
+		if _, exists := served.GetResources(resource.RouteType)["independent-added-route"]; !exists {
+			t.Fatal("unrelated route was held")
 		}
-		if !proto.Equal(served.GetResources(resource.SecretType)["independent-secret"], initial.GetResources(resource.SecretType)["independent-secret"]) {
-			t.Fatal("secret rotated; reassess RF-002")
+		if !proto.Equal(served.GetResources(resource.SecretType)["independent-secret"], candidate.GetResources(resource.SecretType)["independent-secret"]) {
+			t.Fatal("secret rotation was withheld")
 		}
 		if served.GetVersion(resource.ClusterType) != strconv.Itoa(revision) {
 			t.Fatal("CDS did not continue advancing")

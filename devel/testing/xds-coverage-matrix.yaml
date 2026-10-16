@@ -34,6 +34,7 @@ translatorFixtureRoots:
   - route-replacement
   - route-source-metadata
   - session-persistence
+  - setup
   - status
   - tcp-routing
   - tls-routing

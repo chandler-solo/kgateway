@@ -37,6 +37,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         WarmTypeStarvationCurrent) model=WarmTypeStarvation; expected=temporal ;;
         WarmTypeStarvationIsolated) model=WarmTypeStarvation; expected=pass ;;
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
+        PublicationTransitions*) model=PublicationTransitions; expected=pass ;;
         XdsEnvoyWarming*) model=XdsEnvoyWarming; expected=pass ;;
         XdsPerClientConvergence*) model=XdsPerClientConvergence; expected=pass ;;
         XdsPerClientPublication*) model=XdsPerClientPublication; expected=pass ;;
@@ -52,6 +53,9 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
     esac
     invariant=
     case "$name" in
+        PublicationTransitionsStaleTimerBug) invariant=NoPublicationRollback ;;
+        PublicationTransitionsCacheMeansDeliveredBug) invariant=ReferenceAheadIntervalRespected ;;
+        PublicationTransitionsPruneReleasesHoldBug) invariant=IndependentHoldNotReleasedByPrune ;;
         XdsEdsSubsetBug) invariant=NoOrphanEndpointResources ;;
         XdsEnvoyWarmingAckImpliesActiveBug) invariant=ActiveClustersHaveCDSAndEDS ;;
         XdsEnvoyWarmingEmptyCLAFlipBug) invariant=WarmRouteFlipHasReadyCLA ;;

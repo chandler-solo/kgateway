@@ -24,6 +24,24 @@ cat "$ARTIFACT_DIR/model-check.log"
 cd "$ROOT_DIR"
 git rev-parse HEAD > "$ARTIFACT_DIR/source-head.txt"
 git status --short > "$ARTIFACT_DIR/source-status.txt"
+git diff HEAD > "$ARTIFACT_DIR/source-working.diff"
+python3 - "$ARTIFACT_DIR/source-untracked-sha256.json" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+# HEAD plus the tracked diff does not identify newly added research files.
+paths = subprocess.check_output([
+    "git", "ls-files", "--others", "--exclude-standard", "-z", "--",
+    "devel/formal", "devel/testing", "pkg/kgateway/proxy_syncer",
+    "test/e2e/features/xds_warming", ".github/workflows", "Makefile",
+]).decode().split("\0")
+digests = {name: hashlib.sha256(Path(name).read_bytes()).hexdigest()
+           for name in paths if name and Path(name).is_file()}
+Path(sys.argv[1]).write_text(json.dumps(digests, indent=2, sort_keys=True) + "\n")
+PY
 (go version; cd "$SCRIPT_DIR"; lake env lean --version) > "$ARTIFACT_DIR/tool-versions.txt"
 shasum -a 256 go.mod go.sum > "$ARTIFACT_DIR/dependency-digests.txt"
 # Full unit suites include digest and dependency probes omitted by the old
@@ -50,4 +68,16 @@ while IFS= read -r scenario; do
     (cd "$SCRIPT_DIR" && lake exe xdsspec trace "$trace")
 done < "$ARTIFACT_DIR/scenarios.txt"
 rm "$ARTIFACT_DIR/proxy-tests"
+cd "$SCRIPT_DIR"
+# Minimized observations from the October 16 combined run. Preserve the
+# legitimate overlap and the intentionally colliding fixture contributions.
+lake exe xdsspec trace "$ROOT_DIR/devel/formal/regressions/fixtures/research-overlapping-decisions.jsonl"
+collision_status=0
+lake exe xdsspec trace "$ROOT_DIR/devel/formal/regressions/fixtures/research-toy-xor-collision.jsonl" > "$ARTIFACT_DIR/toy-xor-collision.log" 2>&1 || collision_status=$?
+if [ "$collision_status" -ne 1 ] || ! grep -q '\[version-reuse\]' "$ARTIFACT_DIR/toy-xor-collision.log"; then
+    echo "Expected toy XOR collision was not detected" >&2
+    cat "$ARTIFACT_DIR/toy-xor-collision.log" >&2
+    exit 1
+fi
+echo "PASS expected version-reuse counterexample (toy row contributions)"
 echo "Required Lean, Go, and snapshot trace checks passed. Receipts: $ARTIFACT_DIR"

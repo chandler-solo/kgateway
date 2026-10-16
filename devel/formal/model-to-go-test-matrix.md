@@ -1,5 +1,22 @@
 # Model-to-Go test matrix
 
+## October 16 scope correction
+
+The older matrix below records historical coverage judgments, not proofs of Go
+or current live results. RF-002's usable-endpoint gate is superseded. Current
+machine-checked mappings are in `devel/testing/formal-model-map.yaml`; all
+publication traces permit derived empty assignments. Historical contents-gate
+counterexamples execute on the pinned research profile. Current timer/scoping
+counterexamples execute on the pinned stack profile, separately.
+
+| New obligation | Executable evidence | Boundary |
+|---|---|---|
+| Derived-empty truth does not freeze unrelated types | TestWarmDerivedEmptyBackendPublishesUnrelatedRouteAndSecret; TestSnapshotPerClientDerivedEmptyEndpointPublishesRouteTruth | Go/KRT/cache; live suite requires a new run |
+| Shared CLA provenance | TestCarryPreservesCurrentSharedAssignment | No hash-injectivity claim |
+| Retained ancillary/transitive closure | TestHeldListenersKeepAncillaryDependencies; TestRetainedDependenciesConservativelyHandleDynamicAndOpaqueConfig | Supported proto traversal; error exclusion, conservative opaque fallback |
+| Timer composition | PublicationTransitions*.cfg and stack14817_test.go.txt | Three revisions, one key; fixed model not refined to Go |
+| Nine stack regressions and setup build | make formal-stack-regressions | Expected defects, not stack approval |
+
 ## Purpose
 
 The TLA+ models are executable specifications for small xDS state machines. They do not inspect Go code. This matrix turns each modeled obligation into a Go testing obligation so a reviewer can answer: "Which Go test would fail if kgateway violated this model?"

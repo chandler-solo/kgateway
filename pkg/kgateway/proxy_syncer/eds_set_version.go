@@ -18,8 +18,9 @@ import (
 // version that moves without the content pushes identical endpoints to every
 // client, and a version that stays while the content moves parks the client
 // on stale endpoints. Every publication path derives the version from the
-// same function of the same inputs, so equal published sets get equal
-// versions. No proto is digested for this.
+// same function of the selected contributions, so equal contribution maps
+// get equal versions. Equal CLA bytes alone do not imply equal contributions.
+// No proto is digested for this.
 //
 //   - A row published directly contributes its row hash (EndpointsHash).
 //   - An assignment carried forward from the previously published snapshot
@@ -30,9 +31,10 @@ import (
 // The fold is an XOR, so it is independent of iteration order and, when every
 // row is published, equal to the version string this code produced before
 // filtering and carry-forward were versioned separately. Two contributions
-// cancel only under a 64-bit collision, as before: row hashes and name hashes
-// both include the resource name. An input-only change (a policy generation
-// bump that leaves the built assignment unchanged) still moves the version;
+// cancel only when those two hashes coincide: row hashes and name hashes both
+// include the resource name. Larger distinct contribution sets can also XOR
+// to the same version; neither row-hash nor set-hash injectivity is proved.
+// An input-only change (a policy generation bump that leaves the built assignment unchanged) still moves the version;
 // removing that push would need a content digest per row, which this
 // deliberately avoids.
 

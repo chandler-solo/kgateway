@@ -22,20 +22,21 @@ and [program plan](../xds-formal-research-plan.md).
   construction uses at most five transitions; the theorem encodes neither a
   path-length bound nor scheduling or elapsed time. A deployed watchdog and
   permanent-invalid inputs remain separate obligations (KRT-A1).
-- `PerClusterReadiness.lean` checks C0 cold CDS closure, C2 empty endpoint truth,
-  and C3 warm transition holds. `ClientIdentity.lean` and `OrderedADS.lean`
+- `PerClusterReadiness.lean` preserves the historical contents-gate C3 profile.
+  `DerivedEndpointTruth.lean` proves the current guard is independent of endpoint
+  health and checks finite recovery with derived empty input. `ClientIdentity.lean` and `OrderedADS.lean`
   explore bounded identity and delivery schedules. A safe removal transition
   observes route deactivation; a timer alone does not establish that guard.
 - `TraceCheck.lean` checks individual snapshot decisions. Schema 2 requires
   scenario/client identities, contiguous sequence numbers starting at one,
   known decisions, explicit arrays, typed resource fields, and a content
-  digest per CLA. Each checked trace must contain a publication. First
-  publications permit empty CLAs. Across consecutive publications to one
+  digest per CLA. Each checked trace must contain a publication. Every
+  publication kind permits derived empty CLAs. Across consecutive publications to one
   client it enforces the version relation from `VersionDigest.lean`: an
   unchanged EDS version with changed CLA content fails (`version-reuse`);
   unchanged content with a moved version is counted (`version-churn`).
   Cache installation receipts emitted after SetSnapshot must match a pending
-  decision for the client in order on the full per-type version tuple and be
+  decision for the client on the full per-type version tuple and be
   closed; a failed installation, or a
   decision left uninstalled in a scenario that installs, is a violation.
   Skipped (coalesced) and identical consecutive decisions are counted.
@@ -99,3 +100,17 @@ Lean structural proofs and TLC temporal checks complement each other; neither
 supersedes the other's evidence. Resolve disagreements against the stated
 property and pinned implementation, preserving counterexamples. Known
 remaining work belongs in the program plan and findings ledger.
+
+The October 16 stack regression harness is separate: `make formal-stack-regressions`
+expects nine specific assertion failures and the known setup build failure at the
+immutable reviewed tip. `make formal-legacy-contents` preserves the superseded Go
+starvation example. See `../regressions/README.md`; negative-control success is
+not a passing production correctness test. PublicationTransitions.tla adds the
+three timer interaction controls and a proposed, bounded fixed model.
+
+The October 16 trace correction distinguishes transform candidates from final
+publisher decisions: a newer candidate may precede resolution of an older
+wrapper. Required replay fixtures preserve that overlap and an expected
+`version-reuse` failure from the old randomized test's small integer row
+contributions. The regular sweep hashes its revision inputs; this is not a
+collision-freedom proof. The Go XOR negative control remains required.

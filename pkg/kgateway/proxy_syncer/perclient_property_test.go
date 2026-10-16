@@ -19,7 +19,7 @@ package proxy_syncer
 //     changes between two snapshots, the EDS version string must change too
 //     (the EDSResourceSetChangeChangesVersion invariant; under-versioning is
 //     the hazard because Envoy would not refetch).
-// Progress (liveness) check: after driving to a fully coherent, stable input
+// Finite recovery check: after driving to a fully coherent, stable input
 //   (every referenced cluster in CDS with a ready CLA), a coherent snapshot
 //   must eventually be published.
 //
@@ -115,7 +115,14 @@ type propWorld struct {
 	journal []string
 }
 
-func (w *propWorld) nextVer() uint64 { w.ver++; return w.ver }
+// Row contributions occupy the same 64-bit domain as production input hashes.
+// Consecutive small integers create routine XOR aliases (16 == 18^20^22),
+// obscuring publication tests with a deliberately weak fixture. The collision
+// remains pinned separately; hashing these fixture inputs is not an injectivity proof.
+func (w *propWorld) nextVer() uint64 {
+	w.ver++
+	return utils.HashString(fmt.Sprintf("property-input-revision/%d", w.ver))
+}
 
 func (w *propWorld) referencedList() []string {
 	out := make([]string, 0, len(w.refs))
@@ -339,7 +346,7 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 	// guaranteed to fire — this isolates snapshotPerClient's publish logic
 	// from KRT static-collection event quiescence in the test harness (the
 	// separate "inputs coherent but no event delivered" concern is KRT-A1,
-	// covered by the formal liveness work and the tier2 watchdog, not here).
+	// tracked by KRT-A1; no production watchdog or fairness proof is established here).
 	driveCoherent := func() {
 		for _, c := range clusterNames {
 			if w.refs[c] {
@@ -395,7 +402,7 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 		driveCoherent()
 	}
 	if snap == nil {
-		t.Fatalf("seed=%d: coherent inputs never produced a served coherent snapshot across repeated nudges (liveness)\nrefs=%v\njournal:\n  %s",
+		t.Fatalf("seed=%d: coherent inputs never produced a served coherent snapshot across repeated nudges (finite recovery)\nrefs=%v\njournal:\n  %s",
 			seed, w.referencedList(), joinJournal(w.journal))
 	}
 	findings := xdscheck.ErrorFindings(xdscheck.CheckSnapshot(context.Background(), xdsCheckSnapshotFromCache(t, snap)))

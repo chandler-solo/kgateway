@@ -123,8 +123,8 @@ func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
 }
 
 // TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip covers spec case C3's
-// isolation half: while a newly-referenced cluster is warming (a probe
-// backend that sits at zero endpoints indefinitely), only the route flip is
+// isolation half: while a newly-referenced cluster is warming (an underived
+// backend with no CLA row), only the route flip is
 // held. The warming cluster's CDS entry and every unrelated update keep
 // publishing — the old whole-snapshot gate stranded them all behind the one
 // unready backend.
@@ -175,8 +175,7 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	initialRouteVersion := initialServed.Resources[envoycachetypes.Route].Version
 
 	// Routes now additionally reference cluster-new (a probe backend that
-	// will sit at zero endpoints indefinitely). Its cluster and empty CLA
-	// arrive; the cluster never becomes usable. Meanwhile cluster-old's
+	// has no derived CLA). Its CDS arrives but its endpoint row does not. Meanwhile cluster-old's
 	// endpoints change.
 	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
 	updated := initial
@@ -184,7 +183,7 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
-	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 4))
+	// Leave cluster-new without a derived CLA; a derived empty would publish truth.
 	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-old", 5))
 
 	// C3 isolation: only the flip onto cluster-new is held. The warming
@@ -268,7 +267,7 @@ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T)
 	updated.ReferencedClusters = collectReferencedClusters(updatedRoutes, listeners)
 	mostXdsSnapshots.UpdateObject(updated)
 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
-	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 4))
+	// Leave cluster-new without a derived CLA; a derived empty would publish truth.
 	erroredOld := clusterOld
 	erroredOld.Error = errors.New("backend tls policy references a nonexistent ca certificate")
 	clusterCol.UpdateObject(erroredOld)
@@ -336,7 +335,12 @@ func TestSnapshotPerClientFirstPublishWithEmptyEndpoints(t *testing.T) {
 				perClientClustersForSnapshotTest(t, uccs, clusterCol))
 			cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
 			translator := NewProxyTranslator(cache)
-			wrap := eventuallyDeferredWrapper(t, snapshots)
+			var wrap XdsSnapWrapper
+			if tc.explicitEmpty && !tc.missingCDS {
+				wrap = eventuallyCoherentWrapper(t, snapshots)
+			} else {
+				wrap = eventuallyDeferredWrapper(t, snapshots)
+			}
 			translator.syncXds(context.Background(), wrap)
 			if tc.missingCDS {
 				g.Expect(wrap.missingReferenced).To(gomega.ConsistOf("empty"))
@@ -357,7 +361,11 @@ func TestSnapshotPerClientFirstPublishWithEmptyEndpoints(t *testing.T) {
 			// recovering. This checks the cache boundary, not a live Envoy.
 			restartedCache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
 			restartedTranslator := NewProxyTranslator(restartedCache)
-			wrap = eventuallyDeferredWrapper(t, snapshots)
+			if tc.explicitEmpty {
+				wrap = eventuallyCoherentWrapper(t, snapshots)
+			} else {
+				wrap = eventuallyDeferredWrapper(t, snapshots)
+			}
 			restartedTranslator.syncXds(context.Background(), wrap)
 			assertNoXDSCheckErrors(t, eventuallyCacheSnapshot(t, restartedCache, ucc.ResourceName()))
 			registerSyncXds(snapshots, restartedTranslator)
@@ -388,7 +396,7 @@ func TestSnapshotPerClientFirstPublishWithEmptyEndpoints(t *testing.T) {
 				if err != nil {
 					return false
 				}
-				return s.GetVersion(envoyresourcev3.EndpointType) != emptyVersion && clusterLoadAssignmentHasUsableEndpoint(s.GetResourcesAndTTL(envoyresourcev3.EndpointType)["empty-eds"])
+				return s.GetVersion(envoyresourcev3.EndpointType) != emptyVersion && traceCLAHasNonUnhealthyEndpoint(s.GetResourcesAndTTL(envoyresourcev3.EndpointType)["empty-eds"])
 			}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(), "endpoint recovery must publish without reconnect")
 		})
 	}
@@ -412,7 +420,7 @@ func TestSnapshotPerClientFirstPublishPreservesExemptions(t *testing.T) {
 	translator := NewProxyTranslator(cache)
 	translator.syncXds(context.Background(), XdsSnapWrapper{
 		snap: snap, proxyKey: ucc.ResourceName(), deferred: true,
-		missingReferenced: missing, unusableReferenced: []string{"empty"}, erroredClusters: []string{"errored"},
+		missingReferenced: missing, missingEndpointsReferenced: []string{"empty"}, erroredClusters: []string{"errored"},
 	})
 	served := eventuallyCacheSnapshot(t, cache, ucc.ResourceName())
 	g.Expect(served.Resources[envoycachetypes.Cluster].Items).ToNot(gomega.HaveKey("errored"), "errored backend stays absent (fail closed)")

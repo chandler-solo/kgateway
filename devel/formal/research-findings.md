@@ -40,6 +40,16 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-002 Warm whole-type starvation
 
+- Current correction (2026-10-16 working tree): the research production path now
+  checks CLA derivation before synthesis, rather than usable endpoint contents.
+  `TestWarmDerivedEmptyBackendPublishesUnrelatedRouteAndSecret` and the KRT
+  derived-empty test cover the selected policy. The original Go counterexample
+  is retained verbatim under `regressions/fixtures` and runs on immutable research
+  `a4cf59d6d803` using `make formal-legacy-contents`; historical Lean/TLC negative
+  controls remain. Underived-input holds, partitioning, and revocation are still
+  open; the stack's timer machinery has not been imported. Older statements below
+  describe the historical profile.
+
 - Status: open implementation limitation.
 - Evidence: `resolveDeferredPerCluster` holds RDS/LDS/SDS while a newly
   referenced backend has no usable endpoints, potentially forever.
@@ -1200,3 +1210,50 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   reads, so an annotation-only change on a backend recomputes every client's
   row for it, a fan-out amplifier in the RF-025 family rather than a
   staleness. Recorded for the stack's review; no ledger action beyond this.
+
+## RF-031 Stack 14817 composition review, October 16, 2026
+
+- Subject: proposed stack tip `e7b569a1fb786a58a81cb5c0364d57769786b67d`, not this
+  research tree or an observed deployment. Full provenance and required failure
+  signatures are in `regressions/profiles.json`.
+- Executed Go/cache-boundary properties expose three scoped timer interactions:
+  an older release overwrites a newer publication; another candidate bypasses
+  reference-ahead; dereference pruning releases an unrelated underived hold.
+  The timers are inactive under default ALL mode. Deterministic callbacks are
+  not wire/application evidence.
+- Additional executable properties cover shared-EDS carry provenance, held
+  ancillary dependencies (also ALL), unrecognized weighted-header/opaque
+  selectors, invalid-prefix claims disabling fallback, and claims affecting
+  unrelated gateways. Conditional plugin cases are not demonstrated built-in
+  downstream outages. Nine desired-property tests fail on the pinned source.
+- Setup tests fail to compile because the metrics test calls the removed
+  `newNackResendSuppressor`. This build result is checked separately; a build
+  error cannot substitute for execution of the nine property tests.
+- Source-only metric finding: reconnect_responses_total counts rewriting before
+  CreateWatch can park or decline; it does not prove a response was delivered.
+- Downstream review source `1bc4cde8b4ed` fails a literal dependency-only build
+  at NewControlPlane's new arguments. A signature-only update compiles but omits
+  XDSClientState: warm reconnect classification and departed snapshot reclamation
+  are not integrated. Port the state while retaining downstream authentication,
+  Gateway role resolution, identity-drift handling, and Delta rejection. These
+  downstream fixes are outside this research worktree.
+- Research changes: preserve current shared assignments when carrying clusters;
+  use a separate retained-dependency closure, including transitive clusters and
+  conservative opaque/dynamic fallback, with errored clusters excluded. EDS
+  continues using October 14 row contributions without protobuf marshaling.
+- Formal addition: PublicationTransitions.tla reproduces the three timer
+  mechanisms and checks a proposed fixed abstraction under explicit fairness.
+  It models cache installation only and is not a Go correctness proof. The
+  existing reachability/liveness and watch counterexamples remain required.
+- Follow-through: `xds-formal-research-plan.md` records the implementation-linked
+  refinement, lifecycle, downstream, and live-runtime obligations. Neither the
+  scoped grace intervals nor a cache receipt proves remote application.
+- Validation follow-up: the combined trace gate exposed a legitimate overlap
+  between a newer transform candidate and resolution of an older deferred
+  wrapper. The checker now queues final publisher decisions ahead of pending
+  transform candidates, with an explicit single-publisher assumption and a
+  retained replay fixture. Candidate/stream generation refinement remains open.
+  It also caught the randomized fixture's integer XOR alias (16 = 18 XOR 20 XOR
+  22); the negative Go test and trace remain required, while the regular sweep
+  hashes its input revisions. This is fixture/combiner evidence, not a discovered
+  production hash collision or a proof that hashing removes collisions.

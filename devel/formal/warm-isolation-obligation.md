@@ -1,16 +1,21 @@
 # Warm publication isolation obligation
 
-RF-002 is now represented at two evidence levels: the Go cache-boundary probe
+Historical RF-002 is preserved at two evidence levels: the Go cache-boundary probe
 `TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret` and the temporal model
-`tla/WarmTypeStarvation.tla`. They describe the current whole-type hold policy
+`tla/WarmTypeStarvation.tla`. They describe the superseded contents-gate policy
 under permanently empty input. Neither claims live certificate activation.
+
+The current research guard publishes derived empty truth. The old Go probe runs
+on its immutable baseline via `make formal-legacy-contents`; it is not the current
+production policy. Holds on genuinely underived input and security-safe resource
+partitioning remain separate obligations.
 
 ## Temporal assumptions
 
 The model starts after an initial publication, with both a blocked route flip
 and an independent update pending. No endpoint-ready transition exists because
 permanent emptiness is legal input. Weak fairness forces publication to run;
-it does not force endpoints to appear. Under the current policy, publication
+it does not force endpoints to appear. Under that historical policy, publication
 continues indefinitely while independent progress fails. The two-valued CDS
 revision abstracts repeated rebuilds, not actual version allocation.
 

@@ -493,3 +493,27 @@ Status as of 2026-09-11 evening (items 1 to 6 as originally listed):
 
 Nothing in this list can advance without one of the decisions above, except
 item 5, which has no natural end.
+
+## October 16, 2026 implementation-linked extension
+
+This dated plan supersedes older statements that the endpoint-contents policy
+awaits a decision. Derived empty truth is selected. The current research update
+reconciles that guard and adds carry/dependency regressions; it does not import
+the reviewed 13-PR stack. Profiles are frozen in `regressions/profiles.json`.
+
+| Work package | Concrete exit criterion | Present evidence / remaining boundary |
+|---|---|---|
+| Baselines and negative controls | Research, stack, downstream source, runtime binary and bootstrap identities are distinct; every retained counterexample executes with exact expected outcome | Immutable stack and legacy runners, required receipts and CI; deployment remains unobserved |
+| Combined publication policy | Candidate/episode generations, first/warm/flip deadlines, reference-ahead, removal grace, callback cancellation and reclamation are one transition system; no rollback, independent holds preserved | Three finite timer counterexamples plus proposed fixed TLC policy and Go schedules; full Go refinement, cancellation races, multiple keys still open |
+| Resource and version selection | Selected resource bytes and row contributions share provenance; retained LDS/RDS/SDS dependencies include aliases, ancillary/transitive resources and explicit error precedence | Research Go regressions and October 14 rule; arbitrary extension contracts, shared resources and security revocation require further work |
+| Cache/server/application composition | Separate install, admission/decline/retention, queue, send, receive, per-resource accept/reject, warming and worker application; include partial installation and subscription history | Exact-pin probes and partial-rejection models exist; their composed refinement remains open |
+| Temporal guarantees | Prove eventual progress only under stated stable-input, scheduler/network fairness and retained-request/retry assumptions; wall-clock bounds require bounded delays | Derived-empty guard proof and bounded recoverability; timer TLC fairness is abstract, not implementation liveness |
+| Lifecycle trace conformance | Full per-type versions, resource provenance, stream/timer generations and terminal receipts; corrupted/missing/duplicate events rejected; no secret bodies | Current schema covers decisions/installations only. Instrument watch/send/ACK/NACK and independently observed application, then audit instrumentation completeness |
+| Downstream runtime validation | Actual authenticated callbacks, shared warm/cold keys and reclaim races; peering CDS/EDS coupling; enterprise filters/claims; standard/FIPS immutable binaries; standalone SDS | Downstream source findings and selected unit results are recorded; adoption and live profiles not executed by this research update |
+| Live composition scenarios | Rapid retargets, delayed/NACKed CDS/RDS, underived versus derived empty, carry aliases, budget release, rotation and reference-removal revocation; correlate traffic and active/warming state with lifecycle traces | Reconciled warming suite uses direct Gateway-IP requests; fresh runtime execution remains required |
+
+Retain the historical three-state reachability/liveness counterexample and both
+repaired and unrepaired go-control-plane watch paths. Do not use ACK as an
+application receipt. Preserve the EDS default-timeout correction and distinguish
+legitimate input/CDS-coupled pushes from avoidable version churn. Completion is
+an assurance case for each named profile, not a claim that all xDS bugs are known.

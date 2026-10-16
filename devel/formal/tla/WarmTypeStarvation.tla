@@ -1,6 +1,7 @@
 ------------------------- MODULE WarmTypeStarvation -------------------------
 EXTENDS Naturals
 
+\* Historical superseded contents gate; retained as a negative control.
 \* RF-002: after a warm publication, a new route targets a permanently empty
 \* backend. An independent route/secret change is pending in every candidate.
 \* Isolation is a proposed policy, not a refinement of current Go code.

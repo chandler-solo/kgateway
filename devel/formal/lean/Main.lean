@@ -135,7 +135,11 @@ def runModelCheck : IO UInt32 := do
   ok := (← runRecoverability droppedFanoutWithHeartbeatSystem (expectStuck := false)
     isDeferredPartial isConverged "DeferredPartial can reach Converged") && ok
   IO.println ""
-  IO.println "per-cluster readiness model (guard #3 granularity)"
+  IO.println "derived-empty truth and historical contents-gate models"
+  ok := (← runRecoverability (DerivedEndpointTruth.system false) (expectStuck := false)
+    DerivedEndpointTruth.pending (·.published) "Independent update can publish with derived empty truth") && ok
+  ok := (← runRecoverability (DerivedEndpointTruth.system true) (expectStuck := true)
+    DerivedEndpointTruth.pending (·.published) "Historical contents gate starves independent update") && ok
   IO.println ""
   for sys in [PerCluster.coldSafeSystem, PerCluster.coldStarvationBugSystem] do
     ok := (← runSafetyExpectation ⟨sys, PerCluster.coldInvariants, none⟩) && ok

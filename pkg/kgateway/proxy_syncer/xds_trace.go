@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
@@ -53,8 +54,8 @@ type XdsSnapshotTraceCluster struct {
 type XdsSnapshotTraceEndpoint struct {
 	Name   string `json:"name"`
 	Usable bool   `json:"usable"`
-	// Digest is the decimal form of the same per-resource content hash that
-	// filterEndpointResourcesForClusters XORs into the EDS version. It lets
+	// Digest is a trace-only hash of the CLA bytes. Production EDS versions
+	// fold row-input contributions, which need not equal this digest. It lets
 	// the trace checker relate consecutive publications for one client:
 	// an unchanged version must carry unchanged content (RF-008). The
 	// digest exposes no endpoint addresses.
@@ -144,7 +145,7 @@ func emitXdsSnapshotTrace(
 		}
 		event.Endpoints = append(event.Endpoints, XdsSnapshotTraceEndpoint{
 			Name:   cla.GetClusterName(),
-			Usable: clusterLoadAssignmentHasUsableEndpoint(item),
+			Usable: traceCLAHasNonUnhealthyEndpoint(item),
 			Digest: strconv.FormatUint(utils.HashProto(cla), 10),
 		})
 	}
@@ -208,4 +209,24 @@ func emitXdsTraceBoundary(name string, directInstalls bool) {
 		Clusters: []XdsSnapshotTraceCluster{}, Endpoints: []XdsSnapshotTraceEndpoint{},
 		Versions: map[string]string{},
 	})
+}
+
+// traceCLAHasNonUnhealthyEndpoint is descriptive trace data only. It is not
+// a publication guard or an Envoy health, initialization, or traffic oracle.
+func traceCLAHasNonUnhealthyEndpoint(resource envoycachetypes.ResourceWithTTL) bool {
+	cla, ok := resource.Resource.(*envoyendpointv3.ClusterLoadAssignment)
+	if !ok {
+		return false
+	}
+	for _, locality := range cla.GetEndpoints() {
+		for _, lbEndpoint := range locality.GetLbEndpoints() {
+			if lbEndpoint.GetHealthStatus() == envoycorev3.HealthStatus_UNHEALTHY {
+				continue
+			}
+			if lbEndpoint.GetEndpoint() != nil {
+				return true
+			}
+		}
+	}
+	return false
 }

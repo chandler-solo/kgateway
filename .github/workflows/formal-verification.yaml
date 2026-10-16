@@ -11,6 +11,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  regression-profiles:
+    name: Pinned xDS counterexamples
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+      - name: Reproduce immutable stack findings
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-stack-regressions FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack"
+      - name: Preserve historical contents-gate counterexample
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-legacy-contents FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/legacy"
+      - name: Preserve regression receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pinned-xds-counterexamples
+          path: |
+            ${{ runner.temp }}/formal-regressions/*/*.json
+            ${{ runner.temp }}/formal-regressions/*/*.jsonl
+            ${{ runner.temp }}/formal-regressions/*/*.log
+          if-no-files-found: error
   lean:
     name: Lean xDS spec
     runs-on: ubuntu-22.04
