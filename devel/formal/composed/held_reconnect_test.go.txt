@@ -1,0 +1,438 @@
+package proxy_syncer
+
+// Test-only instrumentation injected into an immutable copy of stack 14817.
+// The production gate, SnapshotCache and SotW server are unchanged. The driver
+// supplies wrapper inputs, warm-client state, a controller handoff, a delayed
+// Send, and logical timer expiry. It does not run Kubernetes or authenticate HA.
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	endpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cachev3 "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	serverv3 "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+const composedKey = "held-reconnect"
+
+type composedTrace struct {
+	mu     sync.Mutex
+	events []map[string]any
+}
+
+func (tr *composedTrace) add(kind string, fields map[string]any) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	fields["schema"] = 1
+	fields["seq"] = len(tr.events) + 1
+	fields["kind"] = kind
+	fields["key"] = composedKey
+	tr.events = append(tr.events, fields)
+}
+
+func composedHash(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+var composedTypes = []string{resourcev3.ClusterType, resourcev3.EndpointType, resourcev3.ListenerType, resourcev3.RouteType, resourcev3.SecretType}
+
+func composedVersions(s cachev3.ResourceSnapshot) map[string]string {
+	v := map[string]string{}
+	for _, typ := range composedTypes {
+		v[typ] = s.GetVersion(typ)
+	}
+	return v
+}
+
+func composedResources(s cachev3.ResourceSnapshot) map[string]map[string]string {
+	out := map[string]map[string]string{}
+	for _, typ := range composedTypes {
+		out[typ] = map[string]string{}
+		for name, item := range s.GetResources(typ) {
+			b, err := (proto.MarshalOptions{Deterministic: true}).Marshal(item)
+			if err != nil {
+				panic(err) // Invalid instrumentation, never a reproduced property failure.
+			}
+			out[typ][name] = composedHash(b)
+		}
+	}
+	return out
+}
+
+type composedCache struct {
+	cachev3.SnapshotCache
+	tr         *composedTrace
+	controller string
+}
+
+func (c *composedCache) SetSnapshot(ctx context.Context, key string, snapshot cachev3.ResourceSnapshot) error {
+	c.tr.add("publication-attempt", map[string]any{"controller": c.controller, "versions": composedVersions(snapshot), "resources": composedResources(snapshot)})
+	err := c.SnapshotCache.SetSnapshot(ctx, key, snapshot)
+	status := "ok"
+	if err != nil {
+		status = err.Error()
+	}
+	c.tr.add("publication-result", map[string]any{"controller": c.controller, "status": status, "versions": composedVersions(snapshot)})
+	installed, readErr := c.SnapshotCache.GetSnapshot(key)
+	if readErr == nil {
+		c.tr.add("cache-readback", map[string]any{"controller": c.controller, "versions": composedVersions(installed), "resources": composedResources(installed)})
+	}
+	return err
+}
+
+func (c *composedCache) CreateWatch(req *cachev3.Request, sub cachev3.Subscription, ch chan cachev3.Response) (func(), error) {
+	// Admission is recorded separately from a response. No relay goroutine or
+	// substituted response channel changes the cache/server's queue behavior.
+	c.tr.add("watch-call", map[string]any{"controller": c.controller, "type": req.GetTypeUrl(), "version": req.GetVersionInfo(), "nonce": req.GetResponseNonce(), "names": req.GetResourceNames()})
+	cancel, err := c.SnapshotCache.CreateWatch(req, sub, ch)
+	status := "ok"
+	if err != nil {
+		status = err.Error()
+	}
+	c.tr.add("watch-return", map[string]any{"controller": c.controller, "type": req.GetTypeUrl(), "cancel_returned": cancel != nil, "status": status})
+	return cancel, err
+}
+
+// One stable ADS address, one Envoy process, two real cache/server instances.
+// Cancelling controller B's server context forces Envoy to reconnect to A.
+type composedRouter struct {
+	discoveryv3.UnimplementedAggregatedDiscoveryServiceServer
+	mu         sync.Mutex
+	tr         *composedTrace
+	target     serverv3.Server
+	controller string
+	generation int
+	delayed    chan struct{}
+	release    chan struct{}
+	delayOnce  sync.Once
+	closed     chan int
+}
+
+func (r *composedRouter) StreamAggregatedResources(stream discoveryv3.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+	r.mu.Lock()
+	r.generation++
+	generation, controller, target := r.generation, r.controller, r.target
+	ctx, cancel := context.WithCancel(stream.Context())
+	r.tr.add("stream-open", map[string]any{"generation": generation, "controller": controller})
+	r.mu.Unlock()
+	defer func() {
+		cancel()
+		r.tr.add("stream-close", map[string]any{"generation": generation, "controller": controller})
+		r.closed <- generation
+	}()
+	return target.StreamAggregatedResources(&composedStream{AggregatedDiscoveryService_StreamAggregatedResourcesServer: stream, ctx: ctx, router: r, generation: generation, controller: controller})
+}
+
+type composedStream struct {
+	discoveryv3.AggregatedDiscoveryService_StreamAggregatedResourcesServer
+	ctx        context.Context
+	router     *composedRouter
+	generation int
+	controller string
+	request    int
+	// Subscription generation counts name-set changes, not ACKs. These maps
+	// are accessed only by the server's single Recv goroutine.
+	names map[string]string
+	sub   map[string]int
+}
+
+func (s *composedStream) Context() context.Context { return s.ctx }
+
+func (s *composedStream) Recv() (*discoveryv3.DiscoveryRequest, error) {
+	r, err := s.AggregatedDiscoveryService_StreamAggregatedResourcesServer.Recv()
+	if err == nil {
+		s.request++
+		if s.names == nil {
+			s.names, s.sub = map[string]string{}, map[string]int{}
+		}
+		nameSet := slices.Clone(r.GetResourceNames())
+		slices.Sort(nameSet)
+		names, _ := json.Marshal(nameSet)
+		if previous, exists := s.names[r.GetTypeUrl()]; !exists || previous != string(names) {
+			s.sub[r.GetTypeUrl()]++
+			s.names[r.GetTypeUrl()] = string(names)
+		}
+		s.router.tr.add("request", map[string]any{"controller": s.controller, "generation": s.generation, "request": s.request, "subscription": s.sub[r.GetTypeUrl()], "type": r.GetTypeUrl(), "version": r.GetVersionInfo(), "nonce": r.GetResponseNonce(), "names": r.GetResourceNames(), "node": r.GetNode().GetId(), "nack": r.GetErrorDetail() != nil})
+	}
+	return r, err
+}
+
+func (s *composedStream) Send(r *discoveryv3.DiscoveryResponse) error {
+	fields := func() map[string]any {
+		hashes := []string{}
+		for _, resource := range r.GetResources() {
+			hashes = append(hashes, composedHash(resource.GetValue()))
+		}
+		return map[string]any{"controller": s.controller, "generation": s.generation, "type": r.GetTypeUrl(), "version": r.GetVersionInfo(), "nonce": r.GetNonce(), "resources": hashes}
+	}
+	s.router.tr.add("send-attempt", fields())
+	if s.generation == 2 && r.GetTypeUrl() == resourcev3.RouteType && r.GetVersionInfo() == "old-a" {
+		s.router.delayOnce.Do(func() {
+			s.router.tr.add("send-delayed", fields())
+			close(s.router.delayed)
+			select {
+			case <-s.router.release:
+			case <-s.ctx.Done():
+			}
+		})
+	}
+	err := s.AggregatedDiscoveryService_StreamAggregatedResourcesServer.Send(r)
+	f := fields()
+	f["status"] = "ok"
+	if err != nil {
+		f["status"] = err.Error()
+	}
+	s.router.tr.add("send-return", f)
+	return err
+}
+
+func composedPacked(t *testing.T, msg proto.Message) *anypb.Any {
+	t.Helper()
+	a, err := anypb.New(msg)
+	require.NoError(t, err)
+	return a
+}
+
+func composedSnapshot(t *testing.T, revision string, underived bool) XdsSnapWrapper {
+	t.Helper()
+	ads := &corev3.ConfigSource{ResourceApiVersion: corev3.ApiVersion_V3, ConfigSourceSpecifier: &corev3.ConfigSource_Ads{Ads: &corev3.AggregatedConfigSource{}}}
+	cluster := &clusterv3.Cluster{Name: "a", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &clusterv3.Cluster_Type{Type: clusterv3.Cluster_EDS}, EdsClusterConfig: &clusterv3.Cluster_EdsClusterConfig{EdsConfig: ads}}
+	routes := &routev3.RouteConfiguration{Name: "routes", VirtualHosts: []*routev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*routev3.Route{
+		{Match: &routev3.RouteMatch{PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/backend"}}, Action: &routev3.Route_Route{Route: &routev3.RouteAction{ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: "a"}}}},
+		{Match: &routev3.RouteMatch{PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"}}, Action: &routev3.Route_DirectResponse{DirectResponse: &routev3.DirectResponseAction{Status: 200, Body: &corev3.DataSource{Specifier: &corev3.DataSource_InlineString{InlineString: revision}}}}},
+	}}}}
+	hcm := &hcmv3.HttpConnectionManager{StatPrefix: "held", RouteSpecifier: &hcmv3.HttpConnectionManager_Rds{Rds: &hcmv3.Rds{RouteConfigName: "routes", ConfigSource: ads}}, HttpFilters: []*hcmv3.HttpFilter{{Name: "envoy.filters.http.router", ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: composedPacked(t, &routerv3.Router{})}}}}
+	listener := &listenerv3.Listener{Name: "front", Address: &corev3.Address{Address: &corev3.Address_SocketAddress{SocketAddress: &corev3.SocketAddress{Address: "0.0.0.0", PortSpecifier: &corev3.SocketAddress_PortValue{PortValue: 10000}}}}, FilterChains: []*listenerv3.FilterChain{{Filters: []*listenerv3.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: composedPacked(t, hcm)}}}}}}
+	snap := &cachev3.Snapshot{}
+	snap.Resources[cachetypes.Cluster] = cachev3.NewResources("cds-a", []cachetypes.Resource{cluster})
+	snap.Resources[cachetypes.Endpoint] = cachev3.NewResources("eds-a", []cachetypes.Resource{&endpointv3.ClusterLoadAssignment{ClusterName: "a"}})
+	snap.Resources[cachetypes.Listener] = cachev3.NewResources("lds-front", []cachetypes.Resource{listener})
+	snap.Resources[cachetypes.Route] = cachev3.NewResources(revision, []cachetypes.Resource{routes})
+	snap.Resources[cachetypes.Secret] = cachev3.NewResources("sds-none", nil)
+	w := XdsSnapWrapper{snap: snap, proxyKey: composedKey, referencedClusters: map[string]struct{}{"a": {}}, endpointHashes: map[string]uint64{"a": 17}}
+	if underived {
+		w.missingEndpointsReferenced = []string{"a"}
+		w.synthesizedEndpoints = []string{"a"}
+	}
+	return w
+}
+
+func composedCommand(t *testing.T, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	b, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	require.NoError(t, err, "docker %v: %s", args, b)
+	return strings.TrimSpace(string(b))
+}
+
+func composedGet(url string) (int, []byte, error) {
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	response, err := client.Get(url)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Body.Close()
+	b, err := io.ReadAll(response.Body)
+	return response.StatusCode, b, err
+}
+
+func composedRouteVersion(body []byte) string {
+	var dump struct {
+		Configs []struct {
+			Routes []struct {
+				Version string `json:"version_info"`
+				Route   struct {
+					Name string `json:"name"`
+				} `json:"route_config"`
+			} `json:"dynamic_route_configs"`
+		} `json:"configs"`
+	}
+	if json.Unmarshal(body, &dump) != nil {
+		return ""
+	}
+	for _, cfg := range dump.Configs {
+		for _, route := range cfg.Routes {
+			if route.Route.Name == "routes" {
+				return route.Version
+			}
+		}
+	}
+	return ""
+}
+
+func composedObserve(t *testing.T, tr *composedTrace, dir, admin, front, phase, revision string, generation int) {
+	t.Helper()
+	var config, before, after []byte
+	require.Eventually(t, func() bool {
+		code, b, err := composedGet(front)
+		if err != nil || code != 200 || string(b) != revision {
+			return false
+		}
+		before = b
+		code, config, err = composedGet(admin + "/config_dump?include_eds")
+		if err != nil || code != 200 || composedRouteVersion(config) != revision {
+			return false
+		}
+		code, after, err = composedGet(front)
+		return err == nil && code == 200 && string(after) == revision
+	}, 30*time.Second, 20*time.Millisecond, "phase %s must independently observe active RDS and HTTP", phase)
+	file := phase + "-config.json"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, file), config, 0o600))
+	tr.add("observation", map[string]any{"phase": phase, "generation": generation, "version": composedRouteVersion(config), "config": file, "config_sha256": composedHash(config), "http_before": string(before), "http_after": string(after), "http_status": 200})
+}
+
+func composedGate(t *testing.T, tr *composedTrace, pt *ProxyTranslator, action, candidate string, timer int) *pendingFirstPublish {
+	t.Helper()
+	pt.gate.mu.Lock()
+	defer pt.gate.mu.Unlock()
+	pending := pt.gate.pending[composedKey]
+	storedCandidate := ""
+	if pending != nil && pending.wrap.snap != nil {
+		storedCandidate = pending.wrap.snap.GetVersion(resourcev3.RouteType)
+	}
+	snap, err := pt.xdsCache.GetSnapshot(composedKey)
+	require.NoError(t, err)
+	_, published := pt.gate.published[composedKey]
+	tr.add("gate-state", map[string]any{"action": action, "controller": "A", "candidate": candidate, "pending_candidate": storedCandidate, "timer_episode": timer, "published_on_connection": published, "versions": composedVersions(snap)})
+	return pending
+}
+
+func TestComposedHeldReconnect(t *testing.T) {
+	dir, image := os.Getenv("FORMAL_COMPOSED_OUT"), os.Getenv("FORMAL_COMPOSED_IMAGE")
+	require.NotEmpty(t, dir, "this fixture requires the composed Make runner")
+	require.Contains(t, image, "@sha256:")
+	tr := &composedTrace{}
+	ctx, cancel := context.WithCancel(context.Background())
+	tr.add("profile", map[string]any{"revision": "215ebe8e645080748dbe37727ab2f6f2faa33de6", "image": image, "budget": "1h", "timer_driver": "direct callback, no elapsed-time claim", "server": "raw GCP SotW ADS, unordered", "warm_state": "stubPriorXDS(true)", "workers": 1})
+	// Registered first so it executes after every producer has been stopped.
+	t.Cleanup(func() {
+		tr.add("end", map[string]any{"test_failed": t.Failed()})
+		file, err := os.OpenFile(filepath.Join(dir, "events.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		require.NoError(t, err)
+		defer file.Close()
+		tr.mu.Lock()
+		defer tr.mu.Unlock()
+		for _, event := range tr.events {
+			require.NoError(t, json.NewEncoder(file).Encode(event))
+		}
+	})
+	t.Cleanup(cancel)
+	a := &composedCache{SnapshotCache: cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil), tr: tr, controller: "A"}
+	b := &composedCache{SnapshotCache: cachev3.NewSnapshotCache(true, cachev3.IDHash{}, nil), tr: tr, controller: "B"}
+	pt := NewProxyTranslator(a, stubPriorXDS{has: true}, time.Hour, true, clusterScoping{})
+	t.Cleanup(func() { pt.gate.clientDeparted(composedKey) })
+	pt.syncXds(ctx, composedSnapshot(t, "old-a", false))
+	pt.gate.clientDeparted(composedKey)
+	composedGate(t, tr, &pt, "departed", "", 0)
+	require.NoError(t, b.SetSnapshot(ctx, composedKey, composedSnapshot(t, "accepted-b", false).snap))
+	ctxB, cancelB := context.WithCancel(ctx)
+	t.Cleanup(cancelB)
+	serverA, serverB := serverv3.NewServer(ctx, a, nil), serverv3.NewServer(ctxB, b, nil)
+	router := &composedRouter{tr: tr, target: serverB, controller: "B", delayed: make(chan struct{}), release: make(chan struct{}), closed: make(chan int, 4)}
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	grpcServer := grpc.NewServer()
+	discoveryv3.RegisterAggregatedDiscoveryServiceServer(grpcServer, router)
+	go func() { _ = grpcServer.Serve(listener) }()
+	t.Cleanup(func() {
+		grpcServer.Stop()
+		router.mu.Lock()
+		count := router.generation
+		router.mu.Unlock()
+		for range count {
+			select {
+			case <-router.closed:
+			case <-time.After(5 * time.Second):
+				t.Error("stream producer did not close")
+			}
+		}
+	})
+	bootstrap := fmt.Sprintf(`{
+ "node":{"id":"%s","cluster":"held"},
+ "admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":9901}}},
+ "dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"}}]},"cds_config":{"ads":{},"resource_api_version":"V3"},"lds_config":{"ads":{},"resource_api_version":"V3"}},
+ "static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}]}}
+`, composedKey, listener.Addr().(*net.TCPAddr).Port)
+	config := filepath.Join(dir, "bootstrap.json")
+	require.NoError(t, os.WriteFile(config, []byte(bootstrap), 0o600))
+	args := []string{"run", "-d", "--rm"}
+	if !strings.Contains(composedCommand(t, "info", "--format", "{{.OperatingSystem}}"), "Docker Desktop") {
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
+	}
+	args = append(args, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-v", config+":/probe.json:ro", image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
+	id := composedCommand(t, args...)
+	t.Cleanup(func() {
+		logs := composedCommand(t, "logs", id)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0o600))
+		composedCommand(t, "rm", "-f", id)
+	})
+	admin, front := "http://"+composedCommand(t, "port", id, "9901/tcp"), "http://"+composedCommand(t, "port", id, "10000/tcp")
+	composedObserve(t, tr, dir, admin, front, "accepted-b", "accepted-b", 1)
+	pt.syncXds(ctx, composedSnapshot(t, "candidate-c", true))
+	timer := composedGate(t, tr, &pt, "offer", "candidate-c", 1)
+	require.NotNil(t, timer)
+	router.mu.Lock()
+	router.target, router.controller = serverA, "A"
+	tr.add("handoff", map[string]any{"from": "B", "to": "A", "generation": 2})
+	cancelB()
+	router.mu.Unlock()
+	select {
+	case <-router.delayed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("reconnect did not attempt old RDS")
+	}
+	pt.syncXds(ctx, composedSnapshot(t, "candidate-d", true))
+	require.Same(t, timer, composedGate(t, tr, &pt, "replace", "candidate-d", 1))
+	composedObserve(t, tr, dir, admin, front, "held-before-send", "accepted-b", 2)
+	tr.add("release-send", map[string]any{"generation": 2})
+	close(router.release)
+	composedObserve(t, tr, dir, admin, front, "held-rollback", "old-a", 2)
+	composedGate(t, tr, &pt, "still-held", "candidate-d", 1)
+	// Stop the real one-hour timer, then invoke its exact production callback.
+	// This measures expiry semantics, not scheduling or a wall-clock bound.
+	pt.gate.mu.Lock()
+	stopped := timer.timer.Stop()
+	pt.gate.mu.Unlock()
+	require.True(t, stopped)
+	tr.add("timer-invoke", map[string]any{"timer_episode": 1, "action": "expire"})
+	pt.gate.firePending(ctx, a, composedKey, timer)
+	composedGate(t, tr, &pt, "expired", "candidate-d", 1)
+	composedObserve(t, tr, dir, admin, front, "budget-latest", "candidate-d", 2)
+	pt.syncXds(ctx, composedSnapshot(t, "recovered", false))
+	composedGate(t, tr, &pt, "coherent", "recovered", 0)
+	composedObserve(t, tr, dir, admin, front, "coherent-recovery", "recovered", 2)
+	tr.add("timer-invoke", map[string]any{"timer_episode": 1, "action": "stale"})
+	pt.gate.firePending(ctx, a, composedKey, timer)
+	composedGate(t, tr, &pt, "stale-ignored", "recovered", 0)
+	composedObserve(t, tr, dir, admin, front, "after-stale-timer", "recovered", 2)
+}

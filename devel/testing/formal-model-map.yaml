@@ -12,6 +12,15 @@
 #               safe-system behavior, and the entry flips to covered.
 #   open      - not implemented; the note says where the work is tracked.
 obligations:
+  - id: held-reconnect-observed-application
+    summary: a new-connection publication hold must prevent an older retained route from replacing the proxy's newer active route
+    specFile: devel/formal/tla/HeldReconnect.tla
+    specAnchors:
+      - Step
+      - NoHeldRollback
+      - EventuallyRecovered
+    status: open
+    note: make formal-composed-reconnect requires the pinned stack's rollback counterexample through actual gate/cache/server and independent Envoy observations on selected binaries. The existential interval projector is unverified; warm state, handoff and timer expiry are controlled. The fenced bounded model is a proposal, not implementation correctness or downstream adoption.
   - id: selected-CLA-payload-contribution-pair
     summary: a current derived assignment wins over retained and synthesized entries as one payload/contribution pair
     specFile: devel/formal/lean/XdsSpec/PublicationSelection.lean

@@ -607,6 +607,13 @@ formal-runtime-harness: ## Reject incomplete direct runtime receipts
 formal-runtime-profiles: formal-runtime-harness ## Characterize pinned upstream and enterprise standard/FIPS Envoy images
 	python3 -B devel/formal/runtime/check.py $(FORMAL_RUNTIME_ARGS)
 
+.PHONY: formal-composed-harness formal-composed-reconnect
+formal-composed-harness: ## Reject incomplete or miscorrelated composed xDS traces
+	python3 -B -m unittest discover -s devel/formal/composed -p '*_test.py'
+
+formal-composed-reconnect: formal-composed-harness ## Reproduce held reconnect rollback through the stack gate and real Envoy
+	python3 -B devel/formal/composed/run.py $(FORMAL_COMPOSED_ARGS)
+
 #----------------------------------------------------------------------------------
 # Container Structure Tests
 #----------------------------------------------------------------------------------

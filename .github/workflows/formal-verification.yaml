@@ -11,6 +11,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  composed-reconnect:
+    name: Held reconnect through gate and Envoy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+      - name: Reproduce the pinned stack rollback and check its observed model projection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-composed-reconnect FORMAL_COMPOSED_ARGS="--profile upstream --artifacts $RUNNER_TEMP/formal-composed"
+      - name: Preserve source identities, trace, admin observations and model replay
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: composed-held-reconnect
+          path: |
+            ${{ runner.temp }}/formal-composed/*.json
+            ${{ runner.temp }}/formal-composed/*.jsonl
+            ${{ runner.temp }}/formal-composed/*.log
+            ${{ runner.temp }}/formal-composed/upstream
+          if-no-files-found: error
   regression-profiles:
     name: Pinned xDS counterexamples
     runs-on: ubuntu-24.04

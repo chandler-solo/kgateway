@@ -6,13 +6,13 @@ actions are tracked in [research-findings.md](research-findings.md).
 
 ## Profile
 
-Profile `research-2026-10-16-lifecycle-working-tree`, based on
-`12ec187d6042269839e8cc96f5b8ba0ea48dc128`. A source SHA alone does not identify
+Profile `research-2026-10-16-held-reconnect-working-tree`, based on
+`16b4907989e359c38a0c876a65beceb515876cdc`. A source SHA alone does not identify
 these uncommitted changes; preserve the working diff with execution receipts.
 
 | Subject | Identity and disposition |
 |---|---|
-| Research | This working tree adds selection proofs, cache/server lifecycle checks and generation/retry models to the derived-empty/carry research policy; production publication code is unchanged by this extension |
+| Research | The lifecycle extension is committed at the base above; this working tree adds controlled gate/cache/server/Envoy composition and a bounded observation projection; production publication code is unchanged by this extension |
 | Updated proposed stack | `kgateway-dev/kgateway` stack 14817, tip `215ebe8e645080748dbe37727ab2f6f2faa33de6`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree**; historical `e7b569a1fb78` profile preserved |
 | Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; adoption requires constructor and connection-state integration |
 | Deployment | No live deployment identified by this review |
@@ -52,6 +52,8 @@ rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 | Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation drop RF-024 reproduced with a synthetic plugin, fix open |
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
 | Controlled lifecycle observations | Four real cache/server traces, strict Go replay and negative mutation tests | Records readback, watch disposition, response callbacks, mock transport and nonce-correlated ACK/NACK; separate from snapshot traces and live Envoy observations; no internal enqueue or application inference |
+| Held reconnect rollback and recovery | Actual pinned stack gate, GCP cache/server, real gRPC and independent Envoy admin/HTTP observations on upstream and enterprise standard/FIPS | One key/proxy, two controlled controller instances, warm-state stub, delayed Send and direct timer invocation; raw unordered ADS excludes setup decorators/authentication; six observations per image; no downstream controller or natural timer scheduling evidence |
+| Held reconnect model projection | Same TLA Step relation checks three observed 13-state projections; fenced bounded model checks 20 states plus conditional temporal recovery | Existential interval adapter is not verified refinement; malformed projection must fail ReplayOK; old-cache/stale-timer negative controls required; fairness of input, transport, application and timer execution remains assumed |
 | GCP named response guard | Executable characterization on the pinned dependency | Parked declines retain watches; immediate declines still lose requests; subscription history and response events matter independently of version equality |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
 | NACK resend recurrence | Characterized on the real cache with a scripted client and with a real Envoy (RF-012) | One machine; no damping exists; not a CPU budget |

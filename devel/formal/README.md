@@ -4,7 +4,11 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
-The latest extension adds [immutable updated-stack/adoption profiles](regressions/README.md),
+The latest extension adds a [held-reconnect composition](composed/README.md) from
+the pinned stack's gate through real cache/server and Envoy observations, with
+an executable bounded model projection. `make formal-composed-reconnect`
+requires the rollback counterexample and later recovery on the selected images.
+It retains the [immutable updated-stack/adoption profiles](regressions/README.md),
 [cache/server lifecycle observations](lifecycle/README.md), selection proofs and
 bounded retry/generation models, plus [upstream/enterprise runtime profiles](runtime/README.md).
 `make formal-lean`, `make formal-tlc`, `make formal-stack-current` and

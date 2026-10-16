@@ -41,6 +41,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         WatchDeliveryCompositionImmediateLost|WatchDeliveryCompositionNoRetry) model=WatchDeliveryComposition; expected=temporal ;;
         WatchDeliveryComposition*) model=WatchDeliveryComposition; expected=pass ;;
         ConnectionGenerations*) model=ConnectionGenerations; expected=pass ;;
+        HeldReconnect*) model=HeldReconnect; expected=pass ;;
         XdsEnvoyWarming*) model=XdsEnvoyWarming; expected=pass ;;
         XdsPerClientConvergence*) model=XdsPerClientConvergence; expected=pass ;;
         XdsPerClientPublication*) model=XdsPerClientPublication; expected=pass ;;
@@ -62,6 +63,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         WatchDeliveryCompositionInstallMeansSendBug) invariant=InstallationMeansSend ;;
         WatchDeliveryCompositionAckMeansApplyBug) invariant=AckMeansApplication ;;
         ConnectionGenerations*Bug) invariant=NoResponseFromEarlierGeneration ;;
+        HeldReconnectOldCacheBug) invariant=NoHeldRollback ;;
+        HeldReconnectStaleTimerBug) invariant=NoTimerRollback ;;
         XdsEdsSubsetBug) invariant=NoOrphanEndpointResources ;;
         XdsEnvoyWarmingAckImpliesActiveBug) invariant=ActiveClustersHaveCDSAndEDS ;;
         XdsEnvoyWarmingEmptyCLAFlipBug) invariant=WarmRouteFlipHasReadyCLA ;;

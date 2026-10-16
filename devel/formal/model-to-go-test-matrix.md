@@ -16,6 +16,7 @@ counterexamples execute on the pinned stack profile, separately.
 | Retained ancillary/transitive closure | TestHeldListenersKeepAncillaryDependencies; TestRetainedDependenciesConservativelyHandleDynamicAndOpaqueConfig | Supported proto traversal; error exclusion, conservative opaque fallback |
 | Timer composition | PublicationTransitions*.cfg and stack14817_test.go.txt | Three revisions, one key; fixed model not refined to Go |
 | Nine stack regressions and setup build | make formal-stack-regressions | Expected defects, not stack approval |
+| Held reconnect admission, timer episode and actual application | make formal-composed-reconnect; HeldReconnect*.cfg; generated observation replay | Actual pinned stack gate/cache/server and three Envoy binaries; stub warm state, controlled handoff/Send delay/logical expiry; existential projection, no authenticated HA or Go refinement |
 
 ## Purpose
 

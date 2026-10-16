@@ -141,3 +141,24 @@ stack's cache-boundary reconnect probe fails; neither research nor downstream
 has been shown to refine the fixed model. Multiple authenticated streams sharing
 a key, callback/timer cancellation, reclamation and cross-controller versions
 remain implementation obligations.
+
+# Subsequent October 16: COMPOSE-A1 observation projection remains open
+
+The held-reconnect composition executes the pinned stack gate and GCP server
+against real Envoy, with a controlled warm-state reader, handoff, Send delay and
+direct first-budget callback. Active route contents, active/non-warming listener
+and cluster state, and bracketing HTTP observations are independent of ACKs.
+It reproduces retained-cache rollback and later recovery on upstream and both
+enterprise images; it does not discharge IMPL-A3 for actual identity callbacks,
+shared keys, setup decorators, reclamation, or downstream integration.
+
+`composed/check.py` is a trusted observation adapter. Its existential projection
+may order a successful installation interval before Send even when the post-call
+cache readback is logged later. The generated replay uses the exact
+`HeldReconnect.Step` relation; malformed projections must fail a separate gate.
+This is not a proved abstraction function, linearization proof or complete trace
+of internal transitions. The bounded fenced model's eventual recovery assumes
+fair candidate delivery, reconnect, logical expiry, Send, application, coherent
+recovery and callback execution. None is discharged by six finite observations
+or by invoking a callback manually. No production version algorithm or hash
+injectivity assumption is changed by test-side resource SHA-256 observations.

@@ -1,0 +1,16 @@
+{
+  "subject": "actual upstream Envoy capture; diagnostic test adapters; controlled warm state and server handoff",
+  "artifact_directory": "/var/folders/js/cm1sc7hd5_1_pcwhhp9x0brh0000gn/T/xds-composed-dev-g8zpg8gn/upstream-second",
+  "fixture_sha256": "dc884ff41fc928ee8b6f99c469cfb9accbb4d618b79f74c61ab01003bb2b4d43",
+  "source_revision": "215ebe8e645080748dbe37727ab2f6f2faa33de6",
+  "date": "2026-10-16",
+  "files": {
+    "after-stale-timer-config.json": "7f1a1fa44da44545dc943c6ebc7171094788a3dd37b8dd05b8d91335ef22663e",
+    "accepted-b-config.json": "b9f58c54da5a03921787d94d5aa848a57511bad9fdfc473327919dbd5bbe01b2",
+    "coherent-recovery-config.json": "39c7bf2208a7c9ffaa7149d9393d0a10735a526e6872251011665fe4682a0d77",
+    "budget-latest-config.json": "4ecb7e2d65d8f8eb19cff5ce7f2bbdf6b41f727c4a36d02ff44fa7970d9819cb",
+    "held-before-send-config.json": "81e4ea2b72660f44b7d53dcbaa8bd0b304fb54523310b6d97b5ca96689f675b1",
+    "held-rollback-config.json": "624310bc564626d284fca4a512f2e82ae37032090356a4a60afabeee6c7bcc06",
+    "events.jsonl": "7638cd87504b6422875c66cf5a69ee20d4ca43108bc542318f7e59dfb98e2f23"
+  }
+}

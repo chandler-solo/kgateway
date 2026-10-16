@@ -2,7 +2,7 @@
 
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 50 configurations, including
+`make formal-tlc` is the required runner. It checks 53 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.
@@ -32,6 +32,16 @@ Historical model descriptions below retain their selected abstractions. The
 warm endpoint-contents policy is superseded: current research publishes derived
 empty truth. `DerivedEndpointTruth.lean` and the current Go tests characterize
 that choice; old contents-gate models remain named negative evidence.
+
+`HeldReconnect` joins retained-cache admission, two overlapping candidates, a
+logical timer episode, Send, independent application, coherent recovery and a
+stale callback. The fixed fence is proposed, not implemented; its 20 reachable
+states satisfy safety and conditional eventual recovery under explicitly named
+weak fairness. OldCache and StaleTimer are separate required counterexamples.
+The [composed runtime runner](../composed/README.md) checks three actual 13-state
+milestone projections with this same `Step` relation. Replay validity, the
+observed no-rollback violation, and rejection of an impossible projection are
+separate checks. This existential interval adapter is not verified refinement.
 
 ## Purpose
 

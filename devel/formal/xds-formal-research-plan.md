@@ -554,3 +554,47 @@ error-only changes, secret rotation and reference removal, then reconnect a
 shared warm/cold key. Correlate resource contents and active/warming state with
 traffic, not ACK alone. The new direct runtime results reduce binary-profile
 uncertainty but do not execute that controller schedule.
+
+## Subsequent October 16: one composed reconnect schedule executed
+
+Research base `16b4907989e359c38a0c876a65beceb515876cdc` now has a test-only
+composition profile against unchanged stack `215ebe8e6450`. The immediate
+implementation-linked milestone is complete for one controlled schedule:
+overlapping withheld candidates, controller handoff, delayed real Send, actual
+old-route application, logical latest-candidate expiry, coherent recovery and
+stale first-budget callback rejection. Independent admin/HTTP evidence exists
+on the three pinned upstream/enterprise images. See
+[`composed/README.md`](composed/README.md) for the contract, full scope and receipts.
+
+The same TLA transition relation checks the observed milestone projection and
+explores a proposed fenced policy. Both the projector and its event adapter
+remain trusted, unverified code. The projection is existential over overlapping
+publication/Send intervals; it does not replay every Go transition or establish
+linearizability. The proof/refinement milestone therefore remains open.
+
+Next work should proceed in this order:
+
+1. Build a separate product candidate that enforces the selected cache admission
+   policy during the new-connection hold. Preserve this observed negative
+   baseline; add a positive mode whose barrier does not depend on a stale
+   response occurring. Require pristine compilation and all eleven existing
+   stack properties. Evaluate shared-key semantics before choosing cache
+   deletion versus per-connection admission/version fencing.
+2. Replace the warm-state stub and raw server with actual setup callbacks and
+   watch decorators. Test authenticated role resolution, simultaneous warm/cold
+   streams, last-stream departure/reclaim races, and controller skew. Then port
+   the downstream state methods and constructor wiring in a separate candidate.
+3. Extend the composed trace to failed partial publication, no retry, queued
+   supersession, partial NACK application, multiple keys and workers. Separate
+   fairness of KRT, timers, cache admission, transport and Envoy application;
+   require a counterexample when any necessary assumption is removed.
+4. Run the actual downstream controller with peering, enterprise plugins,
+   ancillary dependencies, secret rotation/removal and standalone SDS. The
+   successful direct enterprise binary observations are a prerequisite, not a
+   substitute. Exercise natural timer deadlines and existing same-name
+   rewarming/EDS-cache timeout profiles independently.
+
+Do not expand the model's bounds until these concrete adapters and missing
+transitions can be observed and checked. No additional Lean theorem is needed
+to turn the current reachability results into a temporal claim; that requires
+explicit fairness and implementation correspondence instead.

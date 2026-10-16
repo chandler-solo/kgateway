@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "date": "2026-10-16",
+  "research_base": "16b4907989e359c38a0c876a65beceb515876cdc",
+  "subject": "uncommitted research harness/models/docs; production publication code unchanged",
+  "stack_revision": "215ebe8e645080748dbe37727ab2f6f2faa33de6",
+  "downstream": {
+    "revision": "1bc4cde8b4edc780135c98d2268f43289978373c",
+    "kgateway_revision": "acd13c6f53d1",
+    "status": "source/dependency unchanged; no deployment observed"
+  },
+  "validation": {
+    "controlled_composition": {
+      "artifact_directory": "/private/var/folders/js/cm1sc7hd5_1_pcwhhp9x0brh0000gn/T/xds-composed-gseu0w29",
+      "receipt_sha256": "9ccdd6dce3ee14196878808b2860e342becb3557b597ffd11cd025bbd776e3a0",
+      "fixture_sha256": "41eb0937ef65521b4ea611db5618b0d596cbaa5991a29112df6088f79f834251",
+      "production_sources_unchanged": true,
+      "production_source_sha256": "9cbd234060e35e8f7a2a6653e4f1ea781c155cd22f7f6ebaaaeb789ff4ec150d",
+      "go_mod_sha256": "801726ae990920fcab1f0a7af6740ea55837ac77778c178848ac89937f121144",
+      "go_sum_sha256": "2c077a9312b4950040d8cd84eed97543219c03d92fb3afa2f8ca67535390173b",
+      "pristine_build_failures": [
+        "unknown field Unresolvable",
+        "undefined: newNackResendSuppressor"
+      ],
+      "profiles": {
+        "upstream": {
+          "image": "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4",
+          "image_id": "sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4",
+          "architecture": "arm64",
+          "events": 120,
+          "observations": 6,
+          "projection_states": 13,
+          "outcome": "counterexample observed",
+          "expiry": "latest underived candidate installed; CLA omitted",
+          "stale_callback": "ignored after coherent recovery",
+          "replay_valid": {
+            "exit": 0,
+            "invariant_failure": null,
+            "log_sha256": "977f001d36527c3ef96b4234942fcfe39211a998031a8b495183f69402b44af3"
+          },
+          "replay_counterexample": {
+            "exit": 12,
+            "invariant_failure": "ObservedNoRollback",
+            "log_sha256": "ca2cadc4c3bfa6f7549c87d49e5c7124aff147395814e77cdb08cce84f66128d"
+          },
+          "invalid_projection_rejected": {
+            "exit": 12,
+            "invariant_failure": "ReplayOK",
+            "log_sha256": "aa1cc2dfb6479e243083337ff44d6474251b55fb91b85e64625e1a5404903750"
+          }
+        },
+        "enterprise-standard": {
+          "image": "gcr.io/gloo-ee/envoy-gloo-ee-standard-release:v1.39.1-patch1@sha256:08bce7b318b781a976169b617119f725a79ca803a0b74455003f067b77bf5032",
+          "image_id": "sha256:08bce7b318b781a976169b617119f725a79ca803a0b74455003f067b77bf5032",
+          "architecture": "arm64",
+          "events": 120,
+          "observations": 6,
+          "projection_states": 13,
+          "outcome": "counterexample observed",
+          "expiry": "latest underived candidate installed; CLA omitted",
+          "stale_callback": "ignored after coherent recovery",
+          "replay_valid": {
+            "exit": 0,
+            "invariant_failure": null,
+            "log_sha256": "1f2122578c9a3e49196baa1144320f4917108531093996ed041561076271dc78"
+          },
+          "replay_counterexample": {
+            "exit": 12,
+            "invariant_failure": "ObservedNoRollback",
+            "log_sha256": "18f4adecf46da30b2e9f8c9bb3f52e309f13d45a14e83d411528c6f86efe0bb2"
+          },
+          "invalid_projection_rejected": {
+            "exit": 12,
+            "invariant_failure": "ReplayOK",
+            "log_sha256": "562244878ab75732f22bf544ba2ccaf93381ac754ac3687b6ca760a2bf00b1c4"
+          }
+        },
+        "enterprise-fips": {
+          "image": "gcr.io/gloo-ee/envoy-gloo-ee-fips-release:v1.39.1-patch1@sha256:9cb6b2c756b752de210252eeab41bf489141fa136a04d39a629ce526cf1d3151",
+          "image_id": "sha256:9cb6b2c756b752de210252eeab41bf489141fa136a04d39a629ce526cf1d3151",
+          "architecture": "arm64",
+          "events": 120,
+          "observations": 6,
+          "projection_states": 13,
+          "outcome": "counterexample observed",
+          "expiry": "latest underived candidate installed; CLA omitted",
+          "stale_callback": "ignored after coherent recovery",
+          "replay_valid": {
+            "exit": 0,
+            "invariant_failure": null,
+            "log_sha256": "3b608bfdeae6bd40a360adb544083867eb68cf67e552171e5373f12dfca358a1"
+          },
+          "replay_counterexample": {
+            "exit": 12,
+            "invariant_failure": "ObservedNoRollback",
+            "log_sha256": "37dd0b6da6aeb26fe695c534776fa67b06ea390786010198a7d5a2bdcf620987"
+          },
+          "invalid_projection_rejected": {
+            "exit": 12,
+            "invariant_failure": "ReplayOK",
+            "log_sha256": "ae7d3195a4f6306cecfc04ee28bd6446433037f2dd4f81825840c458cd600bbf"
+          }
+        }
+      },
+      "evidence_level": "actual stack gate + real GCP cache/server + independent Envoy admin/HTTP; controlled warm state, handoff, Send delay and logical expiry"
+    },
+    "final_observation_checker": {
+      "artifact": "/tmp/xds-composed-final-recheck.json",
+      "sha256": "693adc1f3b9bfdfdf10f6d374de1862c3189ac1a034a7da915cfc12637cd41fb",
+      "checker_sha256": "d3f79bd86ca3d422c0400cafb62f1b2156b473899161aba5151f456915763b7e",
+      "test_source_sha256": "32d279efb08f8837840a0bbe6b34f4140ea230b8fe79e4d8758ea453cc247c22",
+      "mutation_tests": 17,
+      "log": "/tmp/xds-composed-harness-final.log",
+      "log_sha256": "3a60928e607be8bfb49741fbe89866a7e36810813642cfdb1c72524f8d552f11",
+      "note": "same captured executions revalidated after adding explicit active-listener-to-RDS correlation; these are not extra runtime executions"
+    },
+    "race": {
+      "artifact_directory": "/tmp/xds-composed-race.lBgQpr",
+      "go_test_and_package_result": "pass",
+      "test": "TestComposedHeldReconnect",
+      "files": {
+        "test.jsonl": "2f01b5d99e6440d3277c5d49c081fa13c22b79c6873a73975761de3a925dcec2",
+        "test.log": "bc32a94a40c86857a7d6d633d72abf8d70a2e8fa0bf228215e180c2f13c63210",
+        "events.jsonl": "bf45cc14ae1ba3f14476594c2dc491efe109c83e14e29c4266a5af3f0eab751e"
+      },
+      "trace_revalidated_by_final_checker": true
+    },
+    "tlc": {
+      "artifact_directory": "/var/folders/js/cm1sc7hd5_1_pcwhhp9x0brh0000gn/T/xds-tlc.T4LqeZ",
+      "configurations": 53,
+      "new_configurations": 3,
+      "new_fenced_states": 20,
+      "log": "/tmp/xds-composed-tlc.log",
+      "log_sha256": "48d22434998d84d2e487e179e76b2b85c743ed5194f480e5eb2a4474cb0170e8",
+      "new_logs": {
+        "HeldReconnectFixed.log": "75a80c45413dc94a81156593b06a4105ebfbf1c01af55f7ea87a593110102e88",
+        "HeldReconnectOldCacheBug.log": "47ca1543f5bce4ef2d1b3ab82922e303dda8370be80581799b2babe14a59a0f2",
+        "HeldReconnectStaleTimerBug.log": "a8f4adb0859945af44d1007503857c81d07b65e7e9d2686ca292d78b711ee429"
+      },
+      "evidence_level": "finite safety and conditional temporal recovery, with expected old-cache and hypothetical stale-timer invariant failures"
+    },
+    "formal_lean": {
+      "artifact_directory": "/tmp/xds-composed-lean-final",
+      "top_level_tests": 325,
+      "test_and_subtest_passes": 598,
+      "packages": 10,
+      "lean_executable_expectations": 50,
+      "snapshot_trace_scenarios": 27,
+      "lifecycle_traces": 4,
+      "files": {
+        "go-tests.jsonl": "9fa8426db59aa1a3e93596618dffc7e54b9a6ed9d479f653977ccee00ffb0589",
+        "model-check.log": "f0bfd21124e38bbbd057fb96c9f368a22f2f4774f672fe1ff543dfba62ad0c72",
+        "scenarios.txt": "1ce4be43e1103ec5609ae308daa6ed72b94c7a04ac61c200d046a08939333072",
+        "source-head.txt": "8b6af7e2de8a66aa2f515f55ae83ee4c5bf7e0d3ceb291a341e3052428861334"
+      },
+      "runner_log_sha256": "f74e3a087c2b1e9f6fc3ade06529da5a0b7e57a49a3eb0e8778cbc31b081191e"
+    },
+    "lint": {
+      "analyze": "0 issues; YAMLFMT=true, no auto-fix",
+      "analyze_log_sha256": "d4029f0429f2febf21e63b2d810c308d31fb584c3d725040ec07705710729e86",
+      "actionlint": "pass",
+      "actionlint_log_sha256": "2c9c5f80d3d22aa74d70855bf65c7a7534502aff64614437e9a51d797b02cff1"
+    }
+  },
+  "limitations": [
+    "No Go refinement proof; projection is an unverified existential interval adapter and omits internal queue steps.",
+    "Single proxy/key, two controlled controller caches, one worker; warm-state classification is stubbed.",
+    "Raw unordered SotW ADS bypasses NewControlPlane auth/role callbacks, watch decorators and reclamation.",
+    "Timer expiry is directly invoked; stale callback had already drained its wrapper; cancellation with a pending payload is not covered by this composition.",
+    "Direct-response traffic marker observes RDS application, not upstream availability or complete worker semantics.",
+    "Failed partial SetSnapshot, silent retry, superseded queued responses, NACKs, real HA/shared keys and multi-worker composition remain separate/open.",
+    "Enterprise binaries are exercised without the downstream controller, peering, enterprise plugins or standalone SDS; no certification claim."
+  ]
+}

@@ -1297,3 +1297,42 @@ correction; this is not a universal 15-second recovery bound. Full controller
 traces, held flips/carry under real timer schedules, authenticated HA, peering,
 enterprise extension semantics and standalone SDS remain open. ACK is never
 promoted to application evidence.
+
+### RF-031 held reconnect composition, subsequent October 16 extension
+
+**Implementation plus observed-runtime evidence:** the new
+[`composed/`](composed/README.md) profile extends the retained-cache finding on
+the same immutable stack tip. Actual `syncXds`/publishGate decisions are joined
+to real SnapshotCache, SotW gRPC and independent Envoy admin/HTTP observations.
+A test controller handoff cancels B's server context; the same Envoy reconnects
+to A while A holds a rebuilt candidate. An intercepted old RDS Send lets the
+driver replace C with D in the same timer episode before releasing that Send.
+Both active route contents and traffic then regress from `accepted-b` to
+`old-a`, despite D still being withheld. This reproduced on upstream and
+enterprise standard/FIPS pinned images, arm64/one worker, six observations each.
+
+Direct invocation of the stopped first-budget timer callback publishes D and
+omits its underived CLA; coherent recovery publishes derived empty truth.
+Reinvoking that callback after coherent publication leaves the cache and
+observed configuration unchanged. The callback had already drained its wrapper;
+this does not isolate its pending-entry identity guard from its empty-wrapper
+guard. Cancellation with a still-pending payload remains a composed-runtime
+coverage gap. This passing observation does **not** retract the distinct failing
+flip-release timer counterexample.
+
+**Model evidence:** `HeldReconnect.Step` checks each 13-state observed milestone
+projection. The no-rollback invariant fails at the actual observed rollback;
+an intentionally malformed projection must instead fail `ReplayOK`. A proposed
+fenced model checks 20 reachable states and conditional eventual recovery.
+Old-cache and stale-timer invariant controls bring the required TLC set to 53.
+The projector is an unverified existential interval adapter, not Go refinement.
+Fair input delivery, timer execution, transport and application remain premises.
+
+**Scope:** warm state is stubbed; input wrappers are supplied directly; the
+one-hour timer is invoked logically; raw unordered GCP ADS bypasses the setup
+watch-policy decorators, role hashing, authentication and snapshot reclaimer.
+Traffic uses a direct-response revision marker, not healthy upstream endpoints.
+This is neither a deployed HA observation nor downstream controller adoption.
+Existing read-only source/dependency identities and older counterexamples remain
+separate. The next obligations are a corrected admission candidate and actual
+shared-key/authenticated downstream integration, not a claim of xDS correctness.
