@@ -1,5 +1,38 @@
 # XdsAdsSotw TLA+ model
 
+## October 16 composed boundary models
+
+`make formal-tlc` is the required runner. It checks 50 configurations, including
+expected counterexamples, with an exact TLC artifact checksum and exact expected
+error class/invariant. Parser failures and deadlocks cannot count as reproduced
+properties. Original wide ADS bounds remain explicitly deferred under RF-015.
+
+`WatchDeliveryComposition` has one key/type, a silent named EDS request, an
+initial ineligible snapshot and two possible correcting revisions. It separates
+admission retention, installation, canceled fan-out, a new correcting
+publication, queued response, send, ACK and application. Fixed checks eventual
+send with weak fairness of admission, publication, correcting publication and
+send; application fairness is deliberately absent. Its 13-state run does not
+establish Go liveness. ImmediateLost and NoRetry are temporal counterexamples;
+InstallMeansSend and AckMeansApply refute those invalid safety claims. A new
+publication after cancellation is an explicit assumption, not an automatic
+retry supplied by SnapshotCache. See GCP-A6 and the lifecycle trace probes.
+
+`ConnectionGenerations` has one key, two connection generations, one retained
+cache entry and one queued response. Fixed prevents serving either old entry
+after reconnect and checks eventual delivery after coherent input under stated
+weak fairness (16 states). OldCache and OldQueue are distinct counterexamples.
+The stack's held-candidate/cache exposure Go probe supports the OldCache
+mechanism; OldQueue is an abstract negative control, not a demonstrated stack
+schedule. Generation fencing and multi-stream authenticated-key refinement
+remain IMPL-A3. Existing publication timer models and their three controls are
+preserved rather than replaced by these smaller boundary models.
+
+Historical model descriptions below retain their selected abstractions. The
+warm endpoint-contents policy is superseded: current research publishes derived
+empty truth. `DerivedEndpointTruth.lean` and the current Go tests characterize
+that choice; old contents-gate models remain named negative evidence.
+
 ## Purpose
 
 `XdsAdsSotw.tla` is an abstract finite model of ADS/SotW-style xDS publication. It is intentionally small: one listener, one route configuration, one cluster, and one endpoint resource. The goal is to make the protocol and dependency invariants executable under TLC, not to model all Envoy fields.

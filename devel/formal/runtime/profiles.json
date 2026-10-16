@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "images": {
+    "upstream": {
+      "image": "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4"
+    },
+    "enterprise-standard": {
+      "image": "gcr.io/gloo-ee/envoy-gloo-ee-standard-release:v1.39.1-patch1@sha256:08bce7b318b781a976169b617119f725a79ca803a0b74455003f067b77bf5032"
+    },
+    "enterprise-fips": {
+      "image": "gcr.io/gloo-ee/envoy-gloo-ee-fips-release:v1.39.1-patch1@sha256:9cb6b2c756b752de210252eeab41bf489141fa136a04d39a629ce526cf1d3151"
+    }
+  },
+  "scenarios": {
+    "warming-cache": {
+      "args": [
+        "-snapshot-cache"
+      ],
+      "required_phases": [
+        "missing",
+        "empty",
+        "ready",
+        "rewarming-without-eds-replay",
+        "unchanged-cache-republish",
+        "eds-recovery"
+      ]
+    },
+    "references-cache": {
+      "args": [
+        "-scenario",
+        "references",
+        "-snapshot-cache"
+      ],
+      "required_phases": [
+        "dangling-rds-reference",
+        "partial-cds-nack",
+        "corrected-cds",
+        "inline-dangling-lds",
+        "inline-corrected"
+      ]
+    },
+    "secrets": {
+      "args": [
+        "-scenario",
+        "secrets"
+      ],
+      "required_phases": [
+        "sds-initial",
+        "sds-rotated",
+        "sds-removed",
+        "sds-missing",
+        "sds-partial-rejection",
+        "sds-provider-key-change"
+      ]
+    },
+    "restart-kgateway-bootstrap": {
+      "args": [
+        "-scenario",
+        "restart",
+        "-snapshot-cache",
+        "-eds-cache",
+        "-resource-fetch-timeout",
+        "-1s"
+      ],
+      "required_phases": [
+        "warm",
+        "reconnected-empty-cache",
+        "equal-version-republish",
+        "revision-after-restart",
+        "proxy-restart-warm-cache",
+        "restart-during-warming",
+        "rewarmed-after-restart"
+      ]
+    }
+  }
+}

@@ -26,7 +26,7 @@ assumptions:
   - id: ENV-A1
     summary: the abstract convergence activation guard requires dependency closure; a general Envoy usable-endpoint activation guarantee is unproven and must not constrain first publication
     status: open
-    plannedDischarge: extend the recorded direct-Envoy profiles to the current upstream and enterprise/FIPS binaries; separate initialized empty clusters, accepted configuration, and traffic. Updated warming e2e scenarios require a fresh live run.
+    plannedDischarge: October 16 direct runtime profiles now cover pinned upstream v1.39.1 and enterprise standard/FIPS v1.39.1-patch1 for warming, references, ADS secrets and restart. Controller integration, multi-worker behavior, peering, enterprise extension semantics and standalone SDS still require live evidence; these runs do not establish a general activation guarantee.
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - activateNew
@@ -112,3 +112,22 @@ assumptions:
         test: TestDeclinedNewRequestRegistersNoWatch
       - file: devel/formal/gcpprobe/watch_test.go
         test: TestEqualVersionRespondsForNewlySubscribedResource
+  - id: GCP-A6
+    status: open
+    summary: a failed publication is eventually followed by a coherent publication while its request remains admitted and the stream can send
+    plannedDischarge: WatchDeliveryComposition checks progress under explicit weak fairness of CorrectAgain and Send. NoRetry is a temporal counterexample; the partial-installation trace proves only the finite Go boundary. Establish a reachable retry mechanism and cancellation/queue scheduling assumptions before claiming implementation liveness.
+    specFile: devel/formal/tla/WatchDeliveryComposition.tla
+    specAnchors:
+      - CorrectAgain
+      - SilentClientEventuallySent
+    dischargedBy:
+      - file: devel/formal/gcpprobe/installation_test.go
+        test: TestInstallationSurvivesPartialResponseFailure
+  - id: IMPL-A3
+    status: open
+    summary: publication, cache and stream generations refer to the same authenticated client lifecycle
+    plannedDischarge: ConnectionGenerations models a proposed fence for one key and two generations. Implement and test shared warm/cold streams, atomic disconnect reclamation and downstream XDSClientState wiring; then relate timer and response generations to the model.
+    specFile: devel/formal/tla/ConnectionGenerations.tla
+    specAnchors:
+      - Reconnect
+      - NoResponseFromEarlierGeneration

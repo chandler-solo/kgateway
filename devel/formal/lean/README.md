@@ -53,6 +53,11 @@ and [program plan](../xds-formal-research-plan.md).
   must meet on a run's compared domain, and shows the XOR combiner's
   structural cancellation collision. It does not prove the Go hash
   collision free (IMPL-A1 remains an assumption).
+- `PublicationSelection.lean` proves current/retained/synthesized selection
+  contracts over arbitrary payload and contribution types. Selection keeps each
+  pair together, current derived truth wins, explicit exclusion removes that
+  key, and omission is not empty truth. Its equality theorem is conditional on
+  a projection determining publication; it does not prove Go `Equals` adequate.
 - `PartialRejection.lean` is the RF-026 descriptive model of SotW rejection
   for a two-resource response. The atomic abstraction blocks a valid sibling
   behind an unrelated invalid resource; the observed Envoy semantics applies
@@ -79,8 +84,9 @@ The runner also validates required unit run/pass/package outcomes from JSON
 receipts; a skipped required descendant fails. A top-level scenario can contain subtests; scenario identity is not a stream
 identity. Each successful trace process emits a terminal scenario/event count;
 the checker rejects a missing suffix receipt or mismatched count. These counts
-cover emitted events only. Full lifecycle instrumentation and replay remain
-RF-006 work.
+cover emitted events only. The same Make gate now records and replays four
+[cache/server lifecycle traces](../lifecycle/README.md) with a separate strict Go
+checker. Full joined lifecycle instrumentation and replay remain RF-006 work.
 
 For a single scenario, from the repository root:
 
@@ -107,6 +113,11 @@ immutable reviewed tip. `make formal-legacy-contents` preserves the superseded G
 starvation example. See `../regressions/README.md`; negative-control success is
 not a passing production correctness test. PublicationTransitions.tla adds the
 three timer interaction controls and a proposed, bounded fixed model.
+`make formal-stack-current` preserves the updated `215ebe8e6450` profile with
+eleven desired-property failures and two separately recorded compilation errors.
+`WatchDeliveryComposition` and `ConnectionGenerations` add explicit retry,
+silent-client and connection-generation temporal obligations; their fixed
+policies are not implementations adopted by the research tree.
 
 The October 16 trace correction distinguishes transform candidates from final
 publisher decisions: a newer candidate may precede resolution of an older

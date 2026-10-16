@@ -125,6 +125,9 @@ func requirements(root string) (map[key]bool, error) {
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestRetainedDependenciesConservativelyHandleDynamicAndOpaqueConfig"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestWrapperEqualityIncludesDerivationState"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestEndpointSetVersionDistinctContributionsCanCollide"}] = true
+	for _, name := range []string{"TestAcknowledgmentDoesNotClaimApplication", "TestRejectIncompleteOrUncorrelatedLifecycle", "TestRejectUnknownJSONField"} {
+		req[key{prefix + "devel/formal/lifecycle", name}] = true
+	}
 	return req, nil
 }
 

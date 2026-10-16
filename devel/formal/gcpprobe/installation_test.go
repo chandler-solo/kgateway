@@ -11,15 +11,20 @@ import (
 	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
+
+	"github.com/kgateway-dev/kgateway/v2/devel/formal/lifecycle"
 )
 
 // RF-007: SetSnapshot is not transactional. Installation precedes fan-out;
 // cancellation can leave CDS answered and EDS pending with the NEW cache.
 func TestInstallationSurvivesPartialResponseFailure(t *testing.T) {
 	c := cache.NewSnapshotCache(true, kgwHash{}, nil)
+	r := lifecycle.New(t.Name(), "cache-api")
+	r.Add(lifecycle.Event{Kind: "open", Key: kgwNode, Stream: 1})
 	cds := make(chan cache.Response)
 	eds := make(chan cache.Response)
 	for typ, ch := range map[string]chan cache.Response{rsrc.ClusterType: cds, rsrc.EndpointType: eds} {
+		r.Add(lifecycle.Event{Kind: "request", Key: kgwNode, Stream: 1, Type: typ, Request: typ})
 		cancel, err := c.CreateWatch(&discovery.DiscoveryRequest{TypeUrl: typ}, stream.NewSotwSubscription(nil, true), ch)
 		if err != nil {
 			t.Fatal(err)
@@ -34,7 +39,11 @@ func TestInstallationSurvivesPartialResponseFailure(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() { result <- c.SetSnapshot(ctx, kgwNode, snap) }()
-	expectResponse(t, cds, "CDS is ordered before EDS")
+	response := expectResponse(t, cds, "CDS is ordered before EDS")
+	r.Add(lifecycle.Event{
+		Kind: "cache-response", Key: kgwNode, Stream: 1, Type: rsrc.ClusterType,
+		Request: rsrc.ClusterType, Version: response.GetResponseVersion(),
+	})
 	// No EDS receiver: cancellation is the only ready response-select branch.
 	cancel()
 	select {
@@ -49,10 +58,22 @@ func TestInstallationSurvivesPartialResponseFailure(t *testing.T) {
 	if err != nil || got != snap {
 		t.Fatalf("cache installation rolled back: snapshot=%v error=%v", got, err)
 	}
+	r.Add(lifecycle.Event{
+		Kind: "publication-result", Key: kgwNode, Type: rsrc.EndpointType,
+		Version: "v2", Status: "context-canceled",
+	})
 	if n := c.GetStatusInfo(kgwNode).GetNumWatches(); n != 1 {
 		t.Fatalf("want unserved EDS watch retained, got %d", n)
 	}
 	expectSilence(t, eds, "EDS was not delivered")
+	recordInstalled(t, r, c, rsrc.ClusterType)
+	recordInstalled(t, r, c, rsrc.EndpointType)
+	r.Add(lifecycle.Event{
+		Kind: "watch-status", Key: kgwNode, Stream: 1, Type: rsrc.EndpointType,
+		Request: rsrc.EndpointType, Status: "parked",
+	})
+	r.Add(lifecycle.Event{Kind: "close", Key: kgwNode, Stream: 1})
+	finishLifecycle(t, r)
 }
 
 type observedSnapshot struct {

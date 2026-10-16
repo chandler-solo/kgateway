@@ -4,6 +4,14 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
+The latest extension adds [immutable updated-stack/adoption profiles](regressions/README.md),
+[cache/server lifecycle observations](lifecycle/README.md), selection proofs and
+bounded retry/generation models, plus [upstream/enterprise runtime profiles](runtime/README.md).
+`make formal-lean`, `make formal-tlc`, `make formal-stack-current` and
+`make formal-runtime-profiles` reproduce the separate evidence levels. Green
+negative-control profiles mean defects reproduced. No model result proves Go
+correctness, and none of these profiles identifies a deployed controller.
+
 ## Motivation
 
 This directory is an MVP for applying formal methods to kgateway's xDS correctness story. It does not claim that Envoy or kgateway is formally verified. Instead, it establishes a concrete, runnable verification seam that future IR -> xDS work can use:
@@ -34,7 +42,7 @@ The `XdsPerClientPublication` model combines the 13868 and 14184 failure shapes.
 
 The `XdsPerClientConvergence` model is the highest-leverage bridge across issue 13868, issue 14184, and startup/warming. It checks the full abstract path from last-good cache retention through partial input deferral, coherent input publication, named EDS response, EDS version change, and Envoy active-state closure.
 
-The `XdsEnvoyWarming` model separates initialized clusters from backend availability. First cache publication (C0) permits empty CLAs once referenced CDS is complete; the warm route-flip policy (C3) still requires usable endpoints. `XdsEnvoyWarmingColdEmpty.cfg` checks cold activation without any endpoint-recovery action. It isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, an empty `ClusterLoadAssignment` is not treated as ready, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
+The `XdsEnvoyWarming` model preserves the historical contents-gate abstraction and separates initialized clusters from backend availability. Current research C3 publishes derived empty truth; the historical model's warm route-flip policy requires usable endpoints. `XdsEnvoyWarmingColdEmpty.cfg` checks cold activation without any endpoint-recovery action. It isolates startup and make-before-break ordering. It checks that CDS ACK is not treated as cluster-active before EDS, an empty `ClusterLoadAssignment` is not treated as ready, routes do not become active before referenced clusters are active, listeners do not become active before RDS, and old active clusters are not removed before traffic has moved away.
 
 ### Go validator
 

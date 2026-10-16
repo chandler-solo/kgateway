@@ -38,6 +38,9 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         WarmTypeStarvationIsolated) model=WarmTypeStarvation; expected=pass ;;
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
         PublicationTransitions*) model=PublicationTransitions; expected=pass ;;
+        WatchDeliveryCompositionImmediateLost|WatchDeliveryCompositionNoRetry) model=WatchDeliveryComposition; expected=temporal ;;
+        WatchDeliveryComposition*) model=WatchDeliveryComposition; expected=pass ;;
+        ConnectionGenerations*) model=ConnectionGenerations; expected=pass ;;
         XdsEnvoyWarming*) model=XdsEnvoyWarming; expected=pass ;;
         XdsPerClientConvergence*) model=XdsPerClientConvergence; expected=pass ;;
         XdsPerClientPublication*) model=XdsPerClientPublication; expected=pass ;;
@@ -56,6 +59,9 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         PublicationTransitionsStaleTimerBug) invariant=NoPublicationRollback ;;
         PublicationTransitionsCacheMeansDeliveredBug) invariant=ReferenceAheadIntervalRespected ;;
         PublicationTransitionsPruneReleasesHoldBug) invariant=IndependentHoldNotReleasedByPrune ;;
+        WatchDeliveryCompositionInstallMeansSendBug) invariant=InstallationMeansSend ;;
+        WatchDeliveryCompositionAckMeansApplyBug) invariant=AckMeansApplication ;;
+        ConnectionGenerations*Bug) invariant=NoResponseFromEarlierGeneration ;;
         XdsEdsSubsetBug) invariant=NoOrphanEndpointResources ;;
         XdsEnvoyWarmingAckImpliesActiveBug) invariant=ActiveClustersHaveCDSAndEDS ;;
         XdsEnvoyWarmingEmptyCLAFlipBug) invariant=WarmRouteFlipHasReadyCLA ;;

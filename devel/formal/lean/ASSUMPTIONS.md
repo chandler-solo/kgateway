@@ -123,3 +123,21 @@ decline still registers no watch (`TestDeclinedNewRequestRegistersNoWatch`).
 policy over 534 finite states, so both pins remain explained. This seam supplements the
 incomplete GCP-A1 guard; it does not yet refine the composed convergence proof.
 RF-007 tracks cache installation, stream state, and that refinement.
+# October 16 extension: GCP-A6 and IMPL-A3 remain open
+
+**GCP-A6 — retry and transport fairness.** `WatchDeliveryComposition.tla` gives a
+bounded leads-to result only with retained admission, eventual coherent input,
+and weak fairness of a fresh correcting publication after failure and of send.
+`SetSnapshot` can leave new cache state installed after canceled fan-out. It does
+not promise to schedule that next publication. The NoRetry and ImmediateLost
+configurations are required temporal counterexamples. Four controlled lifecycle
+traces link selected real cache/server observations to these distinctions;
+terminal counts cover emitted records, not instrumentation completeness.
+
+**IMPL-A3 — generation correspondence.** `ConnectionGenerations.tla` separates
+new-connection publication eligibility, the retained cache generation and queued
+responses. Its fixed generation fence is a proposed abstract policy. The updated
+stack's cache-boundary reconnect probe fails; neither research nor downstream
+has been shown to refine the fixed model. Multiple authenticated streams sharing
+a key, callback/timer cancellation, reclamation and cross-controller versions
+remain implementation obligations.

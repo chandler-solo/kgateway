@@ -30,6 +30,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: make formal-legacy-contents FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/legacy"
+      - name: Reproduce October 16 stack findings with recorded test adapters
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-stack-current FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack-20261016"
       - name: Preserve regression receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -70,13 +74,15 @@ jobs:
       - name: Check TLC safety and expected temporal counterexamples
         env:
           FORMAL_TLC_ARTIFACT_DIR: ${{ runner.temp }}/formal/tlc
-        run: devel/formal/tla/check-required.sh
+        run: make formal-tlc
       - name: Pull pinned Envoy characterization image
         run: docker pull envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4
       - name: Characterize Envoy directly in both panic profiles
         env:
           FORMAL_ENVOY_ARTIFACT_DIR: ${{ runner.temp }}/formal/envoy
-        run: devel/formal/check-envoy.sh
+        run: make formal-envoy
+      - name: Validate explicit runtime profile receipts
+        run: make formal-runtime-profiles FORMAL_RUNTIME_ARGS="--profile upstream --artifacts $RUNNER_TEMP/formal/runtime"
       - name: Preserve verification receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

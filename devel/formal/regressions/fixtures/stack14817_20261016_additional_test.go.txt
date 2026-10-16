@@ -1,0 +1,70 @@
+package proxy_syncer
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	stream "github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// An absent-to-errored transition does not change CDS bytes. It still changes
+// whether an older carried cluster may remain while unrelated routes are held.
+func TestReviewErrorOnlyChangeInvalidatesRetainedCluster(t *testing.T) {
+	ucc := newTestUcc(publishGateTestClient)
+	b := edsClusterForClient(ucc, "b", 123)
+	beforeRows := assemblePerClientClusters(ucc, []uccWithCluster{b})
+	afterRows := assemblePerClientClusters(ucc, []uccWithCluster{b, {
+		Name: "a", Error: errors.New("invalid backend TLS policy"),
+	}})
+	require.False(t, beforeRows.Equals(*afterRows), "upstream cluster projection notices the error")
+	require.Equal(t, beforeRows.clusters.Version, afterRows.clusters.Version)
+	before := reviewWrap(t, "candidate", []string{"b"}, []string{"b"})
+	before.snap.Resources[types.Cluster] = beforeRows.clusters
+	before.missingEndpointsReferenced = []string{"b"}
+	before.synthesizedEndpoints = []string{"b"}
+	after := before
+	after.erroredClusters = afterRows.erroredClusters
+	published := reviewWrap(t, "published", []string{"a"}, []string{"a"})
+	retained, _, _ := resolveDeferredPerCluster(before, published.snap, true, nil, nil)
+	withdrawn, _, _ := resolveDeferredPerCluster(after, published.snap, true, nil, nil)
+	require.Contains(t, retained.GetResources(rsrc.ClusterType), "a")
+	require.NotContains(t, withdrawn.GetResources(rsrc.ClusterType), "a", "the changed metadata is security-relevant to publication")
+	assert.False(t, before.Equals(after), "KRT must not suppress error-only withdrawal of a retained cluster")
+}
+
+// The new connection-local publication marker does not govern CreateWatch.
+// A warm client can encounter an earlier controller's retained cache entry
+// while the rebuilt candidate is correctly held by the gate.
+func TestReviewReconnectDoesNotServeEarlierConnectionCache(t *testing.T) {
+	p := newPublishGateTestTranslator(t, true, time.Hour)
+	t.Cleanup(func() { p.gate.clientDeparted(publishGateTestClient) })
+	p.syncXds(t.Context(), reviewWrap(t, "old-on-controller-A", []string{"a"}, []string{"a"}))
+	p.gate.clientDeparted(publishGateTestClient)
+	w := reviewWrap(t, "current", []string{"b"}, []string{"b"})
+	w.missingEndpointsReferenced = []string{"b"}
+	w.synthesizedEndpoints = []string{"b"}
+	p.syncXds(t.Context(), w)
+	require.NotNil(t, p.gate.pending[publishGateTestClient], "new connection waits for a coherent rebuild")
+	req := &discovery.DiscoveryRequest{Node: &core.Node{Id: publishGateTestClient},
+		TypeUrl: rsrc.RouteType, ResourceNames: []string{"route-config"}, VersionInfo: "accepted-from-controller-B"}
+	ch := make(chan cache.Response, 1)
+	cancel, err := p.xdsCache.CreateWatch(req, stream.NewSotwSubscription(req.ResourceNames, false), ch)
+	require.NoError(t, err)
+	if cancel != nil { t.Cleanup(cancel) }
+	select {
+	case response := <-ch:
+		wire, err := response.GetDiscoveryResponse()
+		require.NoError(t, err)
+		assert.NotEqual(t, "old-on-controller-A", wire.VersionInfo,
+			"a fresh stream must not receive the previous connection's stale routes while the current candidate is withheld")
+	default:
+	}
+}

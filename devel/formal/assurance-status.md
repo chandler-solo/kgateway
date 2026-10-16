@@ -6,26 +6,30 @@ actions are tracked in [research-findings.md](research-findings.md).
 
 ## Profile
 
-Profile `research-2026-10-16-working-tree`, based on
-`a4cf59d6d80372ca9d0baaa4cfe543c228bf1857`. A source SHA alone does not identify
+Profile `research-2026-10-16-lifecycle-working-tree`, based on
+`12ec187d6042269839e8cc96f5b8ba0ea48dc128`. A source SHA alone does not identify
 these uncommitted changes; preserve the working diff with execution receipts.
 
 | Subject | Identity and disposition |
 |---|---|
-| Research | This working tree: derived-empty truth, shared-CLA carry preservation, retained dependency closure, existing trace harness |
-| Reviewed proposed stack | `kgateway-dev/kgateway` stack 14817, tip `e7b569a1fb786a58a81cb5c0364d57769786b67d`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree** |
+| Research | This working tree adds selection proofs, cache/server lifecycle checks and generation/retry models to the derived-empty/carry research policy; production publication code is unchanged by this extension |
+| Updated proposed stack | `kgateway-dev/kgateway` stack 14817, tip `215ebe8e645080748dbe37727ab2f6f2faa33de6`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree**; historical `e7b569a1fb78` profile preserved |
 | Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; adoption requires constructor and connection-state integration |
 | Deployment | No live deployment identified by this review |
 | Cache/server | `v0.14.1-0.20260702184136-1cd1226616f5`; parked-watch retention and unsubscribe fixes present, immediate-decline loss remains |
 | Research/upstream default Envoy tag | `envoyproxy/envoy:v1.39.4` in the current Makefile; not an immutable binary identity |
-| Downstream defaults | enterprise standard/FIPS `v1.39.1-patch1`; separate profiles, not covered by upstream binary observations |
+| Downstream defaults | enterprise standard/FIPS `v1.39.1-patch1`; four direct runtime scenarios now measured on each digest in `runtime/profiles.json`; downstream controller integration remains unvalidated |
 | Recorded direct Envoy evidence | v1.39.1 digest `sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4`; bootstrap/runtime-specific |
 | Lean | `leanprover/lean4:v4.30.0` |
 
 The [pinned regression profiles](regressions/profiles.json) and runner preserve
 historical defects separately from current research behavior. The stack still
-has nine failing properties and a setup-package compile failure at its reviewed
-revision. Green negative-control receipts mean those defects reproduced.
+has eleven failing properties and two test-package compilation failures at the
+updated revision. Diagnostic API adapters change only scratch test files and
+are recorded separately from pristine build failures. Green negative-control
+receipts mean those defects reproduced. The downstream runner preserves the
+constructor and three missing-method failures separately from 137 passing
+existing test cases in five packages.
 Research has no stack publication budgets, scoping, NACK decorator, reconnect
 rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 
@@ -41,9 +45,13 @@ rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 | Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check, live XdsWarming and XdsStarvation suites passed once against the research image | Missing CDS still blocks; the live suites are pass/fail without traces and the starvation suite is a regression pin, not a #14184 reproducer |
 | Derived empty warm publication | Guard proofs plus concrete KRT/cache regressions | No endpoint-health gate; new live scenario code requires a fresh run on each named runtime profile |
 | Retained dependency and version provenance | Go regression tests | Shared assignments preserve current bytes/hash; supported ancillary/transitive dependencies retained; opaque and recognized dynamic extensions conservatively retain eligible CDS; arbitrary extension semantics and revocation remain open |
+| Selection and equality contract | Lean proofs over arbitrary payload/contribution types plus research Go tests | Pair provenance and precedence are abstract; equality adequacy is a premise, not a proved property of Go; zero-marshal XOR collision assumptions remain |
 | Overlapping publication timers | Finite TLC model and pinned stack Go counterexamples | One key, three revisions, logical deadlines; proposed fixed model is not a refinement of stack Go |
+| Admission-to-send progress | Bounded TLC temporal checks plus real cache/server probes | Fixed assumes retained admission and fair correcting publication after failure; ImmediateLost/NoRetry remain required temporal counterexamples; no wall-clock bound |
+| Reconnect cache/queue generations | Bounded TLC safety and temporal checks; updated stack cache-boundary failure | One key/two generations; proposed fence not implemented here; old-queue negative control is abstract, shared authenticated streams remain open |
 | Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation drop RF-024 reproduced with a synthetic plugin, fix open |
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
+| Controlled lifecycle observations | Four real cache/server traces, strict Go replay and negative mutation tests | Records readback, watch disposition, response callbacks, mock transport and nonce-correlated ACK/NACK; separate from snapshot traces and live Envoy observations; no internal enqueue or application inference |
 | GCP named response guard | Executable characterization on the pinned dependency | Parked declines retain watches; immediate declines still lose requests; subscription history and response events matter independently of version equality |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
 | NACK resend recurrence | Characterized on the real cache with a scripted client and with a real Envoy (RF-012) | One machine; no damping exists; not a CPU budget |
@@ -53,6 +61,7 @@ rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 | Control-plane and proxy restart | Directly characterized through SnapshotCache in both ADS modes, including a restart during rewarming (RF-028); TLC counterexample and three passing configurations in `ReconnectWhileWarming.tla`; live XdsWarming restart-during-warming test passed once | Empty cache is harmless while the proxy keeps serving; reconnect carries versions without nonces; a restarted proxy is served from the warm cache; a reconnect while a cluster is warming re-requests EDS, LDS, RDS but not CDS until EDS completes the warming, so a withheld or equal-version-parked EDS blocks CDS repairs for up to the EDS initial fetch timeout (15 s in kgateway's bootstrap, where the EDS cache then completes the warming; unbounded only with the timeout disabled); the kgateway first-publish gate for a cache-less client is not exercised |
 | Initial fetch timeouts | Directly characterized at 2 s | Missing EDS and RDS become degraded active states after the timeout, sequentially across init phases; a route ahead of its cluster is a 503 window; the separate default-timeout rewarming correction is recorded in RF-028; no universal end-to-end bound |
 | Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
+| Enterprise standard/FIPS runtime | Direct observations on both pinned v1.39.1-patch1 images, four scenarios each, arm64/one worker | Warming, references, ADS TLS secrets and restart; no controller/peering/enterprise extension integration, standalone SDS, or certification claim |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; even sets of distinct contributions can share an XOR version; the toy collision remains a negative control |
 | KRT recovery | Open; temporal claim stated with explicit fairness (RF-005) | No deployed watchdog exists; progress rests on KRT delivery, which is unverified; a stale-replay watchdog would not help |
 | Historical coverage | Complete title/body inventory, seventy-two detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |
@@ -79,7 +88,10 @@ remain runnable. Underived/missing input can still hold this research profile
 indefinitely. No test pass establishes full lifecycle refinement, temporal
 progress of Go, deployment correctness, or completed historical/source coverage.
 
-## October 16 working-tree verification
+## Earlier October 16 publication-policy verification
+
+The following receipt belongs to the previous extension, subsequently committed
+as `12ec187d6042`. It is preserved separately from the lifecycle extension below.
 
 | Check | Observed result | Evidence boundary |
 |---|---|---|
@@ -96,4 +108,39 @@ The Lean runner records HEAD, the tracked working diff, added-file digests,
 dependency digests, tool versions, and execution receipts. New live warming,
 downstream adoption, enterprise/FIPS, cancellation-race, and composed
 cache-to-application evidence remain open in the research plan. No dependency
-bump, downstream source change, commit, or deployment is part of this update.
+bump, downstream source change, commit, or deployment was part of that update.
+
+## October 16 updated-stack and lifecycle extension
+
+- **Abstract proof:** `PublicationSelection.lean` compiles selection/provenance
+  contracts and the conditional equality obligation. It adds no Go refinement
+  or collision-freedom claim.
+- **Bounded temporal evidence:** all 50 required TLC configurations matched
+  their expected outcomes. The new fixed watch model explored 13 states and the
+  fixed generation model 16; six new controls reproduce the intended safety or
+  temporal failures. Original broad ADS bounds remain deferred.
+- **Implementation evidence:** the updated stack runner reproduced eleven exact
+  assertion failures after independently recording its two pristine compilation
+  failures; production Go digests remained unchanged. The downstream copy
+  reproduced the constructor mismatch and all three missing client-state
+  methods, with 64 top-level tests / 137 test events passing in selected packages.
+- **Runtime evidence:** all twelve digest-pinned combinations passed (four
+  scenarios each on upstream, enterprise standard and enterprise FIPS Envoy).
+  Required phase receipts, admin dumps, HTTP/TLS observations, image architecture
+  and hashes are retained. These run the direct probe, not a kgw-ent controller.
+- **Trace evidence:** `make formal-lean` requires four fresh cache/server traces
+  in addition to the 27 existing snapshot scenarios; the checker rejects
+  incomplete or uncorrelated observations. Snapshot-to-lifecycle joining and
+  independent application correlation are still open.
+- **Validation:** the final Lean gate passed 50 executable model expectations,
+  325 top-level Go tests / 597 test events across ten packages, 27 snapshot
+  scenarios and all four lifecycle traces. The selected lifecycle race run
+  passed 25 test events without a reported race. Eight regression-harness tests,
+  one runtime-receipt mutation test, Go analysis and workflow lint also passed.
+
+Commands, exact identities and receipt hashes for this extension are summarized
+in [the extension receipt](receipts/2026-10-16-lifecycle-extension.json). Public CI requires the updated
+stack baseline, lifecycle receipts and upstream runtime profile. Private
+downstream/enterprise profiles run explicitly; they are not silently skipped or
+claimed covered by public CI. No product dependency, deployment or Git state was
+changed by this extension.

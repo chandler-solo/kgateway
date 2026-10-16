@@ -517,3 +517,40 @@ repaired and unrepaired go-control-plane watch paths. Do not use ACK as an
 application receipt. Preserve the EDS default-timeout correction and distinguish
 legitimate input/CDS-coupled pushes from avoidable version churn. Completion is
 an assurance case for each named profile, not a claim that all xDS bugs are known.
+
+## Later October 16: executed extension and next obligations
+
+The extension based on research `12ec187d6042` now freezes updated stack
+`215ebe8e6450` independently of the old nine-property profile. Its eleven
+desired-property failures and two compilation failures have fresh receipts.
+Historical contents-gate, XOR-collision, repaired/unrepaired watches and
+reachability-versus-liveness controls remain required.
+
+| Work advanced | Executed result and evidence level | Remaining exit criterion |
+|---|---|---|
+| Selection/projection contracts | Lean proofs of current/retained pair provenance, omission/exclusion and conditional equality adequacy; mapped research Go tests | Derive eligibility and versioned dependency closure for arbitrary extensions; establish actual Go projection/refinement obligations |
+| Cache/server temporal composition | 13-state fixed watch/retry model; 16-state fixed connection-generation model; six new expected counterexamples | Compose with timers and subscriptions across multiple authenticated streams/keys; prove or expose retry and scheduling assumptions rather than adding implicit fairness |
+| Lifecycle observation | Four required strict traces from real cache/server probes; request/nonce/stream correlation, cancellation/readback and absence of immediate watch | Join publication schema-2 decisions with lifecycle records; instrument internal queue/cancel/send boundaries and independent Envoy application; audit missing instrumentation |
+| Downstream adoption | Scratch dependency replacement; expected constructor and three missing-method compile failures; all 64 selected top-level tests execute (137 test events) | Integrate client state in a separate product candidate while preserving authenticated roles, identity drift and Delta rejection; exercise shared cold/warm streams and atomic reclaim under races |
+| Runtime profiles | Twelve direct scenarios pass across upstream and enterprise standard/FIPS immutable digests, one worker on arm64 | Run full kgw-ent controller with fixed adoption; add peering, actual enterprise extension and ancillary dependencies, standalone SDS and multi-worker observation |
+
+The next implementation experiment should require the updated stack candidate
+to compile unchanged and pass all eleven injected properties. An interface or
+timer-clock change may require a documented fixture adapter, never a weakened
+property. Complete downstream state wiring is a separate prerequisite to a live
+adoption test. A constructor-only adapter must not produce an adoption pass.
+
+For the next composed model, carry `(client key, connection generation, timer
+episode, candidate revision, subscription generation, type, response nonce)`
+explicitly. Expand beyond one key and one outstanding response, include
+subscription supersession and per-type partial rejection, and record explored
+bounds. A fairness assumption must name the implementation action that can
+execute it. GCP-A6 records missing retry evidence; IMPL-A3 records missing
+generation correspondence. Wider model safety still does not prove the Go code.
+
+The next live controller experiment should drive rapid retargets during an
+underived hold, aliased/shared CLA carry, independent grace expiry, security
+error-only changes, secret rotation and reference removal, then reconnect a
+shared warm/cold key. Correlate resource contents and active/warming state with
+traffic, not ACK alone. The new direct runtime results reduce binary-profile
+uncertainty but do not execute that controller schedule.

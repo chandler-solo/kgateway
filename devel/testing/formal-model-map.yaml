@@ -12,6 +12,49 @@
 #               safe-system behavior, and the entry flips to covered.
 #   open      - not implemented; the note says where the work is tracked.
 obligations:
+  - id: selected-CLA-payload-contribution-pair
+    summary: a current derived assignment wins over retained and synthesized entries as one payload/contribution pair
+    specFile: devel/formal/lean/XdsSpec/PublicationSelection.lean
+    specAnchors:
+      - sharedAssignmentKeepsCurrentPair
+      - carryKeepsPair
+      - omissionIsNotEmptyTruth
+    status: covered
+    note: abstract selection contract plus research Go regression, not a Go refinement theorem or hash injectivity proof. The updated stack remains a separate failing profile. Error exclusion applies to the selected resource key, not every CLA shared by an errored consumer.
+    tests:
+      - file: pkg/kgateway/proxy_syncer/publication_composition_test.go
+        test: TestCarryPreservesCurrentSharedAssignment
+  - id: equality-must-determine-publication
+    summary: metadata that changes publication must invalidate the equality projection
+    specFile: devel/formal/lean/XdsSpec/PublicationSelection.lean
+    specAnchors:
+      - policyChangeMustInvalidate
+    status: covered
+    note: theorem is conditional on projection adequacy. Research compares the tested metadata; the October 16 stack omits error-only wrapper changes. Neither finite test proves adequacy for all Go inputs.
+    tests:
+      - file: pkg/kgateway/proxy_syncer/publication_composition_test.go
+        test: TestWrapperEqualityIncludesDerivationState
+  - id: silent-client-cache-to-response-progress
+    summary: stable coherent input reaches a silent client only with retained admission and a fair correcting publication after cancellation
+    specFile: devel/formal/tla/WatchDeliveryComposition.tla
+    specAnchors:
+      - CorrectAgain
+      - SilentClientEventuallySent
+    status: open
+    note: bounded temporal Fixed policy assumes admission retention and a new publication after failure. Go still loses immediately declined requests and supplies no automatic retry theorem. Finite observations cannot establish eventuality.
+    tests:
+      - file: devel/formal/gcpprobe/lifecycle_test.go
+        test: TestLifecycleWatchAdmissionProfiles
+      - file: devel/formal/gcpprobe/installation_test.go
+        test: TestInstallationSurvivesPartialResponseFailure
+  - id: connection-generation-cache-and-queue-fence
+    summary: neither retained cache nor queued response may bypass the intended new-connection publication hold
+    specFile: devel/formal/tla/ConnectionGenerations.tla
+    specAnchors:
+      - NoResponseFromEarlierGeneration
+      - StableConnectionEventuallySent
+    status: open
+    note: two-generation model checks a proposed fence and preserves separate old-cache and old-queue controls. The October 16 stack Go fixture reproduces stale cache exposure; queued-generation refinement and authenticated shared-key integration remain open.
   - id: C0-first-cache-publication
     summary: complete referenced CDS permits first cache publication with empty CLAs, including after cache restart; missing nonexempt CDS still defers
     specFile: devel/formal/lean/XdsSpec/PerClusterReadiness.lean

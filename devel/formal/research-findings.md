@@ -1257,3 +1257,43 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   22); the negative Go test and trace remain required, while the regular sweep
   hashes its input revisions. This is fixture/combiner evidence, not a discovered
   production hash collision or a proof that hashing removes collisions.
+
+### RF-031 updated tip and formal extension, later October 16
+
+The updated proposed stack is `215ebe8e645080748dbe37727ab2f6f2faa33de6`.
+The historical profile above remains immutable. `make formal-stack-current`
+requires the original nine property failures plus two new **Go/cache-boundary**
+failures: an error-only cluster change is invisible to wrapper equality even
+though it changes carry exclusion, and a fresh stream can observe an earlier
+connection's retained cache while the rebuilt candidate is held. This does not
+prove an actual Envoy rollout or traffic outcome.
+
+At that tip both proxy-syncer and setup test packages fail to compile. The
+runner records the obsolete `Unresolvable` field and removed constructor errors
+first, then makes two exact-hash test-only API adaptations in its fresh copy.
+All eleven tests must execute and fail at the designated assertion, with no
+production Go changes, skips or panics. Candidate mode requires pristine builds
+and all properties to pass; it never applies the baseline adapters.
+
+**Downstream implementation evidence:** the new isolated adoption harness
+reproduces the NewControlPlane constructor mismatch and compile-time absence of
+HasPriorXDSVersion, HasColdStreamSince and RunIfDisconnected on downstream
+callbacks. The five selected existing packages pass 64 top-level / 137 total
+test cases against the updated dependency. Those tests do not exercise the
+missing shared warm/cold state or prove controller wiring. The actual checkout
+and dependency remain unchanged.
+
+**Abstract/temporal evidence:** new Lean proofs express payload/contribution
+selection and equality adequacy; new TLC models separate lost admission,
+canceled partial fan-out, retry, send, ACK/application and connection cache/queue
+generations. Fixed policies are proposals under explicit fairness, with six
+preserved negative controls. None establishes Go refinement or hash injectivity.
+
+**Observed trace/runtime evidence:** four strict cache/server traces now run in
+the Lean gate. Separate direct Envoy runs pass warming, references, ADS secrets
+and restart on upstream and enterprise standard/FIPS digests (twelve scenarios).
+The kgateway-shaped restart profile retains the unset-timeout/EDS-cache
+correction; this is not a universal 15-second recovery bound. Full controller
+traces, held flips/carry under real timer schedules, authenticated HA, peering,
+enterprise extension semantics and standalone SDS remain open. ACK is never
+promoted to application evidence.

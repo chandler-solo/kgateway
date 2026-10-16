@@ -31,6 +31,63 @@
       "tests": {
         "TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret": ""
       }
+    },
+    "stack-14817-2026-10-16": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "215ebe8e645080748dbe37727ab2f6f2faa33de6",
+      "base": "982e29797b5028ca22d5c4ce41d06f427a8cdcd3",
+      "package": "pkg/kgateway/proxy_syncer",
+      "expected": "fail",
+      "tests": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "an endpoint/route recomputation must not bypass the configured ahead interval",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "an old release timer must not overwrite a newer coherent publication",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "cluster removal expiry must not release the independent flip budget early",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "carrying a must not overwrite the current assignment also consumed by b",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "unused plugin claims must not re-admit destinations for every gateway",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "rejecting an invalid claim must preserve the emit-all fallback",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "an opaque cluster-bearing extension cannot prove the emission set complete",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "a weighted cluster header is an unbounded runtime selector too",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "a retained listener still depends on this cluster",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "KRT must not suppress error-only withdrawal of a retained cluster",
+        "TestReviewReconnectDoesNotServeEarlierConnectionCache": "a fresh stream must not receive the previous connection's stale routes while the current candidate is withheld"
+      },
+      "review_date": "2026-10-16",
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_20261016_test.go.txt",
+          "target": "review_stack14817_test.go",
+          "sha256": "ad5cd605e6857e91c47ce2c81c68777d3006041bf028a3e0796c61042074d85f"
+        },
+        {
+          "file": "fixtures/stack14817_20261016_additional_test.go.txt",
+          "target": "review_updated_stack_test.go",
+          "sha256": "78fea41a9be149305f49c35f5ea4d5af2fc6fee8b04d6c77f7d7a665f9b27be7"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer",
+          "error": "unknown field Unresolvable"
+        },
+        {
+          "package": "pkg/kgateway/setup",
+          "error": "undefined: newNackResendSuppressor"
+        }
+      ],
+      "test_adapters": [
+        {
+          "file": "pkg/kgateway/proxy_syncer/emission_clusters_test.go",
+          "sha256": "73424d3e997ba7ddb2e2929a75894c358929dcf91538a3ac89af3e34c203169f",
+          "before": "Unresolvable: []string{\"cluster_header \\\"x\\\"\"}",
+          "after": "RequestTimeSelectors: []requestTimeSelector{{selectorClusterHeader, \"x\"}}"
+        },
+        {
+          "file": "pkg/kgateway/setup/nack_resend_metrics_test.go",
+          "sha256": "611696b3d935f399ed0dbd561ad1babfb3632fe34ad665dd920dbb3ff2b60daa",
+          "before": "newNackResendSuppressor(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), envoycache.IDHash{})",
+          "after": "newWatchPolicy(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), envoycache.IDHash{}, true, false)"
+        }
+      ]
     }
   },
   "downstream": {

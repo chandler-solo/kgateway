@@ -18,6 +18,37 @@ import tempfile
 HERE = Path(__file__).resolve().parent
 
 
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def production_digest(source):
+    """Adapters may repair test API drift, never the subject being measured."""
+    return {str(p.relative_to(source)): digest(p) for p in source.rglob("*.go")
+            if not p.name.endswith("_test.go") and "vendor" not in p.parts}
+
+
+def apply_test_adapters(source, adapters):
+    for adapter in adapters:
+        path = source / adapter["file"]
+        if not path.name.endswith("_test.go") or source.resolve() not in path.resolve().parents:
+            raise ValueError("adapters must address test files inside the scratch source")
+        if digest(path) != adapter["sha256"]:
+            raise ValueError(f"test adapter source changed: {path}")
+        contents = path.read_text()
+        if contents.count(adapter["before"]) != 1:
+            raise ValueError(f"test adapter must replace exactly one site: {path}")
+        path.write_text(contents.replace(adapter["before"], adapter["after"]))
+
+
+def check_build_result(code, output, expected_error=None):
+    if expected_error is None:
+        if code:
+            raise ValueError("package failed to compile")
+    elif code == 0 or expected_error not in output:
+        raise ValueError(f"expected pinned compile failure absent: {expected_error}")
+
+
 def check_receipts(events, package, tests, expected):
     """A build error, skip, panic, or different assertion is not a reproduction."""
     runs, terminals, output, package_results = {}, {}, {}, []
@@ -88,14 +119,15 @@ def run_make(source, package, selector, artifacts, name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=["stack-14817", "historical-contents-gate"], default="stack-14817")
+    profiles = json.loads((HERE / "profiles.json").read_text())["profiles"]
+    parser.add_argument("--profile", choices=list(profiles), default="stack-14817")
     parser.add_argument("--source", type=Path, help="read-only candidate source; requires --expect-fixed")
     parser.add_argument("--expect-fixed", action="store_true", help="require the stack properties and setup build to pass")
     parser.add_argument("--artifacts", type=Path)
     args = parser.parse_args()
-    if bool(args.source) != args.expect_fixed or (args.expect_fixed and args.profile != "stack-14817"):
-        parser.error("candidate runs require both --source and --expect-fixed for stack-14817")
-    profile = json.loads((HERE / "profiles.json").read_text())["profiles"][args.profile]
+    if bool(args.source) != args.expect_fixed or (args.expect_fixed and not args.profile.startswith("stack-14817")):
+        parser.error("candidate runs require both --source and --expect-fixed for a stack-14817 profile")
+    profile = profiles[args.profile]
     artifacts = args.artifacts or Path(tempfile.mkdtemp(prefix="xds-regressions-"))
     artifacts = artifacts.resolve()
     if args.source and (args.source.resolve() == artifacts or args.source.resolve() in artifacts.parents):
@@ -105,21 +137,38 @@ def main():
         parser.error("artifacts directory must be empty; previous receipts are never overwritten or reused")
     print(f"Artifacts: {artifacts}", flush=True)
     source = materialize(profile, artifacts, args.source)
+    fixtures = profile.get("fixtures", [{"file": profile.get("fixture"),
+                            "target": profile.get("replace_file", "review_stack14817_test.go")}])
+    for fixture in fixtures:
+        if fixture.get("sha256", digest(HERE / fixture["file"])) != digest(HERE / fixture["file"]):
+            raise ValueError(f"pinned fixture changed: {fixture['file']}")
+    before = production_digest(source)
     evidence = {"profile": args.profile, "baseline_revision": profile["revision"],
                 "subject": "candidate copy" if args.source else "immutable historical source",
                 "evidence_level": "Go/cache boundary; no live Envoy or temporal proof",
-                "go_mod_sha256": hashlib.sha256((source / "go.mod").read_bytes()).hexdigest(),
-                "fixture_sha256": hashlib.sha256((HERE / profile["fixture"]).read_bytes()).hexdigest()}
+                "go_mod_sha256": digest(source / "go.mod"),
+                "fixtures": {f["file"]: digest(HERE / f["file"]) for f in fixtures},
+                "build_checks": [], "test_adapters": []}
     (artifacts / "profile.json").write_text(json.dumps(evidence, indent=2) + "\n")
+    builds = profile.get("build_checks", [])
     if "setup_build_error" in profile:
-        code, _, log = run_make(source, "pkg/kgateway/setup", "^$", artifacts, "setup-build")
-        if args.expect_fixed:
-            if code:
-                raise ValueError(f"candidate setup package failed to compile: {log}")
-        elif not code or profile["setup_build_error"] not in log.read_text():
-            raise ValueError(f"expected pinned setup compile failure absent: {log}")
-    target = source / profile["package"] / profile.get("replace_file", "review_stack14817_test.go")
-    shutil.copyfile(HERE / profile["fixture"], target)
+        builds = [{"package": "pkg/kgateway/setup", "error": profile["setup_build_error"]}]
+    for index, build in enumerate(builds):
+        code, _, log = run_make(source, build["package"], "^$", artifacts, f"pristine-build-{index}")
+        check_build_result(code, log.read_text(), None if args.expect_fixed else build["error"])
+        evidence["build_checks"].append({**build, "exit": code, "log": log.name})
+    # A candidate must compile unchanged. Diagnostic adapters are only for the
+    # pinned failing baseline, and their complete contents/hashes are recorded.
+    if not args.expect_fixed:
+        apply_test_adapters(source, profile.get("test_adapters", []))
+        evidence["test_adapters"] = profile.get("test_adapters", [])
+        if evidence["test_adapters"]:
+            for index, build in enumerate(builds):
+                code, _, log = run_make(source, build["package"], "^$", artifacts, f"adapted-build-{index}")
+                check_build_result(code, log.read_text())
+    for fixture in fixtures:
+        target = source / profile["package"] / fixture["target"]
+        shutil.copyfile(HERE / fixture["file"], target)
     selector = "^(" + "|".join(profile["tests"]) + ")$"
     code, receipt, log = run_make(source, profile["package"], selector, artifacts, "properties")
     expected = "pass" if args.expect_fixed else profile["expected"]
@@ -127,6 +176,10 @@ def main():
         raise ValueError(f"unexpected Make exit {code}; inspect {log}")
     events = [json.loads(line) for line in receipt.read_text().splitlines() if line.strip()]
     check_receipts(events, "github.com/kgateway-dev/kgateway/v2/" + profile["package"], profile["tests"], expected)
+    if production_digest(source) != before:
+        raise ValueError("production Go sources changed during the diagnostic run")
+    evidence["production_sources_unchanged"] = True
+    evidence["production_source_sha256"] = hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest()
     evidence["outcome"] = "properties pass" if args.expect_fixed else "historical counterexamples reproduced"
     evidence["tests"] = len(profile["tests"])
     (artifacts / "receipt.json").write_text(json.dumps(evidence, indent=2) + "\n")

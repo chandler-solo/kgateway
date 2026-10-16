@@ -573,15 +573,39 @@ view-test-coverage:
 formal-lean: ## Re-check the Lean xDS spec proofs, model-check it, and conformance-check an implementation trace against it
 	devel/formal/lean/check.sh
 
-.PHONY: formal-regression-harness formal-stack-regressions formal-legacy-contents
+.PHONY: formal-regression-harness formal-stack-regressions formal-stack-current formal-legacy-contents formal-tlc formal-envoy
 formal-regression-harness: ## Check that regression receipts reject missing, skipped, or wrong failures
 	python3 -B -m unittest discover -s devel/formal/regressions -p '*_test.py'
 
 formal-stack-regressions: formal-regression-harness ## Reproduce reviewed stack 14817 defects on its immutable source
 	python3 -B devel/formal/regressions/check.py --profile stack-14817 $(FORMAL_REGRESSION_ARGS)
 
+formal-stack-current: formal-regression-harness ## Reproduce the October 16 stack profile, preserving its pristine build failures
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-2026-10-16 $(FORMAL_REGRESSION_ARGS)
+
+.PHONY: formal-downstream-adoption
+formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
+	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)
+
 formal-legacy-contents: formal-regression-harness ## Preserve the superseded warm contents-gate counterexample
 	python3 -B devel/formal/regressions/check.py --profile historical-contents-gate $(FORMAL_REGRESSION_ARGS)
+
+formal-tlc: ## Check bounded temporal models and preserved counterexamples
+	devel/formal/tla/check-required.sh
+
+formal-envoy: ## Run the direct Envoy characterization profiles
+	devel/formal/check-envoy.sh
+
+.PHONY: formal-envoyprobe-build formal-runtime-harness formal-runtime-profiles
+formal-envoyprobe-build: ## Build the isolated direct Envoy probe
+	@test -n "$(FORMAL_ENVOYPROBE_BIN)"
+	go build -tags e2e -o "$(FORMAL_ENVOYPROBE_BIN)" ./devel/formal/cmd/envoyprobe
+
+formal-runtime-harness: ## Reject incomplete direct runtime receipts
+	python3 -B -m unittest discover -s devel/formal/runtime -p '*_test.py'
+
+formal-runtime-profiles: formal-runtime-harness ## Characterize pinned upstream and enterprise standard/FIPS Envoy images
+	python3 -B devel/formal/runtime/check.py $(FORMAL_RUNTIME_ARGS)
 
 #----------------------------------------------------------------------------------
 # Container Structure Tests
