@@ -257,12 +257,7 @@ func runPropertySeed(t *testing.T, seed int64, steps, numClusters int) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: w.clusterCol,
-			index: krtpkg.UnnamedIndex(w.clusterCol, func(c uccWithCluster) []string {
-				return []string{c.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, w.clusterCol),
 	)
 
 	// Everything the transform emits is resolved per cluster and published

@@ -189,7 +189,7 @@ func TestUniqueClients(t *testing.T) {
 			if tc.inputs != nil {
 				mock := krttest.NewMock(t, tc.inputs)
 				nodes := NewNodeMetadataCollection(krttest.GetMockCollection[*corev1.Node](mock))
-				pods = NewLocalityPodsCollection(nodes, krttest.GetMockCollection[*corev1.Pod](mock), krtutil.KrtOptions{})
+				pods = NewLocalityPodsCollection(nodes, nil, krttest.GetMockCollection[*corev1.Pod](mock), krtutil.KrtOptions{})
 				nodes.WaitUntilSynced(context.Background().Done())
 				pods.WaitUntilSynced(context.Background().Done())
 			}
@@ -281,7 +281,7 @@ func TestUniqueClientsLocalClusterCapabilityGating(t *testing.T) {
 	}
 	mock := krttest.NewMock(t, inputs)
 	nodes := NewNodeMetadataCollection(krttest.GetMockCollection[*corev1.Node](mock))
-	pods := NewLocalityPodsCollection(nodes, krttest.GetMockCollection[*corev1.Pod](mock), krtutil.KrtOptions{})
+	pods := NewLocalityPodsCollection(nodes, nil, krttest.GetMockCollection[*corev1.Pod](mock), krtutil.KrtOptions{})
 	nodes.WaitUntilSynced(context.Background().Done())
 	pods.WaitUntilSynced(context.Background().Done())
 
@@ -391,6 +391,26 @@ func TestUniqueClientsLocalClusterCapabilityGatingSharedBucket(t *testing.T) {
 	g.Consistently(func() bool {
 		return uccCol.List()[0].KnowsLocalCluster
 	}).Should(BeFalse(), "sid 2 still hasn't confirmed; the bucket must not flip back on its own")
+
+	// Removing the only unconfirmed sibling must immediately restore the
+	// capability proved by sid 1. This is why stream close always triggers a
+	// recompute in the shared-bucket mode.
+	cb.OnStreamClosed(2, nil)
+	g.Eventually(func() bool {
+		list := uccCol.List()
+		return len(list) == 1 && list[0].KnowsLocalCluster
+	}).Should(BeTrue(), "disconnecting the only unconfirmed stream must restore the shared capability")
+
+	// Reconnect sid 2 so the all-stream confirmation transition below is still
+	// exercised after the disconnect transition.
+	err = cb.OnStreamRequest(2, &envoy_service_discovery_v3.DiscoveryRequest{
+		Node:    nodeFor("sid2.ns"),
+		TypeUrl: resource.ClusterType,
+	})
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Eventually(func() bool {
+		return uccCol.List()[0].KnowsLocalCluster
+	}).Should(BeFalse(), "the reconnected sibling has not confirmed support yet, so the shared bucket must drop back to unconfirmed")
 
 	// sid 2 now also confirms support via its own EDS request; the bucket should flip back to
 	// confirmed since every stream sharing it now supports the resource.

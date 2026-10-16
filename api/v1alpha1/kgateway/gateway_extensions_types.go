@@ -163,10 +163,8 @@ type ExtHttpService struct {
 	// +required
 	BackendRef gwv1.BackendRef `json:"backendRef"`
 
-	// PathPrefix specifies a prefix to the value of the authorization request's path header.
-	// This allows customizing the path at which the authorization server expects to receive requests.
-	// For example, if the authorization server expects requests at "/verify", set this to "/verify".
-	// If not specified, the original request path is used.
+	// PathPrefix is prepended to the authorization request path.
+	// If omitted, the original request path is used.
 	// +optional
 	PathPrefix string `json:"pathPrefix,omitempty"`
 
@@ -295,6 +293,26 @@ type RateLimitProvider struct {
 	// +kubebuilder:default="Off"
 	// +optional
 	XRateLimitHeaders XRateLimitHeadersStandard `json:"xRateLimitHeaders,omitempty"`
+
+	// PercentEnabled specifies the percentage of requests for which the global rate limit filter
+	// calls the rate limit service. Requests outside this percentage skip the filter entirely.
+	// Defaults to 100 (the filter is always called) if not set.
+	// See [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto#envoy-v3-api-field-extensions-filters-http-ratelimit-v3-ratelimit-filter-enabled) for more info.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PercentEnabled *int32 `json:"percentEnabled,omitempty"`
+
+	// PercentEnforced specifies the percentage of requests, out of those for which the filter is
+	// enabled, that are actually enforced (i.e. can be denied by the rate limit service response).
+	// Setting this below 100 while PercentEnabled is 100 puts the filter in shadow mode: the rate
+	// limit service is called and its decision is recorded in stats, but requests are not denied.
+	// Defaults to 100 (enforcement matches enablement) if not set.
+	// See [envoy docs](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ratelimit/v3/rate_limit.proto#envoy-v3-api-field-extensions-filters-http-ratelimit-v3-ratelimit-filter-enforced) for more info.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	PercentEnforced *int32 `json:"percentEnforced,omitempty"`
 }
 
 // XRateLimitHeadersStandard controls how XRateLimit headers will emitted.

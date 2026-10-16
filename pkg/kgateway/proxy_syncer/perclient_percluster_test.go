@@ -81,12 +81,7 @@ func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -167,12 +162,7 @@ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -259,12 +249,7 @@ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T)
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -348,7 +333,7 @@ func TestSnapshotPerClientFirstPublishWithEmptyEndpoints(t *testing.T) {
 			endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, endpoints)
 			snapshots := snapshotPerClient(krtutil.KrtOptions{}, uccs, inputs,
 				PerClientEnvoyEndpoints{endpoints: endpointCol, index: krtpkg.UnnamedIndex(endpointCol, func(ep UccWithEndpoints) []string { return []string{ep.Client.ResourceName()} })},
-				PerClientEnvoyClusters{clusters: clusterCol, index: krtpkg.UnnamedIndex(clusterCol, func(c uccWithCluster) []string { return []string{c.Client.ResourceName()} })})
+				perClientClustersForSnapshotTest(t, uccs, clusterCol))
 			cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
 			translator := NewProxyTranslator(cache)
 			wrap := eventuallyDeferredWrapper(t, snapshots)
@@ -417,7 +402,7 @@ func TestSnapshotPerClientFirstPublishPreservesExemptions(t *testing.T) {
 	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	refs := collectReferencedClusters(routes, listeners)
 	snap := &envoycache.Snapshot{}
-	snap.Resources[envoycachetypes.Cluster] = envoycache.NewResources("cds", []envoycachetypes.Resource{cluster.Cluster})
+	snap.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("cds", []envoycachetypes.ResourceWithTTL{cluster.Cluster.ResourceWithTTL()})
 	snap.Resources[envoycachetypes.Endpoint] = sliceToResources([]*envoyendpointv3.ClusterLoadAssignment{{ClusterName: "empty"}})
 	snap.Resources[envoycachetypes.Route] = routes
 	snap.Resources[envoycachetypes.Listener] = listeners

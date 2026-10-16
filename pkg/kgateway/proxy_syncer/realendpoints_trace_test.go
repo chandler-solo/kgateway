@@ -21,7 +21,6 @@ import (
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
-	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
 )
 
 // RF-025 / RF-008: the trace version relation was developed against unit
@@ -60,7 +59,7 @@ func TestSnapshotPerClientRealEndpointTranslationVersionRelation(t *testing.T) {
 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
 	uccs := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc}, krtopts.ToOptions("RealEndpointClients")...)
 	sources := krt.NewStaticCollection(nil, []ir.EndpointsForBackend{sourceWith("10.0.0.1")}, krtopts.ToOptions("RealEndpointSources")...)
-	perClientEndpoints := NewPerClientEnvoyEndpoints(krtopts, uccs, sources, translator.TranslateEndpoints)
+	perClientEndpoints := NewPerClientEnvoyEndpoints(krtopts, uccs, sources, translator.ResolveEndpoints, translator.BuildClusterLoadAssignment)
 
 	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 	routes := routeResourcesForClusters(clusterName)
@@ -71,10 +70,7 @@ func TestSnapshotPerClientRealEndpointTranslationVersionRelation(t *testing.T) {
 		ReferencedClusters: collectReferencedClusters(routes, listeners),
 	}}, krtopts.ToOptions("RealEndpointGateways")...)
 	clusterCol := krt.NewStaticCollection(nil, []uccWithCluster{edsClusterForClient(ucc, clusterName, 1)}, krtopts.ToOptions("RealEndpointClusters")...)
-	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, perClientEndpoints, PerClientEnvoyClusters{
-		clusters: clusterCol,
-		index:    krtpkg.UnnamedIndex(clusterCol, func(c uccWithCluster) []string { return []string{c.Client.ResourceName()} }),
-	})
+	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, perClientEndpoints, perClientClustersForSnapshotTest(t, uccs, clusterCol))
 
 	c := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
 	proxyTranslator := NewProxyTranslator(c)

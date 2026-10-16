@@ -116,7 +116,7 @@ func requirements(root string) (map[key]bool, error) {
 	req[key{prefix + "pkg/sds/server", "TestSDSStreamAndDeltaServeAnyNodeIdentity"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestWarmEmptyBackendHoldsUnrelatedRouteAndSecret"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestColdMissingReferencedClusterWithholdsAllTypes"}] = true
-	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestNilBackendTranslationIsDroppedNotErrored"}] = true
+	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestUnsupportedBackendTranslationIsExemptFromPublicationGate"}] = true
 	req[key{prefix + "pkg/kgateway/proxy_syncer", "TestUccWithEndpointsRowChangesWhenOnlyTrafficDistributionChanges"}] = true
 	req[key{prefix + "pkg/krtcollections", "TestEndpointsForUpstreamWithDifferentTrafficDistributionButSameEndpoints"}] = true
 	req[key{prefix + "pkg/kgateway/endpoints", "TestSetTrafficDistributionIsVersionedByThePluginContribution"}] = true

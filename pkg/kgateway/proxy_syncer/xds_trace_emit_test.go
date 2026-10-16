@@ -14,21 +14,22 @@ import (
 // runs the tests, and replays the recorded trace against the verified xDS
 // publication spec with `xdsspec trace`. Without the variable this file is
 // inert and the hook stays nil.
-func TestMain(m *testing.M) {
+func runTestsWithXDSTrace(m *testing.M) int {
 	path := os.Getenv("XDS_TRACE_OUT")
 	if path == "" {
-		os.Exit(m.Run())
+		return m.Run()
 	}
 	out, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "XDS_TRACE_OUT: failed to open %s: %v\n", path, err)
-		os.Exit(1)
+		return 1
 	}
 	var mu sync.Mutex
 	scenario := os.Getenv("XDS_TRACE_SCENARIO")
 	if scenario == "" {
 		fmt.Fprintln(os.Stderr, "XDS_TRACE_SCENARIO is required with XDS_TRACE_OUT")
-		os.Exit(1)
+		_ = out.Close()
+		return 1
 	}
 	var sequence uint64
 	xdsSnapshotTraceSink = func(event XdsSnapshotTraceEvent) {
@@ -64,5 +65,5 @@ func TestMain(m *testing.M) {
 		code = 1
 	}
 	mu.Unlock()
-	os.Exit(code)
+	return code
 }

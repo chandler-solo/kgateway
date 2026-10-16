@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/endpoints"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
 	kgtranslator "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/translator/xdscheck"
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
@@ -270,7 +271,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -286,12 +287,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	// The wrapper is built immediately but marked deferred: cluster-b is
@@ -305,7 +301,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 	clusterCol.UpdateObject(uccWithCluster{
 		Client:         ucc,
 		Name:           "cluster-b",
-		Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
+		Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-b"}),
 		ClusterVersion: 2,
 	})
 
@@ -353,12 +349,12 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 		{
 			Client: ucc,
 			Name:   "cluster-a",
-			Cluster: &envoyclusterv3.Cluster{
+			Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 				Name: "cluster-a",
 				ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 					Type: envoyclusterv3.Cluster_EDS,
 				},
-			},
+			}),
 			ClusterVersion: 1,
 		},
 	})
@@ -374,12 +370,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	// Deferred: the referenced EDS cluster has no usable endpoint yet. Its
@@ -442,23 +433,23 @@ func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *tes
 	clusterA := uccWithCluster{
 		Client: ucc,
 		Name:   "cluster-a",
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: "cluster-a",
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: 1,
 	}
 	clusterB := uccWithCluster{
 		Client: ucc,
 		Name:   "cluster-b",
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: "cluster-b",
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: 2,
 	}
 	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{clusterA, clusterB})
@@ -477,12 +468,7 @@ func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *tes
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	g.Eventually(func() int {
@@ -555,12 +541,7 @@ func TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClust
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -656,12 +637,7 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -759,12 +735,7 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointHasUsableEnd
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -842,12 +813,7 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -927,12 +893,7 @@ func TestSnapshotPerClientPartialUpdateHoldsRouteFlipAndRetainsServedRoutes(t *t
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -1022,12 +983,7 @@ func TestSnapshotPerClientClientRemovalRetainsServedCache(t *testing.T) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -1080,12 +1036,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *tes
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	// Deferred: the referenced EDS cluster resolves its CLA by service_name,
@@ -1138,12 +1089,7 @@ func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterCl
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -1237,12 +1183,7 @@ func TestSnapshotPerClientEndpointOnlyUpdateOnlyChangesEDSVersion(t *testing.T) 
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -1307,12 +1248,7 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
@@ -1403,13 +1339,13 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 		{
 			Client:         ucc,
 			Name:           "cluster-b",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-b"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-b"}),
 			ClusterVersion: 2,
 			Error:          errors.New("boom"),
 		},
@@ -1426,12 +1362,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	g.Eventually(func() int {
@@ -1637,7 +1568,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -1653,12 +1584,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	g.Eventually(func() int {
@@ -1712,7 +1638,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 		{
 			Client:         ucc,
 			Name:           "cluster-a",
-			Cluster:        &envoyclusterv3.Cluster{Name: "cluster-a"},
+			Cluster:        sharedproto.Wrap(&envoyclusterv3.Cluster{Name: "cluster-a"}),
 			ClusterVersion: 1,
 		},
 	})
@@ -1728,12 +1654,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	g.Eventually(func() int {
@@ -1846,12 +1767,7 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 				return []string{ep.Client.ResourceName()}
 			}),
 		},
-		PerClientEnvoyClusters{
-			clusters: clusterCol,
-			index: krtpkg.UnnamedIndex(clusterCol, func(cluster uccWithCluster) []string {
-				return []string{cluster.Client.ResourceName()}
-			}),
-		},
+		perClientClustersForSnapshotTest(t, uccs, clusterCol),
 	)
 
 	g.Eventually(func() int {
@@ -1862,6 +1778,25 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 	snap := snapshots.List()[0].snap
 	g.Expect(snap.Resources[envoycachetypes.Cluster].Items).To(gomega.BeEmpty())
 	g.Expect(snap.Resources[envoycachetypes.Listener].Items).To(gomega.HaveKey("listener"))
+}
+
+// perClientClustersForSnapshotTest lets snapshot tests schedule individual
+// client/cluster rows while using the production CDS assembler. This preserves
+// coverage of partial inputs and client isolation with the assembled-row API.
+func perClientClustersForSnapshotTest(
+	t *testing.T,
+	uccs krt.Collection[ir.UniquelyConnectedClient],
+	clusters krt.Collection[uccWithCluster],
+) PerClientEnvoyClusters {
+	t.Helper()
+	index := krtpkg.UnnamedIndex(clusters, func(cluster uccWithCluster) []string {
+		return []string{cluster.Client.ResourceName()}
+	})
+	opts := krtutil.NewKrtOptions(t.Context().Done(), nil)
+	perClient := krt.NewCollection(uccs, func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient) *clustersWithErrors {
+		return assemblePerClientClusters(ucc, krt.Fetch(kctx, clusters, krt.FilterIndex(index, ucc.ResourceName())))
+	}, opts.ToOptions("SnapshotTestClusters")...)
+	return PerClientEnvoyClusters{perClient: perClient}
 }
 
 func mapKeys[M ~map[K]V, K comparable, V any](m M) []K {
@@ -1963,27 +1898,30 @@ func edsClusterForClient(ucc ir.UniquelyConnectedClient, name string, version ui
 	return uccWithCluster{
 		Client: ucc,
 		Name:   name,
-		Cluster: &envoyclusterv3.Cluster{
+		Cluster: sharedproto.Wrap(&envoyclusterv3.Cluster{
 			Name: name,
 			ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{
 				Type: envoyclusterv3.Cluster_EDS,
 			},
-		},
+		}),
 		ClusterVersion: version,
 	}
 }
 
 func edsClusterForClientWithServiceName(ucc ir.UniquelyConnectedClient, name, serviceName string, version uint64) uccWithCluster {
 	cluster := edsClusterForClient(ucc, name, version)
-	cluster.Cluster.EdsClusterConfig = &envoyclusterv3.Cluster_EdsClusterConfig{
+	proto := cluster.Cluster.Clone()
+	proto.EdsClusterConfig = &envoyclusterv3.Cluster_EdsClusterConfig{
 		ServiceName: serviceName,
 	}
+	cluster.Cluster = sharedproto.Wrap(proto)
 	return cluster
 }
 
 func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
 	endpoints := emptyEndpointsForClient(ucc, name, hash)
-	endpoints.Endpoints.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{
+	proto := endpoints.Endpoints.Clone()
+	proto.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{
 		{
 			LbEndpoints: []*envoyendpointv3.LbEndpoint{
 				{
@@ -2005,15 +1943,16 @@ func endpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64
 			},
 		},
 	}
+	endpoints.Endpoints = sharedproto.Wrap(proto)
 	return endpoints
 }
 
 func emptyEndpointsForClient(ucc ir.UniquelyConnectedClient, name string, hash uint64) UccWithEndpoints {
 	return UccWithEndpoints{
 		Client: ucc,
-		Endpoints: &envoyendpointv3.ClusterLoadAssignment{
+		Endpoints: sharedproto.Wrap(&envoyendpointv3.ClusterLoadAssignment{
 			ClusterName: name,
-		},
+		}),
 		EndpointsHash: hash,
 		endpointsName: name,
 	}
@@ -2229,7 +2168,13 @@ func TestPerClientEnvoyEndpointsUsesResolvedReplacementHash(t *testing.T) {
 	ucc := ir.NewUniquelyConnectedClient("client", "ns", nil, ir.PodLocality{})
 	uccs := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc}, krtopts.ToOptions("ReplacementHashClients")...)
 	sources := krt.NewStaticCollection(nil, []ir.EndpointsForBackend{*source}, krtopts.ToOptions("ReplacementHashEndpoints")...)
-	perClient := NewPerClientEnvoyEndpoints(krtopts, uccs, sources, translator.TranslateEndpoints)
+	perClient := NewPerClientEnvoyEndpoints(
+		krtopts,
+		uccs,
+		sources,
+		translator.ResolveEndpoints,
+		translator.BuildClusterLoadAssignment,
+	)
 
 	var initialHash uint64
 	g.Eventually(func() string {
@@ -2238,7 +2183,7 @@ func TestPerClientEnvoyEndpointsUsesResolvedReplacementHash(t *testing.T) {
 			return ""
 		}
 		initialHash = rows[0].EndpointsHash
-		return endpointPipePath(rows[0].Endpoints)
+		return endpointPipePath(rows[0].Endpoints.Clone())
 	}, time.Second, 20*time.Millisecond).Should(gomega.Equal("replacement-a"))
 	g.Expect(initialHash).ToNot(gomega.Equal(sourceHash),
 		"the row key must use the replacement set's resolved hash, not the source hash")
@@ -2256,7 +2201,7 @@ func TestPerClientEnvoyEndpointsUsesResolvedReplacementHash(t *testing.T) {
 			return ""
 		}
 		updatedHash = rows[0].EndpointsHash
-		return endpointPipePath(rows[0].Endpoints)
+		return endpointPipePath(rows[0].Endpoints.Clone())
 	}, time.Second, 20*time.Millisecond).Should(gomega.Equal("replacement-b"),
 		"a replacement-only update must not be suppressed by stale KRT equality")
 	g.Expect(updatedHash).ToNot(gomega.Equal(initialHash))
