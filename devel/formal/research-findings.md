@@ -1213,6 +1213,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-031 Stack 14817 composition review, October 16, 2026
 
+Latest assessment: [7d930bb2183b review](reviews/2026-10-16-stack-14817-7d930.md).
+The dated entries below preserve historical outcomes for their exact pins.
+
 - Subject: proposed stack tip `e7b569a1fb786a58a81cb5c0364d57769786b67d`, not this
   research tree or an observed deployment. Full provenance and required failure
   signatures are in `regressions/profiles.json`.
@@ -1336,3 +1339,90 @@ This is neither a deployed HA observation nor downstream controller adoption.
 Existing read-only source/dependency identities and older counterexamples remain
 separate. The next obligations are a corrected admission candidate and actual
 shared-key/authenticated downstream integration, not a claim of xDS correctness.
+
+### RF-031 subsequent stack revision: 1e417af796a2
+
+The latest reviewed proposed tip is
+`1e417af796a241a6aa286a240fe7855d1fab56da`, still thirteen PRs on base
+`982e29797b5028ca22d5c4ce41d06f427a8cdcd3`. Research HEAD is now
+`c80355675bea099274a8b14a6584023d4179b044`; downstream remains `1bc4cde8b4ed`
+with the old dependency. See the [full revised review](reviews/2026-10-16-stack-14817-1e417.md).
+
+**Executed Go evidence:** pristine test-package compilation is repaired and nine
+of the previous eleven desired properties pass. The claim leak remains. The
+old raw-cache reconnect probe bypasses the new hooks and is not counted as a
+current hook failure. The serial hook test passes. A new controlled interleaving
+using real unique-client callbacks shows an old in-flight publisher refilling
+the cache after admission clears it; a new RDS watch receives that old version
+while the current candidate is pending. This is a protocol race, reproduced
+under the race detector, not a reported Go data race or new live Envoy result.
+
+Two additional Go counterexamples expose prune releasing a reference-ahead-only
+hold and carry lacking an expiry wakeup with quiescent inputs. Natural timer
+execution covers the prune; the carry experiment observes a finite overrun,
+while source inspection identifies the absent scheduled transition. Neither is
+promoted to a temporal proof. Together with global claim leakage, these are the
+four failures required by `make formal-stack-1e417`; ten other properties must
+pass. Old source profiles, test fixtures and runtime counterexamples remain.
+
+**Downstream implementation evidence:** the dependency-only constructor failure
+persists, as do the original three missing state methods; the new hook adds a
+fourth missing contract. The selected five existing suites still pass 64
+top-level / 137 total tests. Upstream existing suites pass 569 top-level / 1,813
+total cases, and the three core packages pass 373 top-level / 1,062 total cases
+with the race detector. These successes do not cover the demonstrated logical
+interleavings or complete downstream adoption.
+
+**Formal/runtime boundary:** no theorem, model or live Envoy scenario was rerun
+as evidence for this tip. The earlier composed rollback remains an observation
+of `215ebe8e6450`. Next priorities are admission/publication generation refinement,
+complete timer-reason composition and autonomous carry expiry, then the actual
+authenticated downstream controller and independent application observations.
+
+
+### RF-031 subsequent stack revision: 7d930bb2183b
+
+The read-only thirteen-PR chain now ends at
+`7d930bb2183b90343f9613f03dcd345973fc9f38`. All fourteen properties selected by the
+1e417 profile pass, including the four formerly remaining findings. Preserve
+that historical profile unchanged; its failures are no longer claims about the
+new pin. See the [review](reviews/2026-10-16-stack-14817-7d930.md) and
+[execution receipt](receipts/2026-10-16-stack-7d930.json).
+
+Two longer histories still fail on unchanged product Go sources:
+
+- **P1, Go/cache and bounded formal:** an old KRT event callback pauses before
+  syncXds, GetKey advances, warm reconnect admission clears the cache and replays
+  the newer deferred row, then the old event uses the gate's new connGen and
+  answers a fresh RDS watch. Fence protection for a publisher already inside
+  the gate does not establish queued-candidate provenance.
+- **P2, Go/cache and bounded formal:** a coherent recovery cancels the carry
+  timer without clearing carriedSince. After the old deadline, a second
+  disappearance drops the recovered cluster immediately. A fresh episode must
+  not inherit time spent healthy since a previous episode.
+
+Both designated assertions fail in three race-enabled repetitions without a
+race-detector report. `QueuedPublicationLateStampBug` and
+`CarryEpisodesRecoveryBug` reproduce the corresponding invariant violations.
+Their proposed repair variants pass bounded safety and conditional temporal
+checks (18 and 82 states); these are not Go refinement proofs or observed Envoy
+application. `make formal-stack-7d930` requires fourteen passes and two specific
+failures, while candidate acceptance requires all sixteen properties to pass.
+CI now runs this profile and preserves the 1e417 mixed-outcome profile.
+
+Fresh validation completed the required research Lean/Go gate (50 executable
+expectations, 598 Go cases, 44 required unit receipts, 27 snapshot and four
+lifecycle traces), all 57 required TLC configurations, sixteen direct Envoy
+scenarios, historical regression profiles and the historical composed replay
+on three binaries. Original wide ADS bounds remain deferred. The new stack's
+existing race suite passed 1,105 cases. The first enterprise-standard warming
+probe timed out with no ADS request recorded and status 16 in Envoy's log; all
+eight standard/FIPS scenarios passed on a fresh rerun. Retain both results and
+do not attribute the unexplained first failure to this stack.
+
+Downstream remains at `1bc4cde8b4ed`, with actual kgateway dependency
+`acd13c6f53d1`. A fresh scratch adoption of 7d930 still fails the seven-versus-nine
+argument constructor check and all four client-state contracts, including
+SetConnectionStartHooks. All 137 selected existing downstream cases pass.
+SetupOpts still lacks XDSClientState wiring. No product implementation,
+dependency, Git/GitHub state or deployment was changed by this review.

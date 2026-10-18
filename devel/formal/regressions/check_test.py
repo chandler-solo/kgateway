@@ -27,6 +27,24 @@ class ReceiptTests(unittest.TestCase):
     def test_fixed_candidate(self):
         self.check(self.events("pass", ""), "pass")
 
+    def test_mixed_profile_requires_each_named_outcome(self):
+        tests = {"TestProperty": "expected property", "TestRepaired": ""}
+        outcomes = {"TestProperty": "fail", "TestRepaired": "pass"}
+        events = self.events()[:-1] + [
+            {"Package": "pkg", "Test": "TestRepaired", "Action": "run"},
+            {"Package": "pkg", "Test": "TestRepaired", "Action": "pass"},
+            {"Package": "pkg", "Action": "fail"},
+        ]
+        check_receipts(events, "pkg", tests, outcomes)
+        for wrong in [dict(outcomes, TestRepaired="fail"), {"TestProperty": "fail"},
+                      dict(outcomes, TestRepaired="skip")]:
+            with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                check_receipts(events, "pkg", tests, wrong)
+        with self.assertRaises(ValueError):
+            check_receipts(events, "pkg", tests, "pass")
+        with self.assertRaises(ValueError):
+            check_receipts(events, "pkg", {"TestProperty": "", "TestRepaired": ""}, outcomes)
+
     def test_rejects_vacuous_or_wrong_failures(self):
         for events in [[], self.events()[1:], self.events()[:-1],
                        self.events("skip"), self.events(output="different failure"),

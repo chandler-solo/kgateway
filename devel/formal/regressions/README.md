@@ -53,11 +53,73 @@ clock/entry-point adapter while preserving the tested properties.
 Use `formal-stack-current` for the new fixture API. Candidate mode requires
 pristine compilation and never applies the baseline's diagnostic test adapters.
 
+## Later October 16 revision: 1e417af796a2
+
+The [revised review](../reviews/2026-10-16-stack-14817-1e417.md) has a separate
+immutable profile. `formal-stack-current` retains its historical meaning and
+does not silently follow the moving PR head.
+
+```sh
+make formal-stack-1e417
+make formal-stack-1e417 \
+  FORMAL_REGRESSION_ARGS='--expect-fixed --source /absolute/path/to/candidate'
+make formal-downstream-adoption \
+  FORMAL_ADOPTION_ARGS='--downstream /absolute/path/to/reviewed/kgw-ent --stack-profile stack-14817-1e417af796a2'
+```
+
+The immutable run requires pristine proxy-syncer/setup compilation, ten specific
+passes and four designated property failures. Candidate mode requires all
+fourteen properties to pass. The receipt checker validates each outcome, not
+just the package exit code. No production Go files or existing upstream tests
+are patched. New fixture copies adapt the removed wrapper reference field and
+the prune callback's state/epoch parameters; the older fixtures remain intact.
+
+Nine previous desired properties now pass. The global claim leak still fails.
+The older raw-cache reconnect fixture bypasses the new admission hooks, so it
+is not selected for the new profile: a passing serial hook scenario and a
+failing concurrent clear/publication scenario replace that coverage. Two other
+new failures exercise an actual prune timer during a reference-ahead hold and
+carry expiry without a subsequent candidate. The admission probe releases its
+suspended publisher even if a corrected candidate serializes admission behind
+it; success does not require observing an erroneous early clear.
+
+The new downstream profile preserves the constructor failure and adds the
+`SetConnectionStartHooks` contract to the three existing missing methods. It
+retains the same five-package suite, source digest checks and scratch-only
+replacement. No interface assertion establishes correct callback wiring.
+
+## Subsequent October 16 revision: 7d930bb2183b
+
+The [current review](../reviews/2026-10-16-stack-14817-7d930.md) preserves another
+immutable profile:
+
+```sh
+make formal-stack-7d930
+make formal-stack-7d930 \
+  FORMAL_REGRESSION_ARGS='--expect-fixed --source /absolute/path/to/candidate'
+make formal-downstream-adoption \
+  FORMAL_ADOPTION_ARGS='--downstream /absolute/path/to/reviewed/kgw-ent --stack-profile stack-14817-7d930bb2183b'
+```
+
+All fourteen previous properties must pass on this pin. Two new histories must
+fail at their specific assertions: coherent recovery followed by another carry
+episode, and a queued KRT callback resuming after connection admission has
+replayed a newer deferred row. The latter uses real KRT dispatch, current-row
+lookup, warm-stream admission callbacks and SnapshotCache. Candidate acceptance
+requires all sixteen properties to pass. Production sources remain unchanged.
+
+`CarryEpisodes` and `QueuedPublication` separately explore these mechanisms in
+bounded temporal models. Their proposed repair modes are not Go refinements.
+The [receipt](../receipts/2026-10-16-stack-7d930.json) retains the exact failures,
+three race-enabled repetitions, 57-config TLC run and full research gate output.
+The new stack's 1,105 existing race cases pass despite these two counterexamples.
+
 ## Evidence boundaries
 
-The tests inspect Go transformations and SnapshotCache, with timer callbacks
-driven deterministically. They do not establish wire order, ACK, application,
-traffic outcomes, race freedom, or a temporal guarantee. The weighted-header and
+The tests inspect Go transformations and SnapshotCache, with both real elapsed
+timers and directly invoked callbacks in explicitly identified cases. They do
+not establish wire order, ACK, application, traffic outcomes, universal race
+freedom, or a temporal guarantee. The weighted-header and
 opaque-extension cases exercise extension surfaces, not a demonstrated built-in
 downstream outage. Scoping cases require REFERENCED mode. Held ancillary closure
 and shared-CLA carry are broader composition issues.

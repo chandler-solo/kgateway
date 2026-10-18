@@ -1,0 +1,36 @@
+package proxy_syncer
+
+import (
+	"errors"
+	"testing"
+
+	types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// An absent-to-errored transition does not change CDS bytes. It still changes
+// whether an older carried cluster may remain while unrelated routes are held.
+func TestReviewErrorOnlyChangeInvalidatesRetainedCluster(t *testing.T) {
+	ucc := newTestUcc(publishGateTestClient)
+	b := edsClusterForClient(ucc, "b", 123)
+	beforeRows := assemblePerClientClusters(ucc, []uccWithCluster{b})
+	afterRows := assemblePerClientClusters(ucc, []uccWithCluster{b, {
+		Name: "a", Error: errors.New("invalid backend TLS policy"),
+	}})
+	require.False(t, beforeRows.Equals(*afterRows), "upstream cluster projection notices the error")
+	require.Equal(t, beforeRows.clusters.Version, afterRows.clusters.Version)
+	before := reviewWrap(t, "candidate", []string{"b"}, []string{"b"})
+	before.snap.Resources[types.Cluster] = beforeRows.clusters
+	before.missingEndpointsReferenced = []string{"b"}
+	before.synthesizedEndpoints = []string{"b"}
+	after := before
+	after.erroredClusters = afterRows.erroredClusters
+	published := reviewWrap(t, "published", []string{"a"}, []string{"a"})
+	retained, _, _ := resolveDeferredPerCluster(before, published.snap, true, nil, nil)
+	withdrawn, _, _ := resolveDeferredPerCluster(after, published.snap, true, nil, nil)
+	require.Contains(t, retained.GetResources(rsrc.ClusterType), "a")
+	require.NotContains(t, withdrawn.GetResources(rsrc.ClusterType), "a", "the changed metadata is security-relevant to publication")
+	assert.False(t, before.Equals(after), "KRT must not suppress error-only withdrawal of a retained cluster")
+}

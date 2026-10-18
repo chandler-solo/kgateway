@@ -38,6 +38,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         WarmTypeStarvationIsolated) model=WarmTypeStarvation; expected=pass ;;
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
         PublicationTransitions*) model=PublicationTransitions; expected=pass ;;
+        CarryEpisodes*) model=CarryEpisodes; expected=pass ;;
+        QueuedPublication*) model=QueuedPublication; expected=pass ;;
         WatchDeliveryCompositionImmediateLost|WatchDeliveryCompositionNoRetry) model=WatchDeliveryComposition; expected=temporal ;;
         WatchDeliveryComposition*) model=WatchDeliveryComposition; expected=pass ;;
         ConnectionGenerations*) model=ConnectionGenerations; expected=pass ;;
@@ -58,6 +60,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
     invariant=
     case "$name" in
         PublicationTransitionsStaleTimerBug) invariant=NoPublicationRollback ;;
+        CarryEpisodesRecoveryBug) invariant=FreshEpisodeGetsFullCarryInterval ;;
+        QueuedPublicationLateStampBug) invariant=NoObsoleteCandidateResponse ;;
         PublicationTransitionsCacheMeansDeliveredBug) invariant=ReferenceAheadIntervalRespected ;;
         PublicationTransitionsPruneReleasesHoldBug) invariant=IndependentHoldNotReleasedByPrune ;;
         WatchDeliveryCompositionInstallMeansSendBug) invariant=InstallationMeansSend ;;

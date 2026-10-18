@@ -2,10 +2,34 @@
 
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 53 configurations, including
+`make formal-tlc` is the required runner. It checks 57 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.
+
+The latest stack review adds two history models tied to executable Go/cache
+counterexamples at `7d930bb2183b`:
+
+- `CarryEpisodes`: one cluster, two disappearances and coherent recovery,
+  logical time 0..6 and carry bound 2. Current retains the first episode's age
+  across recovery and violates `FreshEpisodeGetsFullCarryInterval`. The proposed
+  reset mode explores 82 states and satisfies that invariant plus quiet expiry
+  under weak fairness of time advancement and expiry.
+- `QueuedPublication`: one key, two generations, a queued old KRT candidate,
+  newer deferred current row and later coherent recovery. Current samples the
+  gate's adopted generation when the old event executes and violates
+  `NoObsoleteCandidateResponse`. CapturedOrigin explores 18 states and checks
+  conditional eventual send with explicit fairness of processing, derivation,
+  watch registration, publication and sending. Candidate enqueue provenance is
+  essential; sampling at gate entry is too late.
+
+These are bounded abstractions, not trace-replay or Go refinement proofs. The
+queued model separates cache installation, response queueing and send but has no
+ACK/application state. It omits shared keys, old deletes, same-generation
+revision ordering and the split cleanup/adopt locking inside connectionStarted.
+Source mappings, concrete schedules and full validation are in the
+[7d930 review](../reviews/2026-10-16-stack-14817-7d930.md). All earlier models and
+negative configurations remain unchanged.
 
 `WatchDeliveryComposition` has one key/type, a silent named EDS request, an
 initial ineligible snapshot and two possible correcting revisions. It separates

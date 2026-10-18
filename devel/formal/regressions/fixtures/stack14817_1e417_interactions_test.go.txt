@@ -1,0 +1,141 @@
+package proxy_syncer
+
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	stream "github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+)
+
+func TestReviewPrunePreservesReferenceAheadHold(t *testing.T) {
+	p := reviewTranslator(t, 20*time.Millisecond, time.Hour)
+	p.syncXds(t.Context(), reviewWrap(t, "old", []string{"a"}, []string{"a"}))
+	p.syncXds(t.Context(), reviewWrap(t, "new", []string{"b"}, []string{"b"}))
+	require.Equal(t, "old", servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	require.Eventually(t, func() bool {
+		p.gate.mu.Lock()
+		defer p.gate.mu.Unlock()
+		return p.gate.dereferenced[publishGateTestClient] == nil
+	}, time.Second, time.Millisecond, "real dereference callback must execute")
+	p.gate.mu.Lock()
+	holding := p.gate.pendingFlips[publishGateTestClient] != nil
+	p.gate.mu.Unlock()
+	require.True(t, holding, "reference-ahead episode remains active")
+	assert.Equal(t, "old", servedSnapshot(t, p).GetVersion(rsrc.RouteType), "dereference expiry must preserve an active reference-ahead hold")
+}
+
+func TestReviewCarryExpiresWithoutAnotherCandidate(t *testing.T) {
+	p := reviewTranslator(t, 0, 0)
+	p.gate.warmWithholdBound = 20 * time.Millisecond
+	p.syncXds(t.Context(), reviewWrap(t, "old", []string{"a"}, []string{"a"}))
+	w := reviewWrap(t, "new", nil, []string{"a"})
+	w.missingReferenced = []string{"a"}
+	p.syncXds(t.Context(), w)
+	require.Contains(t, servedSnapshot(t, p).GetResources(rsrc.ClusterType), "a")
+	assert.Eventually(t, func() bool {
+		_, ok := servedSnapshot(t, p).GetResources(rsrc.ClusterType)["a"]
+		return !ok
+	}, 300*time.Millisecond, 5*time.Millisecond, "the carry bound needs a wakeup even when no new candidate arrives")
+}
+
+type reviewAdmissionCache struct {
+	cache.SnapshotCache
+	block                    atomic.Bool
+	observeClear             atomic.Bool
+	entered, resume, cleared chan struct{}
+	once                     sync.Once
+}
+
+func (c *reviewAdmissionCache) SetSnapshot(ctx context.Context, key string, snap cache.ResourceSnapshot) error {
+	if c.block.Swap(false) {
+		close(c.entered)
+		<-c.resume
+	}
+	return c.SnapshotCache.SetSnapshot(ctx, key, snap)
+}
+
+func (c *reviewAdmissionCache) ClearSnapshot(key string) {
+	c.SnapshotCache.ClearSnapshot(key)
+	if c.observeClear.Load() {
+		c.once.Do(func() { close(c.cleared) })
+	}
+}
+
+func TestReviewReconnectClearSerializesWithPublication(t *testing.T) {
+	key := wellknown.GatewayApiProxyValue + "~ns~gw"
+	t.Setenv("KGW_XDS_FIRST_CONNECT_DELAY", "0s")
+	ctx := t.Context()
+	cb, builder, state := krtcollections.NewUniquelyConnectedClients(nil, false)
+	clients := builder(ctx, krtutil.KrtOptions{}, nil)
+	clients.WaitUntilSynced(ctx.Done())
+	c := &reviewAdmissionCache{SnapshotCache: newTestSnapshotCache(t), entered: make(chan struct{}), resume: make(chan struct{}), cleared: make(chan struct{})}
+	p := NewProxyTranslator(c, state, time.Hour, true, clusterScoping{})
+	var current *XdsSnapWrapper
+	require.True(t, p.registerConnectionStartHooks(ctx, state, func(string) *XdsSnapWrapper { return current }))
+	connect := func(sid int64) error {
+		return cb.OnStreamRequest(sid, &discovery.DiscoveryRequest{
+			Node:    &core.Node{Id: "podname.ns", Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{xds.RoleKey: structpb.NewStringValue(key)}}},
+			TypeUrl: rsrc.ListenerType, VersionInfo: "accepted-on-B",
+		})
+	}
+	require.NoError(t, connect(1))
+	c.block.Store(true)
+	published := make(chan struct{})
+	old := reviewWrap(t, "old-on-A", []string{"a"}, []string{"a"})
+	old.proxyKey = key
+	go func() { p.syncXds(ctx, old); close(published) }()
+	<-c.entered // old publisher holds gate.mu, before actual cache installation
+	cb.OnStreamClosed(1, nil)
+	w := reviewWrap(t, "current", []string{"b"}, []string{"b"})
+	w.proxyKey = key
+	w.missingEndpointsReferenced = []string{"b"}
+	w.synthesizedEndpoints = []string{"b"}
+	current = &w
+	c.observeClear.Store(true)
+	connected := make(chan error, 1)
+	go func() { connected <- connect(2) }()
+	// A candidate may serialize admission behind publication. Release that
+	// publisher even if no early clear occurs, so the positive check does not
+	// depend on the buggy schedule being admitted.
+	select {
+	case <-c.cleared: // old implementation clears before taking gate.mu
+		t.Log("admission clear observed while old publication was suspended")
+	case <-time.After(time.Second):
+		t.Log("admission did not clear during suspended publication")
+	}
+	close(c.resume)
+	<-published
+	require.NoError(t, <-connected)
+	defer cb.OnStreamClosed(2, nil)
+	defer p.gate.clientDeparted(key)
+	require.NotNil(t, p.gate.pending[key])
+	req := &discovery.DiscoveryRequest{Node: &core.Node{Id: key}, TypeUrl: rsrc.RouteType, ResourceNames: []string{"route-config"}, VersionInfo: "accepted-on-B"}
+	ch := make(chan cache.Response, 1)
+	cancel, err := c.CreateWatch(req, stream.NewSotwSubscription(req.ResourceNames, false), ch)
+	require.NoError(t, err)
+	if cancel != nil {
+		defer cancel()
+	}
+	select {
+	case resp := <-ch:
+		wire, err := resp.GetDiscoveryResponse()
+		require.NoError(t, err)
+		assert.NotEqual(t, "old-on-A", wire.VersionInfo, "publication must not refill the previous connection cache after admission clears it")
+	default:
+	}
+}

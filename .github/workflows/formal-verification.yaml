@@ -60,6 +60,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: make formal-stack-current FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack-20261016"
+      - name: Preserve 1e417 mixed regression outcomes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-stack-1e417 FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack-1e417"
+      - name: Check 7d930 repairs and longer carry and reconnect histories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-stack-7d930 FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack-7d930"
       - name: Preserve regression receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

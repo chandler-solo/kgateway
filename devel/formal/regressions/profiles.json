@@ -88,6 +88,162 @@
           "after": "newWatchPolicy(envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil), envoycache.IDHash{}, true, false)"
         }
       ]
+    },
+    "stack-14817-1e417af796a2": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "1e417af796a241a6aa286a240fe7855d1fab56da",
+      "base": "982e29797b5028ca22d5c4ce41d06f427a8cdcd3",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-16",
+      "expected": "fail",
+      "tests": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "an endpoint/route recomputation must not bypass the configured ahead interval",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "an old release timer must not overwrite a newer coherent publication",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "cluster removal expiry must not release the independent flip budget early",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "carrying a must not overwrite the current assignment also consumed by b",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "unused plugin claims must not re-admit destinations for every gateway",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "rejecting an invalid claim must preserve the emit-all fallback",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "an opaque cluster-bearing extension cannot prove the emission set complete",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "a weighted cluster header is an unbounded runtime selector too",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "a retained listener still depends on this cluster",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "KRT must not suppress error-only withdrawal of a retained cluster",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "",
+        "TestReviewPrunePreservesReferenceAheadHold": "dereference expiry must preserve an active reference-ahead hold",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "the carry bound needs a wakeup even when no new candidate arrives",
+        "TestReviewReconnectClearSerializesWithPublication": "publication must not refill the previous connection cache after admission clears it"
+      },
+      "expected_by_test": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "pass",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "pass",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "pass",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "pass",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "fail",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "pass",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "pass",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "pass",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "pass",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "pass",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "pass",
+        "TestReviewPrunePreservesReferenceAheadHold": "fail",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "fail",
+        "TestReviewReconnectClearSerializesWithPublication": "fail"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_1e417_test.go.txt",
+          "target": "review_stack14817_test.go",
+          "sha256": "cbec837208cfc7070ae4979c55224bbbc8d65adc93fddeb1102cd7294f5934d6"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_equality_test.go.txt",
+          "target": "review_updated_stack_test.go",
+          "sha256": "caff8a1d9acf57af226a17ae7ccce9253de1c5cbc5d6f04b312c7711d12b6065"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_interactions_test.go.txt",
+          "target": "review_new_interactions_test.go",
+          "sha256": "834914ddd12c273e746e3499de0a16b006afb26f54cb0e5815cc334fdc28f99e"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        },
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "pristine compilation; Go transforms, real timers, admission callbacks and real SnapshotCache; no new live Envoy observation",
+      "retired_fixture_note": "The older raw-cache reconnect probe bypasses the new admission hooks. Preserve it in the 215ebe8 baseline; use serial hook positive and concurrent publication/admission checks here.",
+      "downstream_state_fixture": "fixtures/downstream_1e417_state_contract_test.go.txt",
+      "downstream_state_methods": [
+        "HasPriorXDSVersion",
+        "HasColdStreamSince",
+        "RunIfDisconnected",
+        "SetConnectionStartHooks"
+      ]
+    },
+    "stack-14817-7d930bb2183b": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "7d930bb2183b90343f9613f03dcd345973fc9f38",
+      "base": "982e29797b5028ca22d5c4ce41d06f427a8cdcd3",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-16",
+      "expected": "fail",
+      "tests": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "an endpoint/route recomputation must not bypass the configured ahead interval",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "an old release timer must not overwrite a newer coherent publication",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "cluster removal expiry must not release the independent flip budget early",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "carrying a must not overwrite the current assignment also consumed by b",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "unused plugin claims must not re-admit destinations for every gateway",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "rejecting an invalid claim must preserve the emit-all fallback",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "an opaque cluster-bearing extension cannot prove the emission set complete",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "a weighted cluster header is an unbounded runtime selector too",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "a retained listener still depends on this cluster",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "KRT must not suppress error-only withdrawal of a retained cluster",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "",
+        "TestReviewPrunePreservesReferenceAheadHold": "dereference expiry must preserve an active reference-ahead hold",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "the carry bound needs a wakeup even when no new candidate arrives",
+        "TestReviewReconnectClearSerializesWithPublication": "publication must not refill the previous connection cache after admission clears it",
+        "TestReviewRecoveryStartsFreshCarryEpisode": "a recovered cluster must receive a fresh carry interval on its next disappearance",
+        "TestReviewQueuedCandidateCannotCrossReconnect": "a queued KRT candidate from before reconnect must not answer the new connection"
+      },
+      "expected_by_test": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "pass",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "pass",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "pass",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "pass",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "pass",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "pass",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "pass",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "pass",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "pass",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "pass",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "pass",
+        "TestReviewPrunePreservesReferenceAheadHold": "pass",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "pass",
+        "TestReviewReconnectClearSerializesWithPublication": "pass",
+        "TestReviewRecoveryStartsFreshCarryEpisode": "fail",
+        "TestReviewQueuedCandidateCannotCrossReconnect": "fail"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_1e417_test.go.txt",
+          "target": "review_stack14817_test.go",
+          "sha256": "cbec837208cfc7070ae4979c55224bbbc8d65adc93fddeb1102cd7294f5934d6"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_equality_test.go.txt",
+          "target": "review_updated_stack_test.go",
+          "sha256": "caff8a1d9acf57af226a17ae7ccce9253de1c5cbc5d6f04b312c7711d12b6065"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_interactions_test.go.txt",
+          "target": "review_new_interactions_test.go",
+          "sha256": "834914ddd12c273e746e3499de0a16b006afb26f54cb0e5815cc334fdc28f99e"
+        },
+        {
+          "file": "fixtures/stack14817_7d930_histories_test.go.txt",
+          "target": "review_new_histories_test.go",
+          "sha256": "b8b56106615106860c024c6abd87da2ad8e8cc4a5c5bfe7340ec8942553ca2c0"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        },
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "pristine compilation; real KRT queued event delivery, callbacks, timers and SnapshotCache; bounded temporal models separately recorded; no full controller refinement",
+      "downstream_state_fixture": "fixtures/downstream_1e417_state_contract_test.go.txt",
+      "downstream_state_methods": [
+        "HasPriorXDSVersion",
+        "HasColdStreamSince",
+        "RunIfDisconnected",
+        "SetConnectionStartHooks"
+      ]
     }
   },
   "downstream": {

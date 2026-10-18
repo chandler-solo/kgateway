@@ -52,6 +52,9 @@ def run_make(source, out, name, args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    profiles = json.loads((HERE / "profiles.json").read_text())["profiles"]
+    parser.add_argument("--stack-profile", choices=[name for name in profiles if name.startswith("stack-14817")],
+                        default="stack-14817-2026-10-16")
     parser.add_argument("--downstream", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path)
     args = parser.parse_args()
@@ -72,7 +75,7 @@ def main():
     shutil.copytree(original, source, symlinks=False, ignore=shutil.ignore_patterns(
         ".git", "vendor", "_output", "_test", "bin", "node_modules", ".lake"))
     before = production_digest(source)
-    profile = json.loads((HERE / "profiles.json").read_text())["profiles"]["stack-14817-2026-10-16"]
+    profile = profiles[args.stack_profile]
     upstream = materialize(profile, out)
     module = source / "go.mod"
     original_module_hash = digest(module)
@@ -104,14 +107,15 @@ def main():
     check_suite(events, required)
     evidence["required_top_level_tests"] = len(required)
     evidence["passed_test_events"] = sum(e.get("Action") == "pass" and bool(e.get("Test")) for e in events)
-    fixture = HERE / "fixtures/downstream_state_contract_test.go.txt"
+    fixture = HERE / profile.get("downstream_state_fixture", "fixtures/downstream_state_contract_test.go.txt")
     shutil.copyfile(fixture, source / "internal/xdsclients/formal_state_contract_test.go")
     code, output = run_make(source, out, "client-state-contract",
                             ["-o", "_output/stamps/generate-charts", "unit", "TEST_TAG=e2e",
                              "TEST_PKG=./internal/xdsclients", "TEST_ARGS=-run '^$$' -count=1"])
-    for method in ["HasPriorXDSVersion", "HasColdStreamSince", "RunIfDisconnected"]:
+    methods = profile.get("downstream_state_methods", ["HasPriorXDSVersion", "HasColdStreamSince", "RunIfDisconnected"])
+    for method in methods:
         check_build_result(code, output, "missing method " + method)
-    evidence["builds"]["client_state"] = "all three missing-method contract failures reproduced"
+    evidence["builds"]["client_state"] = {"outcome": "missing-method contract failures reproduced", "methods": methods}
     evidence["state_fixture_sha256"] = digest(fixture)
     if production_digest(source) != before:
         raise ValueError("downstream production Go files changed in scratch diagnostics")

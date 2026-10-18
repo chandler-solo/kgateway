@@ -6,14 +6,15 @@ actions are tracked in [research-findings.md](research-findings.md).
 
 ## Profile
 
-Profile `research-2026-10-16-held-reconnect-working-tree`, based on
-`16b4907989e359c38a0c876a65beceb515876cdc`. A source SHA alone does not identify
-these uncommitted changes; preserve the working diff with execution receipts.
+Current review profile `stack-14817-7d930bb2183b`, with research HEAD
+`c80355675bea099274a8b14a6584023d4179b044` plus the review/runner changes.
+The earlier held-reconnect extension is committed at that HEAD; its runtime
+observations remain pinned to stack `215ebe8e6450`.
 
 | Subject | Identity and disposition |
 |---|---|
-| Research | The lifecycle extension is committed at the base above; this working tree adds controlled gate/cache/server/Envoy composition and a bounded observation projection; production publication code is unchanged by this extension |
-| Updated proposed stack | `kgateway-dev/kgateway` stack 14817, tip `215ebe8e645080748dbe37727ab2f6f2faa33de6`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree**; historical `e7b569a1fb78` profile preserved |
+| Research | Committed lifecycle/composed-runtime work plus the new review, regression profile and two bounded models; no production publication code or Lean theorem changed |
+| Updated proposed stack | `kgateway-dev/kgateway` stack 14817, tip `7d930bb2183b90343f9613f03dcd345973fc9f38`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree**; historical `e7b569a1fb78`, `215ebe8e6450` and `1e417af796a2` profiles preserved |
 | Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; adoption requires constructor and connection-state integration |
 | Deployment | No live deployment identified by this review |
 | Cache/server | `v0.14.1-0.20260702184136-1cd1226616f5`; parked-watch retention and unsubscribe fixes present, immediate-decline loss remains |
@@ -22,16 +23,29 @@ these uncommitted changes; preserve the working diff with execution receipts.
 | Recorded direct Envoy evidence | v1.39.1 digest `sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4`; bootstrap/runtime-specific |
 | Lean | `leanprover/lean4:v4.30.0` |
 
-The [pinned regression profiles](regressions/profiles.json) and runner preserve
-historical defects separately from current research behavior. The stack still
-has eleven failing properties and two test-package compilation failures at the
-updated revision. Diagnostic API adapters change only scratch test files and
-are recorded separately from pristine build failures. Green negative-control
-receipts mean those defects reproduced. The downstream runner preserves the
-constructor and three missing-method failures separately from 137 passing
-existing test cases in five packages.
+The [latest review](reviews/2026-10-16-stack-14817-7d930.md) confirms all fourteen
+previous properties pass. Two longer histories fail: a queued KRT event receives
+the newly adopted connection generation, and coherent recovery preserves an old
+carry age. `make formal-stack-7d930` requires fourteen passes and these two
+specific failures. Green means the pinned outcomes reproduced, not correctness.
+Both failures have real Go/cache probes, three race-enabled repetitions and
+bounded TLC counterexamples. Proposed repair abstractions pass in eighteen
+and eighty-two states; no Go refinement or new-tip Envoy application is proved.
+The [historical profiles](regressions/profiles.json) and their counterexamples
+remain intact. New-tip downstream adoption still reproduces the constructor and
+**four** missing-method failures alongside 137 passing cases in five packages.
 Research has no stack publication budgets, scoping, NACK decorator, reconnect
 rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
+
+The [fresh receipt](receipts/2026-10-16-stack-7d930.json) records a complete
+required research run: 50 Lean expectations, 598 Go cases, 27 snapshot/four
+lifecycle traces, all 57 required TLC configurations, sixteen direct Envoy
+scenarios and all historical controls. The original wide ADS bounds remain
+deferred. Four upstream runtime scenarios passed initially; an enterprise
+warming attempt failed before ADS traffic, then all eight standard/FIPS
+scenarios passed on a fresh rerun. Both outcomes are retained. The new stack's
+four-package race suite separately passed 1,105 cases. These runs are not
+whole-repository/e2e/image/deployment validation.
 
 ## Guarantee table
 
@@ -48,7 +62,7 @@ rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 | Selection and equality contract | Lean proofs over arbitrary payload/contribution types plus research Go tests | Pair provenance and precedence are abstract; equality adequacy is a premise, not a proved property of Go; zero-marshal XOR collision assumptions remain |
 | Overlapping publication timers | Finite TLC model and pinned stack Go counterexamples | One key, three revisions, logical deadlines; proposed fixed model is not a refinement of stack Go |
 | Admission-to-send progress | Bounded TLC temporal checks plus real cache/server probes | Fixed assumes retained admission and fair correcting publication after failure; ImmediateLost/NoRetry remain required temporal counterexamples; no wall-clock bound |
-| Reconnect cache/queue generations | Bounded TLC safety and temporal checks; updated stack cache-boundary failure | One key/two generations; proposed fence not implemented here; old-queue negative control is abstract, shared authenticated streams remain open |
+| Reconnect cache/queue generations | Bounded TLC safety/temporal checks; current stack's real admission callbacks and cache reproduce a concurrent clear/refill failure | Serial hook behavior passes; the two-hook implementation is not the model's atomic fence; old-queue negative control is abstract, shared authenticated streams remain open |
 | Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation drop RF-024 reproduced with a synthetic plugin, fix open |
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
 | Controlled lifecycle observations | Four real cache/server traces, strict Go replay and negative mutation tests | Records readback, watch disposition, response callbacks, mock transport and nonce-correlated ACK/NACK; separate from snapshot traces and live Envoy observations; no internal enqueue or application inference |
@@ -56,7 +70,7 @@ rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
 | Held reconnect model projection | Same TLA Step relation checks three observed 13-state projections; fenced bounded model checks 20 states plus conditional temporal recovery | Existential interval adapter is not verified refinement; malformed projection must fail ReplayOK; old-cache/stale-timer negative controls required; fairness of input, transport, application and timer execution remains assumed |
 | GCP named response guard | Executable characterization on the pinned dependency | Parked declines retain watches; immediate declines still lose requests; subscription history and response events matter independently of version equality |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
-| NACK resend recurrence | Characterized on the real cache with a scripted client and with a real Envoy (RF-012) | One machine; no damping exists; not a CPU budget |
+| NACK resend recurrence | Raw-cache/research recurrence characterized with a scripted client and real Envoy (RF-012); new stack's bounded retry/backoff passes Go/server tests | The proposed decorator changes recurrence; no new live Envoy retry/cancellation measurement or CPU bound |
 | SotW rejection semantics | Directly characterized for CDS, LDS, EDS, RDS, and SDS; descriptive Lean model (RF-026) | CDS and LDS apply valid siblings on NACK; EDS, RDS, and SDS reject the whole response; convergence models keep the atomic abstraction; Delta untested |
 | Cache installation receipts | Trace relation from decision to installation on the per-type version tuple (RF-006) | Delivery, acceptance, and activation not instrumented; transform-only scenarios counted |
 | Secret delivery and removal | Directly characterized over SotW ADS (RF-027) | Rotation applies in place; removal is ACKed and revokes nothing; missing secret holds only its listener; a provider-key change is served over SotW; CA and client-certificate secrets, standalone SDS server, and Delta untested |

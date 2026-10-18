@@ -583,6 +583,14 @@ formal-stack-regressions: formal-regression-harness ## Reproduce reviewed stack 
 formal-stack-current: formal-regression-harness ## Reproduce the October 16 stack profile, preserving its pristine build failures
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-2026-10-16 $(FORMAL_REGRESSION_ARGS)
 
+.PHONY: formal-stack-1e417
+formal-stack-1e417: formal-regression-harness ## Check repaired properties and remaining failures at stack tip 1e417af796a2
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-1e417af796a2 $(FORMAL_REGRESSION_ARGS)
+
+.PHONY: formal-stack-7d930
+formal-stack-7d930: formal-regression-harness ## Check repaired properties and carry/reconnect histories at stack tip 7d930bb2183b
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-7d930bb2183b $(FORMAL_REGRESSION_ARGS)
+
 .PHONY: formal-downstream-adoption
 formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
 	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)

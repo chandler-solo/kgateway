@@ -598,3 +598,82 @@ Do not expand the model's bounds until these concrete adapters and missing
 transitions can be observed and checked. No additional Lean theorem is needed
 to turn the current reachability results into a temporal claim; that requires
 explicit fairness and implementation correspondence instead.
+
+## Further October 16 stack update: 1e417af796a2
+
+The product candidate now includes real connection-start hooks and repairs nine
+old regression properties. Its pristine builds and serial reconnect scenario
+pass. The [revised review](reviews/2026-10-16-stack-14817-1e417.md) and immutable
+`formal-stack-1e417` profile replace the old all-failing expectation for the new
+tip; historical negative profiles and observed runtime traces are unchanged.
+
+The next implementation milestone remains open. Address the reproduced
+clear/refill interleaving between admission and an in-flight publisher before
+claiming the reconnect fix complete. Model the actual locks and separate cache
+installation, generation admission and queue/send transitions; do not represent
+the new two-hook sequence as one atomic fence. Include shared-key admissions
+that never reach a zero-stream count and delayed KRT collection events.
+
+Extend timer composition to distinguish readiness holds from reference-ahead
+holds, and let either overlap removal grace and carried-cluster expiry. Prune
+currently releases the latter hold reason early; the new carry bound has no
+wakeup without another candidate. Add required temporal counterexamples with
+quiescent input and fair timer execution, then check a corrected abstraction and
+its concrete implementation independently. Existing callback identity/epoch
+checks do not establish completeness of the transitions they guard.
+
+Port four downstream state contracts, including `SetConnectionStartHooks`, and
+both constructor settings before controller-level experiments. The current
+137-case downstream suite succeeds without that integration. Keep the next
+live profile on actual setup/auth/watch-policy paths, with independent readiness,
+admin and traffic evidence. Bounded NACK retry and EDS/RDS/SDS reconnect behavior
+now have Go/server tests but still need composed runtime schedules. The
+research's raw-cache proofs and the previous stack's observed rollback cannot
+be relabeled as current-candidate assurance.
+
+
+## Subsequent October 16 stack update: 7d930bb2183b
+
+The [latest review](reviews/2026-10-16-stack-14817-7d930.md) supersedes the
+remaining-finding list for 1e417. All fourteen earlier properties now pass.
+The new immutable profile keeps those passes and two longer-history failures;
+all historical profiles remain runnable. Full required research validation was
+executed, with scope and the initial enterprise-runtime failure preserved in
+[the receipt](receipts/2026-10-16-stack-7d930.json).
+
+The next implementation milestone is candidate provenance across the KRT and
+admission publishers. The new connection fence correctly rejects the previously
+reported inside-gate race, but an event delayed before gate entry inherits the
+new connGen. A real KRT/callback/SnapshotCache test reproduces the stale RDS
+response. Queue or select work with generation/revision provenance, and order
+current-row replay with ordinary events, deletion, reclaim and timer callbacks.
+Do not move the generation read merely to syncXds entry: that is still after
+the event delay. Extend the model to same-generation revisions, shared-key
+streams and the split cleanup/adopt lock transitions before claiming a complete
+connection-lifecycle proof.
+
+The carry timer now wakes with quiet input, but its episode bookkeeping must
+also end when a coherent build recovers a cluster. Reconcile ages on every
+candidate path without restarting unresolved carries. The new CarryEpisodes
+model separates healthy time between disappearances from elapsed time within
+one missing episode. Add multiple clusters, both recovery paths, reference
+removal/reintroduction and overlapping prune/ahead/unready deadlines next.
+
+QueuedPublication and CarryEpisodes each have required bad and proposed-repair
+configurations. Their fixed variants pass conditional temporal checks, and the
+corresponding Go failures are required by formal-stack-7d930. They are bounded
+abstractions with separate implementation tests, not a verified trace adapter.
+The next formal deliverable should correlate real candidate identities and
+connection generations through gate decisions, installations, watch retention,
+queued/sent responses and per-resource application. Preserve cancellation,
+partial fan-out, partial CDS/LDS application on NACK and bootstrap-specific EDS
+fallback; do not flatten these to one atomic publish/ACK transition.
+
+Before controller-level experiments, complete downstream constructor/settings
+and all four state contracts, wire SetupOpts.XDSClientState, and preserve the
+enterprise authentication/identity/Delta semantics. The unchanged five-package
+137-case suite is insufficient integration coverage. Then run the new schedules
+through actual setup/auth/watch decorators and independent Envoy admin/traffic
+observation on the target binary, including v1.39.4 if that is the upstream
+adoption image. The existing direct and historical composed profiles use other
+pins and cannot close this obligation.

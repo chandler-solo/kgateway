@@ -1,0 +1,182 @@
+package proxy_syncer
+
+import (
+	"testing"
+	"time"
+
+	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	types "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
+)
+
+func reviewWrap(t *testing.T, v string, clusters, refs []string) XdsSnapWrapper {
+	t.Helper()
+	w := clusterWrapperV(v, clusters...)
+	w.snap.Resources[types.Route] = routeResourcesForClusters(refs...)
+	// Each revision changes real route content, not only its version label.
+	for _, item := range w.snap.Resources[types.Route].Items {
+		item.Resource.(*route.RouteConfiguration).ResponseHeadersToAdd = []*core.HeaderValueOption{{Header: &core.HeaderValue{Key: "x-review-revision", Value: v}}}
+	}
+	w.snap.Resources[types.Route].Version = v
+	w.snap.Resources[types.Listener] = sliceToResources([]*listener.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+	w.snap.Resources[types.Listener].Version = v
+	return w
+}
+
+func reviewTranslator(t *testing.T, grace, ahead time.Duration) *ProxyTranslator {
+	t.Helper()
+	scoping := scopedClustersWithGrace(grace)
+	scoping.referenceAhead = ahead
+	p := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 2*time.Hour, true, scoping)
+	t.Cleanup(func() { p.gate.clientDeparted(publishGateTestClient) })
+	return &p
+}
+
+func TestReviewReferenceAheadSurvivesAnotherCandidate(t *testing.T) {
+	p := reviewTranslator(t, 0, time.Hour)
+	p.syncXds(t.Context(), reviewWrap(t, "v1", []string{"a"}, []string{"a"}))
+	p.syncXds(t.Context(), reviewWrap(t, "v2", []string{"a", "b"}, []string{"b"}))
+	require.Equal(t, "v1", servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	// No watch, wire delivery, or ACK has occurred; only another KRT candidate.
+	p.syncXds(t.Context(), reviewWrap(t, "v3", []string{"a", "b"}, []string{"b"}))
+	assert.Equal(t, "v1", servedSnapshot(t, p).GetVersion(rsrc.RouteType),
+		"an endpoint/route recomputation must not bypass the configured ahead interval")
+}
+
+func TestReviewCoherentUpdateCancelsStaleFlipTimer(t *testing.T) {
+	p := reviewTranslator(t, time.Hour, time.Hour)
+	p.syncXds(t.Context(), reviewWrap(t, "v1", []string{"a"}, []string{"a"}))
+	p.syncXds(t.Context(), reviewWrap(t, "v2", []string{"b"}, []string{"b"}))
+	require.Equal(t, "v1", servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	p.syncXds(t.Context(), reviewWrap(t, "v3", []string{"b"}, []string{"b"}))
+	// A corrected implementation may still be holding v3 for reference-ahead.
+	// Either way, release must choose the latest candidate, never stale v2.
+	require.Contains(t, []string{"v1", "v3"}, servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	// Execute the callback deterministically rather than waiting an hour.
+	p.gate.fireFlipRelease(t.Context(), p.xdsCache, publishGateTestClient, p.gate.pendingFlips[publishGateTestClient])
+	assert.Equal(t, "v3", servedSnapshot(t, p).GetVersion(rsrc.RouteType),
+		"an old release timer must not overwrite a newer coherent publication")
+}
+
+func TestReviewDereferencePrunePreservesAnUnrelatedHold(t *testing.T) {
+	p := reviewTranslator(t, time.Hour, 0)
+	p.syncXds(t.Context(), reviewWrap(t, "v1", []string{"a"}, []string{"a"}))
+	w := reviewWrap(t, "v2", []string{"b"}, []string{"b"})
+	w.missingEndpointsReferenced = []string{"b"}
+	w.synthesizedEndpoints = []string{"b"}
+	p.syncXds(t.Context(), w)
+	require.Equal(t, "v1", servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	p.gate.mu.Lock()
+	p.gate.dereferenced[publishGateTestClient].since["a"] = time.Now().Add(-2 * time.Hour)
+	p.gate.mu.Unlock()
+	p.gate.fireDereferencePrune(t.Context(), p.xdsCache, publishGateTestClient, p.gate.dereferenced[publishGateTestClient], p.gate.dereferenced[publishGateTestClient].epoch)
+	assert.Equal(t, "v1", servedSnapshot(t, p).GetVersion(rsrc.RouteType),
+		"cluster removal expiry must not release the independent flip budget early")
+}
+
+func TestReviewCarryPreservesCurrentSharedAssignment(t *testing.T) {
+	eds := func(name string) *cluster.Cluster {
+		return &cluster.Cluster{Name: name, ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_EDS},
+			EdsClusterConfig: &cluster.Cluster_EdsClusterConfig{ServiceName: "shared"}}
+	}
+	cla := func(ip string) *endpoint.ClusterLoadAssignment {
+		return &endpoint.ClusterLoadAssignment{ClusterName: "shared", Endpoints: []*endpoint.LocalityLbEndpoints{{LbEndpoints: []*endpoint.LbEndpoint{{HostIdentifier: &endpoint.LbEndpoint_Endpoint{Endpoint: &endpoint.Endpoint{Address: &core.Address{Address: &core.Address_SocketAddress{SocketAddress: &core.SocketAddress{Address: ip, PortSpecifier: &core.SocketAddress_PortValue{PortValue: 8080}}}}}}}}}}}
+	}
+	old := cla("10.0.0.1")
+	current := cla("10.0.0.2")
+	published := &cache.Snapshot{}
+	published.Resources[types.Cluster] = cache.NewResources("old", []types.Resource{eds("a")})
+	published.Resources[types.Endpoint] = cache.NewResources("old", []types.Resource{old})
+	w := XdsSnapWrapper{snap: &cache.Snapshot{}, proxyKey: "c1", missingReferenced: []string{"a"},
+		endpointHashes: map[string]uint64{"shared": 222}}
+	w.snap.Resources[types.Cluster] = cache.NewResources("new", []types.Resource{eds("b")})
+	w.snap.Resources[types.Endpoint] = cache.NewResources("222", []types.Resource{current})
+	resolved, _, hashes := resolveDeferredPerCluster(w, published, false, nil, func(string) (uint64, bool) { return 111, true })
+	require.NoError(t, resolved.Consistent())
+	actual := resolved.GetResources(rsrc.EndpointType)["shared"]
+	assert.True(t, proto.Equal(current, actual), "carrying a must not overwrite the current assignment also consumed by b")
+	assert.Equal(t, uint64(222), hashes["shared"], "the current code still labels the overwritten bytes with the new row's contribution")
+}
+
+func TestReviewClaimsDoNotApplyToUnrelatedGateway(t *testing.T) {
+	s := scopedClusters()
+	s.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+		Selectors: []string{"picker"}, NamePrefixes: []string{"tenant-"},
+	}))
+	items, versions := clusterResourcesFor("routed", "tenant-a", "unused")
+	// This gateway contains no picker selector.
+	got, _, _ := filterClustersToEmitted(s, emissionSet("routed"), items, versions)
+	assert.Equal(t, []string{"routed"}, resourceNames(got), "unused plugin claims must not re-admit destinations for every gateway")
+}
+
+func TestReviewInvalidClaimDoesNotDisableFallback(t *testing.T) {
+	s := scopedClusters()
+	s.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+		Selectors: []string{"picker"}, NamePrefixes: []string{""},
+	}))
+	e := emissionSet("routed")
+	e.RequestTimeSelectors = []requestTimeSelector{{selectorInlinePlugin, "picker"}}
+	items, versions := clusterResourcesFor("routed", "candidate")
+	got, _, _ := filterClustersToEmitted(s, e, items, versions)
+	assert.Contains(t, got.Items, "candidate", "rejecting an invalid claim must preserve the emit-all fallback")
+}
+
+func TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning(t *testing.T) {
+	l := &listener.Listener{Name: "listener", FilterChains: []*listener.FilterChain{{
+		Filters: []*listener.Filter{{Name: "unlinked.extension", ConfigType: &listener.Filter_TypedConfig{
+			TypedConfig: &anypb.Any{TypeUrl: "type.googleapis.com/review.unlinked.Config", Value: []byte{10, 9, 'c', 'a', 'n', 'd', 'i', 'd', 'a', 't', 'e'}},
+		}}},
+	}}}
+	e := collectReferencedClustersForEmission(cache.Resources{}, cache.NewResources("v1", []types.Resource{l}))
+	assert.False(t, e.Filterable(emissionClaims{}), "an opaque cluster-bearing extension cannot prove the emission set complete")
+}
+
+func TestReviewWeightedHeaderSelectorDisablesPruning(t *testing.T) {
+	r := &route.RouteConfiguration{Name: "route-config", VirtualHosts: []*route.VirtualHost{{
+		Name: "v", Domains: []string{"*"}, Routes: []*route.Route{{
+			Match: &route.RouteMatch{PathSpecifier: &route.RouteMatch_Prefix{Prefix: "/"}},
+			Action: &route.Route_Route{Route: &route.RouteAction{
+				ClusterSpecifier: &route.RouteAction_WeightedClusters{WeightedClusters: &route.WeightedCluster{
+					Clusters: []*route.WeightedCluster_ClusterWeight{{ClusterHeader: "x-target", Weight: wrapperspb.UInt32(100)}},
+				}},
+			}},
+		}},
+	}}}
+	require.NoError(t, r.ValidateAll())
+	e := collectReferencedClustersForEmission(cache.NewResources("v1", []types.Resource{r}), cache.Resources{})
+	assert.False(t, e.Filterable(emissionClaims{}), "a weighted cluster header is an unbounded runtime selector too")
+}
+
+func TestReviewHeldListenersKeepAncillaryDependencies(t *testing.T) {
+	p := newPublishGateTestTranslator(t, true, time.Hour)
+	t.Cleanup(func() { p.gate.clientDeparted(publishGateTestClient) })
+	old := reviewWrap(t, "v1", []string{"a", "access-log-cluster", "jwks-cluster"}, []string{"a"})
+	for _, item := range listenersWithAncillaryClusters(t).Items {
+		l := item.Resource.(*listener.Listener)
+		l.Name = "ancillary"
+		old.snap.Resources[types.Listener].Items[l.Name] = item
+	}
+	p.syncXds(t.Context(), old)
+	newer := reviewWrap(t, "v2", []string{"a", "b"}, []string{"b"})
+	newer.missingEndpointsReferenced = []string{"b"}
+	newer.synthesizedEndpoints = []string{"b"}
+	p.syncXds(t.Context(), newer)
+	got := servedSnapshot(t, p)
+	require.Equal(t, "v1", got.GetVersion(rsrc.ListenerType))
+	refs := collectReferencedClustersForEmission(got.Resources[types.Route], got.Resources[types.Listener])
+	for _, name := range []string{"access-log-cluster", "jwks-cluster"} {
+		require.Contains(t, refs.Names, name)
+		assert.Contains(t, got.GetResources(rsrc.ClusterType), name, "a retained listener still depends on this cluster")
+	}
+}

@@ -51,6 +51,10 @@ def check_build_result(code, output, expected_error=None):
 
 def check_receipts(events, package, tests, expected):
     """A build error, skip, panic, or different assertion is not a reproduction."""
+    outcomes = {name: expected for name in tests} if isinstance(expected, str) else expected
+    if set(outcomes) != set(tests) or any(v not in ("pass", "fail") for v in outcomes.values()):
+        raise ValueError("every required property needs an explicit pass/fail outcome")
+    package_expected = "fail" if "fail" in outcomes.values() else "pass"
     runs, terminals, output, package_results = {}, {}, {}, []
     for event in events:
         if event.get("Package") != package:
@@ -68,14 +72,14 @@ def check_receipts(events, package, tests, expected):
             output[name] = output.get(name, "") + event.get("Output", "")
     if set(runs) != set(tests) or set(terminals) != set(tests):
         raise ValueError("missing or unexpected test execution")
-    if package_results != [expected]:
+    if package_results != [package_expected]:
         raise ValueError(f"unexpected package result: {package_results}")
     for name, marker in tests.items():
-        if runs[name] != 1 or terminals[name] != [expected]:
+        if runs[name] != 1 or terminals[name] != [outcomes[name]]:
             raise ValueError(f"unexpected execution result for {name}")
         if "panic:" in output.get(name, "") or "test timed out" in output.get(name, ""):
             raise ValueError(f"panic/timeout is not a counterexample: {name}")
-        if expected == "fail" and marker not in output.get(name, ""):
+        if outcomes[name] == "fail" and (not marker or marker not in output.get(name, "")):
             raise ValueError(f"expected property failure absent: {name}")
 
 
@@ -155,7 +159,7 @@ def main():
         builds = [{"package": "pkg/kgateway/setup", "error": profile["setup_build_error"]}]
     for index, build in enumerate(builds):
         code, _, log = run_make(source, build["package"], "^$", artifacts, f"pristine-build-{index}")
-        check_build_result(code, log.read_text(), None if args.expect_fixed else build["error"])
+        check_build_result(code, log.read_text(), None if args.expect_fixed else build.get("error"))
         evidence["build_checks"].append({**build, "exit": code, "log": log.name})
     # A candidate must compile unchanged. Diagnostic adapters are only for the
     # pinned failing baseline, and their complete contents/hashes are recorded.
@@ -171,8 +175,9 @@ def main():
         shutil.copyfile(HERE / fixture["file"], target)
     selector = "^(" + "|".join(profile["tests"]) + ")$"
     code, receipt, log = run_make(source, profile["package"], selector, artifacts, "properties")
-    expected = "pass" if args.expect_fixed else profile["expected"]
-    if (code == 0) != (expected == "pass"):
+    expected = "pass" if args.expect_fixed else profile.get("expected_by_test", profile["expected"])
+    package_expected = ("fail" if "fail" in expected.values() else "pass") if isinstance(expected, dict) else expected
+    if (code == 0) != (package_expected == "pass"):
         raise ValueError(f"unexpected Make exit {code}; inspect {log}")
     events = [json.loads(line) for line in receipt.read_text().splitlines() if line.strip()]
     check_receipts(events, "github.com/kgateway-dev/kgateway/v2/" + profile["package"], profile["tests"], expected)
@@ -180,7 +185,8 @@ def main():
         raise ValueError("production Go sources changed during the diagnostic run")
     evidence["production_sources_unchanged"] = True
     evidence["production_source_sha256"] = hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest()
-    evidence["outcome"] = "properties pass" if args.expect_fixed else "historical counterexamples reproduced"
+    evidence["outcome"] = "properties pass" if args.expect_fixed else "pinned property outcomes reproduced"
+    evidence["expected_by_test"] = expected
     evidence["tests"] = len(profile["tests"])
     (artifacts / "receipt.json").write_text(json.dumps(evidence, indent=2) + "\n")
     print(f"PASS {evidence['outcome']}; {len(profile['tests'])} required tests; {artifacts}", flush=True)

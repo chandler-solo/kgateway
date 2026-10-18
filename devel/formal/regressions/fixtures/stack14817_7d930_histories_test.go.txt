@@ -1,0 +1,128 @@
+package proxy_syncer
+
+import (
+	"sync"
+	"testing"
+	"time"
+
+	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	stream "github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+	"istio.io/istio/pkg/kube/krt"
+)
+
+func TestReviewRecoveryStartsFreshCarryEpisode(t *testing.T) {
+	p := reviewTranslator(t, 0, 0)
+	p.gate.warmWithholdBound = 100 * time.Millisecond
+	p.syncXds(t.Context(), reviewWrap(t, "ready-1", []string{"a"}, []string{"a"}))
+	missing := reviewWrap(t, "missing-1", nil, []string{"a"})
+	missing.missingReferenced = []string{"a"}
+	p.syncXds(t.Context(), missing)
+	require.Contains(t, servedSnapshot(t, p).GetResources(rsrc.ClusterType), "a")
+	p.syncXds(t.Context(), reviewWrap(t, "recovered", []string{"a"}, []string{"a"}))
+	require.Equal(t, "recovered", servedSnapshot(t, p).GetVersion(rsrc.RouteType))
+	// No missing backend during this interval. A second disappearance must
+	// receive a fresh carry episode, not the first episode's elapsed deadline.
+	time.Sleep(150 * time.Millisecond)
+	missing = reviewWrap(t, "missing-2", nil, []string{"a"})
+	missing.missingReferenced = []string{"a"}
+	p.syncXds(t.Context(), missing)
+	assert.Contains(t, servedSnapshot(t, p).GetResources(rsrc.ClusterType), "a",
+		"a recovered cluster must receive a fresh carry interval on its next disappearance")
+}
+
+func TestReviewQueuedCandidateCannotCrossReconnect(t *testing.T) {
+	t.Setenv("KGW_XDS_FIRST_CONNECT_DELAY", "0s")
+	ctx := t.Context()
+	key := wellknown.GatewayApiProxyValue + "~ns~gw"
+	cb, builder, state := krtcollections.NewUniquelyConnectedClients(nil, false)
+	clients := builder(ctx, krtutil.KrtOptions{}, nil)
+	require.True(t, clients.WaitUntilSynced(ctx.Done()))
+	c := newTestSnapshotCache(t)
+	p := NewProxyTranslator(c, state, time.Hour, true, clusterScoping{})
+	rows := krt.NewStaticCollection[XdsSnapWrapper](nil, nil, krt.WithStop(ctx.Done()))
+	require.True(t, p.registerConnectionStartHooks(ctx, state, rows.GetKey))
+	connect := func(sid int64, version string) {
+		require.NoError(t, cb.OnStreamRequest(sid, &discovery.DiscoveryRequest{
+			Node: &core.Node{Id: "podname.ns", Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{
+				xds.RoleKey: structpb.NewStringValue(key),
+			}}}, TypeUrl: rsrc.ListenerType, VersionInfo: version,
+		}))
+	}
+	t.Cleanup(func() { p.gate.clientDeparted(key) })
+	connect(1, "")
+	defer cb.OnStreamClosed(2, nil)
+	build := func(version string, clusters, refs []string) XdsSnapWrapper {
+		w := reviewWrap(t, version, clusters, refs)
+		w.proxyKey = key
+		return w
+	}
+	p.syncXds(ctx, build("initial", []string{"a"}, []string{"a"}))
+	paused, resume, oldDone, currentDone := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(resume) }) })
+	rows.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			w := event.Latest()
+			if w.snap.GetVersion(rsrc.RouteType) == "queued-old" {
+				close(paused)
+				<-resume // scheduling pause before the production syncXds call
+				p.syncXds(ctx, w)
+				close(oldDone)
+			} else {
+				p.syncXds(ctx, w)
+				close(currentDone)
+			}
+		}
+	}, false)
+	rows.UpdateObject(build("queued-old", []string{"a"}, []string{"a"}))
+	select {
+	case <-paused:
+	case <-time.After(2 * time.Second):
+		t.Fatal("KRT event callback did not run")
+	}
+	current := build("current-deferred", []string{"b"}, []string{"b"})
+	current.missingEndpointsReferenced = []string{"b"}
+	current.synthesizedEndpoints = []string{"b"}
+	rows.UpdateObject(current)
+	require.Equal(t, "current-deferred", rows.GetKey(key).snap.GetVersion(rsrc.RouteType))
+	cb.OnStreamClosed(1, nil)
+	connect(2, "accepted-on-other-replica")
+	require.True(t, state.HasPriorXDSVersion(key), "the returning stream is classified warm")
+	_, err := c.GetSnapshot(key)
+	require.Error(t, err, "current candidate is withheld on the newly admitted connection")
+	responses := make(chan cache.Response, 4)
+	req := &discovery.DiscoveryRequest{Node: &core.Node{Id: key}, TypeUrl: rsrc.RouteType,
+		ResourceNames: []string{"route-config"}, VersionInfo: "accepted-on-other-replica"}
+	cancel, err := c.CreateWatch(req, stream.NewSotwSubscription(req.ResourceNames, false), responses)
+	require.NoError(t, err)
+	if cancel != nil {
+		defer cancel()
+	}
+	release.Do(func() { close(resume) })
+	select {
+	case <-oldDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued candidate did not finish")
+	}
+	select {
+	case response := <-responses:
+		assert.NotEqual(t, "queued-old", response.GetResponseVersion(),
+			"a queued KRT candidate from before reconnect must not answer the new connection")
+	default:
+	}
+	select {
+	case <-currentDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("latest KRT event did not run")
+	}
+}
