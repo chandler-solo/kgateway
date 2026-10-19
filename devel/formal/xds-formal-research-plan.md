@@ -2,6 +2,19 @@
 
 Review date: September 10, 2026
 
+October 17 execution update: [live publication histories](live/README.md) now
+connect the pinned repaired 8e7546 publisher to actual control-plane setup,
+connection callbacks, watch policies, KRT, elapsed timers, gRPC and independent
+Envoy admin/HTTP observations. Historical 7d930 is a required negative control.
+The new AdmissionPending model isolates split versus atomic reset/adoption;
+it is a bounded safety check rather than a Go refinement or deadline proof.
+Next, execute the actual controller/Kubernetes suites and extend coverage to
+shared-key streams, authenticated replica skew, transport cancellation, NACK
+backoff and enterprise extensions. Keep ordinary downstream upgrade adaptation
+separate from product findings. Generated execution artifacts remain outside
+the repository. This update supersedes older statements that no current-tip
+gate-to-Envoy composition exists; other scoped limitations remain.
+
 Research branch: `chandler/kxdsformalmethods`, reviewed at `54007c4fe4`.
 Comparison baseline: `b50b0084fb`, immediately before the first formal-methods commit. The research series changes 110 files, with roughly 15,700 insertions. This is a research branch with experimental production changes, not just a collection of models.
 

@@ -1,0 +1,449 @@
+Subject: [PATCH 1/2] Reconcile current xDS rows under the publication lock
+
+Base: kgateway-dev/kgateway 7d930bb2183b90343f9613f03dcd345973fc9f38
+Apply in numeric order.
+
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -21,6 +21,15 @@
+ 	ctx context.Context,
+ 	snapWrap XdsSnapWrapper,
+ ) {
++	s.gate.mu.Lock()
++	defer s.gate.mu.Unlock()
++	s.syncXdsLocked(ctx, snapWrap)
++}
++
++// syncXdsLocked resolves and publishes a selected build while holding the gate
++// lock. Collection callbacks must select the current row under this same lock
++// (syncXdsEvents), so an older event cannot overtake a newer selection.
++func (s *ProxyTranslator) syncXdsLocked(ctx context.Context, snapWrap XdsSnapWrapper) {
+ 	proxyKey := snapWrap.proxyKey
+ 
+ 	// Errored clusters intentionally fail closed. Restoring a cluster from the previous
+@@ -63,7 +72,7 @@
+ 		//
+ 		// The whole decision runs under the gate lock so it cannot race the
+ 		// gate's expiring budget timers (see resolveDeferred).
+-		if err := s.gate.resolveDeferred(ctx, s.xdsCache, snapWrap); err != nil {
++		if err := s.gate.resolveDeferredLocked(ctx, s.xdsCache, snapWrap); err != nil {
+ 			logPublishFailure(proxyKey, err)
+ 		}
+ 		return
+@@ -82,13 +91,13 @@
+ 	// is configured, a coherent snapshot publishes through the path that makes
+ 	// them safe.
+ 	if s.gate.appliesTransitionGraces() {
+-		if err := s.gate.publishWithTransitionGraces(ctx, s.xdsCache, snapWrap); err != nil {
++		if err := s.gate.publishWithTransitionGracesLocked(ctx, s.xdsCache, snapWrap); err != nil {
+ 			logPublishFailure(proxyKey, err)
+ 		}
+ 		return
+ 	}
+ 
+-	if err := s.gate.publish(ctx, s.xdsCache, snapWrap); err != nil {
++	if err := s.gate.publishLocked(ctx, s.xdsCache, proxyKey, snapWrap.snap, snapWrap.synthesizedEndpoints, snapWrap.endpointHashes); err != nil {
+ 		// A rejected snapshot leaves the client on its previous config; surface
+ 		// it rather than silently dropping the update.
+ 		logPublishFailure(proxyKey, err)
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -306,13 +306,51 @@
+ 			t.gate.fence.start(t.xdsCache, proxyKey)
+ 		},
+ 		func(proxyKey string) {
+-			t.gate.connectionStarted(proxyKey)
++			t.gate.mu.Lock()
++			defer t.gate.mu.Unlock()
++			t.gate.connectionStartedLocked(proxyKey)
+ 			if row := currentRow(proxyKey); row != nil {
+-				t.syncXds(ctx, *row)
++				t.syncXdsLocked(ctx, *row)
+ 			}
+ 		},
+ 	)
+ 	return true
++}
++
++// syncXdsEvents treats KRT events as key notifications, not publishable builds.
++// An event may have waited while admission replayed a newer row on a new
++// connection. Read the authoritative row under the publication lock so neither
++// an old update nor an old delete can undo that replay. Keep the lookup and
++// publication in one critical section: looking up before taking the lock would
++// allow two callbacks to select in one order and publish in the opposite order.
++func (t ProxyTranslator) syncXdsEvents(
++	ctx context.Context,
++	events []krt.Event[XdsSnapWrapper],
++	currentRow func(string) *XdsSnapWrapper,
++	connected func(string) bool,
++) {
++	for _, event := range events {
++		key := event.Latest().ResourceName()
++		func() {
++			t.gate.mu.Lock()
++			defer t.gate.mu.Unlock()
++			if row := currentRow(key); row != nil {
++				t.syncXdsLocked(ctx, *row)
++			} else if connected(key) {
++				// A live client's row was withdrawn. Keep its cache entry and
++				// connection state, but cancel timers for the missing row.
++				t.gate.withdrawLocked(key)
++			} else {
++				t.gate.clientDepartedLocked(key)
++			}
++		}()
++		cd := getDetailsFromXDSClientResourceName(key)
++		kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
++			Namespace:    cd.Namespace,
++			Gateway:      cd.Gateway,
++			ResourceName: cd.Gateway,
++		})
++	}
+ }
+ 
+ // clientSnapshotDeleted handles the deletion of a client's snapshot row. If
+@@ -548,42 +586,10 @@
+ 		}, true)
+ 	}
+ 
+-	s.perclientSnapCollection.RegisterBatch(func(o []krt.Event[XdsSnapWrapper]) {
+-		for _, e := range o {
+-			cd := getDetailsFromXDSClientResourceName(e.Latest().ResourceName())
+-
+-			if e.Event != controllers.EventDelete {
+-				snapWrap := e.Latest()
+-				s.proxyTranslator.syncXds(ctx, snapWrap)
+-			} else {
+-				// The xDS cache is intentionally left alone: clearing it here
+-				// would withdraw Envoy's last coherent Snapshot and cause
+-				// 500/NC on valid routes ("retain last good"). Since
+-				// readiness deferral no longer removes rows (deferred
+-				// wrappers stay present, annotated), a Delete now means the
+-				// client departed or a transform-level input briefly
+-				// vanished. Either way cancel any pending bounded first
+-				// publish or flip release so a timer cannot fire for a row
+-				// that is gone (a live client re-arms it with its next
+-				// deferred wrapper). Only a departed client stops having the
+-				// cached entry treated as what it runs: a client that returns
+-				// resolves against nothing until the gate publishes to it
+-				// again, while a client that stayed connected still runs what
+-				// was published on its connection.
+-				//
+-				// Entries of truly-departed clients, which surface here
+-				// indistinguishably from transient deletes, are reclaimed by
+-				// the snapshotReclaimer registered above.
+-				name := e.Latest().ResourceName()
+-				s.proxyTranslator.clientSnapshotDeleted(name, s.uniqueClients.GetKey(name) != nil)
+-			}
+-
+-			kmetrics.EndResourceXDSSync(kmetrics.ResourceSyncDetails{
+-				Namespace:    cd.Namespace,
+-				Gateway:      cd.Gateway,
+-				ResourceName: cd.Gateway,
+-			})
+-		}
++	s.perclientSnapCollection.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
++		s.proxyTranslator.syncXdsEvents(ctx, events, s.perclientSnapCollection.GetKey, func(key string) bool {
++			return s.uniqueClients.GetKey(key) != nil
++		})
+ 	}, true)
+ 
+ 	s.ready.Store(true)
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -410,26 +410,16 @@
+ 	return g.setSnapshot(ctx, cache, proxyKey, snap, synthesized, edsHashes)
+ }
+ 
+-// resolveDeferred decides how a deferred wrapper publishes. The cache read,
++// resolveDeferredLocked decides how a deferred wrapper publishes. The cache read,
+ // the per-cluster resolution, and the resulting publish all happen under one
+-// lock acquisition so an expiring budget timer cannot interleave: a
++// critical section so an expiring budget timer cannot interleave: a
+ // first-publish timer firing between an unlocked cache check and the cold
+ // offer would strand the newest deferred snapshot unpublished until the next
+ // build event, and a flip-release timer firing between an unlocked cache read
+ // and the held publish would be overwritten by a hold composed against the
+ // pre-release snapshot (re-pinning the just-released routes for another full
+ // budget).
+-func (g *publishGate) resolveDeferred(
+-	ctx context.Context,
+-	cache envoycache.SnapshotCache,
+-	snapWrap XdsSnapWrapper,
+-) error {
+-	g.mu.Lock()
+-	defer g.mu.Unlock()
+-	return g.resolveDeferredLocked(ctx, cache, snapWrap)
+-}
+-
+-// resolveDeferredLocked is resolveDeferred for callers that hold g.mu.
++// Callers must hold g.mu.
+ func (g *publishGate) resolveDeferredLocked(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -880,6 +870,11 @@
+ func (g *publishGate) clientDeparted(proxyKey string) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
++	g.clientDepartedLocked(proxyKey)
++}
++
++// clientDepartedLocked is clientDeparted for callers that hold g.mu.
++func (g *publishGate) clientDepartedLocked(proxyKey string) {
+ 	g.withdrawLocked(proxyKey)
+ 	delete(g.published, proxyKey)
+ 	delete(g.carriedSince, proxyKey)
+@@ -887,15 +882,12 @@
+ 	delete(g.aheadSent, proxyKey)
+ }
+ 
+-// connectionStarted begins the client's new connection in the gate (the
+-// connection-start hook, after the fence started it). It first forgets the
+-// previous connection, as clientDeparted does, and only then adopts the key's
+-// new generation: in between, a publish is rejected by the fence rather than
+-// installed with the previous connection's state.
+-func (g *publishGate) connectionStarted(proxyKey string) {
+-	g.clientDeparted(proxyKey)
+-	g.mu.Lock()
+-	defer g.mu.Unlock()
++// connectionStartedLocked begins the client's new connection after the fence
++// started it. Callers hold g.mu through cleanup, generation adoption, selection
++// of the current build and its publication, so no queued callback can publish
++// between these steps using the previous connection's state or an old row.
++func (g *publishGate) connectionStartedLocked(proxyKey string) {
++	g.clientDepartedLocked(proxyKey)
+ 	if g.connGen == nil {
+ 		g.connGen = make(map[string]uint64)
+ 	}
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace.go b/pkg/kgateway/proxy_syncer/dereference_grace.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace.go
+@@ -216,26 +216,14 @@
+ // path stays exactly as it was.
+ func (g *publishGate) retainsDereferenced() bool { return g.dereferenceGrace > 0 }
+ 
+-// publishWithTransitionGraces publishes a coherent snapshot with both emitted-set
++// publishWithTransitionGracesLocked publishes a coherent snapshot with both emitted-set
+ // transitions made safe: clusters whose de-reference window is still open are
+ // carried forward, and a route update that retargets onto a cluster the client
+ // has never been sent is held back until that cluster has had time to land.
+ //
+ // Both transitions produce coherent builds -- nothing is missing, the emitted
+ // set simply changed -- so neither reaches the deferred resolution path that
+-// handles unready clusters. This is their equivalent.
+-func (g *publishGate) publishWithTransitionGraces(
+-	ctx context.Context,
+-	cache envoycache.SnapshotCache,
+-	snapWrap XdsSnapWrapper,
+-) error {
+-	g.mu.Lock()
+-	defer g.mu.Unlock()
+-	return g.publishWithTransitionGracesLocked(ctx, cache, snapWrap)
+-}
+-
+-// publishWithTransitionGracesLocked is publishWithTransitionGraces for callers
+-// that hold g.mu.
++// handles unready clusters. This is their equivalent. Callers must hold g.mu.
+ func (g *publishGate) publishWithTransitionGracesLocked(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+diff --git a/pkg/kgateway/proxy_syncer/queued_publication_test.go b/pkg/kgateway/proxy_syncer/queued_publication_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/kgateway/proxy_syncer/queued_publication_test.go
+@@ -0,0 +1,192 @@
++package proxy_syncer
++
++import (
++	"sync"
++	"testing"
++	"time"
++
++	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
++	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
++	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
++	rsrc "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
++	stream "github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++	"google.golang.org/protobuf/types/known/structpb"
++	"istio.io/istio/pkg/kube/controllers"
++	"istio.io/istio/pkg/kube/krt"
++
++	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
++	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
++	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
++	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
++)
++
++func TestQueuedSnapshotEventCannotCrossReconnect(t *testing.T) {
++	t.Setenv("KGW_XDS_FIRST_CONNECT_DELAY", "0s")
++	ctx := t.Context()
++	key := wellknown.GatewayApiProxyValue + "~ns~gw"
++	cb, builder, state := krtcollections.NewUniquelyConnectedClients(nil, false)
++	clients := builder(ctx, krtutil.KrtOptions{}, nil)
++	require.True(t, clients.WaitUntilSynced(ctx.Done()))
++	c := newTestSnapshotCache(t)
++	p := NewProxyTranslator(c, state, time.Hour, true, clusterScoping{})
++	rows := krt.NewStaticCollection[XdsSnapWrapper](nil, nil, krt.WithStop(ctx.Done()))
++	require.True(t, p.registerConnectionStartHooks(ctx, state, rows.GetKey))
++	connect := func(sid int64, version string) {
++		require.NoError(t, cb.OnStreamRequest(sid, &discovery.DiscoveryRequest{
++			Node: &envoycorev3.Node{Id: "podname.ns", Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{
++				xds.RoleKey: structpb.NewStringValue(key),
++			}}}, TypeUrl: rsrc.ListenerType, VersionInfo: version,
++		}))
++	}
++	t.Cleanup(func() { p.gate.clientDeparted(key) })
++	connect(1, "")
++	defer cb.OnStreamClosed(2, nil)
++	build := func(version string, clusters, refs []string) XdsSnapWrapper {
++		w := XdsSnapWrapper{snap: carryTestBuild(t, version, refs, clusters...), proxyKey: key}
++		return w
++	}
++	p.syncXds(ctx, build("initial", []string{"a"}, []string{"a"}))
++	paused, resume, oldDone, currentDone := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
++	var release sync.Once
++	t.Cleanup(func() { release.Do(func() { close(resume) }) })
++	rows.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
++		for _, event := range events {
++			w := event.Latest()
++			if w.snap.GetVersion(rsrc.RouteType) == "rds-queued-old" {
++				close(paused)
++				<-resume // the event waits before entering the production callback
++				p.syncXdsEvents(ctx, []krt.Event[XdsSnapWrapper]{event}, rows.GetKey, func(string) bool { return true })
++				close(oldDone)
++			} else {
++				p.syncXdsEvents(ctx, []krt.Event[XdsSnapWrapper]{event}, rows.GetKey, func(string) bool { return true })
++				close(currentDone)
++			}
++		}
++	}, false)
++	rows.UpdateObject(build("queued-old", []string{"a"}, []string{"a"}))
++	select {
++	case <-paused:
++	case <-time.After(2 * time.Second):
++		t.Fatal("KRT event callback did not run")
++	}
++	current := build("current-deferred", []string{"b"}, []string{"b"})
++	current.missingEndpointsReferenced = []string{"b"}
++	current.synthesizedEndpoints = []string{"b"}
++	rows.UpdateObject(current)
++	require.Equal(t, "rds-current-deferred", rows.GetKey(key).snap.GetVersion(rsrc.RouteType))
++	cb.OnStreamClosed(1, nil)
++	connect(2, "accepted-on-other-replica")
++	require.True(t, state.HasPriorXDSVersion(key), "the returning stream is classified warm")
++	_, err := c.GetSnapshot(key)
++	require.Error(t, err, "current candidate is withheld on the newly admitted connection")
++	responses := make(chan cache.Response, 4)
++	req := &discovery.DiscoveryRequest{
++		Node: &envoycorev3.Node{Id: key}, TypeUrl: rsrc.RouteType,
++		ResourceNames: []string{"route-config"}, VersionInfo: "accepted-on-other-replica",
++	}
++	cancel, err := c.CreateWatch(req, stream.NewSotwSubscription(req.ResourceNames, false), responses)
++	require.NoError(t, err)
++	if cancel != nil {
++		defer cancel()
++	}
++	release.Do(func() { close(resume) })
++	select {
++	case <-oldDone:
++	case <-time.After(2 * time.Second):
++		t.Fatal("queued candidate did not finish")
++	}
++	select {
++	case response := <-responses:
++		assert.NotEqual(t, "rds-queued-old", response.GetResponseVersion(),
++			"a queued KRT candidate from before reconnect must not answer the new connection")
++	default:
++	}
++	select {
++	case <-currentDone:
++	case <-time.After(2 * time.Second):
++		t.Fatal("latest KRT event did not run")
++	}
++}
++
++// An update queued before withdrawal must not resurrect the missing row.
++func TestQueuedSnapshotUpdateObservesWithdrawal(t *testing.T) {
++	f := newConnectionStartFixture(t)
++	f.connect(t, 1)
++	old := f.build("queued-old")
++	f.translator.syncXdsEvents(t.Context(), []krt.Event[XdsSnapWrapper]{{New: &old, Event: controllers.EventAdd}},
++		func(string) *XdsSnapWrapper { return nil }, func(string) bool { return true })
++	_, installed := f.served()
++	require.False(t, installed, "the queued payload is not a current row")
++	f.translator.gate.mu.Lock()
++	pending := f.translator.gate.pending[f.role]
++	f.translator.gate.mu.Unlock()
++	require.Nil(t, pending, "withdrawn rows must not arm a first-publish timer")
++}
++
++// A delayed delete must reconcile the row that has since returned. In
++// particular it must not cancel that row's only bounded first-publish timer.
++func TestQueuedSnapshotDeleteObservesRecreatedRow(t *testing.T) {
++	f := newConnectionStartFixture(t)
++	f.connect(t, 1)
++	old := f.build("deleted")
++	current := f.build("recreated-deferred")
++	current.missingReferenced = []string{"not-ready"}
++	f.current.Store(&current)
++	f.translator.syncXds(t.Context(), current)
++	f.translator.syncXdsEvents(t.Context(), []krt.Event[XdsSnapWrapper]{{Old: &old, Event: controllers.EventDelete}},
++		func(string) *XdsSnapWrapper { return f.current.Load() }, func(string) bool { return true })
++	f.translator.gate.mu.Lock()
++	pending := f.translator.gate.pending[f.role]
++	f.translator.gate.mu.Unlock()
++	require.NotNil(t, pending, "the current deferred row must retain a bounded publish")
++}
++
++// A row selected before a second callback starts cannot publish after that
++// callback. This also covers a later refactor accidentally moving GetKey
++// outside the gate lock while still ignoring the event payload.
++func TestSnapshotLookupAndPublicationAreSerialized(t *testing.T) {
++	f := newConnectionStartFixture(t)
++	f.connect(t, 1)
++	old, current := f.build("old"), f.build("current")
++	selected, resume := make(chan struct{}), make(chan struct{})
++	var release sync.Once
++	t.Cleanup(func() { release.Do(func() { close(resume) }) })
++	firstDone := make(chan struct{})
++	go func() {
++		defer close(firstDone)
++		f.translator.syncXdsEvents(t.Context(), []krt.Event[XdsSnapWrapper]{{New: &old, Event: controllers.EventAdd}},
++			func(string) *XdsSnapWrapper { close(selected); <-resume; return &old }, func(string) bool { return true })
++	}()
++	select {
++	case <-selected:
++	case <-time.After(2 * time.Second):
++		t.Fatal("first callback did not select its row")
++	}
++	secondDone := make(chan struct{})
++	go func() {
++		defer close(secondDone)
++		f.translator.syncXdsEvents(t.Context(), []krt.Event[XdsSnapWrapper]{{New: &current, Event: controllers.EventUpdate}},
++			func(string) *XdsSnapWrapper { return &current }, func(string) bool { return true })
++	}()
++	select {
++	case <-secondDone:
++		t.Error("a later selection overtook the first publication")
++	case <-time.After(100 * time.Millisecond):
++	}
++	release.Do(func() { close(resume) })
++	select {
++	case <-firstDone:
++	case <-time.After(2 * time.Second):
++		t.Fatal("first callback did not finish")
++	}
++	select {
++	case <-secondDone:
++	case <-time.After(2 * time.Second):
++		t.Fatal("second callback did not finish")
++	}
++	version, installed := f.served()
++	require.True(t, installed)
++	require.Equal(t, "current", version, "publication must preserve selection order")
++}

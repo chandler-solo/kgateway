@@ -1,5 +1,14 @@
 # Pinned xDS regression profiles
 
+October 17: `make formal-stack-8e7546` requires all sixteen historical desired
+properties and the author's native reset/adoption exclusion property to pass at
+`8e75468f4d0e055deb9b8f34e4254831f011e2a3`. It preserves all older profiles and
+fixture bytes. Two exact-hash fixture adapters mirror production's current-row
+getter and install/assert the initial row before the queued history starts.
+They run after fixture injection and do not change production files or weaken
+assertions. Runtime evidence is separately supplied by
+[`make formal-live-publication`](../live/README.md).
+
 These checks keep the research implementation, reviewed stack, and downstream
 adoption obligations separate. `profiles.json` names immutable source revisions,
 expected test outcomes, and assertion signatures. Downloads use read-only GitHub

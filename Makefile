@@ -591,6 +591,10 @@ formal-stack-1e417: formal-regression-harness ## Check repaired properties and r
 formal-stack-7d930: formal-regression-harness ## Check repaired properties and carry/reconnect histories at stack tip 7d930bb2183b
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-7d930bb2183b $(FORMAL_REGRESSION_ARGS)
 
+.PHONY: formal-stack-8e7546
+formal-stack-8e7546: formal-regression-harness ## Check the repaired stack and atomic reset/adoption property at 8e75468f4d0e
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-8e75468f4d0e $(FORMAL_REGRESSION_ARGS)
+
 .PHONY: formal-downstream-adoption
 formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
 	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)
@@ -621,6 +625,13 @@ formal-composed-harness: ## Reject incomplete or miscorrelated composed xDS trac
 
 formal-composed-reconnect: formal-composed-harness ## Reproduce held reconnect rollback through the stack gate and real Envoy
 	python3 -B devel/formal/composed/run.py $(FORMAL_COMPOSED_ARGS)
+
+.PHONY: formal-live-harness formal-live-publication
+formal-live-harness: ## Check live publication trace validation and source isolation
+	python3 -B -m unittest discover -s devel/formal/live -p '*_test.py'
+
+formal-live-publication: formal-live-harness ## Check repaired publication histories and historical counterexamples through real Envoy
+	python3 -B devel/formal/live/run.py $(FORMAL_LIVE_ARGS)
 
 #----------------------------------------------------------------------------------
 # Container Structure Tests

@@ -1426,3 +1426,63 @@ argument constructor check and all four client-state contracts, including
 SetConnectionStartHooks. All 137 selected existing downstream cases pass.
 SetupOpts still lacks XDSClientState wiring. No product implementation,
 dependency, Git/GitHub state or deployment was changed by this review.
+
+### RF-031 October 17: repaired pin and live publication histories
+
+Later corrections supersede the preceding findings about the current pin.
+At 530c4f the author's current-row guard and coherent-recovery bookkeeping fix
+the two 7d930 histories. A further P2 interleaving was reproduced at 530c4f:
+connectionStarted unlocked between cleanup and generation adoption, allowing a
+publisher to leave a pending first-publication timer under the old generation.
+A superseded admission replay could be skipped, and timer expiry then used the
+adopted generation to answer a new cache watch with the older payload. This was
+executed Go/KRT/natural-timer/cache-watch evidence, not an Envoy application
+claim. At `8e75468f4d0e055deb9b8f34e4254831f011e2a3` the author performs cleanup
+and adoption in one critical section and adds a native exclusion test.
+
+`make formal-stack-8e7546` now checks all sixteen historical desired properties
+and that native exclusion test; all seventeen pass. Two exact-hash fixture
+adapters mirror production's current-row initialization and assert the original
+initial-cache premise. No historical fixture bytes or assertions are changed.
+
+The separate [live publication profile](live/README.md) extends assurance to
+actual NewControlPlane, KubeJWTAuthenticator, unique-client callbacks, watch
+decorators, KRT delivery, elapsed timers, gRPC and independently observed Envoy
+configuration and HTTP forwarding. Its defaults cover both 7d930 counterexamples
+and four repaired histories on upstream v1.39.4 and enterprise standard/FIPS
+v1.39.1-patch1, each with one and two workers. Historical queued rollback and
+premature carry removal must become observable in Envoy and traffic; the
+repaired profile must reject stale publication, restart the carry interval,
+exclude publication inside reset/adoption, and cancel an undrained timer before
+coherent recovery. Fresh captures are mutated to test the checker itself.
+
+The actual Kubernetes token-review service is replaced by a fixture authority;
+translated snapshots are supplied and Start wiring is mirrored by an additional
+tagged test bridge. Original production source files and dependencies remain
+unchanged. These runs are neither the full Kubernetes controller pipeline nor a
+deployed kgw-ent validation. Enterprise binaries exercise the same upstream
+setup profile; ordinary downstream upgrade adaptation is not a new bug finding.
+
+AdmissionPending adds the missing split reset/adopt boundary to the finite
+models. The split variant violates NoEarlierPendingResponse; atomic reset/adopt
+passes in 12 states, and a separate unadopted origin-fence proposal passes in
+22. All 60 required TLC configurations match their expected outcomes, preserving
+the previous counterexamples and the original wide-model deferral. This is
+bounded safety evidence, not a verified Go refinement, general revision-freshness
+property or temporal liveness theorem. Generated run artifacts stay outside Git.
+
+Final live execution uses the production EDS version constructor for the
+fixture inputs. An independent checker requires the single ready/carried
+assignment to retain version 17 and its baseline bytes, and an omitted set to
+use version 0. This supersedes exploratory captures whose opaque fixture EDS
+versions could introduce an artificial push. All 24 repaired histories pass
+with race detection across the three pinned images and both worker counts;
+the two historical bugs reproduce in all six runtime profiles (12 runs).
+This execution used arm64 Docker Desktop; the configured public CI profile is
+separate and was not executed in GitHub by this session.
+There are 156 independently corroborated application observations and 2,390
+continuous HTTP samples. Rechecking every fresh capture with the final checker
+rejects all 468 deliberate mutations and verifies original source, fixture and
+dependency hashes. No additional medium-or-higher defect is established by these
+histories at 8e7546. The remaining full-controller and proof boundaries above
+remain open.

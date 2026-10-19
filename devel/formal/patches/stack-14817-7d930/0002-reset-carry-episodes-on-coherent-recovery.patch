@@ -1,0 +1,174 @@
+Subject: [PATCH 2/2] Reset missing-cluster carry episodes on coherent recovery
+
+Base: kgateway-dev/kgateway 7d930bb2183b90343f9613f03dcd345973fc9f38
+Apply in numeric order.
+
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -97,6 +97,10 @@
+ 		return
+ 	}
+ 
++	// A coherent build ends every missing-cluster episode, even if no deferred
++	// build follows until after the old carry deadline. The transition-grace
++	// path above does the same before it decides whether to hold the routes.
++	delete(s.gate.carriedSince, proxyKey)
+ 	if err := s.gate.publishLocked(ctx, s.xdsCache, proxyKey, snapWrap.snap, snapWrap.synthesizedEndpoints, snapWrap.endpointHashes); err != nil {
+ 		// A rejected snapshot leaves the client on its previous config; surface
+ 		// it rather than silently dropping the update.
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace.go b/pkg/kgateway/proxy_syncer/dereference_grace.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace.go
+@@ -229,6 +229,11 @@
+ 	cache envoycache.SnapshotCache,
+ 	snapWrap XdsSnapWrapper,
+ ) error {
++	// No referenced cluster is missing in a coherent build. End its previous
++	// carry episodes even when a reference-ahead window still holds the routes.
++	// Do not do this in publishLocked: a deferred build also uses that helper
++	// and must preserve the ages of clusters it is still carrying.
++	delete(g.carriedSince, snapWrap.proxyKey)
+ 	published := g.connectionSnapshotLocked(cache, snapWrap.proxyKey)
+ 	if published == nil {
+ 		// Never published: there is nothing to carry forward, and nothing can
+diff --git a/pkg/kgateway/proxy_syncer/carry_recovery_test.go b/pkg/kgateway/proxy_syncer/carry_recovery_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/kgateway/proxy_syncer/carry_recovery_test.go
+@@ -0,0 +1,135 @@
++package proxy_syncer
++
++import (
++	"testing"
++	"time"
++
++	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
++	"github.com/stretchr/testify/assert"
++	"github.com/stretchr/testify/require"
++
++	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
++)
++
++// A recovered backend must receive a new carry interval when it disappears
++// again, including when the coherent recovery also starts a reference-ahead
++// hold. Only missing-cluster episodes end here; readiness and route holds
++// remain independent.
++func TestCoherentRecoveryStartsNewCarryEpisode(t *testing.T) {
++	// The package shares transition counters across tests.
++	t.Cleanup(func() {
++		clusterScopingTransitionsTotal.DeletePartialMatch(
++			metrics.Label{Name: gatewayLabel, Value: "unknown"},
++			metrics.Label{Name: namespaceLabel, Value: "unknown"},
++		)
++	})
++	for _, mode := range []string{"unscoped", "dereference-grace", "reference-ahead"} {
++		t.Run(mode, func(t *testing.T) {
++			pt := newPublishGateTestTranslator(t, false, 2*time.Hour)
++			pt.gate.warmWithholdBound = time.Hour
++			switch mode {
++			case "dereference-grace":
++				pt.gate.dereferenceGrace = time.Hour
++			case "reference-ahead":
++				pt.gate.referenceAhead = time.Hour
++			}
++			build := func(version string, refs, clusters []string) XdsSnapWrapper {
++				return XdsSnapWrapper{snap: carryTestBuild(t, version, refs, clusters...), proxyKey: publishGateTestClient}
++			}
++			pt.syncXds(t.Context(), build("ready", []string{"a"}, []string{"a"}))
++			missing := build("missing-1", []string{"a"}, nil)
++			missing.missingReferenced = []string{"a"}
++			pt.syncXds(t.Context(), missing)
++			require.Contains(t, servedSnapshot(t, pt).GetResources(resourcev3.ClusterType), "a")
++
++			// Advance the episode's age under the gate lock. Keep the original
++			// callback so we can also exercise a stopped timer already queued
++			// when recovery wins the lock, without a wall-clock race in the test.
++			pt.gate.mu.Lock()
++			pt.gate.carriedSince[publishGateTestClient]["a"] = time.Now().Add(-2 * time.Hour)
++			obsoleteExpiry := pt.gate.carryExpiry[publishGateTestClient]
++			pt.gate.mu.Unlock()
++			require.NotNil(t, obsoleteExpiry)
++
++			refs, clusters := []string{"a"}, []string{"a"}
++			if mode == "reference-ahead" {
++				refs, clusters = []string{"a", "b"}, []string{"a", "b"}
++			}
++			pt.syncXds(t.Context(), build("recovered", refs, clusters))
++			pt.gate.mu.Lock()
++			recovered := len(pt.gate.carriedSince[publishGateTestClient]) == 0
++			held := pt.gate.pendingFlips[publishGateTestClient] != nil
++			pt.gate.mu.Unlock()
++			assert.True(t, recovered, "coherent recovery ends the old carry episode")
++			assert.Equal(t, mode == "reference-ahead", held)
++
++			if mode == "reference-ahead" {
++				clusters = []string{"b"}
++			} else {
++				clusters = nil
++			}
++			missing = build("missing-2", refs, clusters)
++			missing.missingReferenced = []string{"a"}
++			started := time.Now()
++			pt.syncXds(t.Context(), missing)
++			assert.Contains(t, servedSnapshot(t, pt).GetResources(resourcev3.ClusterType), "a",
++				"a recovered cluster must receive a fresh carry interval on its next disappearance")
++			pt.gate.mu.Lock()
++			since := pt.gate.carriedSince[publishGateTestClient]["a"]
++			pt.gate.mu.Unlock()
++			assert.False(t, since.Before(started), "the second episode starts at the second disappearance")
++
++			// A timer from the first episode cannot expire the second one.
++			pt.gate.fireCarryExpiry(t.Context(), pt.xdsCache, publishGateTestClient, obsoleteExpiry)
++			assert.Contains(t, servedSnapshot(t, pt).GetResources(resourcev3.ClusterType), "a")
++		})
++	}
++}
++
++// Recovery of one cluster must not renew the deadline of another cluster that
++// remains absent. Publishing a per-cluster-resolved snapshot is not recovery.
++func TestPartialRecoveryPreservesOtherCarryDeadline(t *testing.T) {
++	pt := newPublishGateTestTranslator(t, false, 2*time.Hour)
++	pt.gate.warmWithholdBound = time.Hour
++	refs := []string{"a", "b"}
++	build := func(version string, clusters, missing []string) XdsSnapWrapper {
++		return XdsSnapWrapper{
++			snap:     carryTestBuild(t, version, refs, clusters...),
++			proxyKey: publishGateTestClient, missingReferenced: missing,
++		}
++	}
++	pt.syncXds(t.Context(), build("ready", refs, nil))
++	pt.syncXds(t.Context(), build("both-missing", nil, refs))
++	pt.gate.mu.Lock()
++	original := pt.gate.carriedSince[publishGateTestClient]["b"]
++	pt.gate.mu.Unlock()
++	require.False(t, original.IsZero())
++
++	pt.syncXds(t.Context(), build("a-recovered", []string{"a"}, []string{"b"}))
++	pt.gate.mu.Lock()
++	_, carryingA := pt.gate.carriedSince[publishGateTestClient]["a"]
++	bSince := pt.gate.carriedSince[publishGateTestClient]["b"]
++	pt.gate.mu.Unlock()
++	assert.False(t, carryingA)
++	assert.Equal(t, original, bSince, "an unrelated recovery must not renew b")
++
++	started := time.Now()
++	pt.syncXds(t.Context(), build("both-missing-again", nil, refs))
++	pt.gate.mu.Lock()
++	aSince := pt.gate.carriedSince[publishGateTestClient]["a"]
++	bSince = pt.gate.carriedSince[publishGateTestClient]["b"]
++	pt.gate.carriedSince[publishGateTestClient]["b"] = time.Now().Add(-2 * time.Hour)
++	expiry := pt.gate.carryExpiry[publishGateTestClient]
++	pt.gate.mu.Unlock()
++	assert.False(t, aSince.Before(started))
++	assert.Equal(t, original, bSince)
++	require.NotNil(t, expiry)
++
++	expiry.timer.Stop() // invoke the callback deterministically below
++	pt.gate.fireCarryExpiry(t.Context(), pt.xdsCache, publishGateTestClient, expiry)
++	served := servedSnapshot(t, pt)
++	assert.Contains(t, served.GetResources(resourcev3.ClusterType), "a", "the fresh episode remains open")
++	assert.NotContains(t, served.GetResources(resourcev3.ClusterType), "b", "the uninterrupted episode expires")
++	assert.Contains(t, served.GetResources(resourcev3.EndpointType), "a")
++	assert.NotContains(t, served.GetResources(resourcev3.EndpointType), "b")
++}

@@ -1,0 +1,597 @@
+//go:build formal_live
+
+package setup
+
+// Injected test driver. The actual NewControlPlane, JWT authenticator, callback
+// chain, watch policy, KRT queue and publishing gate are used. Kubernetes' token
+// review service is a fixture authority; translated snapshot inputs are supplied.
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	envoycorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoylistenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	routerv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3"
+	hcmv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	server "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"istio.io/istio/pkg/security"
+	authv1 "k8s.io/api/authentication/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
+	ktesting "k8s.io/client-go/testing"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+)
+
+const (
+	liveBudget     = 1200 * time.Millisecond
+	liveCarryBound = 1400 * time.Millisecond
+)
+
+type liveTrace struct {
+	mu     sync.Mutex
+	start  time.Time
+	events []map[string]any
+}
+
+func (tr *liveTrace) add(kind string, fields map[string]any) {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	fields["schema"], fields["seq"], fields["kind"], fields["elapsed_ns"] = 1, len(tr.events)+1, kind, time.Since(tr.start).Nanoseconds()
+	tr.events = append(tr.events, fields)
+}
+
+func liveHash(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
+
+type liveCache struct {
+	cache.SnapshotCache
+	trace      *liveTrace
+	controller string
+}
+
+func (c *liveCache) SetSnapshot(ctx context.Context, key string, snap cache.ResourceSnapshot) error {
+	versions, hashes := map[string]string{}, map[string]map[string]string{}
+	for _, typ := range []string{resource.ClusterType, resource.EndpointType, resource.ListenerType, resource.RouteType, resource.SecretType} {
+		versions[typ], hashes[typ] = snap.GetVersion(typ), map[string]string{}
+		for name, item := range snap.GetResources(typ) {
+			data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(item)
+			if err != nil {
+				return err
+			}
+			hashes[typ][name] = liveHash(data)
+		}
+	}
+	c.trace.add("install-attempt", map[string]any{"controller": c.controller, "key": key, "versions": versions, "resources": hashes})
+	err := c.SnapshotCache.SetSnapshot(ctx, key, snap)
+	installed, readErr := c.SnapshotCache.GetSnapshot(key)
+	status := "ok"
+	if err != nil {
+		status = err.Error()
+	}
+	c.trace.add("install-result", map[string]any{"controller": c.controller, "key": key, "version": snap.GetVersion(resource.RouteType), "status": status, "readback_matches": readErr == nil && installed == snap})
+	return err
+}
+
+type liveRelay struct {
+	discovery.UnimplementedAggregatedDiscoveryServiceServer
+	mu         sync.Mutex
+	trace      *liveTrace
+	target     string
+	addresses  map[string]string
+	generation int
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+}
+
+func (p *liveRelay) handoff(target string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.target = target
+	p.trace.add("handoff", map[string]any{"target": target})
+	if p.cancel != nil {
+		p.cancel()
+	}
+}
+
+func (p *liveRelay) StreamAggregatedResources(front discovery.AggregatedDiscoveryService_StreamAggregatedResourcesServer) error {
+	p.wg.Add(1)
+	defer p.wg.Done()
+	p.mu.Lock()
+	p.generation++
+	gen, target := p.generation, p.target
+	ctx, cancel := context.WithCancel(front.Context())
+	p.cancel = cancel
+	p.trace.add("stream-open", map[string]any{"controller": target, "generation": gen})
+	p.mu.Unlock()
+	defer cancel()
+	defer p.trace.add("stream-close", map[string]any{"controller": target, "generation": gen})
+	conn, err := grpc.NewClient(p.addresses[target], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	md, _ := metadata.FromIncomingContext(front.Context())
+	up, err := discovery.NewAggregatedDiscoveryServiceClient(conn).StreamAggregatedResources(metadata.NewOutgoingContext(ctx, md.Copy()), grpc.WaitForReady(true))
+	if err != nil {
+		return err
+	}
+	p.wg.Go(func() {
+		for {
+			r, e := front.Recv()
+			if e != nil {
+				cancel()
+				return
+			}
+			p.trace.add("request", map[string]any{"controller": target, "generation": gen, "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce, "names": r.ResourceNames, "nack": r.ErrorDetail != nil})
+			if up.Send(r) != nil {
+				cancel()
+				return
+			}
+		}
+	})
+	for {
+		r, e := up.Recv()
+		if e != nil {
+			return e
+		}
+		hashes := []string{}
+		for _, item := range r.Resources {
+			hashes = append(hashes, liveHash(item.Value))
+		}
+		p.trace.add("send-attempt", map[string]any{"controller": target, "generation": gen, "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.Nonce, "resources": hashes})
+		e = front.Send(r)
+		status := "ok"
+		if e != nil {
+			status = e.Error()
+		}
+		p.trace.add("send-result", map[string]any{"controller": target, "generation": gen, "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.Nonce, "status": status})
+		if e != nil {
+			return e
+		}
+	}
+}
+
+func livePacked(t *testing.T, msg proto.Message) *anypb.Any {
+	t.Helper()
+	a, e := utils.MessageToAny(msg)
+	require.NoError(t, e)
+	return a
+}
+
+func liveBuild(t *testing.T, version string, missingCluster, missingEndpoints bool) proxy_syncer.FormalLiveBuild {
+	t.Helper()
+	ads := &envoycorev3.ConfigSource{ResourceApiVersion: envoycorev3.ApiVersion_V3, ConfigSourceSpecifier: &envoycorev3.ConfigSource_Ads{Ads: &envoycorev3.AggregatedConfigSource{}}}
+	c := &envoyclusterv3.Cluster{Name: "a", ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}, EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: ads}}
+	routes := &envoyroutev3.RouteConfiguration{Name: "routes", VirtualHosts: []*envoyroutev3.VirtualHost{{Name: "all", Domains: []string{"*"}, Routes: []*envoyroutev3.Route{
+		{Match: &envoyroutev3.RouteMatch{PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/backend"}}, Action: &envoyroutev3.Route_Route{Route: &envoyroutev3.RouteAction{ClusterSpecifier: &envoyroutev3.RouteAction_Cluster{Cluster: "a"}}}},
+		{Match: &envoyroutev3.RouteMatch{PathSpecifier: &envoyroutev3.RouteMatch_Prefix{Prefix: "/"}}, Action: &envoyroutev3.Route_DirectResponse{DirectResponse: &envoyroutev3.DirectResponseAction{Status: 200, Body: &envoycorev3.DataSource{Specifier: &envoycorev3.DataSource_InlineString{InlineString: version}}}}},
+	}}}}
+	hcm := &hcmv3.HttpConnectionManager{StatPrefix: "formal-live", RouteSpecifier: &hcmv3.HttpConnectionManager_Rds{Rds: &hcmv3.Rds{RouteConfigName: "routes", ConfigSource: ads}}, HttpFilters: []*hcmv3.HttpFilter{{Name: "envoy.filters.http.router", ConfigType: &hcmv3.HttpFilter_TypedConfig{TypedConfig: livePacked(t, &routerv3.Router{})}}}}
+	l := &envoylistenerv3.Listener{Name: "front", Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "0.0.0.0", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 10000}}}}, FilterChains: []*envoylistenerv3.FilterChain{{Filters: []*envoylistenerv3.Filter{{Name: "envoy.filters.network.http_connection_manager", ConfigType: &envoylistenerv3.Filter_TypedConfig{TypedConfig: livePacked(t, hcm)}}}}}}
+	cla := &envoyendpointv3.ClusterLoadAssignment{ClusterName: "a"}
+	if !missingEndpoints {
+		cla.Endpoints = []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: &envoycorev3.Address{Address: &envoycorev3.Address_SocketAddress{SocketAddress: &envoycorev3.SocketAddress{Address: "127.0.0.1", PortSpecifier: &envoycorev3.SocketAddress_PortValue{PortValue: 10001}}}}}}}}}}
+	}
+	snap := &cache.Snapshot{}
+	clusters, endpoints := []cachetypes.Resource{c}, []cachetypes.Resource{cla}
+	if missingCluster {
+		clusters, endpoints = nil, nil
+	}
+	cdsVersion := "cds-a"
+	if missingCluster {
+		cdsVersion = "cds-missing"
+	}
+	snap.Resources[cachetypes.Cluster] = cache.NewResources(cdsVersion, clusters)
+	// The bridge applies the production version constructor after classifying
+	// ready versus synthesized/absent assignments; the ready contribution is 17.
+	snap.Resources[cachetypes.Endpoint] = cache.NewResources("17", endpoints)
+	snap.Resources[cachetypes.Listener] = cache.NewResources("lds-front", []cachetypes.Resource{l})
+	snap.Resources[cachetypes.Route] = cache.NewResources(version, []cachetypes.Resource{routes})
+	snap.Resources[cachetypes.Secret] = cache.NewResources("sds-none", nil)
+	w := proxy_syncer.FormalLiveBuild{Snapshot: snap}
+	if missingCluster {
+		w.MissingClusters = []string{"a"}
+	}
+	if missingEndpoints {
+		w.MissingEndpoints = []string{"a"}
+	}
+	return w
+}
+
+func liveDocker(t *testing.T, args ...string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	b, e := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	require.NoError(t, e, "docker %v: %s", args, b)
+	return strings.TrimSpace(string(b))
+}
+
+func liveGet(url string) (int, []byte, error) {
+	c := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
+	r, e := c.Get(url)
+	if e != nil {
+		return 0, nil, e
+	}
+	defer r.Body.Close()
+	b, e := io.ReadAll(r.Body)
+	return r.StatusCode, b, e
+}
+
+func liveRouteVersion(body []byte) string {
+	var dump struct {
+		Configs []struct {
+			Routes []struct {
+				Version string `json:"version_info"`
+				Route   struct {
+					Name string `json:"name"`
+				} `json:"route_config"`
+			} `json:"dynamic_route_configs"`
+		} `json:"configs"`
+	}
+	if json.Unmarshal(body, &dump) != nil {
+		return ""
+	}
+	for _, c := range dump.Configs {
+		for _, r := range c.Routes {
+			if r.Route.Name == "routes" {
+				return r.Version
+			}
+		}
+	}
+	return ""
+}
+
+func liveClusterState(body []byte) (bool, bool) {
+	var dump struct {
+		Configs []struct {
+			Active []struct {
+				Cluster struct {
+					Name string `json:"name"`
+				} `json:"cluster"`
+			} `json:"dynamic_active_clusters"`
+			Warming []struct {
+				Cluster struct {
+					Name string `json:"name"`
+				} `json:"cluster"`
+			} `json:"dynamic_warming_clusters"`
+		} `json:"configs"`
+	}
+	if json.Unmarshal(body, &dump) != nil {
+		return false, false
+	}
+	active, warming := false, false
+	for _, cfg := range dump.Configs {
+		for _, c := range cfg.Active {
+			active = active || c.Cluster.Name == "a"
+		}
+		for _, c := range cfg.Warming {
+			warming = warming || c.Cluster.Name == "a"
+		}
+	}
+	return active, warming
+}
+
+func liveWait(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(20 * time.Second):
+		t.Fatal(what)
+	}
+}
+
+type liveFixture struct {
+	t                      *testing.T
+	ctx                    context.Context
+	trace                  *liveTrace
+	dir, admin, front, key string
+	a, b                   *proxy_syncer.FormalLiveBridge
+	relay                  *liveRelay
+	negative               bool
+}
+
+func newLiveFixture(t *testing.T, scenario string) *liveFixture {
+	t.Helper()
+	t.Setenv("KGW_XDS_FIRST_CONNECT_DELAY", "0s")
+	dir, image := os.Getenv("FORMAL_LIVE_OUT"), os.Getenv("FORMAL_LIVE_IMAGE")
+	require.NotEmpty(t, dir)
+	require.Contains(t, image, "@sha256:")
+	workers, e := strconv.Atoi(os.Getenv("FORMAL_LIVE_WORKERS"))
+	require.NoError(t, e)
+	require.True(t, workers == 1 || workers == 2)
+	// Keep the control planes alive until Envoy has been removed. t.Context
+	// cancels before Cleanup, which otherwise creates a spurious third stream.
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &liveFixture{t: t, ctx: ctx, dir: dir, key: xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "formal-live", "gw"), negative: os.Getenv("FORMAL_LIVE_SUBJECT") == "7d930", trace: &liveTrace{start: time.Now()}}
+	f.trace.add("profile", map[string]any{"revision": os.Getenv("FORMAL_LIVE_REVISION"), "scenario": scenario, "image": image, "workers": workers, "budget_ns": liveBudget.Nanoseconds(), "carry_bound_ns": liveCarryBound.Nanoseconds(), "setup": "NewControlPlane", "auth": "KubeJWTAuthenticator with fixture TokenReview authority", "ordered": true, "nack_policy": true, "reconnect_policy": true, "timer": "elapsed time.AfterFunc", "translation": "supplied snapshots", "eds_cache": true, "fetch_timeout": "unset"})
+	t.Cleanup(func() {
+		f.trace.add("end", map[string]any{"failed": t.Failed()})
+		file, e := os.OpenFile(filepath.Join(dir, "events.jsonl"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		require.NoError(t, e)
+		defer file.Close()
+		f.trace.mu.Lock()
+		defer f.trace.mu.Unlock()
+		for _, event := range f.trace.events {
+			require.NoError(t, json.NewEncoder(file).Encode(event))
+		}
+	})
+	t.Cleanup(cancel)
+	addresses := map[string]string{}
+	for _, name := range []string{"A", "B"} {
+		kube := fake.NewClientset()
+		kube.PrependReactor("create", "tokenreviews", func(action ktesting.Action) (bool, runtime.Object, error) {
+			req := action.(ktesting.CreateAction).GetObject().(*authv1.TokenReview)
+			if req.Spec.Token != "formal-live-token" || len(req.Spec.Audiences) != 1 || req.Spec.Audiences[0] != "kgateway" {
+				return true, nil, errors.New("wrong token review request")
+			}
+			f.trace.add("authenticated", map[string]any{"controller": name})
+			return true, &authv1.TokenReview{ObjectMeta: metav1.ObjectMeta{}, Status: authv1.TokenReviewStatus{Authenticated: true, Audiences: []string{"kgateway"}, User: authv1.UserInfo{Username: "system:serviceaccount:formal-live:gw", Groups: []string{"system:serviceaccounts"}}}}, nil
+		})
+		cb, builder, state := krtcollections.NewUniquelyConnectedClients(nil, true)
+		clients := builder(ctx, krtutil.KrtOptions{}, nil)
+		require.True(t, clients.WaitUntilSynced(ctx.Done()))
+		recorder := server.CallbackFuncs{StreamRequestFunc: func(_ int64, r *discovery.DiscoveryRequest) error {
+			f.trace.add("admitted-request", map[string]any{"controller": name, "key": r.GetNode().GetMetadata().GetFields()[xds.RoleKey].GetStringValue(), "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.ResponseNonce})
+			return nil
+		}}
+		lis, e := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, e)
+		addresses[name] = lis.Addr().String()
+		c := NewControlPlane(ctx, lis, chainCallbacks(cb, recorder), []security.Authenticator{NewKubeJWTAuthenticator(kube)}, true, nil, true, true, true)
+		wrapped := &liveCache{SnapshotCache: c, trace: f.trace, controller: name}
+		driver := proxy_syncer.NewFormalLiveBridge(ctx, wrapped, state, clients, f.key, liveBudget, liveCarryBound, func(kind string, fields map[string]any) { fields["controller"] = name; f.trace.add(kind, fields) })
+		t.Cleanup(driver.Close)
+		if name == "A" {
+			f.a = driver
+		} else {
+			f.b = driver
+		}
+	}
+	f.a.Put(liveBuild(t, "old-a", false, false))
+	liveWait(t, f.a.Completed("old-a"), "A initial build")
+	f.b.Put(liveBuild(t, "accepted-b", false, false))
+	liveWait(t, f.b.Completed("accepted-b"), "B initial build")
+	f.relay = &liveRelay{trace: f.trace, target: "B", addresses: addresses}
+	lis, e := net.Listen("tcp", "0.0.0.0:0") //nolint:gosec // The temporary ADS listener must be reachable from the Envoy container.
+	require.NoError(t, e)
+	g := grpc.NewServer()
+	discovery.RegisterAggregatedDiscoveryServiceServer(g, f.relay)
+	go func() { _ = g.Serve(lis) }()
+	t.Cleanup(func() { g.Stop(); f.relay.wg.Wait() })
+	bootstrap := fmt.Sprintf(`{"node":{"id":"envoy.formal-live","cluster":"formal-live","metadata":{"role":"deliberately-untrusted"}},"admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":9901}}},"layered_runtime":{"layers":[{"name":"formal","static_layer":{"envoy.restart_features.use_eds_cache_for_ads":true}}]},"dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"},"initial_metadata":[{"key":"authorization","value":"Bearer formal-live-token"}]}]},"cds_config":{"ads":{},"resource_api_version":"V3"},"lds_config":{"ads":{},"resource_api_version":"V3"}},"static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}],"listeners":[{"name":"fixture-upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"fixture","route_config":{"name":"fixture","virtual_hosts":[{"name":"fixture","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"backend-a"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}`, lis.Addr().(*net.TCPAddr).Port)
+	config := filepath.Join(dir, "bootstrap.json")
+	require.NoError(t, os.WriteFile(config, []byte(bootstrap), 0o600))
+	args := []string{"run", "-d", "--rm"}
+	if !strings.Contains(liveDocker(t, "info", "--format", "{{.OperatingSystem}}"), "Docker Desktop") {
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
+	}
+	args = append(args, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-v", config+":/probe.json:ro", image, "-c", "/probe.json", "--concurrency", strconv.Itoa(workers), "--disable-hot-restart", "--log-level", "info")
+	id := liveDocker(t, args...)
+	t.Cleanup(func() {
+		logs := liveDocker(t, "logs", id)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "envoy.log"), []byte(logs), 0o600))
+		liveDocker(t, "rm", "-f", id)
+	})
+	f.admin, f.front = "http://"+liveDocker(t, "port", id, "9901/tcp"), "http://"+liveDocker(t, "port", id, "10000/tcp")
+	f.observe("accepted-b", "accepted-b", 200)
+	trafficCtx, stop := context.WithCancel(ctx)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-trafficCtx.Done():
+				return
+			case <-time.After(25 * time.Millisecond):
+				code, body, err := liveGet(f.front)
+				status := "ok"
+				if err != nil {
+					status = err.Error()
+				}
+				f.trace.add("traffic", map[string]any{"code": code, "body": string(body), "status": status})
+			}
+		}
+	}()
+	t.Cleanup(func() { stop(); <-stopped })
+	return f
+}
+
+func (f *liveFixture) observe(phase, version string, backend int) {
+	f.t.Helper()
+	var dump, before, after, back []byte
+	require.Eventually(f.t, func() bool {
+		code, b, e := liveGet(f.front)
+		if e != nil || code != 200 || string(b) != version {
+			return false
+		}
+		before = b
+		code, d, e := liveGet(f.admin + "/config_dump?include_eds")
+		if e != nil || code != 200 || liveRouteVersion(d) != version {
+			return false
+		}
+		active, warming := liveClusterState(d)
+		if (backend == 200 && (!active || warming)) || (backend == 503 && active) {
+			return false
+		}
+		dump = d
+		code, b, e = liveGet(f.front + "/backend")
+		if e != nil || code != backend {
+			return false
+		}
+		back = b
+		code, after, e = liveGet(f.front)
+		return e == nil && code == 200 && string(after) == version
+	}, 25*time.Second, 20*time.Millisecond, "independent admin and traffic phase %s", phase)
+	file := phase + "-config.json"
+	require.NoError(f.t, os.WriteFile(filepath.Join(f.dir, file), dump, 0o600))
+	f.trace.add("observation", map[string]any{"phase": phase, "version": version, "config": file, "sha256": liveHash(dump), "before": string(before), "after": string(after), "backend_code": backend, "backend_body": string(back)})
+}
+
+func (f *liveFixture) toA() {
+	f.relay.handoff("A")
+	require.Eventually(f.t, func() bool { return f.a.Warm() && f.b.Disconnected() }, 20*time.Second, time.Millisecond, "real callbacks classify returning Envoy as warm and close B")
+	f.trace.add("warm-confirmed", map[string]any{"controller": "A", "key": f.key})
+}
+
+func (f *liveFixture) queued() {
+	b := f.a.Pause("queued-old")
+	defer b.Release()
+	defer b.ReleaseTail()
+	f.a.Put(liveBuild(f.t, "queued-old", false, false))
+	liveWait(f.t, b.Arrived, "old event queued")
+	f.a.Put(liveBuild(f.t, "candidate-d", false, true))
+	f.toA()
+	require.Equal(f.t, "candidate-d", f.a.State()["pending"])
+	f.trace.add("pending-confirmed", f.a.State())
+	b.Release()
+	liveWait(f.t, b.Done, "old event attempted publication")
+	if f.negative {
+		f.observe("rollback", "queued-old", 200)
+	} else {
+		f.observe("natural-budget", "candidate-d", 200)
+	}
+	b.ReleaseTail()
+	f.a.Put(liveBuild(f.t, "recovered", false, false))
+	liveWait(f.t, f.a.Completed("recovered"), "coherent recovery")
+	f.observe("recovered", "recovered", 200)
+}
+
+func (f *liveFixture) carry() {
+	f.toA()
+	f.observe("connected-a", "old-a", 200)
+	f.a.Put(liveBuild(f.t, "carry-first", true, false))
+	liveWait(f.t, f.a.Completed("carry-first"), "first carry")
+	f.observe("carry-first", "carry-first", 200)
+	first := time.Now()
+	time.Sleep(liveCarryBound / 2)
+	f.a.Put(liveBuild(f.t, "coherent", false, false))
+	liveWait(f.t, f.a.Completed("coherent"), "coherent recovery")
+	f.observe("coherent", "coherent", 200)
+	remaining := liveCarryBound + 200*time.Millisecond - time.Since(first)
+	if remaining > 0 {
+		time.Sleep(remaining)
+	}
+	f.a.Put(liveBuild(f.t, "carry-second", true, false))
+	liveWait(f.t, f.a.Completed("carry-second"), "second carry")
+	f.trace.add("second-carry", f.a.State())
+	if f.negative {
+		f.observe("premature-drop", "carry-second", 503)
+	} else {
+		f.observe("fresh-carry", "carry-second", 200)
+		time.Sleep(200 * time.Millisecond)
+		f.observe("fresh-carry-stable", "carry-second", 200)
+		f.observe("natural-carry-expiry", "carry-second", 503)
+	}
+	f.a.Put(liveBuild(f.t, "recovered", false, false))
+	liveWait(f.t, f.a.Completed("recovered"), "final recovery")
+	f.observe("recovered", "recovered", 200)
+}
+
+func (f *liveFixture) reset() {
+	b := f.a.Pause("queued-old")
+	defer b.Release()
+	defer b.ReleaseTail()
+	f.a.Put(liveBuild(f.t, "queued-old", false, true))
+	liveWait(f.t, b.Arrived, "queued build")
+	f.a.Put(liveBuild(f.t, "candidate-d", false, true))
+	reset, replay := f.a.PauseReset(), f.a.PauseReplay()
+	defer reset.Release()
+	defer replay.Release()
+	f.relay.handoff("A")
+	liveWait(f.t, reset.Arrived, "reset entered")
+	b.Release()
+	select {
+	case <-b.Done:
+		f.t.Fatal("build completed inside reset/adoption critical section")
+	case <-time.After(100 * time.Millisecond):
+	}
+	f.trace.add("reset-excluded", map[string]any{})
+	reset.Release()
+	liveWait(f.t, replay.Arrived, "admission replay selected")
+	f.a.Put(liveBuild(f.t, "recovered", false, false))
+	replay.Release()
+	liveWait(f.t, b.Done, "queued event rejected")
+	require.Eventually(f.t, f.a.Warm, 20*time.Second, time.Millisecond)
+	f.trace.add("warm-confirmed", map[string]any{"controller": "A", "key": f.key})
+	time.Sleep(liveBudget + 100*time.Millisecond)
+	f.observe("no-leaked-timer", "accepted-b", 200)
+	b.ReleaseTail()
+	liveWait(f.t, f.a.Completed("recovered"), "current queued event delivered")
+	f.observe("recovered", "recovered", 200)
+}
+
+func (f *liveFixture) cancelPending() {
+	b := f.a.Pause("queued-old")
+	defer b.Release()
+	defer b.ReleaseTail()
+	f.a.Put(liveBuild(f.t, "queued-old", false, true))
+	liveWait(f.t, b.Arrived, "queued event")
+	f.a.Put(liveBuild(f.t, "candidate-d", false, true))
+	f.toA()
+	require.Equal(f.t, "candidate-d", f.a.State()["pending"])
+	stale := f.a.CapturePending()
+	f.trace.add("captured-undrained", map[string]any{"version": "candidate-d"})
+	f.a.Put(liveBuild(f.t, "recovered", false, false))
+	b.Release()
+	b.ReleaseTail()
+	liveWait(f.t, f.a.Completed("recovered"), "coherent publish cancels pending timer")
+	f.observe("cancelled-before-expiry", "recovered", 200)
+	f.trace.add("invoke-cancelled", map[string]any{"version": "candidate-d"})
+	stale()
+	time.Sleep(liveBudget + 100*time.Millisecond)
+	f.observe("after-cancelled-callback", "recovered", 200)
+}
+
+func TestFormalLivePublication(t *testing.T) {
+	for _, scenario := range []string{"queued", "carry", "reset", "cancel"} {
+		t.Run(scenario, func(t *testing.T) {
+			f := newLiveFixture(t, scenario)
+			switch scenario {
+			case "queued":
+				f.queued()
+			case "carry":
+				f.carry()
+			case "reset":
+				f.reset()
+			case "cancel":
+				f.cancelPending()
+			}
+		})
+	}
+}

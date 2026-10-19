@@ -173,6 +173,11 @@ def main():
     for fixture in fixtures:
         target = source / profile["package"] / fixture["target"]
         shutil.copyfile(HERE / fixture["file"], target)
+    # New implementation APIs can require a fixture to mirror initialization
+    # that production already performs. Keep the immutable fixture unchanged;
+    # apply exact-hash, test-only adapters after materializing it in scratch.
+    apply_test_adapters(source, profile.get("fixture_adapters", []))
+    evidence["fixture_adapters"] = profile.get("fixture_adapters", [])
     selector = "^(" + "|".join(profile["tests"]) + ")$"
     code, receipt, log = run_make(source, profile["package"], selector, artifacts, "properties")
     expected = "pass" if args.expect_fixed else profile.get("expected_by_test", profile["expected"])

@@ -2,10 +2,23 @@
 
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 57 configurations, including
+`make formal-tlc` is the required runner. It checks 60 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.
+
+The October 17 extension adds `AdmissionPending`, focused on the later 530c4f
+split reset/adopt race and 8e7546's atomic critical section. One key, two
+generations, three candidate rows and one pending timer separate cache install,
+Send and application. An accepted queued build can arm a timer in the reset/adopt
+gap; a superseded admission replay is skipped, and expiry uses the adopted
+generation. Split mode violates `NoEarlierPendingResponse`. Atomic reset/adopt
+passes in 12 states; a separate, unadopted captured-origin policy passes in 22.
+The [live profile](../live/README.md) attempts publication inside the repaired
+critical section and observes the subsequent timer window and recovery. Model
+atomicity remains an explicit source assumption, not a verified Go refinement.
+The invariant concerns previous-generation pending work, not general revision
+freshness or an end-to-end deadline. Existing models are preserved unchanged.
 
 The latest stack review adds two history models tied to executable Go/cache
 counterexamples at `7d930bb2183b`:

@@ -1,0 +1,266 @@
+//go:build formal_live
+
+package proxy_syncer
+
+// Test bridge, injected only into an isolated source copy with the formal_live
+// build tag. Original production files remain byte-for-byte unchanged. This
+// exposes the private publishing half; it supplies already-translated snapshots
+// and scheduling barriers, never replacement publication decisions.
+import (
+	"context"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	envoycachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"istio.io/istio/pkg/kube/controllers"
+	"istio.io/istio/pkg/kube/krt"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/krtcollections"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+)
+
+type FormalLiveBarrier struct {
+	Arrived      chan struct{}
+	Resume       chan struct{}
+	Done         chan struct{}
+	ReleaseAfter chan struct{}
+	once         sync.Once
+	afterOnce    sync.Once
+}
+
+func NewFormalLiveBarrier() *FormalLiveBarrier {
+	return &FormalLiveBarrier{Arrived: make(chan struct{}), Resume: make(chan struct{}), Done: make(chan struct{}), ReleaseAfter: make(chan struct{})}
+}
+
+func (b *FormalLiveBarrier) Release()     { b.once.Do(func() { close(b.Resume) }) }
+func (b *FormalLiveBarrier) ReleaseTail() { b.afterOnce.Do(func() { close(b.ReleaseAfter) }) }
+
+type FormalLiveBuild struct {
+	Snapshot         *cache.Snapshot
+	MissingClusters  []string
+	MissingEndpoints []string
+}
+
+type FormalLiveBridge struct {
+	translator ProxyTranslator
+	state      krtcollections.XDSClientState
+	key        string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	put        func(XdsSnapWrapper)
+	get        func(string) *XdsSnapWrapper
+	mu         sync.Mutex
+	barriers   map[string]*FormalLiveBarrier
+	completed  map[string]chan struct{}
+	replay     atomic.Pointer[FormalLiveBarrier]
+	emit       func(string, map[string]any)
+	reclaimer  *snapshotReclaimer
+}
+
+func NewFormalLiveBridge(ctx context.Context, c cache.SnapshotCache, state krtcollections.XDSClientState,
+	clients krt.Collection[ir.UniquelyConnectedClient], key string, budget, carryBound time.Duration,
+	emit func(string, map[string]any),
+) *FormalLiveBridge {
+	ctx, cancel := context.WithCancel(ctx)
+	d := &FormalLiveBridge{
+		state: state, key: key, ctx: ctx, cancel: cancel, emit: emit,
+		barriers: map[string]*FormalLiveBarrier{}, completed: map[string]chan struct{}{},
+	}
+	rows := krt.NewStaticCollection[XdsSnapWrapper](nil, nil, krt.WithStop(ctx.Done()))
+	d.put, d.get = rows.UpdateObject, rows.GetKey
+	d.translator = NewProxyTranslator(c, state, budget, true, clusterScoping{})
+	g := d.translator.gate
+	g.warmWithholdBound = carryBound
+	// BEGIN_CURRENT_BUILD: absent on the historical 7d930 subject.
+	g.currentBuild = func(key string) *XdsSnapWrapper {
+		d.emit("build-check", map[string]any{"generation": g.connGen[key]})
+		return rows.GetKey(key)
+	}
+	// END_CURRENT_BUILD
+	d.translator.registerConnectionStartHooks(ctx, state, func(key string) *XdsSnapWrapper {
+		row := rows.GetKey(key)
+		if b := d.replay.Swap(nil); b != nil {
+			d.emit("replay-selected", map[string]any{"version": row.snap.GetVersion(resource.RouteType)})
+			close(b.Arrived)
+			select {
+			case <-b.Resume:
+			case <-ctx.Done():
+			}
+		}
+		return row
+	})
+	// The same synchronous state and connected-client cleanup used by Start.
+	clients.RegisterBatch(func(events []krt.Event[ir.UniquelyConnectedClient]) {
+		for _, event := range events {
+			name := event.Latest().ResourceName()
+			if event.Event == controllers.EventDelete && clients.GetKey(name) == nil {
+				g.clientDeparted(name)
+			}
+		}
+	}, false)
+	d.reclaimer = newSnapshotReclaimer(func(key string) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		reclaimed := g.reclaimDeparted(c, key, state)
+		d.emit("reclaim", map[string]any{"key": key, "cleared": reclaimed})
+		return reclaimed
+	})
+	g.afterPublish = func(key string) {
+		if clients.GetKey(key) == nil {
+			d.reclaimer.clientDeparted(key)
+		}
+	}
+	clients.RegisterBatch(func(events []krt.Event[ir.UniquelyConnectedClient]) {
+		for _, event := range events {
+			key := event.Latest().ResourceName()
+			if event.Event == controllers.EventDelete {
+				d.reclaimer.clientDeparted(key)
+			} else {
+				d.reclaimer.clientConnected(key)
+			}
+		}
+	}, true)
+	rows.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			w := event.Latest()
+			v := w.snap.GetVersion(resource.RouteType)
+			d.mu.Lock()
+			b, done := d.barriers[v], d.completed[v]
+			if done == nil {
+				done = make(chan struct{})
+				d.completed[v] = done
+			}
+			d.mu.Unlock()
+			if b != nil {
+				d.emit("queued", map[string]any{"version": v})
+				close(b.Arrived)
+				select {
+				case <-b.Resume:
+				case <-ctx.Done():
+					return
+				}
+			}
+			d.emit("event-begin", map[string]any{"version": v})
+			d.translator.syncXds(ctx, w)
+			d.emit("event-end", map[string]any{"version": v})
+			close(done)
+			if b != nil {
+				close(b.Done)
+				select {
+				case <-b.ReleaseAfter:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}, false)
+	return d
+}
+
+func (d *FormalLiveBridge) Put(build FormalLiveBuild) {
+	// Match the production input/version contract. A ready row contributes 17
+	// throughout these histories; an underived assignment uses its name hash,
+	// and an absent assignment contributes nothing. Opaque fixture versions
+	// would introduce artificial EDS pushes and could conceal replay failures.
+	snap := *build.Snapshot
+	rows := map[string]uint64{}
+	if len(build.MissingEndpoints) == 0 {
+		rows["a"] = 17
+	}
+	hashes := endpointSetHashes(snap.Resources[envoycachetypes.Endpoint].Items, rows, nil)
+	snap.Resources[envoycachetypes.Endpoint] = versionEndpointSet(snap.Resources[envoycachetypes.Endpoint], hashes)
+	w := XdsSnapWrapper{
+		snap: &snap, proxyKey: d.key,
+		missingReferenced: build.MissingClusters, missingEndpointsReferenced: build.MissingEndpoints,
+		synthesizedEndpoints: build.MissingEndpoints,
+		endpointHashes:       hashes,
+	}
+	d.emit("candidate", map[string]any{"version": w.snap.GetVersion(resource.RouteType)})
+	d.put(w)
+}
+
+func (d *FormalLiveBridge) Pause(version string) *FormalLiveBarrier {
+	b := NewFormalLiveBarrier()
+	d.mu.Lock()
+	d.barriers[version] = b
+	d.mu.Unlock()
+	return b
+}
+
+func (d *FormalLiveBridge) Completed(version string) <-chan struct{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	ch := d.completed[version]
+	if ch == nil {
+		ch = make(chan struct{})
+		d.completed[version] = ch
+	}
+	return ch
+}
+
+func (d *FormalLiveBridge) PauseReplay() *FormalLiveBarrier {
+	b := NewFormalLiveBarrier()
+	d.replay.Store(b)
+	return b
+}
+
+func (d *FormalLiveBridge) PauseReset() *FormalLiveBarrier {
+	b := NewFormalLiveBarrier()
+	// BEGIN_RESET: only the repaired subject exposes this existing test seam.
+	d.translator.gate.connectionReset = func(string) {
+		d.emit("reset-enter", map[string]any{})
+		close(b.Arrived)
+		select {
+		case <-b.Resume:
+		case <-d.ctx.Done():
+		}
+	}
+	// END_RESET
+	return b
+}
+
+func (d *FormalLiveBridge) Warm() bool         { return d.state.HasPriorXDSVersion(d.key) }
+func (d *FormalLiveBridge) Disconnected() bool { return d.state.RunIfDisconnected(d.key, func() {}) }
+
+func (d *FormalLiveBridge) State() map[string]any {
+	g := d.translator.gate
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	pending := ""
+	if st := g.pending[d.key]; st != nil && st.wrap.snap != nil {
+		pending = st.wrap.snap.GetVersion(resource.RouteType)
+	}
+	carryAge := int64(-1)
+	if since := g.carriedSince[d.key]["a"]; !since.IsZero() {
+		carryAge = time.Since(since).Milliseconds()
+	}
+	return map[string]any{"pending": pending, "carry_age_ms": carryAge, "generation": g.connGen[d.key]}
+}
+
+// Retain a callback while its payload is still present; invoking it after a
+// coherent publication isolates cancellation from the drained-payload guard.
+func (d *FormalLiveBridge) CapturePending() func() {
+	g := d.translator.gate
+	g.mu.Lock()
+	st := g.pending[d.key]
+	undrained := st != nil && st.wrap.snap != nil
+	g.mu.Unlock()
+	if !undrained {
+		panic("no undrained pending timer")
+	}
+	return func() { g.firePending(d.ctx, d.translator.xdsCache, d.key, st) }
+}
+
+func (d *FormalLiveBridge) Close() {
+	d.cancel()
+	d.translator.gate.clientDeparted(d.key)
+	d.reclaimer.mu.Lock()
+	for _, timer := range d.reclaimer.pending {
+		timer.Stop()
+	}
+	d.reclaimer.mu.Unlock()
+}

@@ -1,0 +1,19 @@
+package proxy_syncer
+import (
+ "context"
+ "istio.io/istio/pkg/kube/controllers"
+ "istio.io/istio/pkg/kube/krt"
+)
+// Test-only adapter: the exact update/delete dispatch of the pinned
+// perclientSnapCollection callback, without its metrics. No production edits.
+func (t ProxyTranslator) syncXdsEvents(ctx context.Context, events []krt.Event[XdsSnapWrapper], _ func(string) *XdsSnapWrapper, connected func(string) bool) {
+ for _, e := range events {
+  if e.Event != controllers.EventDelete {
+   snapWrap := e.Latest()
+   t.syncXds(ctx, snapWrap)
+  } else {
+   name := e.Latest().ResourceName()
+   t.clientSnapshotDeleted(name, connected(name))
+  }
+ }
+}

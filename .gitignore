@@ -65,3 +65,12 @@ dist/
 *-build
 
 nohup.out
+
+# Generated formal-validation receipts (existing tracked evidence is unaffected).
+/devel/formal/receipts/
+/devel/formal/patches/*/validation.json
+/devel/formal/patches/*/evidence/**/*.log
+/devel/formal/patches/*/evidence/**/*.jsonl
+/devel/formal/patches/*/evidence/**/*.jsonl.gz
+/devel/formal/patches/*/evidence/**/*receipt.json
+/devel/formal/patches/*/evidence/tlc/deferred-wide-model.txt

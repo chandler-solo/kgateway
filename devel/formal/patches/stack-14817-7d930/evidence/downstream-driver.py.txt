@@ -1,0 +1,22 @@
+import hashlib
+import json
+from pathlib import Path
+import sys
+sys.path.insert(0, '/Users/davidchandler/k_kxdsformalmethods/devel/formal/regressions')
+import adoption
+import check
+root=Path(__file__).resolve().parent
+patched=root/'release-applied'
+# Use the supplied proposed implementation instead of downloading the baseline.
+# All downstream source changes and Go dependency replacement stay in scratch.
+adoption.materialize=lambda profile,out:check.materialize(profile,out,patched)
+sys.argv=['adoption.py','--stack-profile','stack-14817-7d930bb2183b',
+ '--downstream','/Users/davidchandler/gg_reviewing-14184-and-13586-stack',
+ '--artifacts',str(root/'release-downstream')]
+adoption.main()
+p=root/'release-downstream/receipt.json'
+r=json.loads(p.read_text())
+r['subject']='downstream scratch copy with proposed upstream patches'
+r['upstream_source']=str(patched)
+r['patch_sha256']={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('/Users/davidchandler/k_kxdsformalmethods/devel/formal/patches/stack-14817-7d930').glob('*.patch')}
+p.write_text(json.dumps(r,indent=2)+'\n')

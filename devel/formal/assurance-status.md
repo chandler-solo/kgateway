@@ -6,40 +6,64 @@ actions are tracked in [research-findings.md](research-findings.md).
 
 ## Profile
 
-Current review profile `stack-14817-7d930bb2183b`, with research HEAD
-`c80355675bea099274a8b14a6584023d4179b044` plus the review/runner changes.
-The earlier held-reconnect extension is committed at that HEAD; its runtime
-observations remain pinned to stack `215ebe8e6450`.
+October 17 profiles: `stack-14817-8e75468f4d0e` and
+[`live/profiles.json`](live/profiles.json), with research HEAD
+`c80355675bea099274a8b14a6584023d4179b044` plus research harness/documentation
+changes. The earlier held-reconnect observations remain pinned to stack
+`215ebe8e6450`; the new live profile separately checks repaired `8e75468f4d0e`
+and historical `7d930bb2183b`.
 
 | Subject | Identity and disposition |
 |---|---|
-| Research | Committed lifecycle/composed-runtime work plus the new review, regression profile and two bounded models; no production publication code or Lean theorem changed |
-| Updated proposed stack | `kgateway-dev/kgateway` stack 14817, tip `7d930bb2183b90343f9613f03dcd345973fc9f38`, base `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`; **not ported into this tree**; historical `e7b569a1fb78`, `215ebe8e6450` and `1e417af796a2` profiles preserved |
-| Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; adoption requires constructor and connection-state integration |
+| Research | Lifecycle/composed-runtime work plus live setup/KRT/timer histories and a bounded admission/timer model; no production publication code or Lean theorem changed |
+| Updated proposed stack | `kgateway-dev/kgateway` stack 14817, pinned at `8e75468f4d0e055deb9b8f34e4254831f011e2a3`; **not ported into this tree**; earlier immutable profiles and counterexamples preserved |
+| Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; ordinary upgrade adaptation is assumed; no downstream controller deployment validated |
 | Deployment | No live deployment identified by this review |
 | Cache/server | `v0.14.1-0.20260702184136-1cd1226616f5`; parked-watch retention and unsubscribe fixes present, immediate-decline loss remains |
-| Research/upstream default Envoy tag | `envoyproxy/envoy:v1.39.4` in the current Makefile; not an immutable binary identity |
+| Research/upstream default Envoy | v1.39.4; the new live profile pins digest `sha256:74bd4eb5629708d3fadca1a5e6b85d208f338d7bb54e06b69565905c5294cc01` separately from the older v1.39.1 direct probes |
 | Downstream defaults | enterprise standard/FIPS `v1.39.1-patch1`; four direct runtime scenarios now measured on each digest in `runtime/profiles.json`; downstream controller integration remains unvalidated |
 | Recorded direct Envoy evidence | v1.39.1 digest `sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4`; bootstrap/runtime-specific |
 | Lean | `leanprover/lean4:v4.30.0` |
 
-The [latest review](reviews/2026-10-16-stack-14817-7d930.md) confirms all fourteen
-previous properties pass. Two longer histories fail: a queued KRT event receives
-the newly adopted connection generation, and coherent recovery preserves an old
-carry age. `make formal-stack-7d930` requires fourteen passes and these two
-specific failures. Green means the pinned outcomes reproduced, not correctness.
-Both failures have real Go/cache probes, three race-enabled repetitions and
-bounded TLC counterexamples. Proposed repair abstractions pass in eighteen
-and eighty-two states; no Go refinement or new-tip Envoy application is proved.
-The [historical profiles](regressions/profiles.json) and their counterexamples
-remain intact. New-tip downstream adoption still reproduces the constructor and
-**four** missing-method failures alongside 137 passing cases in five packages.
-Research has no stack publication budgets, scoping, NACK decorator, reconnect
-rewriting, or snapshot reclaimer; this update does not imply those fixes landed.
+The [October 16 review](reviews/2026-10-16-stack-14817-7d930.md) remains a record
+of 7d930's queued-build rollback and stale carry-age bugs. Its immutable profile
+still requires those failures. Both properties pass after the author's fixes
+at 530c4f. A further split reset/adoption timer race was reproduced on that
+revision; 8e7546 makes cleanup and generation adoption one critical section.
+`make formal-stack-8e7546` checks all sixteen historical desired properties plus
+the native atomic reset/adoption test. Fixture-only adapters mirror the new
+current-row initialization and explicitly assert the original initial-cache
+premise; historical fixture bytes and assertions are retained.
 
-The [fresh receipt](receipts/2026-10-16-stack-7d930.json) records a complete
+The [live publication harness](live/README.md) now composes actual
+NewControlPlane/authenticator/connection callbacks/watch policies, real KRT
+delivery, elapsed timers, gRPC, independent Envoy admin state and HTTP
+forwarding. Its fixture TokenReview authority and supplied translated snapshots
+remain explicit boundaries. The additional bridge is test-only; original stack
+production files and dependencies are unchanged. The research implementation
+has not adopted the stack's production publication policy.
+
+October 17 execution completed the corrected EDS-version profile: 24 repaired
+history runs pass, and both historical bugs reproduce in all six image/worker
+profiles (12 counterexample runs). The 36 race-enabled histories produced 156
+independent admin/HTTP application observations and 2,390 continuous HTTP
+samples on arm64 Docker Desktop. A final offline audit with the current checker
+rejected 13 mutations per real capture (468 checks), verified exact
+fixture/source/dependency hashes,
+and left the original captures unchanged. Arbitrary fixture EDS versions are
+not used: ready/carried A remains at contribution/version 17 and an omitted
+assignment uses 0, with independent byte/version consistency checks.
+
+The 17-property Go profile, all 60 expected TLC outcomes, 31 Python harness
+tests, workflow lint and scoped Go lint pass. Earlier exploratory captures with
+opaque fixture EDS versions are superseded by this corrected run. Generated
+execution receipts and logs are external artifacts, not repository content.
+These results establish the specified controlled histories, not a complete
+controller, deployment, unbounded-concurrency or temporal-liveness proof.
+
+The October 16 validation recorded a complete
 required research run: 50 Lean expectations, 598 Go cases, 27 snapshot/four
-lifecycle traces, all 57 required TLC configurations, sixteen direct Envoy
+lifecycle traces, the then-required 57 TLC configurations, sixteen direct Envoy
 scenarios and all historical controls. The original wide ADS bounds remain
 deferred. Four upstream runtime scenarios passed initially; an enterprise
 warming attempt failed before ADS traffic, then all eight standard/FIPS
@@ -68,6 +92,8 @@ whole-repository/e2e/image/deployment validation.
 | Controlled lifecycle observations | Four real cache/server traces, strict Go replay and negative mutation tests | Records readback, watch disposition, response callbacks, mock transport and nonce-correlated ACK/NACK; separate from snapshot traces and live Envoy observations; no internal enqueue or application inference |
 | Held reconnect rollback and recovery | Actual pinned stack gate, GCP cache/server, real gRPC and independent Envoy admin/HTTP observations on upstream and enterprise standard/FIPS | One key/proxy, two controlled controller instances, warm-state stub, delayed Send and direct timer invocation; raw unordered ADS excludes setup decorators/authentication; six observations per image; no downstream controller or natural timer scheduling evidence |
 | Held reconnect model projection | Same TLA Step relation checks three observed 13-state projections; fenced bounded model checks 20 states plus conditional temporal recovery | Existential interval adapter is not verified refinement; malformed projection must fail ReplayOK; old-cache/stale-timer negative controls required; fairness of input, transport, application and timer execution remains assumed |
+| Repaired publication histories through setup and Envoy | Live profile at 8e7546 checks queued reconnect, fresh carry episodes, reset/adoption exclusion and undrained cancellation; historical 7d930 supplies two required application-level counterexamples | Supplied translated snapshots and fixture TokenReview; Start wiring mirrored by a tagged test bridge; finite observations on one key/proxy; no full controller, shared-key, TLS or deployment proof |
+| Admission/pending timer boundary | AdmissionPending checks atomic reset/adoption in 12 states and a separate captured-origin proposal in 22; split mode reproduces NoEarlierPendingResponse failure | Bounded safety model; no Go refinement map, general revision-freshness theorem or temporal liveness claim |
 | GCP named response guard | Executable characterization on the pinned dependency | Parked declines retain watches; immediate declines still lose requests; subscription history and response events matter independently of version equality |
 | GCP ordering/callback behavior | Implementation-characterized | Scripted schedules; ordering is not an activation barrier |
 | NACK resend recurrence | Raw-cache/research recurrence characterized with a scripted client and real Envoy (RF-012); new stack's bounded retry/backoff passes Go/server tests | The proposed decorator changes recurrence; no new live Envoy retry/cancellation measurement or CPU bound |

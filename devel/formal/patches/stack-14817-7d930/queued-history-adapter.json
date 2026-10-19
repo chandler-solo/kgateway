@@ -1,0 +1,7 @@
+{
+  "reason": "The pinned history copied the old producer callback and called the explicit-wrapper test seam. Drive the new production callback; preserve the schedule and every assertion. Applied only in scratch, never to the historical fixture.",
+  "file": "pkg/kgateway/proxy_syncer/review_new_histories_test.go",
+  "sha256": "b8b56106615106860c024c6abd87da2ad8e8cc4a5c5bfe7340ec8942553ca2c0",
+  "before": "\trows.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {\n\t\tfor _, event := range events {\n\t\t\tw := event.Latest()\n\t\t\tif w.snap.GetVersion(rsrc.RouteType) == \"queued-old\" {\n\t\t\t\tclose(paused)\n\t\t\t\t<-resume // scheduling pause before the production syncXds call\n\t\t\t\tp.syncXds(ctx, w)\n\t\t\t\tclose(oldDone)\n\t\t\t} else {\n\t\t\t\tp.syncXds(ctx, w)\n\t\t\t\tclose(currentDone)\n\t\t\t}\n\t\t}\n\t}, false)",
+  "after": "\trows.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {\n\t\tfor _, event := range events {\n\t\t\tw := event.Latest()\n\t\t\tif w.snap.GetVersion(rsrc.RouteType) == \"queued-old\" {\n\t\t\t\tclose(paused)\n\t\t\t\t<-resume // scheduling pause before the production syncXds call\n\t\t\t\tp.syncXdsEvents(ctx, []krt.Event[XdsSnapWrapper]{event}, rows.GetKey, func(string) bool { return true })\n\t\t\t\tclose(oldDone)\n\t\t\t} else {\n\t\t\t\tp.syncXdsEvents(ctx, []krt.Event[XdsSnapWrapper]{event}, rows.GetKey, func(string) bool { return true })\n\t\t\t\tclose(currentDone)\n\t\t\t}\n\t\t}\n\t}, false)"
+}
