@@ -1,0 +1,800 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -467,23 +467,12 @@
+ 	// engine removed. Off by default.
+ 	XdsSnapshotConsistencyCheck bool `split_words:"true" default:"false"`
+ 
+-	// ClusterDiscoveryMode selects which backends reach a proxy's CDS.
+-	// Supported values are:
+-	//
+-	//   - "ALL" (default): every backend in discovery scope becomes a cluster.
+-	//   - "REFERENCED": only clusters the generated configuration references.
+-	//
+-	// REFERENCED is what shrinks config_dump and per-proxy stats cardinality on
+-	// clusters with many Services and few routed ones. It is experimental: a
+-	// cluster now enters and leaves a proxy's CDS as configuration starts and
+-	// stops naming it, and Envoy does not necessarily apply CDS before RDS
+-	// within one snapshot, so either transition could briefly 503 NC where ALL
+-	// never would. Two windows close that: ClusterReferenceAhead delivers a new
+-	// cluster before the configuration that names it, and
+-	// ClusterDereferenceGrace keeps a de-referenced one until the configuration
+-	// that stopped naming it has landed. Both are elapsed time, not
+-	// acknowledgements: each must exceed the fleet's worst-case propagation. A
+-	// gateway whose routes pick a destination at request time stays unscoped.
++	// ClusterDiscoveryMode selects "ALL" (default) or "REFERENCED" backends for CDS.
++	// REFERENCED is experimental. It reduces config and stats, but reference changes can race
++	// CDS/RDS application and cause no-cluster 503s. ClusterReferenceAhead delays
++	// new references; ClusterDereferenceGrace delays removals. These elapsed-time
++	// windows allow propagation but do not confirm delivery or application.
++	// Runtime selectors with unenumerated destinations force unscoped discovery.
+ 	ClusterDiscoveryMode ClusterDiscoveryMode `split_words:"true" default:"ALL"`
+ 
+ 	// ClusterDereferenceGrace is how long a cluster that has left the emitted
+@@ -502,28 +491,18 @@
+ 	// mode, where nothing is ever de-referenced.
+ 	ClusterDereferenceGrace time.Duration `split_words:"true" default:"5s"`
+ 
+-	// ClusterReferenceAhead is how long a cluster new to a proxy is delivered
+-	// ahead of the configuration that names it, in REFERENCED mode only: the
+-	// proxy's routes, listeners and secrets stay at the versions it has until
+-	// every new cluster they name has been sent for this long. Each cluster's
+-	// window starts when it is first sent, and every cluster counts, not only
+-	// route targets (a listener that starts calling a new ext_authz cluster
+-	// waits for it too).
+-	//
+-	// Publishing both in one coherent snapshot is not enough. Envoy does not
+-	// necessarily apply CDS before RDS within a snapshot, and after a CDS
+-	// response is sent its watch stays closed until Envoy ACKs, so a route
+-	// update landing in that window reaches the wire on the still-open RDS
+-	// watch before any CDS carrying its destination. That is reachable whenever
+-	// a route is retargeted while an earlier cluster update is un-ACKed, and no
+-	// server option closes it. Emit-all never had the problem because
+-	// destinations were delivered long before any route named them.
+-	//
+-	// The cost is route-edit latency, but only for edits that introduce a
+-	// destination the proxy has never seen. 0 publishes cluster and route
+-	// together and accepts the blip. A hold is additionally bounded by
+-	// PerClientPublishBudget from when it began, so a misconfigured window, or
+-	// a stream of new clusters, cannot pin updates.
++	// ClusterReferenceAhead holds routes, listeners and secrets while newly emitted
++	// clusters get a per-cluster propagation window, in REFERENCED mode only.
++	// Include ancillary filter clusters, not just route targets. Start each window
++	// at publication; cache installation does not establish remote application.
++	//
++	// Publishing CDS and RDS together is insufficient: an outstanding CDS response
++	// can leave only the RDS watch open, even with ordered ADS. The hold gives CDS
++	// time to arrive first without using ACK as an application barrier.
++	//
++	// Zero publishes cluster and route together, accepting the ordering risk.
++	// When enabled, PerClientPublishBudget caps the episode so long windows or
++	// repeated additions cannot pin updates indefinitely.
+ 	ClusterReferenceAhead time.Duration `split_words:"true" default:"2s"`
+ 
+ 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping.go b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+@@ -24,10 +24,8 @@
+ 	// still published. Meaningless with scoping off, where no cluster ever
+ 	// leaves the set, so it is read only through DereferenceGrace.
+ 	dereferenceGrace time.Duration
+-	// referenceAhead is how long a route update onto a newly-emitted cluster is
+-	// held so the cluster lands first. Meaningless with scoping off, where every
+-	// backend's cluster was delivered long before any route could name it, so it
+-	// is read only through ReferenceAhead.
++	// referenceAhead delays references to newly emitted clusters. Read through
++	// ReferenceAhead, which disables it when scoping is off.
+ 	referenceAhead time.Duration
+ }
+ 
+@@ -39,10 +37,7 @@
+ 	}
+ }
+ 
+-// ReferenceAhead is how long a route update onto a newly-emitted cluster is
+-// held, and 0 whenever CDS is not scoped: with every backend emitted
+-// unconditionally there is no such thing as a cluster new to this client, so
+-// there is nothing to deliver ahead of anything.
++// ReferenceAhead returns the addition window, or zero for unscoped discovery.
+ func (c clusterScoping) ReferenceAhead() time.Duration {
+ 	if !c.ScopesClusters() {
+ 		return 0
+@@ -98,8 +93,7 @@
+ 	return s
+ }
+ 
+-// scopedClustersWithReferenceAhead is the enabled configuration with an
+-// addition-side window, for tests that exercise the retarget transition.
++// scopedClustersWithReferenceAhead enables addition-window tests.
+ func scopedClustersWithReferenceAhead(ahead time.Duration) clusterScoping {
+ 	s := scopedClusters()
+ 	s.referenceAhead = ahead
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping_test.go b/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
+@@ -81,11 +81,8 @@
+ 		"a disabled projection must equal the zero value, so it never invalidates the row")
+ }
+ 
+-// TestDisabledScopingHasNoTransitionWindows completes the off-switch: with CDS
+-// unscoped, neither window is in force, whatever the durations are set to.
+-// Nothing is ever de-referenced and no cluster is ever new to a client, so a
+-// gate built from this configuration keeps no per-client transition state and
+-// every publish takes the path it took before the feature existed.
++// Unscoped discovery disables both transition windows regardless of configured
++// durations, preserving the existing path without per-client transition state.
+ func TestDisabledScopingHasNoTransitionWindows(t *testing.T) {
+ 	configured := clusterScopingFrom(apisettings.Settings{
+ 		ClusterDiscoveryMode:    apisettings.ClusterDiscoveryAll,
+@@ -103,9 +100,7 @@
+ 		"the coherent publish path must be untouched when CDS is not scoped")
+ }
+ 
+-// TestScopedClustersUsesTheConfiguredWindows is the negative control: the
+-// durations must actually reach the gate once scoping is on, or the windows
+-// would silently never apply.
++// Scoped discovery must pass configured durations to the gate.
+ func TestScopedClustersUsesTheConfiguredWindows(t *testing.T) {
+ 	configured := clusterScopingFrom(apisettings.Settings{
+ 		ClusterDiscoveryMode:    apisettings.ClusterDiscoveryReferenced,
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace.go b/pkg/kgateway/proxy_syncer/dereference_grace.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace.go
+@@ -154,21 +154,12 @@
+ 	}
+ }
+ 
+-// fireDereferencePrune re-publishes the client's latest build now that a grace
+-// window has closed, under the same lock as every other publication, so
+-// pruning cannot race a coherent publish. It acts only for the arming that
+-// scheduled it: a callback already waiting on the lock when its timer was
+-// re-armed or cancelled, or its state replaced, does nothing.
+-//
+-// The build goes through the same path a new build of its kind takes
+-// (publishBuildLocked), so the prune makes the whole hold decision again
+-// rather than a narrower one of its own. A held flip stays held for whichever
+-// reason holds it: an unready cluster, which re-resolving the build finds,
+-// and also a cluster still inside its reference-ahead window, which only the
+-// reference-ahead check sees. Releasing either here would send routes onto a
+-// cluster before the hold meant them to go, at a de-reference grace that has
+-// nothing to do with it. The expired clusters drop out the same way they do
+-// for a new build, and the path re-arms the prune for any window still open.
++// fireDereferencePrune replays the latest build under the gate lock, checking
++// state and arming epoch. Ignore replaced or canceled callbacks.
++//
++// Use publishBuildLocked so pruning repeats the full hold decision, including
++// unready-target and reference-ahead holds. Removal expiry must not release an
++// unrelated hold. Normal resolution drops expired clusters and re-arms the rest.
+ func (g *publishGate) fireDereferencePrune(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, state *dereferenceState, epoch uint64) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+@@ -190,10 +181,9 @@
+ 	}
+ }
+ 
+-// publishBuildLocked publishes a build through the path a new build of its
+-// kind takes: per-cluster resolution for a deferred build, the transition
+-// graces for a coherent one. Timers that re-publish a stored build use it, so
+-// every publication makes the same hold decision. Callers must hold g.mu.
++// publishBuildLocked routes stored builds through normal deferred resolution
++// or coherent transition handling, preserving every hold decision.
++// Callers must hold g.mu.
+ func (g *publishGate) publishBuildLocked(ctx context.Context, cache envoycache.SnapshotCache, wrap XdsSnapWrapper) error {
+ 	if wrap.deferred() {
+ 		return g.resolveDeferredLocked(ctx, cache, wrap)
+@@ -206,14 +196,9 @@
+ // path stays exactly as it was.
+ func (g *publishGate) retainsDereferenced() bool { return g.dereferenceGrace > 0 }
+ 
+-// publishWithTransitionGraces publishes a coherent snapshot with both emitted-set
+-// transitions made safe: clusters whose de-reference window is still open are
+-// carried forward, and a route update that retargets onto a cluster the client
+-// has never been sent is held back until that cluster has had time to land.
+-//
+-// Both transitions produce coherent builds -- nothing is missing, the emitted
+-// set simply changed -- so neither reaches the deferred resolution path that
+-// handles unready clusters. This is their equivalent.
++// publishWithTransitionGraces retains removal-graced clusters and holds routing
++// updates for newly emitted clusters. Both transitions can produce coherent
++// builds, so they also need handling outside deferred resolution.
+ func (g *publishGate) publishWithTransitionGraces(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -221,8 +206,7 @@
+ ) error {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+-	// A new build, like those publish and resolveDeferred take. The timers
+-	// that re-publish a stored build go straight to the Locked form.
++	// Handle a new build; stored timer replays use the Locked form.
+ 	if !g.beginBuildLocked(snapWrap) {
+ 		return nil
+ 	}
+@@ -246,11 +230,8 @@
+ 	graced, soonest := g.graceDereferencedClustersLocked(
+ 		snapWrap.proxyKey, published, snapWrap.snap.Resources[envoycachetypes.Cluster], time.Now())
+ 
+-	// The addition side rides the same path, for the same reason: a retarget
+-	// onto a cluster the client has never been sent is a coherent build too.
+-	// Holding routes, listeners and secrets at their published versions
+-	// publishes the new cluster's CDS by itself, and the existing flip-release
+-	// timer sends the route once the window closes.
++	// A coherent retarget may still need an addition window. Publish CDS/EDS
++	// while retaining routes, listeners and secrets; the flip timer releases them.
+ 	now := time.Now()
+ 	newlyEmitted, aheadFor := g.referenceAheadLocked(snapWrap.proxyKey, snapWrap, published, now)
+ 
+@@ -265,9 +246,8 @@
+ 		publishErr = g.publishHeldLocked(ctx, cache, snapWrap, held, nil, newlyEmitted, aheadFor, edsHashes, now)
+ 	} else {
+ 		resolved, _, edsHashes := resolveDeferredPerCluster(snapWrap, published, false, graced, g.lastPublishedEDSLocked(snapWrap.proxyKey))
+-		// Through publishLocked like any other publish without a hold: this
+-		// build supersedes a pending first publish or flip release, whose
+-		// timer would otherwise re-publish its older build when it fires.
++		// Use publishLocked to cancel first-publication and flip timers superseded
++		// by this no-hold build.
+ 		publishErr = g.publishLocked(ctx, cache, snapWrap.proxyKey, resolved, snapWrap.synthesizedEndpoints, edsHashes)
+ 	}
+ 	if publishErr != nil {
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -69,18 +69,10 @@
+ 		return
+ 	}
+ 
+-	// The snapshot publishes no unrequested resource by construction:
+-	// snapshotPerClient drops CLAs for clusters absent from CDS, and the
+-	// per-cluster resolution only carries cluster/CLA pairs — so we do not
+-	// rely on a post-hoc MakeConsistent() pass, which would also have mutated
+-	// the snapshot shared with the krt cache. Publication goes through the
+-	// publish gate so it settles synthesized CLAs, cancels any pending bounded
+-	// publish or flip release, and cannot race an expiring budget timer.
+-	// Both emitted-set transitions produce coherent builds -- a cluster losing
+-	// its last reference, and a route gaining a destination never sent to this
+-	// client -- so neither can ride the deferred path above. When either window
+-	// is configured, a coherent snapshot publishes through the path that makes
+-	// them safe.
++	// Filter orphan CLAs and carry pairs without MakeConsistent mutating shared
++	// snapshots. The gate settles placeholders and coordinates publication timers.
++	// Both removal and addition transitions can be coherent; apply configured
++	// windows on that path as well as deferred resolution.
+ 	if s.gate.appliesTransitionGraces() {
+ 		if err := s.gate.publishWithTransitionGraces(ctx, s.xdsCache, snapWrap); err != nil {
+ 			logPublishFailure(proxyKey, err)
+diff --git a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+--- a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
++++ b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+@@ -37,10 +37,8 @@
+ 	// bound: the cluster's last config is no longer served and routes to it
+ 	// fail until it reappears.
+ 	boundedPublishCarryExpired = "carry_expired"
+-	// boundedPublishReferenceAhead marks a hold kept only for reference-ahead
+-	// windows (KGW_CLUSTER_REFERENCE_AHEAD, REFERENCED cluster discovery) that
+-	// the publish budget released before the windows closed. A hold whose
+-	// windows close first ends as designed and is not a bounded publish.
++	// boundedPublishReferenceAhead counts a pure addition hold shortened by the
++	// publication budget. Natural window expiry is not a bounded publication.
+ 	boundedPublishReferenceAhead = "reference_ahead"
+ 
+ 	withheldReasonPriorXDSVersion = "prior_xds_version"
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -164,9 +164,8 @@
+ 	// once at construction.
+ 	dereferenceGrace time.Duration
+ 
+-	// referenceAhead is how long a route update onto a newly-emitted cluster is
+-	// held so the cluster lands first; 0 disables the hold. Only non-zero when CDS
+-	// is scoped. Written once at construction.
++	// referenceAhead delays routing updates after new cluster publication.
++	// Zero disables it; only scoped CDS enables it. Set at construction.
+ 	referenceAhead time.Duration
+ 
+ 	mu           sync.Mutex
+@@ -201,9 +200,8 @@
+ 	// published under in the snapshot now in the cache (eds_set_version.go).
+ 	publishedEDS map[string]map[string]uint64
+ 	dereferenced map[string]*dereferenceState
+-	// aheadSent records, per client, when each cluster still inside its
+-	// reference-ahead window was first sent (referenceAheadLocked).
+-	// clientDeparted removes a client's records.
++	// aheadSent tracks per-client publication times for open addition windows.
++	// Departure clears the client's records.
+ 	aheadSent map[string]map[string]time.Time
+ }
+ 
+@@ -243,20 +241,17 @@
+ 	// wrap is the latest deferred wrapper whose flip was held; at expiry it
+ 	// is re-resolved against the then-published snapshot with holds disabled.
+ 	wrap XdsSnapWrapper
+-	// blocking are the latest unready (flip-blocking) cluster names; ahead are
+-	// the latest clusters held for their reference-ahead window. Either may be
+-	// empty, not both.
++	// blocking lists unready targets; ahead lists open addition windows.
++	// At least one must be non-empty.
+ 	blocking []string
+ 	ahead    []string
+-	// since is when the hold episode began; unreadySince when its current run
+-	// of holds with an unready cluster began (zero while the latest held build
+-	// has none). Each bounds its own release (flipReleaseDeadline).
++	// since starts the episode; unreadySince starts its current unready run,
++	// or is zero without unready targets. flipReleaseDeadline bounds each.
+ 	since        time.Time
+ 	unreadySince time.Time
+ 	timer        *time.Timer
+-	// deadline is when the timer fires; epoch identifies its arming, so a
+-	// callback that started before a re-arm does nothing. capped records that
+-	// the budget from since cut the reasons' own deadline short.
++	// deadline schedules release; epoch rejects callbacks from old armings.
++	// capped marks a reason's deadline shortened by the episode budget.
+ 	deadline time.Time
+ 	epoch    uint64
+ 	capped   bool
+@@ -519,9 +514,7 @@
+ 	now := time.Now()
+ 	graced, soonestExpiry := g.graceDereferencedClustersLocked(
+ 		snapWrap.proxyKey, published, snapWrap.snap.Resources[envoycachetypes.Cluster], now)
+-	// A deferred build can introduce a cluster new to the client too (a
+-	// retarget published alongside an unrelated gap); it needs delivering
+-	// ahead of the configuration that names it as much as a coherent one.
++	// Deferred builds can also add clusters and need the same addition window.
+ 	newlyEmitted, aheadFor := g.referenceAheadLocked(snapWrap.proxyKey, snapWrap, published, now)
+ 	resolved, heldBlocking, edsHashes := resolveDeferredPerCluster(snapWrap, published, true, graced, g.lastPublishedEDSLocked(snapWrap.proxyKey))
+ 	var publishErr error
+@@ -809,16 +802,11 @@
+ 	return nil
+ }
+ 
+-// flipReleaseDeadline is when a hold is released if no build resolves it
+-// first. Each reason keeps its own deadline, re-evaluated on every held
+-// publish: an unready cluster gets the publish budget from when its run of
+-// unready holds began (the cluster may never become ready, #14352), and a
+-// newly-emitted cluster its reference-ahead window (aheadFor, until the last
+-// open window closes). The routing types are released together, so the hold
+-// lasts until the later of the two -- but never past the budget from the
+-// episode's start, so no stream of reasons can pin a client's routing updates
+-// indefinitely. capped reports that this cap applied; bounded is false when
+-// nothing bounds the hold: an unready cluster with the budget disabled.
++// flipReleaseDeadline combines the current hold reasons. Unready targets get
++// a budget from unreadySince; additions wait for the last open window. Release
++// routing types together at the later deadline, capped by the budget from
++// episode start so changing reasons cannot pin updates indefinitely.
++// capped reports that limit; bounded=false means an unready hold with no budget.
+ func (g *publishGate) flipReleaseDeadline(pf *pendingFlipRelease, now time.Time, aheadFor time.Duration) (deadline time.Time, capped, bounded bool) {
+ 	if len(pf.blocking) > 0 {
+ 		if g.budget <= 0 {
+@@ -839,8 +827,8 @@
+ 	return deadline, false, true
+ }
+ 
+-// armFlipReleaseLocked (re)arms pf's release for deadline. An unchanged
+-// deadline keeps the running timer. Callers must hold g.mu.
++// armFlipReleaseLocked arms pf for deadline, retaining an unchanged timer.
++// Callers must hold g.mu.
+ func (g *publishGate) armFlipReleaseLocked(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, pf *pendingFlipRelease, deadline time.Time) {
+ 	if pf.timer != nil && pf.deadline.Equal(deadline) {
+ 		return
+@@ -855,19 +843,15 @@
+ 		g.mu.Lock()
+ 		defer g.mu.Unlock()
+ 		if g.pendingFlips[proxyKey] != pf || pf.epoch != epoch {
+-			return // re-armed, released by a no-hold publish, or a later episode's hold
++			return // Re-arming, no-hold publication or a later episode superseded this callback.
+ 		}
+ 		g.releaseFlipLocked(ctx, cache, proxyKey, pf)
+ 	})
+ }
+ 
+-// fireFlipRelease releases pf now, as its timer does at its deadline: it
+-// re-resolves the latest held wrapper against the currently-published
+-// snapshot with holds disabled and publishes it. The flip goes out; routes to
+-// still-unready clusters fail until those clusters become ready, which is the
+-// truthful steady-state answer — and pinned route/listener/secret updates
+-// resume. It acts only on the episode that armed it, and runs under the gate
+-// lock, so it cannot interleave with publish() or resolveDeferred().
++// fireFlipRelease re-resolves the current held build without holds under the
++// gate lock. Only its arming episode may release. Updates resume even if routes
++// to unresolved targets can still fail.
+ func (g *publishGate) fireFlipRelease(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, pf *pendingFlipRelease) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+@@ -877,12 +861,12 @@
+ 	g.releaseFlipLocked(ctx, cache, proxyKey, pf)
+ }
+ 
+-// releaseFlipLocked is fireFlipRelease's body. Callers must hold g.mu and
+-// have checked that pf is the client's current hold.
++// releaseFlipLocked releases pf after the caller checks it is the current hold.
++// Callers must hold g.mu.
+ func (g *publishGate) releaseFlipLocked(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, pf *pendingFlipRelease) {
+ 	delete(g.pendingFlips, proxyKey)
+-	// The released routes name these clusters now; they count as delivered,
+-	// so a capped window does not re-hold them on the next build.
++	// Treat released references as complete for hold accounting so a budget-capped
++	// window does not hold them again. This is not delivery confirmation.
+ 	if sent := g.aheadSent[proxyKey]; sent != nil {
+ 		for _, name := range pf.ahead {
+ 			delete(sent, name)
+@@ -895,9 +879,8 @@
+ 	graced, soonestExpiry := g.graceDereferencedClustersLocked(
+ 		proxyKey, published, pf.wrap.snap.Resources[envoycachetypes.Cluster], time.Now())
+ 	released, _, edsHashes := resolveDeferredPerCluster(g.boundCarryLocked(pf.wrap, published, time.Now()), published, false, graced, g.lastPublishedEDSLocked(proxyKey))
+-	// A hold held only for reference-ahead windows ends as designed when the
+-	// last window closes: nothing failed, so it is neither a warning nor a
+-	// bounded publish, unless the budget cut a window short.
++	// Natural addition-window expiry is expected. Warn and count a bounded
++	// publication only when the budget shortens it.
+ 	mode := boundedPublishFlipRelease
+ 	switch {
+ 	case len(pf.blocking) > 0:
+diff --git a/pkg/kgateway/proxy_syncer/reference_ahead.go b/pkg/kgateway/proxy_syncer/reference_ahead.go
+--- a/pkg/kgateway/proxy_syncer/reference_ahead.go
++++ b/pkg/kgateway/proxy_syncer/reference_ahead.go
+@@ -12,44 +12,21 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+ )
+ 
+-// referenceAheadLocked returns the clusters this build emits that the client
+-// has not yet had for a whole reference-ahead window, and how long until the
+-// last of those windows closes.
++// referenceAheadLocked returns newly emitted clusters with open addition windows
++// and the time until the last closes. Callers must hold g.mu.
+ //
+-// These are the additions that need the route update held back a beat. Putting
+-// a new cluster and the configuration that names it in one coherent snapshot
+-// does not make Envoy apply CDS before RDS or LDS:
++// A coherent snapshot does not ensure CDS applies before RDS/LDS. Unordered
++// servers may drain ready type channels in either order. In either ADS mode,
++// an outstanding CDS response can leave only RDS's watch open, letting routes
++// precede the CDS that introduces their target. Pre-emitted destinations avoid
++// this specific addition race; newly scoped destinations need time to propagate.
+ //
+-//   - On a quiet stream the ads=true cache type-sorts its pushes, so CDS
+-//     usually reaches the wire first. "Usually" is not a guarantee: the
+-//     non-ordered server's drain randomizes whenever several per-type channels
+-//     are ready at once, which is what a busy stream looks like.
+-//   - ACK skew defeats both server modes outright. After a CDS response is
+-//     sent its watch is closed until Envoy ACKs; a snapshot landing in that
+-//     window can only be answered on the still-open RDS watch, so the route
+-//     reaches the wire before any CDS carrying its destination. No server
+-//     option closes this, and it is reachable whenever a route is retargeted
+-//     while an earlier CDS update is un-ACKed.
++// Start a separate window at each cluster's first publication, including
++// ancillary filter clusters. Cache installation is not delivery or application;
++// rebuilds inside the window must keep holding routing updates.
+ //
+-// Emit-all was immune to both, because destinations were delivered and ACKed
+-// long before any route named them. Referenced-only gives that immunity up, so
+-// it has to be replaced by holding the route until the cluster has had time to
+-// land.
+-//
+-// A cluster's window starts when it is first sent to this client and is
+-// tracked per cluster. Being in the published snapshot only means the cluster
+-// was installed for delivery, not that Envoy has applied it, so a rebuild
+-// inside the window (the new backend's own endpoints arriving, say) keeps
+-// holding instead of releasing the routes early. Every cluster new to the
+-// client counts, not only route targets: a listener that starts calling a new
+-// ext_authz, ext_proc, rate limit or JWKS cluster needs it delivered first just
+-// as much, and in REFERENCED mode every emitted cluster is named by something.
+-//
+-// The blackhole cluster is excluded: routes whose backends fail resolution
+-// target it, holding on it would delay exactly the configurations that are
+-// already broken, and it is emitted unconditionally anyway. A cluster absent
+-// from this build is the deferred path's missing-cluster case, held there.
+-// Callers must hold g.mu.
++// Exclude blackhole, which is always emitted and serves broken references.
++// Missing clusters remain the deferred path's responsibility.
+ func (g *publishGate) referenceAheadLocked(
+ 	proxyKey string,
+ 	snapWrap XdsSnapWrapper,
+@@ -62,8 +39,7 @@
+ 	building := snapWrap.snap.Resources[envoycachetypes.Cluster].Items
+ 	alreadySent := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
+ 	sent := g.aheadSent[proxyKey]
+-	// Forget clusters whose window closed, or that this build stopped emitting
+-	// (a return later is a fresh addition).
++	// Forget closed windows and no-longer-emitted clusters; a later return is new.
+ 	for name, since := range sent {
+ 		if _, emitting := building[name]; !emitting || now.Sub(since) >= g.referenceAhead {
+ 			delete(sent, name)
+@@ -79,9 +55,9 @@
+ 		since, inWindow := sent[name]
+ 		if !inWindow {
+ 			if _, has := alreadySent[name]; has {
+-				continue // the client has had it for longer than a window
++				continue // Already published for a full window.
+ 			}
+-			since = now // sent for the first time by this publish
++			since = now // First published by this build.
+ 			if sent == nil {
+ 				sent = make(map[string]time.Time)
+ 				g.aheadSent[proxyKey] = sent
+@@ -98,21 +74,14 @@
+ 	return ahead, longest
+ }
+ 
+-// holdsReferenceAhead reports whether the addition-side hold is configured.
+-// False leaves every publication path exactly as it was, which is what an
+-// operator gets by setting the window to 0 and accepting the retarget blip.
++// holdsReferenceAhead reports an enabled addition window. Zero keeps immediate
++// retarget publication and accepts its ordering risk.
+ func (g *publishGate) holdsReferenceAhead() bool { return g.referenceAhead > 0 }
+ 
+-// referenceAheadHoldLocked composes a reference-ahead hold for snapWrap: the
+-// build's clusters and endpoints go out, while its routes, listeners and
+-// secrets stay at the versions the client has. Those held routes and listeners
+-// are the published ones, so their whole dependency closure is carried with
+-// them, as the deferred path's hold does: every published cluster the build
+-// lacks, including the ones their filters call (ext_authz, ext_proc, JWKS,
+-// OAuth2, rate limit). Without that, a build that also stops naming a cluster
+-// would remove it while the held configuration still uses it, and only a
+-// de-reference grace, which may be 0, would cover the gap. Errored clusters
+-// are still never carried. Callers must hold g.mu.
++// referenceAheadHoldLocked publishes CDS/EDS while retaining routing types and
++// their full published cluster closure, including ancillary filter dependencies.
++// Otherwise a simultaneous removal could break the held config when removal
++// grace is zero. Never carry errored clusters. Callers must hold g.mu.
+ func (g *publishGate) referenceAheadHoldLocked(
+ 	snapWrap XdsSnapWrapper,
+ 	published envoycache.ResourceSnapshot,
+@@ -127,15 +96,9 @@
+ 	return holdRoutingTypes(resolved, published), edsHashes
+ }
+ 
+-// holdRoutingTypes returns snap with its routes, listeners and secrets pinned
+-// at the versions the client already has, leaving clusters and endpoints as
+-// built. That is the shape of every hold in this package: the new destination
+-// is delivered, the configuration that would start using it is not, yet.
+-//
+-// The pinned types are held together. Publishing new listeners against
+-// published routes, or either against published secrets, would be a
+-// combination the client has never been sent, and Snapshot.Consistent()
+-// requires RDS to match what LDS names.
++// holdRoutingTypes retains published routes, listeners and secrets while
++// leaving CDS/EDS as built. Keep these types together to avoid mixing unrelated
++// listener/route/secret builds; Snapshot.Consistent requires LDS/RDS name closure.
+ func holdRoutingTypes(snap *envoycache.Snapshot, published envoycache.ResourceSnapshot) *envoycache.Snapshot {
+ 	held := &envoycache.Snapshot{}
+ 	*held = *snap
+@@ -155,11 +118,8 @@
+ 	return held
+ }
+ 
+-// appliesTransitionGraces reports whether either transition window is
+-// configured. Both need the same coherent publish path, because both
+-// transitions -- a cluster losing its last reference, and a route gaining a
+-// destination the client has never seen -- produce builds with nothing missing,
+-// so neither reaches the deferred resolution that handles unready clusters.
++// appliesTransitionGraces reports either configured window. Additions and
++// removals can be coherent, so both need the coherent publication path.
+ func (g *publishGate) appliesTransitionGraces() bool {
+ 	return g.retainsDereferenced() || g.holdsReferenceAhead()
+ }
+diff --git a/pkg/kgateway/proxy_syncer/reference_ahead_test.go b/pkg/kgateway/proxy_syncer/reference_ahead_test.go
+--- a/pkg/kgateway/proxy_syncer/reference_ahead_test.go
++++ b/pkg/kgateway/proxy_syncer/reference_ahead_test.go
+@@ -16,8 +16,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics/metricstest"
+ )
+ 
+-// routedClusterWrapperV is a coherent build whose configuration names exactly
+-// the clusters it emits: the shape a retarget produces in REFERENCED mode.
++// routedClusterWrapperV builds matching emitted clusters and route references.
+ func routedClusterWrapperV(version string, clusters ...string) XdsSnapWrapper {
+ 	return clusterWrapperV(version, clusters...)
+ }
+@@ -34,12 +33,8 @@
+ 	return snap.GetVersion(resourcev3.ListenerType)
+ }
+ 
+-// TestReferenceAheadDeliversTheClusterBeforeTheRoute is the addition-side
+-// guarantee. Publishing a new cluster and the route that targets it in one
+-// snapshot does not make Envoy apply CDS first: after a CDS response is sent
+-// its watch is closed until Envoy ACKs, so a route landing in that window
+-// reaches the wire on the still-open RDS watch, before its destination. The new
+-// cluster must therefore go out while the routing types stay where they were.
++// Install new CDS while retaining routing types during the addition window.
++// This checks snapshot staging, not wire order or Envoy application.
+ func TestReferenceAheadDeliversTheClusterBeforeTheRoute(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, 80*time.Millisecond)
+ 	ctx := context.Background()
+@@ -47,7 +42,7 @@
+ 	pt.syncXds(ctx, routedClusterWrapperV("v1", "old"))
+ 	require.Equal(t, "v1", publishedListenerVersionOf(t, pt))
+ 
+-	// The route retargets onto a cluster this client has never been sent.
++	// Retarget to a cluster not yet published on this connection.
+ 	pt.syncXds(ctx, routedClusterWrapperV("v2", "old", "new"))
+ 
+ 	assert.ElementsMatch(t, []string{"old", "new"}, publishedClusterNames(t, pt),
+@@ -62,8 +57,7 @@
+ 	assert.ElementsMatch(t, []string{"old", "new"}, publishedClusterNames(t, pt))
+ }
+ 
+-// TestReferenceAheadIsDisabledByZero: an operator who accepts the retarget blip
+-// gets cluster and route in one snapshot, exactly as before.
++// Zero window publishes new cluster and route together.
+ func TestReferenceAheadIsDisabledByZero(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, 0)
+ 	ctx := context.Background()
+@@ -75,9 +69,7 @@
+ 	assert.ElementsMatch(t, []string{"old", "new"}, publishedClusterNames(t, pt))
+ }
+ 
+-// TestReferenceAheadDoesNotHoldARetargetOntoAnAlreadySentCluster is what keeps
+-// the hold from taxing ordinary route edits: the destination is already in the
+-// client's CDS, so there is nothing to deliver ahead of anything.
++// Retargeting to an established cluster needs no new addition window.
+ func TestReferenceAheadDoesNotHoldARetargetOntoAnAlreadySentCluster(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -85,16 +77,14 @@
+ 	pt.syncXds(ctx, routedClusterWrapperV("v1", "a", "b"))
+ 	require.Equal(t, "v1", publishedListenerVersionOf(t, pt))
+ 
+-	// Routes change, but every destination was already delivered.
++	// Edit routes without introducing new destinations.
+ 	pt.syncXds(ctx, routedClusterWrapperV("v2", "a", "b"))
+ 
+ 	assert.Equal(t, "v2", publishedListenerVersionOf(t, pt),
+ 		"a retarget between clusters the client already has must not be held")
+ }
+ 
+-// TestReferenceAheadIgnoresTheBlackhole: routes whose backends fail resolution
+-// target the blackhole cluster. Holding on it would delay exactly the
+-// configurations that are already broken.
++// Do not delay broken references by holding on blackhole.
+ func TestReferenceAheadIgnoresTheBlackhole(t *testing.T) {
+ 	g := newPublishGate(0, false, nil, scopedClustersWithReferenceAhead(time.Minute))
+ 	published := &envoycache.Snapshot{}
+@@ -104,9 +94,8 @@
+ 	assert.Empty(t, ahead)
+ }
+ 
+-// TestReferenceAheadWindowIsPerCluster: a cluster stays held for its whole
+-// window from when it was first sent, even once it is in the published
+-// snapshot, and a cluster first sent later gets its own window.
++// Keep each cluster's full window from first publication, including clusters
++// introduced by later builds.
+ func TestReferenceAheadWindowIsPerCluster(t *testing.T) {
+ 	g := newPublishGate(0, false, nil, scopedClustersWithReferenceAhead(time.Minute))
+ 	published := &envoycache.Snapshot{}
+@@ -119,7 +108,7 @@
+ 	assert.Equal(t, []string{"first"}, ahead)
+ 	assert.Equal(t, time.Minute, longest)
+ 
+-	// "first" is now published, but has had it for 20s of its minute.
++	// "first" has used 20s of its one-minute window.
+ 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
+ 		{Resource: edsClusterProto("old")}, {Resource: edsClusterProto("first")},
+ 	})
+@@ -135,9 +124,8 @@
+ 	assert.Equal(t, 10*time.Second, longest)
+ }
+ 
+-// TestReferenceAheadHoldIsBoundedByTheBudget: the window paces delivery, the
+-// budget bounds it. A window longer than the budget must not outlast the
+-// budget, or a misconfigured value would pin a client's routing updates.
++// Cap addition holds at the publication budget even when the configured
++// window is longer.
+ func TestReferenceAheadHoldIsBoundedByTheBudget(t *testing.T) {
+ 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 60*time.Millisecond, true, scopedClustersWithReferenceAhead(time.Hour))
+ 	pt := &translator
+@@ -153,9 +141,8 @@
+ 		"a reference-ahead window longer than the budget must still release at the budget")
+ }
+ 
+-// A rebuild inside the window, such as the new backend's endpoints arriving,
+-// must keep the routes held: the cluster being in the published snapshot only
+-// means it was installed for delivery.
++// A rebuild inside the window must not release routes early: cache installation
++// does not confirm that Envoy received the cluster.
+ func TestReferenceAheadHoldSurvivesARebuildInsideTheWindow(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, 150*time.Millisecond)
+ 	ctx := context.Background()
+@@ -172,8 +159,7 @@
+ 	require.Eventually(t, func() bool { return publishedListenerVersionOf(t, pt) == "v3" }, 2*time.Second, 5*time.Millisecond)
+ }
+ 
+-// A cluster new to the client that only a listener filter names (an ext_authz
+-// server, say) is delivered ahead of the listener update too.
++// Ancillary filter clusters need the same staging before listener updates.
+ func TestReferenceAheadHoldsForAClusterOnlyAFilterNames(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -185,8 +171,7 @@
+ 	assert.Equal(t, "v1", publishedListenerVersionOf(t, pt), "the listener that calls it waits")
+ }
+ 
+-// routedBuild is a build whose one route config names routeTo, emitting
+-// clusters, with listeners at version.
++// routedBuild emits clusters, routes to routeTo and versions its listeners.
+ func routedBuild(t *testing.T, version, routeTo string, clusters ...string) XdsSnapWrapper {
+ 	t.Helper()
+ 	wrap := clusterWrapperV(version, clusters...)
+@@ -197,9 +182,7 @@
+ 	return wrap
+ }
+ 
+-// While a retarget onto a new cluster is held, the held (published) routes
+-// still name the cluster the build dropped. It must stay published with them,
+-// whatever the de-reference grace: here the grace is 0.
++// Retain the held routing types' old destination even with zero removal grace.
+ func TestReferenceAheadHoldCarriesTheHeldConfigsClusters(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -214,9 +197,8 @@
+ 	assertSnapshotCoherent(t, served)
+ }
+ 
+-// A deferred build (here: a previously-referenced cluster whose endpoints are
+-// being rebuilt, which does not block) that also introduces a new cluster
+-// holds the configuration naming it like a coherent build does.
++// A deferred build adding a new cluster must honor the addition window too.
++// The existing underived CLA here does not block routing by itself.
+ func TestReferenceAheadAppliesToDeferredBuilds(t *testing.T) {
+ 	pt := newReferenceAheadTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -231,9 +213,8 @@
+ 	assert.Equal(t, "v1", publishedListenerVersionOf(t, pt), "the configuration naming the new cluster waits for it")
+ }
+ 
+-// Each hold reason keeps its own deadline. A reference-ahead hold (short
+-// window) that is joined by a flip onto an unready cluster must not release
+-// that flip at the reference-ahead window: the unready cluster gets its budget.
++// Adding an unready-target hold must not release it at an earlier addition
++// deadline. Preserve its deadline within the overall episode budget.
+ func TestHoldDeadlinePerReason_UnreadyFlipOutlastsTheAheadWindow(t *testing.T) {
+ 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 600*time.Millisecond, true,
+ 		scopedClustersWithReferenceAhead(50*time.Millisecond))
+@@ -256,9 +237,8 @@
+ 		"the budget still releases it")
+ }
+ 
+-// And the other way round: an unready-cluster hold whose cluster becomes ready
+-// while a reference-ahead window is open releases at that window, not at the
+-// budget the unready hold armed.
++// Once readiness resolves, release at the remaining addition deadline rather
++// than waiting for the old unready-target budget.
+ func TestHoldDeadlinePerReason_ReadyFlipReleasesAtTheAheadWindow(t *testing.T) {
+ 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true,
+ 		scopedClustersWithReferenceAhead(100*time.Millisecond))
+@@ -278,9 +258,8 @@
+ 		"once only the reference-ahead window holds, it releases at the window, not the 1h budget")
+ }
+ 
+-// A hold kept only for reference-ahead windows ends as designed when they
+-// close; it is not a bounded publish. One the budget cut short is, under its
+-// own mode, not flip_release (which means a cluster never became ready).
++// Count budget-shortened addition windows under their own mode. Natural expiry
++// is not bounded publication; flip_release denotes unresolved readiness.
+ func TestReferenceAheadReleaseIsNotABudgetExpiry(t *testing.T) {
+ 	const metricName = "kgateway_xds_snapshot_perclient_bounded_publishes_total"
+ 	ctx := context.Background()
+@@ -313,11 +292,8 @@
+ 	assert.Zero(t, bounded(boundedPublishFlipRelease))
+ }
+ 
+-// A de-reference grace that closes while a retarget is held for its
+-// reference-ahead window must not release the retarget. The prune re-publishes
+-// through the same hold decision as a new build, which still holds: the new
+-// cluster's window is open. Here the removal window (20ms) closes long before
+-// the addition window (an hour).
++// A 20ms removal expiry must preserve the independent one-hour addition hold.
++// Pruning must repeat the full hold decision.
+ func TestDereferencePruneKeepsAReferenceAheadHold(t *testing.T) {
+ 	scoping := scopedClustersWithReferenceAhead(time.Hour)
+ 	scoping.dereferenceGrace = 20 * time.Millisecond
+@@ -328,8 +304,7 @@
+ 
+ 	pt.syncXds(ctx, routedBuild(t, "v1", "old", "old"))
+ 	heldRoutes := servedSnapshot(t, pt).GetVersion(resourcev3.RouteType)
+-	// The route moves from old to new: old is de-referenced, new is new to
+-	// the client. The retarget is held for new's window.
++	// Moving old to new starts removal and addition windows; retain the retarget hold.
+ 	pt.syncXds(ctx, routedBuild(t, "v2", "new", "new"))
+ 	require.Equal(t, "v1", publishedListenerVersionOf(t, pt), "the retarget is held")
+ 

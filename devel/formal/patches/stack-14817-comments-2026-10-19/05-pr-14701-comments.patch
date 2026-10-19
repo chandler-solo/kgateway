@@ -1,0 +1,401 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -271,17 +271,10 @@
+ 	// when resource-type watches are open.
+ 	EnableOrderedAds bool `split_words:"true" default:"true"`
+ 
+-	// XdsSuppressNackResend stops the control plane from re-sending an xDS
+-	// response the proxy has just rejected. After a NACK the proxy is still on
+-	// its previously accepted version, so the snapshot cache would otherwise
+-	// answer every NACK with the same rejected response and the two sides spin
+-	// at whatever rate the proxy can reject. With this enabled a NACK of the
+-	// current snapshot version parks the proxy's watch until the snapshot
+-	// changes, or until a retry delay passes: the rejected response is then
+-	// offered again, so a transient rejection recovers, with the delay doubling
+-	// from 1s to 1m while the same version keeps being rejected. A NACK that
+-	// arrives after the snapshot already changed is answered immediately.
+-	// Rejections are still logged and counted.
++	// XdsSuppressNackResend parks a NACK of the current snapshot version instead
++	// of immediately resending it. Retry unchanged config after 1s, doubling to
++	// 1m on repeated rejections. A changed snapshot can answer immediately.
++	// Rejections remain logged and counted.
+ 	XdsSuppressNackResend bool `split_words:"true" default:"true"`
+ 
+ 	// WeightedRoutePrecedence enables routes with a larger weight to take precedence over routes with a smaller weight.
+diff --git a/pkg/kgateway/setup/controlplane.go b/pkg/kgateway/setup/controlplane.go
+--- a/pkg/kgateway/setup/controlplane.go
++++ b/pkg/kgateway/setup/controlplane.go
+@@ -117,8 +117,7 @@
+ 	hasher := xds.NewNodeRoleHasher()
+ 	var snapshotCache envoycache.SnapshotCache = envoycache.NewSnapshotCache(true, hasher, envoyLoggerAdapter)
+ 	if suppressNackResend {
+-		// See nackResendSuppressor: a NACK of the current snapshot version parks
+-		// the watch instead of re-sending the rejected response.
++		// Park matching current-version NACKs until change or retry (nackResendSuppressor).
+ 		suppressor := newNackResendSuppressor(snapshotCache, hasher)
+ 		allCallbacks = chainCallbacks(allCallbacks, suppressor.callbacks())
+ 		snapshotCache = suppressor
+diff --git a/pkg/kgateway/setup/nack_resend.go b/pkg/kgateway/setup/nack_resend.go
+--- a/pkg/kgateway/setup/nack_resend.go
++++ b/pkg/kgateway/setup/nack_resend.go
+@@ -21,43 +21,22 @@
+ 		Help:      "Number of times a NACKed xDS response was not re-sent because the snapshot had not changed",
+ 	}, []string{typeURLLabel})
+ 
+-// nackResendSuppressor wraps the snapshot cache so a NACK does not re-send the
+-// response that was just rejected.
+-//
+-// An xDS NACK is a DiscoveryRequest that carries the client's last accepted
+-// version and an error detail. The snapshot cache answers any request whose
+-// version differs from the snapshot's, and after a rejection those always
+-// differ: the client is still on the version it accepted before, the snapshot
+-// is the one it rejected. The cache therefore re-sends the rejected response,
+-// Envoy rejects it again immediately, and the two sides spin until the snapshot
+-// changes. Measured against a real proxy this runs in the thousands of
+-// responses per second per rejected type, all of it wasted, and it drowns the
+-// one line that says what was rejected.
+-//
+-// The suppressor recognizes a NACK of exactly what would be re-sent, which is
+-// when the snapshot's current version for the type equals the version identified
+-// by this stream's matching nonce, and parks the watch instead: the request handed
+-// to the cache claims the current version, so the cache registers a watch that
+-// fires on the next snapshot change and sends nothing now. A NACK arriving
+-// after the snapshot already moved is passed through unchanged, so a
+-// correction is delivered immediately. ACKs and first requests are never
+-// touched.
+-//
+-// Parking is not forever. A rejection can be transient (a secret or file the
+-// config names not there yet, a resource limit), and nothing else would offer
+-// the config again until an unrelated change. So a parked NACK is retried: once
+-// the retry delay passes with the snapshot unchanged, the rejected response is
+-// re-sent, and Envoy re-evaluates it. Consecutive rejections of one version on
+-// a stream double the delay, from nackRetryBase up to nackRetryMax, so a
+-// config that keeps failing costs one response per type per nackRetryMax
+-// rather than a spin. An ACK, or a rejection of a different version, starts
+-// over.
+-//
+-// Sent versions and nonces are tracked per stream and resource type. Nonces
+-// are only unique within a stream: two streams sharing a cache node can both
+-// use nonce "1" for different versions. A NACK may suppress only the version
+-// sent on its own stream with its matching nonce. Request associations are
+-// consumed by CreateWatch, replaced by the next request, or removed on close.
++// nackResendSuppressor parks NACKs of the current snapshot version to avoid
++// immediate resend loops. A NACK reports the last accepted version and the
++// rejected nonce; the cache would otherwise keep answering the version mismatch.
++//
++// Match the nonce on the same stream and type. If it identifies the current
++// snapshot version, pass a copy claiming that version so the cache parks the
++// watch. Pass newer-snapshot NACKs through so corrections can answer immediately.
++// ACKs and initial requests are unchanged.
++//
++// Retry unchanged config to allow transient failures to recover without another
++// build. Consecutive NACKs double the delay from nackRetryBase to nackRetryMax;
++// an ACK or different rejected version resets it.
++//
++// Nonces are stream-local: streams sharing a node can use the same nonce for
++// different versions. Keep at most one request association per stream, consumed
++// by CreateWatch, replaced by the next request or removed on close.
+ type nackResendSuppressor struct {
+ 	envoycache.SnapshotCache
+ 	hasher envoycache.NodeHash
+@@ -72,8 +51,7 @@
+ 	nackStreamState  struct {
+ 		sent    map[string]sentNackResponse
+ 		pending *discoveryv3.DiscoveryRequest
+-		// rejections counts, per type, consecutive NACKs of one version on
+-		// this stream, for the retry backoff.
++		// rejections counts consecutive NACKs per version and type on this stream.
+ 		rejections map[string]nackRejections
+ 	}
+ 	nackRejections struct {
+@@ -85,22 +63,18 @@
+ type pendingNack struct {
+ 	stream   *nackStreamState
+ 	response sentNackResponse
+-	// retryIn is how long the parked NACK waits before its response is
+-	// re-sent with the snapshot unchanged.
++	// retryIn delays resending unchanged rejected config.
+ 	retryIn time.Duration
+ }
+ 
+-// nackRetryBase and nackRetryMax bound the delay before a parked NACK's
+-// response is re-sent (see nackResendSuppressor). Variables so tests can
+-// shorten them.
++// nackRetryBase and nackRetryMax bound retry delay. Variables let tests shorten it.
+ var (
+ 	nackRetryBase = time.Second
+ 	nackRetryMax  = time.Minute
+ )
+ 
+-// nackRetryDelay is the delay before re-sending a response rejected n times in
+-// a row: nackRetryBase doubled per rejection after the first, at most
+-// nackRetryMax.
++// nackRetryDelay doubles nackRetryBase for each rejection after the first,
++// capped at nackRetryMax.
+ func nackRetryDelay(n int) time.Duration {
+ 	delay := nackRetryBase
+ 	for i := 1; i < n && delay < nackRetryMax; i++ {
+@@ -118,8 +92,7 @@
+ 	}
+ }
+ 
+-// callbacks returns the server callbacks that keep the version table current.
+-// They must be chained into the server that uses this cache.
++// callbacks tracks sent versions; chain it into the server using this cache.
+ func (s *nackResendSuppressor) callbacks() xdsserver.Callbacks {
+ 	return xdsserver.CallbackFuncs{
+ 		StreamRequestFunc:  s.onStreamRequest,
+@@ -136,8 +109,8 @@
+ 		st = &nackStreamState{sent: make(map[string]sentNackResponse), rejections: make(map[string]nackRejections)}
+ 		s.streams[streamID] = st
+ 	}
+-	// A callback can be followed by nonce rejection instead of CreateWatch.
+-	// Retain at most one association per stream, including on ignored requests.
++	// Nonce rejection may skip CreateWatch. Keep one association per stream,
++	// replacing it even for ignored requests.
+ 	delete(s.pending, st.pending)
+ 	st.pending = nil
+ 	if req.GetErrorDetail() == nil {
+@@ -175,12 +148,10 @@
+ 	delete(s.streams, streamID)
+ }
+ 
+-// rejectedVersion bridges the stream callback to the cache without changing
+-// the original request observed by logging/auth callbacks, and reports the
+-// rejected version and how long a parked NACK of it waits before its response
+-// is re-sent. The pinned SotW server passes that same request pointer to
+-// CreateWatch in both ADS modes. If that contract changes, an unassociated
+-// request passes through unchanged.
++// rejectedVersion associates a stream callback with CreateWatch without mutating
++// the request seen by auth/logging. Return the rejected version and retry delay.
++// Both pinned SotW modes preserve request-pointer identity. Unknown associations
++// pass through unchanged if that contract changes.
+ func (s *nackResendSuppressor) rejectedVersion(req *envoycache.Request) (string, time.Duration, bool) {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+@@ -193,8 +164,7 @@
+ 	return pending.response.version, pending.retryIn, true
+ }
+ 
+-// CreateWatch parks a NACK of the current snapshot version and delegates
+-// everything else.
++// CreateWatch parks current-version NACKs and delegates other requests.
+ func (s *nackResendSuppressor) CreateWatch(req *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response) (func(), error) {
+ 	if req.GetErrorDetail() == nil {
+ 		return s.SnapshotCache.CreateWatch(req, sub, ch)
+@@ -210,13 +180,11 @@
+ 	}
+ 	current := snapshot.GetVersion(req.GetTypeUrl())
+ 	if current == "" || current != rejected {
+-		// The snapshot moved since the rejected response: a correction may be
+-		// waiting, let the cache answer.
+-		return s.SnapshotCache.CreateWatch(req, sub, ch)
+-	}
+-	// Re-sending would deliver the rejected bytes again. Claim the current
+-	// version so the cache parks the watch until the snapshot changes, and
+-	// re-send them only after retryIn.
++		// The snapshot changed; allow the correction to answer immediately.
++		return s.SnapshotCache.CreateWatch(req, sub, ch)
++	}
++	// Claim the current version to park this watch. Retry the rejected config
++	// after retryIn if no correction arrives.
+ 	parked := proto.Clone(req).(*discoveryv3.DiscoveryRequest)
+ 	parked.VersionInfo = current
+ 	xdsNackResendsSuppressed.Inc(metrics.Label{Name: typeURLLabel, Value: rejectionTypeURL(req.GetTypeUrl())})
+@@ -229,21 +197,13 @@
+ 	return s.retryLater(cancel, req, sub, ch, retryIn), nil
+ }
+ 
+-// retryLater wraps a parked watch so that, after delay, it is replaced by a
+-// watch for the original NACK, which the cache answers at once with the
+-// snapshot's current version: the rejected response again if nothing changed,
+-// a correction if the snapshot just moved.
+-//
+-// The replacement runs on a timer, beside the stream's own goroutine, so it is
+-// careful in two ways. The cache reads the stream's subscription while
+-// creating a watch, and the server modifies the subscription right after
+-// cancelling the watch; the replacement therefore holds the watch's lock while
+-// it creates one, and the returned cancel takes that lock, so it cannot return
+-// while the cache is still reading. And creating the watch must never block
+-// with that lock held, or the server, waiting in cancel, could not drain the
+-// stream's channel; the new watch therefore answers into a channel of its own,
+-// and a forwarder hands the response to the stream's channel holding no lock,
+-// giving up once the watch is cancelled.
++// retryLater replaces a parked watch after delay with the original NACK watch,
++// allowing the cache to return unchanged config or a newer correction.
++//
++// Hold the watch lock during replacement and cancellation: the server mutates
++// subscriptions after cancel returns, so cache reads must finish first.
++// Answer into a private channel to avoid blocking under that lock; forward
++// without the lock and stop on cancellation so the stream can keep draining.
+ func (s *nackResendSuppressor) retryLater(parked func(), original *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response, delay time.Duration) func() {
+ 	w := &retryingWatch{inner: parked, done: make(chan struct{})}
+ 	w.timer = time.AfterFunc(delay, func() {
+@@ -253,7 +213,7 @@
+ 			return
+ 		}
+ 		if w.inner != nil {
+-			w.inner() // the cache must not also answer the parked watch
++			w.inner() // Cancel the parked watch before replacement so it cannot also answer.
+ 		}
+ 		own := make(chan envoycache.Response, 1)
+ 		inner, err := s.SnapshotCache.CreateWatch(original, sub, own)
+@@ -277,7 +237,7 @@
+ 	return w.cancel
+ }
+ 
+-// retryingWatch is a parked NACK watch with its pending retry.
++// retryingWatch tracks a parked NACK and its retry timer.
+ type retryingWatch struct {
+ 	timer *time.Timer
+ 	done  chan struct{}
+diff --git a/pkg/kgateway/setup/nack_resend_correlation_test.go b/pkg/kgateway/setup/nack_resend_correlation_test.go
+--- a/pkg/kgateway/setup/nack_resend_correlation_test.go
++++ b/pkg/kgateway/setup/nack_resend_correlation_test.go
+@@ -21,8 +21,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+ )
+ 
+-// These tests deliberately use the pinned upstream server/cache plus the
+-// decorator from #14701. No local cache or SotW implementation is involved.
++// Exercise the pinned upstream cache/server with #14701's decorator.
+ func TestNackSharedKeyKeepsStreamVersionsSeparate(t *testing.T) {
+ 	for _, ordered := range []bool{false, true} {
+ 		t.Run(strconv.FormatBool(ordered), func(t *testing.T) {
+@@ -62,8 +61,8 @@
+ 			b.setSnapshot(nackSnapshot("2"))
+ 			b.subscribe(envoyresource.ClusterType)
+ 			b2 := b.receiveType(envoyresource.ClusterType, "2")
+-			// Both servers' streams start their nonce counter at 1, so node/type/
+-			// nonce alone cannot distinguish which version was actually rejected.
++			// Both streams start at nonce 1; node/type/nonce cannot identify the rejected
++			// version without the stream.
+ 			require.Equal(t, a1.Nonce, b2.Nonce)
+ 			b.nack(b2, "")
+ 			b.expectSilence("B rejected v2")
+diff --git a/pkg/kgateway/setup/nack_resend_test.go b/pkg/kgateway/setup/nack_resend_test.go
+--- a/pkg/kgateway/setup/nack_resend_test.go
++++ b/pkg/kgateway/setup/nack_resend_test.go
+@@ -20,8 +20,7 @@
+ 	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+ )
+ 
+-// newNackHarness is the ADS harness with the NACK resend suppressor in front
+-// of the cache and its callbacks on the server, as NewControlPlane wires them.
++// newNackHarness mirrors NewControlPlane's suppressor and callback wiring.
+ func newNackHarness(t *testing.T, ordered bool) *adsHarness {
+ 	t.Helper()
+ 
+@@ -66,9 +65,8 @@
+ 	return h
+ }
+ 
+-// nack rejects resp: the request carries the version the client still holds
+-// (accepted, the empty string here), the rejected response's nonce, and an
+-// error detail, which is what distinguishes a NACK from an ACK on the wire.
++// nack reports the accepted version (empty here), resp's nonce and an error
++// detail. The error distinguishes NACK from ACK.
+ func (h *adsHarness) nack(resp *discoveryv3.DiscoveryResponse, accepted string) {
+ 	h.t.Helper()
+ 
+@@ -93,10 +91,8 @@
+ 	}
+ }
+ 
+-// Without the suppressor the cache answers every NACK with the rejected
+-// response again: the client is on its old version, the snapshot is the
+-// rejected one, the versions differ, so the cache responds. This pins the loop
+-// the suppressor exists for, using the plain harness.
++// The undecorated cache resends on every NACK because accepted and snapshot
++// versions differ. Preserve this resend-loop control.
+ func TestPlainCacheResendsRejectedResponseOnEveryNack(t *testing.T) {
+ 	h := newADSHarness(t, true)
+ 	h.setSnapshot(nackSnapshot("1"))
+@@ -117,20 +113,20 @@
+ 			h.subscribe(envoyresource.ClusterType)
+ 			first := h.receiveType(envoyresource.ClusterType, "1")
+ 
+-			// The NACK parks: nothing is re-sent while the snapshot is unchanged.
++			// Park the NACK without an immediate resend.
+ 			h.nack(first, "")
+ 			h.expectSilence("NACK of the current version")
+ 			h.waitForOpenWatches(1)
+ 
+-			// A second NACK (Envoy retrying on its own) parks the same way.
++			// Park another NACK the same way.
+ 			h.nack(first, "")
+ 			h.expectSilence("repeated NACK of the current version")
+ 
+-			// The correction is delivered as soon as the snapshot changes.
++			// A snapshot change answers with the correction.
+ 			h.setSnapshot(nackSnapshot("2"))
+ 			second := h.receiveType(envoyresource.ClusterType, "2")
+ 
+-			// And an ACK of the correction leaves the stream in its normal state.
++			// ACK the correction and resume normal watch behavior.
+ 			h.ack(second)
+ 			h.waitForOpenWatches(1)
+ 			h.setSnapshot(nackSnapshot("3"))
+@@ -179,8 +175,7 @@
+ 	h.receiveType(envoyresource.EndpointType, "2")
+ }
+ 
+-// A rejection after an accepted version: the client holds version 1, rejects
+-// version 2, and must not be flooded with version 2 again; version 3 reaches it.
++// Accept v1, reject v2 without a resend flood, then receive v3.
+ func TestNackOfSecondVersionParksUntilThird(t *testing.T) {
+ 	h := newNackHarness(t, true)
+ 	h.setSnapshot(nackSnapshot("1"))
+@@ -196,16 +191,14 @@
+ 	h.receiveType(envoyresource.ClusterType, "3")
+ }
+ 
+-// nackSnapshot is the harness snapshot (one cluster, its endpoints, one route)
+-// with every type at version.
++// nackSnapshot sets one cluster, CLA and route to the supplied version.
+ func nackSnapshot(version string) *envoycache.Snapshot {
+ 	return snapshotFor(allADSVersions(version),
+ 		[]*envoyclusterv3.Cluster{testCluster(adsTestCluster)},
+ 		[]*envoyroutev3.RouteConfiguration{testRouteConfig(adsTestRoute, adsTestCluster)})
+ }
+ 
+-// shortenNackRetry makes the parked-NACK retry fire quickly. Tests using it
+-// must not run in parallel.
++// shortenNackRetry reduces test delays; callers must not run in parallel.
+ func shortenNackRetry(t *testing.T, base, maximum time.Duration) {
+ 	t.Helper()
+ 	origBase, origMax := nackRetryBase, nackRetryMax
+@@ -213,10 +206,8 @@
+ 	t.Cleanup(func() { nackRetryBase, nackRetryMax = origBase, origMax })
+ }
+ 
+-// A parked NACK is not parked forever: with the snapshot unchanged, the
+-// rejected response is offered again after the retry delay, so a transient
+-// rejection recovers without waiting for an unrelated change. A snapshot change
+-// still answers at once.
++// Retry unchanged config after delay so transient rejection can recover.
++// Snapshot changes must still answer immediately.
+ func TestParkedNackIsRetried(t *testing.T) {
+ 	for _, ordered := range []bool{false, true} {
+ 		t.Run(map[bool]string{false: "default", true: "ordered"}[ordered], func(t *testing.T) {
+@@ -230,7 +221,7 @@
+ 			again := h.receiveType(envoyresource.ClusterType, "1")
+ 			require.NotEqual(t, first.GetNonce(), again.GetNonce(), "the retry is a new response")
+ 
+-			// Rejected again: parked again, and a correction still goes out at once.
++			// Re-park another rejection without delaying a correction.
+ 			h.nack(again, "")
+ 			h.waitForOpenWatches(1)
+ 			h.setSnapshot(nackSnapshot("2"))
+@@ -239,9 +230,7 @@
+ 	}
+ }
+ 
+-// Consecutive rejections of one version double the delay up to the maximum, so
+-// a config that keeps failing is re-sent at a bounded rate rather than spun;
+-// the delay starts over for a different version.
++// Repeated NACKs back off to the maximum; a different version resets the delay.
+ func TestNackRetryDelayBacksOff(t *testing.T) {
+ 	shortenNackRetry(t, time.Second, 10*time.Second)
+ 	require.Equal(t, time.Second, nackRetryDelay(1))

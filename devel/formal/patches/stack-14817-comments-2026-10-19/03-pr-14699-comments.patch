@@ -1,0 +1,92 @@
+diff --git a/pkg/kgateway/setup/controlplane.go b/pkg/kgateway/setup/controlplane.go
+--- a/pkg/kgateway/setup/controlplane.go
++++ b/pkg/kgateway/setup/controlplane.go
+@@ -104,8 +104,7 @@
+ ) envoycache.SnapshotCache {
+ 	envoyLoggerAdapter := &slogAdapterForEnvoy{logger: controlPlaneLogger}
+ 	lnc := newLogNackCallback(xdsAuth)
+-	// The rejection metrics consume the role resolved by unique-client processing.
+-	// Keep that callback first so failed requests never reach the metric callback.
++	// Resolve identity before rejection metrics; failed requests stop the chain.
+ 	allCallbacks := chainCallbacks(callbacks, lnc)
+ 
+ 	// Create separate gRPC servers for each listener
+diff --git a/pkg/kgateway/setup/envoy_error.go b/pkg/kgateway/setup/envoy_error.go
+--- a/pkg/kgateway/setup/envoy_error.go
++++ b/pkg/kgateway/setup/envoy_error.go
+@@ -76,9 +76,9 @@
+ 	}
+ }
+ 
+-// OnStreamOpen validates the authenticated stream. Gateway identity is resolved
+-// by the preceding unique-client callback on each request, not from the service
+-// account name here. Unauthenticated clients always share unknown labels.
++// OnStreamOpen validates authentication. The preceding unique-client request
++// callback resolves gateway identity from pod state, not the service account name.
++// Unauthenticated streams use unknown labels.
+ func (l *logNackCallback) OnStreamOpen(ctx context.Context, streamID int64, _ string) error {
+ 	key := resourceKey{Namespace: "unknown", Name: "unknown"}
+ 	if l.xdsAuth {
+@@ -115,10 +115,8 @@
+ 		return nil
+ 	}
+ 	if l.xdsAuth {
+-		// NewControlPlane chains this callback after unique-client processing.
+-		// That callback re-derives identity from current pod state and rewrites
+-		// the role; errors (including identity drift) stop the chain before us.
+-		// Never use this metadata for unauthenticated streams.
++		// Unique-client processing normalizes the role from current pod state and
++		// rejects identity drift before this callback. Ignore unauthenticated metadata.
+ 		role := req.GetNode().GetMetadata().GetFields()[xds.RoleKey].GetStringValue()
+ 		parts := strings.SplitN(role, xds.KeyDelimiter, 4)
+ 		if xds.IsKubeGatewayCacheKey(role) && len(parts) >= 3 {
+@@ -197,8 +195,7 @@
+ 	}
+ }
+ 
+-// rejectionTypeURL preserves existing labels for known types and bounds all
+-// other client-supplied type URLs to a single series.
++// rejectionTypeURL keeps known type labels and groups all others into one series.
+ func rejectionTypeURL(typeURL string) string {
+ 	switch typeURL {
+ 	case resourcev3.ClusterType, resourcev3.EndpointType, resourcev3.RouteType,
+diff --git a/pkg/kgateway/setup/envoy_error_test.go b/pkg/kgateway/setup/envoy_error_test.go
+--- a/pkg/kgateway/setup/envoy_error_test.go
++++ b/pkg/kgateway/setup/envoy_error_test.go
+@@ -243,8 +243,8 @@
+ 	}
+ }
+ 
+-// Metrics must use the same pod-normalized gateway as xDS publication, including
+-// after identity drift closes a stream and the client reconnects (#14582).
++// Metrics must use publication's pod-normalized gateway, including after
++// identity drift forces reconnect (#14582).
+ func TestRejectionMetricsFollowResolvedIdentity(t *testing.T) {
+ 	resetMetrics()
+ 	t.Cleanup(resetMetrics)
+@@ -266,7 +266,7 @@
+ 	chain := chainCallbacks(clients, metricsCallback)
+ 	require.NoError(t, chain.OnStreamOpen(ctx, 1, ""))
+ 	req := dr(fullType, &status.Status{Message: "rejected"})
+-	// The request's role deliberately disagrees with both the pod label and SA.
++	// The supplied role disagrees with the pod label and service account.
+ 	req.Node.Metadata.Fields[xds.RoleKey] = structpb.NewStringValue(owner + "~spoofed-ns~spoofed-gateway")
+ 	require.NoError(t, chain.OnStreamRequest(1, req))
+ 	assertMetrics := func(gateway string, total, active float64) {
+@@ -280,14 +280,14 @@
+ 		})
+ 	}
+ 	assertMetrics("first-gateway", 1, 1)
+-	// Follow-ups reuse the rewritten node, just like go-control-plane.
++	// Reuse the normalized node on follow-ups, as go-control-plane does.
+ 	require.NoError(t, chain.OnStreamRequest(1, req))
+ 	assertMetrics("first-gateway", 1, 1)
+ 
+ 	pod.AugmentedLabels = map[string]string{"gateway.networking.k8s.io/gateway-name": "second-gateway"}
+ 	pods.UpdateObject(pod)
+ 	require.ErrorContains(t, chain.OnStreamRequest(1, req), "xds client identity changed")
+-	// The rejected request must not reach the metrics callback or move its gauge.
++	// A rejected request must neither reach metrics nor change its gauge.
+ 	assertMetrics("first-gateway", 1, 1)
+ 	require.Equal(t, "first-gateway", metricsCallback.streamIdentity[1].Name)
+ 	chain.OnStreamClosed(1, req.Node)

@@ -1,0 +1,638 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -467,24 +467,13 @@
+ 	// engine removed. Off by default.
+ 	XdsSnapshotConsistencyCheck bool `split_words:"true" default:"false"`
+ 
+-	// ClusterDiscoveryMode selects which backends reach a proxy's CDS.
+-	// Supported values are:
+-	//
+-	//   - "ALL" (default): every backend in discovery scope becomes a cluster.
+-	//   - "REFERENCED": only clusters the generated configuration references.
+-	//
+-	// REFERENCED is what shrinks config_dump and per-proxy stats cardinality on
+-	// clusters with many Services and few routed ones. It is experimental: a
+-	// cluster now enters and leaves a proxy's CDS as configuration starts and
+-	// stops naming it, and Envoy does not necessarily apply CDS before RDS
+-	// within one snapshot, so either transition could briefly 503 NC where ALL
+-	// never would. Two windows close that: ClusterReferenceAhead delivers a new
+-	// cluster before the configuration that names it, and
+-	// ClusterDereferenceGrace keeps a de-referenced one until the configuration
+-	// that stopped naming it has landed. Both are elapsed time, not
+-	// acknowledgements: each must exceed the fleet's worst-case propagation. A
+-	// gateway whose routes pick a destination at request time stays unscoped
+-	// unless a plugin claims that selector (pluginsdk.ClusterEmissionClaim).
++	// ClusterDiscoveryMode selects "ALL" (default) or "REFERENCED" backends for CDS.
++	// REFERENCED is experimental. It reduces config and stats, but can race CDS/RDS
++	// application and cause no-cluster 503s. ClusterReferenceAhead delays new
++	// references; ClusterDereferenceGrace delays removals. These elapsed-time
++	// windows allow propagation but do not confirm delivery or application.
++	// Runtime selectors force emit-all unless covered by valid plugin claims
++	// (pluginsdk.ClusterEmissionClaim).
+ 	ClusterDiscoveryMode ClusterDiscoveryMode `split_words:"true" default:"ALL"`
+ 
+ 	// ClusterDereferenceGrace is how long a cluster that has left the emitted
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping.go b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+@@ -30,9 +30,8 @@
+ 	// backend's cluster was delivered long before any route could name it, so it
+ 	// is read only through ReferenceAhead.
+ 	referenceAhead time.Duration
+-	// claims are the destinations plugins declared they may route to that the
+-	// generated configuration never names. Gathered once at startup; a tree with
+-	// no such plugin carries an empty set and pays nothing for it.
++	// claims records statically declared plugin destinations, collected once
++	// at startup. Empty when no plugin contributes claims.
+ 	claims emissionClaims
+ }
+ 
+@@ -45,9 +44,8 @@
+ 	}
+ }
+ 
+-// Claims are what plugins declared they may route to beyond what the
+-// configuration names. Consulted both to decide whether a gateway can be scoped
+-// at all and to keep the claimed clusters emitted.
++// Claims returns plugin destinations beyond static references. It controls
++// selector coverage and retention of the corresponding clusters.
+ func (c clusterScoping) Claims() emissionClaims { return c.claims }
+ 
+ // ReferenceAhead is how long a route update onto a newly-emitted cluster is
+diff --git a/pkg/kgateway/proxy_syncer/emission_claims.go b/pkg/kgateway/proxy_syncer/emission_claims.go
+--- a/pkg/kgateway/proxy_syncer/emission_claims.go
++++ b/pkg/kgateway/proxy_syncer/emission_claims.go
+@@ -7,51 +7,28 @@
+ 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
+ )
+ 
+-// emissionClaims is every plugin's ClusterEmissionClaim, resolved once at
+-// startup into the two questions the emission path asks: is this selector
+-// accounted for, and which clusters do a gateway's selectors keep.
+-//
+-// A claim's destinations belong to its selectors: they are kept only in a
+-// gateway whose configuration uses one of them. Claims are collected once for
+-// the whole controller, so keeping them everywhere would widen every scoped
+-// gateway's emitted set by every plugin's candidates, gateways that never use
+-// the plugin included. Tied to their selectors, they are per-gateway exactly
+-// where the plugin is.
++// emissionClaims resolves startup claims into selector coverage and retained
++// destinations. Keep a claim's destinations only in gateways using its selectors,
++// so controller-wide collection does not widen unrelated gateways.
+ type emissionClaims struct {
+-	// bySelector maps each accounted cluster specifier plugin extension name
+-	// to the destinations kept for it, merged across the claims naming it. A
+-	// gateway keeps scoping when every request-time selector in its
+-	// configuration is in here.
++	// bySelector merges destinations by cluster-specifier extension name.
++	// A gateway stays scoped only if every runtime selector is accounted for.
+ 	bySelector map[string]*claimedDestinations
+ }
+ 
+-// claimedDestinations are the clusters claims keep for a selector: exact names,
+-// and names starting with one of the prefixes.
++// claimedDestinations contains exact names and prefixes retained for a selector.
+ type claimedDestinations struct {
+ 	names    map[string]struct{}
+ 	prefixes []string
+ }
+ 
+-// collectEmissionClaims gathers claims from every contributed policy plugin.
+-// Plugins that route only where the configuration says -- nearly all of them --
+-// register nothing and cost nothing here.
++// collectEmissionClaims gathers policy-plugin claims once. Most plugins need none.
++// Reject empty prefixes, which silently restore emit-all, and claims without
++// destinations or selectors. Invalid claims cover nothing, preserving emit-all
++// fallback for gateways using unaccounted selectors.
+ //
+-// An empty prefix is dropped with a log rather than honored. It would admit
+-// every cluster, which restores emit-all while still reporting the gateway as
+-// scoped: the one outcome worse than reverting, because it is invisible.
+-//
+-// A claim accounts for its selectors only if it also says where they may route:
+-// at least one name or prefix, and no prefix that had to be dropped. Accounting
+-// for a selector while keeping none of its candidates would prune exactly the
+-// clusters it computes, and its plugin would quietly fall back on every
+-// request, the failure claims exist to prevent. Such a claim contributes
+-// nothing: its selectors stay unaccounted, so the gateways that use them stay
+-// unscoped and emit everything anyway.
+-//
+-// A claim with no selectors keeps nothing either, since its destinations would
+-// apply in no gateway. A cluster a plugin needs whatever the routes say belongs
+-// in the resources its translation pass adds (ResourcesToAdd), which scoping
+-// never filters.
++// Retain destinations only where the claim's selectors are used. Unconditional
++// plugin clusters belong in ResourcesToAdd, which scoping does not filter.
+ func collectEmissionClaims(policies sdk.ContributesPolicies) emissionClaims {
+ 	claims := emissionClaims{bySelector: map[string]*claimedDestinations{}}
+ 	for gk, policyPlugin := range policies {
+@@ -111,14 +88,9 @@
+ 	return claims
+ }
+ 
+-// accountsFor reports whether a claim covers this request-time selector.
+-//
+-// Only cluster specifier plugins, referenced or inline, can be claimed: a claim
+-// names them by extension name. A cluster-header selector never is, since its
+-// destination is whatever the client puts in the header, so nothing a plugin
+-// declares can bound the set of clusters it might name; nor are the other kinds
+-// (filter-state overrides, undecodable typed configs, unknown specifier kinds),
+-// which no plugin claim describes.
++// accountsFor matches referenced or inline cluster-specifier plugins by extension
++// name. Header names are client-controlled and cannot be bounded here. Filter-state
++// overrides, opaque configs and unknown specifiers are also unclaimable.
+ func (c emissionClaims) accountsFor(selector requestTimeSelector) bool {
+ 	switch selector.Kind {
+ 	case selectorSpecifierPlugin, selectorInlinePlugin:
+@@ -129,9 +101,8 @@
+ 	}
+ }
+ 
+-// keptFor returns what the claims keep in a gateway whose configuration has
+-// these request-time selectors: the destinations of the claimed ones. A gateway
+-// that uses none of a claim's selectors keeps none of its destinations.
++// keptFor returns destinations for claimed selectors used by this gateway.
++// Unused claims retain nothing.
+ func (c emissionClaims) keptFor(selectors []requestTimeSelector) claimedSet {
+ 	var kept claimedSet
+ 	for _, selector := range selectors {
+@@ -149,11 +120,10 @@
+ 	return len(c.bySelector) == 0
+ }
+ 
+-// claimedSet is the destinations a gateway's claimed selectors keep.
++// claimedSet contains destinations retained by this gateway's claimed selectors.
+ type claimedSet []*claimedDestinations
+ 
+-// claims reports whether this cluster is one the gateway's claimed selectors
+-// may route to, and so must keep being emitted even though nothing names it.
++// claims reports whether a gateway's claimed selector can select this cluster.
+ func (s claimedSet) claims(cluster string) bool {
+ 	for _, kept := range s {
+ 		if _, ok := kept.names[cluster]; ok {
+diff --git a/pkg/kgateway/proxy_syncer/emission_claims_test.go b/pkg/kgateway/proxy_syncer/emission_claims_test.go
+--- a/pkg/kgateway/proxy_syncer/emission_claims_test.go
++++ b/pkg/kgateway/proxy_syncer/emission_claims_test.go
+@@ -19,9 +19,7 @@
+ 	}
+ }
+ 
+-// TestClaimedSelectorKeepsTheGatewayScoped is the point of the whole mechanism.
+-// An unclaimed request-time selector costs the gateway the optimization
+-// everywhere; claiming it keeps scoping on for every other backend.
++// A valid selector claim preserves scoping for the gateway's other backends.
+ func TestClaimedSelectorKeepsTheGatewayScoped(t *testing.T) {
+ 	emission := emittedClusters{
+ 		Names:                map[string]struct{}{"routed": {}},
+@@ -39,9 +37,7 @@
+ 		"the plugin that owns the selector accounted for it")
+ }
+ 
+-// TestClaimedSelectorsAreMatchedByName: a claim accounts for the selector it
+-// names and nothing else, so one plugin's claim cannot silently cover another
+-// plugin's unbounded selector.
++// Match claims by selector name; one plugin cannot cover another's selector.
+ func TestClaimedSelectorsAreMatchedByName(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Selectors:    []string{"picker"},
+@@ -54,9 +50,7 @@
+ 	assert.False(t, claims.accountsFor(requestTimeSelector{selectorSpecifierPlugin, "other"}))
+ }
+ 
+-// TestClusterHeaderCanNeverBeClaimed: the destination is whatever the client
+-// puts in the header, so no declaration can bound the set of clusters it might
+-// name. A gateway with one stays unscoped however much is claimed.
++// Header destinations cannot be claimed; the gateway must stay unscoped.
+ func TestClusterHeaderCanNeverBeClaimed(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Selectors:    []string{"picker", "x-target"},
+@@ -73,17 +67,14 @@
+ 	assert.Equal(t, []string{`cluster_header "x-target"`}, emission.unaccountedSelectors(claims))
+ }
+ 
+-// pickerGateway is a gateway whose routes name routed and also select through
+-// the picker cluster specifier plugin.
++// pickerGateway routes to routed and uses the picker cluster specifier plugin.
+ func pickerGateway() emittedClusters {
+ 	set := emissionSet("routed")
+ 	set.RequestTimeSelectors = []requestTimeSelector{{selectorSpecifierPlugin, "picker"}}
+ 	return set
+ }
+ 
+-// TestClaimedClustersSurviveTheFilter covers what a claim buys once the gateway
+-// is scoped: the candidates the plugin may compute, and its own placeholder,
+-// stay in CDS even though nothing names them.
++// Keep claimed runtime candidates and the plugin's placeholder without static references.
+ func TestClaimedClustersSurviveTheFilter(t *testing.T) {
+ 	scoping := scopedClusters()
+ 	scoping.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+@@ -104,10 +95,7 @@
+ 		"claimed names and prefixes are kept; only the genuinely unreferenced backend goes")
+ }
+ 
+-// TestClaimsKeepNothingInAGatewayWithoutTheirSelector: claims are collected
+-// for the whole controller, but a claim's destinations belong to its
+-// selectors. A gateway that never uses the plugin must not keep its candidates,
+-// or every scoped gateway would grow by every plugin's claims.
++// Controller-wide claims must not retain candidates in gateways lacking their selectors.
+ func TestClaimsKeepNothingInAGatewayWithoutTheirSelector(t *testing.T) {
+ 	scoping := scopedClusters()
+ 	scoping.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+@@ -124,9 +112,7 @@
+ 		"a gateway without the picker selector keeps only what its configuration names")
+ }
+ 
+-// TestClaimWithoutSelectorsKeepsNothing: destinations are kept only where a
+-// claim's selectors are used, so a claim naming none would apply nowhere. It is
+-// dropped rather than read as "keep these everywhere".
++// Reject selector-less claims; their destinations must not apply everywhere.
+ func TestClaimWithoutSelectorsKeepsNothing(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Names:        []string{"picker-fallback"},
+@@ -137,9 +123,7 @@
+ 	assert.False(t, claims.keptFor(pickerGateway().RequestTimeSelectors).claims("tenant-a"))
+ }
+ 
+-// TestEmptyPrefixClaimIsRejected: a prefix matching everything re-admits the
+-// whole inventory while still reporting the gateway as scoped, which is worse
+-// than reverting, because it is invisible.
++// Reject empty prefixes rather than silently admit the full inventory as scoped.
+ func TestEmptyPrefixClaimIsRejected(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Selectors:    []string{"picker"},
+@@ -152,9 +136,7 @@
+ 		"with its prefix dropped the claim keeps none of the selector's candidates, so it must not account for the selector")
+ }
+ 
+-// TestClaimWithoutDestinationsDoesNotAccountForItsSelectors: accounting for a
+-// selector while keeping none of its candidates would prune exactly the clusters
+-// it computes, and its plugin would quietly fall back on every request.
++// Destination-less claims must not cover selectors and prune their runtime candidates.
+ func TestClaimWithoutDestinationsDoesNotAccountForItsSelectors(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Selectors: []string{"picker"},
+@@ -167,9 +149,7 @@
+ 	}.Filterable(claims), "its gateway stays unscoped")
+ }
+ 
+-// TestOnlySpecifierPluginsCanBeClaimed: a claim names cluster specifier
+-// plugins. Other request-time selectors are never accounted for, even when a
+-// claimed name happens to equal theirs.
++// Only cluster-specifier plugins can be claimed, even if another kind shares the name.
+ func TestOnlySpecifierPluginsCanBeClaimed(t *testing.T) {
+ 	claims := collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
+ 		Selectors:    []string{"picker", "envoy.tcp_proxy.cluster", "type.googleapis.com/example.Opaque"},
+@@ -188,8 +168,7 @@
+ 	}
+ }
+ 
+-// TestNoClaimsIsTheOrdinaryCase: nearly every plugin routes only where the
+-// configuration says, registers nothing, and must cost nothing.
++// No claims is the ordinary case and should add no claim-processing work.
+ func TestNoClaimsIsTheOrdinaryCase(t *testing.T) {
+ 	claims := collectEmissionClaims(sdk.ContributesPolicies{
+ 		schema.GroupKind{Group: "test", Kind: "Ordinary"}: {Name: "ordinary"},
+diff --git a/pkg/kgateway/proxy_syncer/emission_clusters.go b/pkg/kgateway/proxy_syncer/emission_clusters.go
+--- a/pkg/kgateway/proxy_syncer/emission_clusters.go
++++ b/pkg/kgateway/proxy_syncer/emission_clusters.go
+@@ -18,25 +18,17 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+ )
+ 
+-// emittedClusters is the set of cluster names a gateway's generated
+-// configuration could name, together with whatever made that set unreliable.
+-//
+-// RequestTimeSelectors are destinations the walk cannot see. Any of them that no
+-// plugin has claimed makes the set unsafe to filter on for this gateway: the
+-// consumer must emit every cluster rather than prune candidates the data plane
+-// may still select. See Filterable.
++// emittedClusters holds static candidate names and unresolved runtime selectors.
++// Unclaimed selectors force emit-all so pruning cannot remove runtime destinations.
+ type emittedClusters struct {
+ 	Names map[string]struct{}
+-	// RequestTimeSelectors are the destination selectors the walk cannot
+-	// resolve, carried structurally rather than as prose so a plugin's claim can
+-	// be matched against the selector that plugin owns.
++	// RequestTimeSelectors identifies unresolved destinations structurally so
++	// claims can match the owning selector.
+ 	RequestTimeSelectors []requestTimeSelector
+ }
+ 
+-// requestTimeSelector identifies one piece of configuration that picks its
+-// destination per request or connection. Name is the cluster specifier
+-// plugin's extension name, the header a cluster-header route reads, or what
+-// the kind's comment says.
++// requestTimeSelector identifies runtime destination selection. Name identifies
++// the extension, header or other value documented by its kind.
+ type requestTimeSelector struct {
+ 	Kind string
+ 	Name string
+@@ -46,17 +38,13 @@
+ 	selectorClusterHeader   = "cluster_header"
+ 	selectorSpecifierPlugin = "cluster_specifier_plugin"
+ 	selectorInlinePlugin    = "inline_cluster_specifier_plugin"
+-	// selectorUnknownSpecifier is a cluster_specifier arm this code does not
+-	// know; Name is its Go type.
++	// selectorUnknownSpecifier identifies an unsupported oneof arm by Go type.
+ 	selectorUnknownSpecifier = "cluster_specifier"
+-	// selectorSniCluster is the sni_cluster network filter, which sets a
+-	// TcpProxy's cluster from the connection's SNI.
++	// selectorSniCluster selects TcpProxy's cluster from connection SNI.
+ 	selectorSniCluster = "sni_cluster"
+-	// selectorFilterState is a filter state object that overrides a
+-	// destination; Name is its key.
++	// selectorFilterState identifies a destination override by filter-state key.
+ 	selectorFilterState = "filter_state"
+-	// selectorOpaqueConfig is a typed_config the walk could not decode; Name
+-	// is its type URL.
++	// selectorOpaqueConfig identifies an undecodable typed_config by type URL.
+ 	selectorOpaqueConfig = "undecodable typed_config"
+ )
+ 
+@@ -67,17 +55,14 @@
+ 	return s.Kind + " " + strconv.Quote(s.Name)
+ }
+ 
+-// Filterable reports whether this set can be used to prune CDS, given what
+-// plugins have claimed. Every request-time selector must be accounted for: one
+-// that is not can select a cluster named nowhere, and pruning candidates it may
+-// select does not fail visibly.
++// Filterable requires every runtime selector to be covered by a valid claim.
++// Unaccounted selectors may select destinations absent from static references.
+ func (e emittedClusters) Filterable(claims emissionClaims) bool {
+ 	return len(e.unaccountedSelectors(claims)) == 0
+ }
+ 
+-// unaccountedSelectors are the request-time selectors no claim covers, which is
+-// what a log or metric should name: "this gateway is unscoped" is only
+-// actionable with the selector that caused it.
++// unaccountedSelectors returns uncovered selectors for actionable fallback logs
++// and metrics.
+ func (e emittedClusters) unaccountedSelectors(claims emissionClaims) []string {
+ 	var unaccounted []string
+ 	for _, selector := range e.RequestTimeSelectors {
+@@ -94,33 +79,16 @@
+ 		slices.Equal(e.RequestTimeSelectors, in.RequestTimeSelectors)
+ }
+ 
+-// collectReferencedClustersForEmission returns every cluster name reachable from
+-// a gateway's generated routes and listeners.
+-//
+-// This is the emission set, and it is deliberately not the set
+-// collectReferencedClusters computes. That one answers "which clusters must be
+-// present before a route may be published", so it extracts route targets alone:
+-// treating an ancillary reference as required would let one plugin bug starve a
+-// whole gateway. This one answers "which clusters may Envoy need", where an
+-// ancillary cluster — an ext_authz or ext_proc server, a rate limit service, an
+-// access-log gRPC sink, a JWKS source — is a real cluster whose absence is a
+-// permanent, route-invisible outage. jwt.go, for instance, resolves its JWKS
+-// target through GetBackendFromRef and emits backend.ClusterName(): an ordinary
+-// per-client backend cluster, named only from inside a typed_config chain.
+-//
+-// It therefore extracts every string scalar from every message the walk reaches,
+-// rather than reading named fields of known message types. The bias is
+-// asymmetric on purpose: over-collection emits one cluster nothing uses, while
+-// under-collection removes one the data plane needs. Strings that name no
+-// cluster cost nothing, because callers intersect this set with the clusters
+-// that actually exist.
+-//
+-// wellknown.BlackholeClusterName is always included: routes whose backends fail
+-// resolution target it, and it may be named by no proto in a healthy build.
+-//
+-// The second half of the result is the request-time-destination guard; see
+-// collectRequestTimeSelectors, matched against plugin claims by
+-// emittedClusters.Filterable.
++// collectReferencedClustersForEmission collects possible route/listener cluster
++// names, including nested filter dependencies. Readiness collects only routing
++// targets so one unavailable side service cannot hold every route update.
++//
++// Walk all reachable strings, then intersect with existing cluster names.
++// Extra candidates only reduce pruning; missed references can break filters
++// such as ext_authz or JWKS. Always include blackhole for unresolved backends.
++//
++// collectRequestTimeSelectors records destinations this static walk cannot
++// enumerate; Filterable checks their plugin-claim coverage.
+ func collectReferencedClustersForEmission(routes, listeners envoycache.Resources) emittedClusters {
+ 	out := emittedClusters{Names: map[string]struct{}{
+ 		wellknown.BlackholeClusterName: {},
+@@ -201,33 +169,13 @@
+ // set to override the cluster a TcpProxy connects to.
+ const tcpProxyClusterFilterStateKey = "envoy.tcp_proxy.cluster"
+ 
+-// collectRequestTimeSelectors records configuration that chooses a
+-// destination cluster at request or connection time, from a set the
+-// configuration never enumerates.
+-//
+-// A cluster-header route reads the name from a request header. A cluster
+-// specifier plugin, referenced or inline, runs a script that typically composes
+-// a name from a prefix, a request value and a port, so no candidate appears in
+-// the generated protos at all — only a declarative fallback, if the plugin has
+-// one. Widening the walk cannot reach these: the prefix is a fragment inside one
+-// string blob, not a name. The same holds for a weighted-cluster entry or a
+-// mirror policy that reads its cluster from a header, and for a TcpProxy whose
+-// cluster a network filter overrides through filter state (the sni_cluster
+-// filter, or set_filter_state writing envoy.tcp_proxy.cluster).
+-//
+-// Detection matters more than it first appears. Such a plugin usually checks
+-// whether its computed cluster exists and falls back when it does not, so
+-// pruning a candidate does not produce a visible 503 — every affected request
+-// quietly lands on the fallback instead. Reporting the selector is what turns
+-// silent misrouting into a visible, metric-bearing loss of the optimization,
+-// and it is what a plugin claim is matched against: a selector some plugin has
+-// accounted for stops forcing its gateway back to emitting everything.
+-//
+-// Every arm of the cluster_specifier oneof is classified explicitly, and an arm
+-// this code does not know is reported too: a go-control-plane bump that adds a
+-// request-time arm must not silently prune its candidates. Over-reporting only
+-// costs the optimization; TestRouteActionClusterSpecifierArmsAreClassified
+-// makes a new arm a deliberate decision.
++// collectRequestTimeSelectors detects cluster headers, specifier plugins,
++// weighted/mirror headers and TcpProxy filter-state overrides. Scripts can
++// compute names absent from protos; pruning them may silently select fallback.
++// Report selectors for diagnostics and match supported plugin claims.
++//
++// Classify every cluster_specifier arm. Unknown arms disable pruning and fail
++// TestRouteActionClusterSpecifierArmsAreClassified so upgrades require review.
+ func collectRequestTimeSelectors(msg proto.Message, selectors map[requestTimeSelector]struct{}) {
+ 	switch m := msg.(type) {
+ 	case *envoyroutev3.RouteAction:
+@@ -323,10 +271,8 @@
+ 	if anyMsg, ok := msg.Interface().(*anypb.Any); ok {
+ 		nestedMsg, err := anyMsg.UnmarshalNew()
+ 		if err != nil {
+-			// A typed config whose Go type is not linked into this binary (or
+-			// that is malformed) can name clusters the walk cannot see. Hand
+-			// the opaque Any itself to visit, so the emission guard reports it
+-			// (collectRequestTimeSelectors) rather than pruning what it names.
++			// Report opaque Any payloads, including unlinked or malformed types,
++			// so hidden destinations disable pruning (collectRequestTimeSelectors).
+ 			logger.Debug("typed_config not decodable during cluster reference scan", "type_url", anyMsg.GetTypeUrl(), "error", err)
+ 			visit(anyMsg)
+ 			return
+diff --git a/pkg/kgateway/proxy_syncer/emission_clusters_test.go b/pkg/kgateway/proxy_syncer/emission_clusters_test.go
+--- a/pkg/kgateway/proxy_syncer/emission_clusters_test.go
++++ b/pkg/kgateway/proxy_syncer/emission_clusters_test.go
+@@ -330,10 +330,8 @@
+ 	}
+ }
+ 
+-// Every arm of RouteAction.cluster_specifier is either declarative (the walk
+-// sees its names) or a request-time selector collectRequestTimeSelectors
+-// reports. An arm added by a go-control-plane bump is reported as unknown, and
+-// this test fails so that someone decides which it is.
++// Classify every cluster_specifier arm; report unknown arms and fail this test
++// so a dependency upgrade requires an explicit decision.
+ func TestRouteActionClusterSpecifierArmsAreClassified(t *testing.T) {
+ 	oneof := (&envoyroutev3.RouteAction{}).ProtoReflect().Descriptor().Oneofs().ByName("cluster_specifier")
+ 	require.NotNil(t, oneof)
+diff --git a/pkg/kgateway/proxy_syncer/emission_filter.go b/pkg/kgateway/proxy_syncer/emission_filter.go
+--- a/pkg/kgateway/proxy_syncer/emission_filter.go
++++ b/pkg/kgateway/proxy_syncer/emission_filter.go
+@@ -40,16 +40,14 @@
+ 		return clusters, clusterVersions, false
+ 	}
+ 
+-	// Only the claims of selectors this gateway uses keep anything here.
++	// Retain only claims for selectors this gateway uses.
+ 	kept := claims.keptFor(emitted.RequestTimeSelectors)
+ 	retained := make(map[string]envoycachetypes.ResourceWithTTL, len(clusters.Items))
+ 	retainedVersions := make(map[string]uint64, len(clusterVersions))
+ 	for name, item := range clusters.Items {
+ 		_, referenced := emitted.Names[name]
+-		// A claimed cluster is kept even when nothing names it: that is the
+-		// whole point of a claim, and it covers the plugin's own placeholder
+-		// cluster, which stops being named the moment its feature is doing its
+-		// job and would otherwise be the first thing pruned.
++		// Keep claimed candidates without static references, including the plugin's
++		// fallback placeholder when active routes no longer name it.
+ 		if !referenced && !kept.claims(name) {
+ 			continue
+ 		}
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -55,8 +55,7 @@
+ 
+ 	apiClient       apiclient.Client
+ 	proxyTranslator ProxyTranslator
+-	// scoping is resolved once, at construction: it carries the plugins'
+-	// cluster emission claims, collected a single time.
++	// scoping and plugin claims are resolved once at construction.
+ 	scoping clusterScoping
+ 
+ 	uniqueClients krt.Collection[ir.UniquelyConnectedClient]
+@@ -367,8 +366,7 @@
+ 
+ 	s.translator.Init(ctx)
+ 
+-	// Resolved once, at construction: every path this feature touches asks
+-	// scoping.ScopesClusters(), and with it false none of them do anything.
++	// ScopesClusters guards every path; false skips scoping work.
+ 	scoping := s.scoping
+ 	translationOutputs := krt.NewCollection(s.commonCols.GatewayIndex.Gateways, func(kctx krt.HandlerContext, gw ir.Gateway) *gatewayTranslationOutput {
+ 		// Note: s.commonCols.GatewayIndex.Gateways is already filtered to only include Gateways
+diff --git a/pkg/pluginsdk/types.go b/pkg/pluginsdk/types.go
+--- a/pkg/pluginsdk/types.go
++++ b/pkg/pluginsdk/types.go
+@@ -129,68 +129,34 @@
+ 	out *envoyclusterv3.Cluster,
+ )
+ 
+-// ClusterEmissionClaim declares destinations a plugin may route to that the
+-// generated Envoy configuration never names, so that scoped cluster discovery
+-// (KGW_CLUSTER_DISCOVERY_MODE=REFERENCED) keeps emitting them.
+-//
+-// It exists for one shape: a route that picks its cluster at request time, from
+-// a header or from a cluster specifier plugin whose script composes a name out
+-// of a prefix, a request value and a port. None of those candidate names appear
+-// in the produced protos, so no walk over them can find the candidates, and
+-// scoping would prune destinations the data plane still selects.
+-//
+-// Pruning them does not fail loudly. Such a plugin normally checks whether its
+-// computed cluster exists and takes a fallback when it does not, so every
+-// affected request quietly lands somewhere else instead of returning 503. That
+-// is why an unclaimed request-time selector makes its whole gateway revert to
+-// emitting every cluster, and why claiming is worth the trouble: a gateway whose
+-// selectors are all claimed keeps scoping everywhere else.
+-//
+-// A claim must also cover the plugin's own resources. Such a plugin commonly
+-// emits an endpointless placeholder cluster so an unmatched request fails
+-// closed; once no route names that placeholder, scoping would otherwise prune
+-// the very cluster that makes the feature safe.
++// ClusterEmissionClaim retains destinations computed by a cluster-specifier
++// plugin but absent from generated protos. Without a valid claim, its selector
++// forces emit-all; pruning its candidates could silently select a fallback.
++//
++// Include the plugin's own placeholder clusters too. An endpointless fallback
++// used to fail closed may no longer have a static route reference.
+ type ClusterEmissionClaim struct {
+-	// Selectors are the cluster specifier plugin extension names this claim
+-	// accounts for, matching the `name` of the TypedExtensionConfig the plugin
+-	// puts in RouteAction.cluster_specifier_plugin (or its inline form).
++	// Selectors lists referenced or inline cluster-specifier plugin extensions.
++	// Match the TypedExtensionConfig name. Header selectors and other runtime
++	// selector kinds cannot be claimed.
+ 	//
+-	// A gateway reverts to emitting every cluster unless every request-time
+-	// selector in its configuration is accounted for here by some plugin. A
+-	// cluster-header selector cannot be accounted for: the destination is
+-	// whatever the client sends, so no claim can bound it.
+-	//
+-	// A claim accounts for its selectors only if it also says where they may
+-	// route: at least one of Names or NamePrefixes, with no prefix rejected.
+-	// Otherwise the selectors stay unaccounted (and an error is logged), since
+-	// accounting for a selector while keeping none of its candidates would
+-	// prune exactly the clusters it computes.
+-	//
+-	// Names and NamePrefixes belong to these selectors: they are kept only in
+-	// gateways whose configuration uses one of them, so a claim never widens a
+-	// gateway that does not use the plugin. A claim without selectors keeps
+-	// nothing (and an error is logged). A cluster the plugin needs whatever
+-	// the routes say belongs in the resources its translation pass adds
+-	// (ResourcesToAdd), which scoping never filters.
++	// Supply at least one entry in Names or NamePrefixes, with no rejected prefix. Invalid
++	// claims cover nothing and log an error, preserving emit-all fallback.
++	// Destinations apply only where a selector is used; selector-less claims are
++	// rejected. Unconditional clusters belong in the translation pass's
++	// ResourcesToAdd, which scoping never filters.
+ 	Selectors []string
+ 	// Names are exact cluster names to keep emitting where Selectors are used.
+ 	Names []string
+-	// NamePrefixes admit every cluster whose name starts with one of them,
+-	// where Selectors are used, for the composed-name case where the
+-	// candidates cannot be enumerated ahead of time. An empty prefix is
+-	// rejected rather than treated as "everything": a claim that re-admits the
+-	// whole inventory restores emit-all silently, which is the outcome scoping
+-	// exists to avoid.
++	// NamePrefixes retains matching cluster names where Selectors are used.
++	// Use for computed names that cannot be enumerated. Empty prefixes are
++	// rejected because they silently restore the full cluster inventory.
+ 	NamePrefixes []string
+ }
+ 
+-// ClaimEmittedClusters is called once, when the proxy syncer is built and
+-// before its caches have synced, to collect a plugin's ClusterEmissionClaim.
+-// The claim holds for the controller's lifetime, so derive it from what the
+-// plugin knows statically (how it names the clusters it computes), not from
+-// cluster state. Return the zero value when the plugin routes only to
+-// destinations the configuration names, which is the usual case and requires
+-// nothing of a plugin author.
++// ClaimEmittedClusters is called once at syncer construction, before cache sync.
++// Claims last for the controller's lifetime: derive them from static naming
++// rules, not live cluster state. Return zero for statically referenced targets.
+ type ClaimEmittedClusters func() ClusterEmissionClaim
+ 
+ // PerClientProcessBackend is the legacy eager cluster mutation hook.
+@@ -232,9 +198,8 @@
+ 	// Required for efficient change detection with either hook; absent a
+ 	// declaration, consumers compare backend IR and backing-object version.
+ 	OverlayInputsHash OverlayInputsHash
+-	// ClaimEmittedClusters declares destinations this plugin may route to that
+-	// the generated configuration never names. Only needed by plugins that
+-	// select a destination at request time; see ClusterEmissionClaim.
++	// ClaimEmittedClusters declares runtime destinations absent from generated
++	// configuration; see ClusterEmissionClaim.
+ 	ClaimEmittedClusters ClaimEmittedClusters
+ 	// Deprecated: use PerClientClusterOverlay.
+ 	PerClientProcessBackend PerClientProcessBackend

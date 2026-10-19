@@ -1,0 +1,341 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -284,16 +284,11 @@
+ 	// Rejections are still logged and counted.
+ 	XdsSuppressNackResend bool `split_words:"true" default:"true"`
+ 
+-	// XdsRespondOnReconnect answers a reconnecting proxy's first endpoint,
+-	// route and secret requests even when the proxy already holds the current
+-	// version. After a stream reset the proxy asks for them at the version it
+-	// accepted before, and a snapshot the control plane has yet to (re)build
+-	// answers only a different version, so a cluster warming on its endpoints,
+-	// or a listener or cluster warming on its route configuration or secrets
+-	// when the stream broke, would otherwise wait for Envoy's own fetch timeout
+-	// before it could finish warming (for clusters, CDS stays paused until
+-	// then). The cost is one endpoint, route and secret push per reconnecting
+-	// proxy; cluster and listener requests are not affected.
++	// XdsRespondOnReconnect answers initial held-version EDS/RDS/SDS requests
++	// even after an empty cache republishes that same version. Otherwise missing
++	// responses can delay warming until the resource's fetch timeout; CDS stays
++	// paused while clusters warm. A warm cache may already answer without this.
++	// Allows one replay per type and stream; CDS/LDS requests are unchanged.
+ 	XdsRespondOnReconnect bool `split_words:"true" default:"true"`
+ 
+ 	// WeightedRoutePrecedence enables routes with a larger weight to take precedence over routes with a smaller weight.
+diff --git a/pkg/kgateway/setup/cache_watch_policy.go b/pkg/kgateway/setup/cache_watch_policy.go
+--- a/pkg/kgateway/setup/cache_watch_policy.go
++++ b/pkg/kgateway/setup/cache_watch_policy.go
+@@ -31,71 +31,25 @@
+ 		}, []string{typeURLLabel})
+ )
+ 
+-// watchPolicy wraps the snapshot cache with two request-level rules the cache
+-// itself does not have: it does not re-send a response the proxy has just
+-// rejected, and it answers a reconnecting proxy's first endpoint, route and
+-// secret requests even when the proxy already holds the current version.
++// watchPolicy combines NACK backoff and reconnect replay over SnapshotCache.
+ //
+-// Rule 1, NACKs.
++// For a NACK, match its nonce to the version sent on this stream and type.
++// If it matches the current snapshot, pass a copy claiming that version to
++// park the watch instead of resending immediately. Corrections pass through.
++// Retry unchanged config after nackRetryBase, doubling to nackRetryMax on
++// repeated rejection. ACKs and different rejected versions reset the delay.
+ //
+-// An xDS NACK is a DiscoveryRequest that carries the client's last accepted
+-// version and an error detail. The snapshot cache answers any request whose
+-// version differs from the snapshot's, and after a rejection those always
+-// differ: the client is still on the version it accepted before, the snapshot
+-// is the one it rejected. The cache therefore re-sends the rejected response,
+-// Envoy rejects it again immediately, and the two sides spin until the snapshot
+-// changes. Measured against a real proxy this runs in the thousands of
+-// responses per second per rejected type, all of it wasted, and it drowns the
+-// one line that says what was rejected.
++// Nonces are stream-local, even for streams sharing a cache key. Consume the
++// request association in CreateWatch, replace it on the next request and
++// remove it on close. NACK processing leaves the original request unchanged.
+ //
+-// The policy recognizes a NACK of exactly what would be re-sent, which is
+-// when the snapshot's current version for the type equals the version identified
+-// by this stream's matching nonce, and parks the watch instead: the request handed
+-// to the cache claims the current version, so the cache registers a watch that
+-// fires on the next snapshot change and sends nothing now. A NACK arriving
+-// after the snapshot already moved is passed through unchanged, so a
+-// correction is delivered immediately. ACKs and first requests are never
+-// touched.
+-//
+-// Parking is not forever. A rejection can be transient (a secret or file the
+-// config names not there yet, a resource limit), and nothing else would offer
+-// the config again until an unrelated change. So a parked NACK is retried: once
+-// the retry delay passes with the snapshot unchanged, the rejected response is
+-// re-sent, and Envoy re-evaluates it. Consecutive rejections of one version on
+-// a stream double the delay, from nackRetryBase up to nackRetryMax, so a
+-// config that keeps failing costs one response per type per nackRetryMax
+-// rather than a spin. An ACK, or a rejection of a different version, starts
+-// over.
+-//
+-// Sent versions and nonces are tracked per stream and resource type. Nonces
+-// are only unique within a stream: two streams sharing a cache node can both
+-// use nonce "1" for different versions. A NACK may suppress only the version
+-// sent on its own stream with its matching nonce. Request associations are
+-// consumed by CreateWatch, replaced by the next request, or removed on close.
+-//
+-// Rule 2, reconnects.
+-//
+-// The first request on a new stream from a proxy that already holds
+-// configuration carries the version it accepted on its previous stream and no
+-// nonce. Against a warm cache the pinned cache answers it by itself, because
+-// nothing has been returned on the new stream yet. Against an empty cache,
+-// which is what a proxy meets when the control plane has just restarted, the
+-// request parks; and when the control plane then republishes the same content
+-// under the same version, the publish path compares versions only, finds them
+-// equal, and sends nothing. The same happens after the controller reclaims a
+-// departed proxy's entry and the proxy comes back. For a resource that was
+-// warming when the stream broke that is not harmless: a cluster waits on its
+-// endpoints (and Envoy keeps CDS paused meanwhile), a listener on its route
+-// configuration, and either on its secrets. Each asks again at the version it
+-// holds, gets no answer, and stays warming until its own fetch timeout
+-// releases it. The policy hands the cache a copy of such a request with the
+-// version cleared, so the current snapshot answers it now or the next
+-// published one answers it then. The cache's own not-yet-returned rule does
+-// not cover this: it answers a fresh stream's named request only when a
+-// snapshot already exists as the request arrives. Cluster and listener
+-// requests are left alone, since nothing warms on them and a parked watch for
+-// a version the proxy holds costs nothing. The cost is one endpoint, route and
+-// secret push per reconnecting proxy.
++// On reconnect, an initial request carries a held version and no nonce.
++// A warm cache may answer it, but an empty cache parks it and can suppress a
++// later equal-version installation. Clear the copied request's version for
++// EDS/RDS/SDS so the current or next snapshot can answer. Missing replies can
++// prolong cluster/listener warming until fetch timeout; cluster warming pauses
++// CDS. Leave CDS/LDS requests unchanged. This permits one replay per dependent
++// type and reconnecting stream, not proof of immediate application.
+ type watchPolicy struct {
+ 	envoycache.SnapshotCache
+ 	hasher envoycache.NodeHash
+@@ -131,9 +85,7 @@
+ 	retryIn time.Duration
+ }
+ 
+-// nackRetryBase and nackRetryMax bound the delay before a parked NACK's
+-// response is re-sent (see watchPolicy). Variables so tests can
+-// shorten them.
++// nackRetryBase and nackRetryMax bound retry delay. Variables let tests shorten it.
+ var (
+ 	nackRetryBase = time.Second
+ 	nackRetryMax  = time.Minute
+@@ -236,7 +188,7 @@
+ 	return pending.response.version, pending.retryIn, true
+ }
+ 
+-// CreateWatch applies the two rules and delegates everything else.
++// CreateWatch applies enabled watch policies and delegates to the cache.
+ func (s *watchPolicy) CreateWatch(req *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response) (func(), error) {
+ 	if req.GetErrorDetail() == nil {
+ 		if s.respondOnReconnect && isReconnectRequest(req) && warmedOnTypes[req.GetTypeUrl()] {
+@@ -356,20 +308,17 @@
+ 	close(w.done)
+ }
+ 
+-// warmedOnTypes are the named types an Envoy resource waits on while it warms:
+-// a cluster on its endpoints, a listener on its route configuration, and
+-// either on its secrets.
++// warmedOnTypes lists dependencies that can delay warming: EDS for clusters,
++// RDS for listeners and SDS for either.
+ var warmedOnTypes = map[string]bool{
+ 	envoyresource.EndpointType: true,
+ 	envoyresource.RouteType:    true,
+ 	envoyresource.SecretType:   true,
+ }
+ 
+-// isReconnectRequest reports whether req is the first request on a stream from
+-// a proxy that already holds configuration: it names the version the proxy
+-// accepted on its previous stream and carries no response nonce, because no
+-// response has been sent on this stream yet. Every later request on the stream,
+-// ACK, NACK or subscription change, carries the nonce of the last response.
++// isReconnectRequest identifies a held-version request with no response nonce
++// or error detail. These are the initial per-type reconnect requests targeted
++// by the replay policy; later ACKs/NACKs carry a response nonce.
+ func isReconnectRequest(req *discoveryv3.DiscoveryRequest) bool {
+ 	return req.GetResponseNonce() == "" && req.GetVersionInfo() != ""
+ }
+diff --git a/pkg/kgateway/setup/cache_watch_policy_test.go b/pkg/kgateway/setup/cache_watch_policy_test.go
+--- a/pkg/kgateway/setup/cache_watch_policy_test.go
++++ b/pkg/kgateway/setup/cache_watch_policy_test.go
+@@ -23,8 +23,7 @@
+ 	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+ )
+ 
+-// newPolicyHarness is the ADS harness with the watch policy in front of the
+-// cache and its callbacks on the server, as NewControlPlane wires them.
++// newPolicyHarness mirrors NewControlPlane's watch-policy and callback wiring.
+ func newPolicyHarness(t *testing.T, ordered, suppressNackResend, respondOnReconnect bool) *adsHarness {
+ 	t.Helper()
+ 
+@@ -84,9 +83,8 @@
+ 	})
+ }
+ 
+-// ackNamed acknowledges a named-type response. An ACK without names after a
+-// named subscription is an unsubscribe-all on the pinned cache and parks no
+-// watch, so named types must repeat their names.
++// ackNamed repeats subscription names. On this pin, empty names after a named
++// subscription mean unsubscribe-all, so no watch would remain.
+ func (h *adsHarness) ackNamed(resp *discoveryv3.DiscoveryResponse, names ...string) {
+ 	h.t.Helper()
+ 
+@@ -222,8 +220,7 @@
+ 		[]*envoyroutev3.RouteConfiguration{testRouteConfig(adsTestRoute, adsTestCluster)})
+ }
+ 
+-// reconnectSnapshot is the harness snapshot with a real endpoint assignment for
+-// the cluster, so named EDS requests have something to be answered with.
++// reconnectSnapshot includes a real CLA for named EDS requests.
+ func reconnectSnapshot(version string) *envoycache.Snapshot {
+ 	snap := nackSnapshot(version)
+ 	snap.Resources[cachetypes.Endpoint] = envoycache.NewResources(version, []cachetypes.Resource{
+@@ -234,8 +231,7 @@
+ 
+ const adsTestSecret = "test-secret"
+ 
+-// reconnectSnapshotWithSecret adds a secret to reconnectSnapshot, so named SDS
+-// requests have something to be answered with.
++// reconnectSnapshotWithSecret adds a secret for named SDS requests.
+ func reconnectSnapshotWithSecret(version string) *envoycache.Snapshot {
+ 	snap := reconnectSnapshot(version)
+ 	snap.Resources[cachetypes.Secret] = envoycache.NewResources(version, []cachetypes.Resource{
+@@ -244,19 +240,16 @@
+ 	return snap
+ }
+ 
+-// The named types a resource warms on, with the name the harness requests.
++// Dependency types and resource names requested by the harness.
+ var reconnectWarmedTypes = []struct{ typeURL, name string }{
+ 	{envoyresource.EndpointType, adsTestCluster},
+ 	{envoyresource.RouteType, adsTestRoute},
+ 	{envoyresource.SecretType, adsTestSecret},
+ }
+ 
+-// A proxy reconnecting after a control-plane restart: its first endpoint
+-// request names the version it accepted on the old stream, the cache is still
+-// empty, and the control plane then republishes the same content under the
+-// same version. Without the policy the parked request is never answered
+-// (versions are equal), so a cluster that was warming stays warming. This pins
+-// that on the plain harness.
++// On the plain cache, a held-version EDS request parked before rebuilding is
++// not answered by equal-version publication. This tests the missing response,
++// not Envoy's warming duration or fetch timeout.
+ func TestPlainCacheLeavesReconnectEndpointRequestParkedOnEqualVersionRepublish(t *testing.T) {
+ 	h := newADSHarness(t, true)
+ 	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: envoyresource.EndpointType, ResourceNames: []string{adsTestCluster}, VersionInfo: "1"})
+@@ -277,8 +270,8 @@
+ 			resp := h.receiveType(envoyresource.EndpointType, "1")
+ 			require.Len(t, resp.GetResources(), 1)
+ 
+-			// From here the stream behaves normally: the ACK parks, the next
+-			// version is delivered, and a NACK of it is not re-sent.
++			// Resume normal behavior: park ACKs, deliver updates and suppress immediate
++			// NACK resends.
+ 			h.ackNamed(resp, adsTestCluster)
+ 			h.waitForOpenWatches(1)
+ 			h.setSnapshot(reconnectSnapshot("2"))
+@@ -297,11 +290,9 @@
+ 	require.Len(t, resp.GetResources(), 1)
+ }
+ 
+-// Against a warm cache the pinned cache answers a fresh stream's first request
+-// of any type at the held version by itself, because nothing has been
+-// returned on that stream yet. The reconnect rule is therefore only needed for
+-// the empty-cache path pinned above; this documents the warm-cache behavior on
+-// the plain harness so a change in the pin is noticed.
++// Characterize the warm-cache control: a fresh stream's held-version request
++// already answers because that stream has returned nothing. The empty-cache
++// equal-version path above is the one requiring replay.
+ func TestPlainCacheAnswersFreshStreamAtHeldVersionFromWarmCache(t *testing.T) {
+ 	h := newADSHarness(t, true)
+ 	h.setSnapshot(reconnectSnapshot("1"))
+@@ -311,10 +302,8 @@
+ 	h.receiveType(envoyresource.EndpointType, "1")
+ }
+ 
+-// Other types keep the cache's behavior on the empty-cache path: a
+-// reconnecting proxy's cluster request parks, an equal-version republish does
+-// not answer it, which is harmless since the proxy holds that version, and the
+-// next version is delivered.
++// Keep CDS behavior unchanged: equal-version publication leaves the watch
++// parked; a later version answers.
+ func TestReconnectRuleLeavesClusterRequestsToTheCache(t *testing.T) {
+ 	h := newPolicyHarness(t, true, true, true)
+ 	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: envoyresource.ClusterType, VersionInfo: "1"})
+@@ -325,7 +314,7 @@
+ 	h.receiveType(envoyresource.ClusterType, "2")
+ }
+ 
+-// A cold proxy (no held version) and an ordinary ACK are untouched by the rule.
++// Leave cold requests and normal ACKs unchanged.
+ func TestReconnectRuleIgnoresColdRequestsAndAcks(t *testing.T) {
+ 	h := newPolicyHarness(t, true, true, true)
+ 	h.setSnapshot(reconnectSnapshot("1"))
+@@ -338,7 +327,7 @@
+ 	h.receiveType(envoyresource.EndpointType, "2")
+ }
+ 
+-// With the setting off the reconnect request parks exactly as on the plain cache.
++// Disabling replay preserves the plain cache's parked reconnect request.
+ func TestReconnectRuleDisabledParksLikePlainCache(t *testing.T) {
+ 	h := newPolicyHarness(t, true, true, false)
+ 	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: envoyresource.EndpointType, ResourceNames: []string{adsTestCluster}, VersionInfo: "1"})
+@@ -418,11 +407,8 @@
+ 	require.Equal(t, time.Second, reject("4"), "an ACK starts over")
+ }
+ 
+-// The empty-cache path parks a reconnecting proxy's route and secret requests
+-// exactly like its endpoint request: an equal-version republish does not
+-// answer them. A listener that was warming on its route configuration, or a
+-// listener or cluster warming on a secret, then waits for its own fetch
+-// timeout. This pins that on the plain harness.
++// The plain cache also leaves RDS/SDS requests parked after equal-version
++// rebuilding. This checks missing responses, not remote warming or timeout.
+ func TestPlainCacheLeavesReconnectRouteAndSecretRequestsParkedOnEqualVersionRepublish(t *testing.T) {
+ 	for _, tc := range reconnectWarmedTypes[1:] {
+ 		t.Run(tc.typeURL, func(t *testing.T) {
+@@ -435,8 +421,7 @@
+ 	}
+ }
+ 
+-// The policy answers a reconnecting proxy's first request for every type a
+-// resource warms on, once a snapshot arrives at the held version.
++// Replay EDS/RDS/SDS once the held-version snapshot becomes available.
+ func TestReconnectWarmedTypeRequestsAreAnsweredWhenSnapshotArrivesAtHeldVersion(t *testing.T) {
+ 	for _, tc := range reconnectWarmedTypes {
+ 		for _, ordered := range []bool{false, true} {
+diff --git a/pkg/kgateway/setup/controlplane.go b/pkg/kgateway/setup/controlplane.go
+--- a/pkg/kgateway/setup/controlplane.go
++++ b/pkg/kgateway/setup/controlplane.go
+@@ -118,9 +118,8 @@
+ 	hasher := xds.NewNodeRoleHasher()
+ 	var snapshotCache envoycache.SnapshotCache = envoycache.NewSnapshotCache(true, hasher, envoyLoggerAdapter)
+ 	if suppressNackResend || respondOnReconnect {
+-		// See watchPolicy: a NACK of the current snapshot version parks the watch
+-		// instead of re-sending the rejected response, and a reconnecting proxy's
+-		// first endpoint request is answered regardless of the version it holds.
++		// watchPolicy backs off matching NACKs and replays initial held-version
++		// EDS/RDS/SDS requests on reconnect.
+ 		policy := newWatchPolicy(snapshotCache, hasher, suppressNackResend, respondOnReconnect)
+ 		allCallbacks = chainCallbacks(allCallbacks, policy.callbacks())
+ 		snapshotCache = policy
+diff --git a/pkg/kgateway/setup/nack_resend_metrics_test.go b/pkg/kgateway/setup/nack_resend_metrics_test.go
+--- a/pkg/kgateway/setup/nack_resend_metrics_test.go
++++ b/pkg/kgateway/setup/nack_resend_metrics_test.go
+@@ -63,8 +63,8 @@
+ 	}
+ }
+ 
+-// Every reconnecting proxy's first endpoint request counts once, under the same
+-// type_url values as the rejects metrics; a cold request and an ACK do not.
++// Count initial held-version EDS requests under rejection metrics' type labels.
++// Cold requests and ACKs do not count.
+ func TestReconnectResponsesMetric(t *testing.T) {
+ 	const metricName = "kgateway_envoy_xds_reconnect_responses_total"
+ 	xdsReconnectResponses.Reset()

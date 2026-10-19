@@ -8,3 +8,11 @@ name = "XdsSpec"
 [[lean_exe]]
 name = "xdsspec"
 root = "Main"
+
+[[lean_exe]]
+name = "xdsoracle"
+root = "OracleMain"
+
+[[lean_exe]]
+name = "xdscacheoracle"
+root = "CacheOracleMain"

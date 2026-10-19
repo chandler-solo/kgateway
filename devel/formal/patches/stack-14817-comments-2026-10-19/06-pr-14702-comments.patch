@@ -1,0 +1,295 @@
+diff --git a/pkg/kgateway/proxy_syncer/eds_set_version.go b/pkg/kgateway/proxy_syncer/eds_set_version.go
+--- a/pkg/kgateway/proxy_syncer/eds_set_version.go
++++ b/pkg/kgateway/proxy_syncer/eds_set_version.go
+@@ -9,37 +9,19 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
+ )
+ 
+-// EDS set versioning.
++// Version each published EDS set from assignment contributions, using the same
++// rule for direct, filtered and carried sets without marshaling protos:
++//   - Use EndpointsHash for a built row.
++//   - Otherwise reuse a carried assignment's last published contribution.
++//   - Otherwise hash the synthesized assignment's name.
+ //
+-// go-control-plane answers a watch only when the snapshot version differs
+-// from the version the client last accepted. The EDS version must therefore
+-// move exactly when the set of assignments a client is served moves: a
+-// version that moves without the content pushes identical endpoints to every
+-// client, and a version that stays while the content moves parks the client
+-// on stale endpoints. Every publication path derives the version from the
+-// same function of the same inputs, so equal published sets get equal
+-// versions. No proto is digested for this.
+-//
+-//   - A row published directly contributes its row hash (EndpointsHash).
+-//   - An assignment carried forward from the previously published snapshot
+-//     contributes the hash it was last published under, so a row that returns
+-//     with unchanged inputs restores the version it had.
+-//   - A synthesized empty assignment contributes a hash of its name.
+-//
+-// The fold is an XOR, so it is independent of iteration order and, when every
+-// row is published, equal to the version string this code produced before
+-// filtering and carry-forward were versioned separately. Two contributions
+-// cancel only under a 64-bit collision, as before: row hashes and name hashes
+-// both include the resource name. An input-only change (a policy generation
+-// bump that leaves the built assignment unchanged) still moves the version;
+-// removing that push would need a content digest per row, which this
+-// deliberately avoids.
++// XOR makes iteration order irrelevant and preserves the original unfiltered
++// version. Equal contributions give equal versions, but finite hashes and XOR
++// can collide. Input-only changes may still move a row hash even when CLA bytes
++// are unchanged; avoiding those pushes would require content digests.
+ 
+-// endpointSetHashes maps each assignment name in items to its version
+-// contribution. rowHashes holds the hashes of the rows built for this client,
+-// keyed by assignment name. carried, when non-nil, answers for assignments
+-// copied from the previously published snapshot. Anything else is a
+-// synthesized assignment, versioned by its name.
++// endpointSetHashes selects each published assignment's contribution: built row
++// hash first, carried hash second, otherwise a synthesized-name hash.
+ func endpointSetHashes(items map[string]envoycachetypes.ResourceWithTTL, rowHashes map[string]uint64, carried func(name string) (uint64, bool)) map[string]uint64 {
+ 	out := make(map[string]uint64, len(items))
+ 	for name := range items {
+diff --git a/pkg/kgateway/proxy_syncer/eds_set_version_test.go b/pkg/kgateway/proxy_syncer/eds_set_version_test.go
+--- a/pkg/kgateway/proxy_syncer/eds_set_version_test.go
++++ b/pkg/kgateway/proxy_syncer/eds_set_version_test.go
+@@ -19,9 +19,7 @@
+ 	return envoycache.NewResourcesWithTTL("", items).Items
+ }
+ 
+-// A set published through a filter is versioned exactly as the same set
+-// published directly: the version is a function of the published rows, not
+-// of the path that published them.
++// Direct and filtered publication must version the same row set identically.
+ func TestEndpointSetVersionIsPathIndependent(t *testing.T) {
+ 	rows := map[string]uint64{"a": 11, "b": 22, "c": 33}
+ 
+@@ -41,8 +39,7 @@
+ 	require.Equal(t, v1, v2)
+ }
+ 
+-// A row that changes behind a filter still moves the filtered version, and a
+-// row that recovers its inputs restores the version it had.
++// Changed row inputs move filtered versions; restoring inputs restores the version.
+ func TestEndpointSetVersionFollowsRowHashes(t *testing.T) {
+ 	items := edsSetVersionItems("a", "c")
+ 	before := endpointSetVersion(endpointSetHashes(items, map[string]uint64{"a": 11, "b": 22, "c": 33}, nil))
+@@ -52,8 +49,7 @@
+ 	require.Equal(t, before, restored, "restoring the row must restore the version")
+ }
+ 
+-// Contribution precedence: a built row wins over a carried hash, a carried
+-// hash wins over the name hash, and anything else is versioned by name.
++// Prefer built hashes, then carried hashes, then synthesized-name hashes.
+ func TestEndpointSetHashesPrecedence(t *testing.T) {
+ 	items := edsSetVersionItems("built", "carried", "synth")
+ 	rows := map[string]uint64{"built": 1, "unpublished": 9}
+@@ -79,14 +75,12 @@
+ 	require.Equal(t, uint64(1), withoutCarry["built"])
+ }
+ 
+-// A carried assignment restored with the hash it was published under gives
+-// the composed set the version the directly built set would have.
++// Reusing carried contributions must match the directly built set's version.
+ func TestEndpointSetVersionCarryRestoresPublishedVersion(t *testing.T) {
+ 	publishedRows := map[string]uint64{"old": 11, "other": 22}
+ 	published := endpointSetVersion(endpointSetHashes(edsSetVersionItems("old", "other"), publishedRows, nil))
+ 
+-	// The candidate rebuilt only "other"; "old" is copied from the published
+-	// snapshot and remembered under its published contribution.
++	// Only "other" was rebuilt; retain "old" with its published contribution.
+ 	lastPublished := func(name string) (uint64, bool) {
+ 		h, ok := publishedRows[name]
+ 		return h, ok
+@@ -108,9 +102,7 @@
+ 	require.Equal(t, res.Items, out.Items)
+ }
+ 
+-// The gate remembers the contributions of the EDS set it last wrote for a
+-// client, answers carry-forward lookups from them, and forgets them with the
+-// client's snapshot.
++// Remember EDS contributions for carry-forward and forget them with the snapshot.
+ func TestPublishGateRemembersPublishedEDSHashes(t *testing.T) {
+ 	gate := newPublishGate(0, false, nil)
+ 	cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -145,36 +145,16 @@
+ 	return refs
+ }
+ 
+-// resolveDeferredPerCluster composes the snapshot actually published for a
+-// deferred wrapper, given the snapshot published on the client's current
+-// connection:
++// resolveDeferredPerCluster composes a deferred build against this connection's
++// published snapshot. Carry missing targets and CLAs. If all gaps were already
++// referenced, publish new routes and let the gate preserve held endpoints.
++// Otherwise hold routes, listeners and secrets with their full cluster closure,
++// including filter dependencies, while publishing new CDS/EDS.
+ //
+-//   - missing referenced clusters present in the published snapshot are
+-//     carried forward together with their CLAs;
+-//   - if every remaining gap is a previously-referenced cluster (present in
+-//     the published routes' reference set), the new routes publish as-is;
+-//     clusters among them whose CLA is not derived keep the endpoints the
+-//     client holds (the gate settles synthesized CLAs at publish time);
+-//   - otherwise some gap is a newly-referenced cluster that has never been
+-//     ready: routes, listeners, and secrets are held at their published
+-//     versions (so nothing flips onto the unready cluster), every published
+-//     cluster the build lacks is carried forward with its CLA (the held
+-//     configuration's whole dependency closure, filter-called clusters
+-//     included), and the new CDS/EDS — including the warming cluster — still
+-//     goes out.
+-//
+-// A carried cluster's CLA is taken from the published snapshot unless the
+-// build already has that assignment for another cluster sharing its EDS
+-// service_name; the built assignment is then kept.
+-//
+-// The second return value lists the flip-blocking clusters when the hold was
+-// applied, nil otherwise. holdFlips=false composes the released form — the
+-// new routes publish as-is even with never-ready gaps — used by the gate's
+-// flip-release bound so a steady-state-unready reference cannot pin the
+-// client's route/listener/secret updates forever (#14352).
+-// lastPublished answers for assignments copied from the published snapshot
+-// with the hash each was last published under (eds_set_version.go). The last
+-// result holds the contributions of the composed EDS set.
++// For a shared EDS service_name, keep the built CLA over its carried copy.
++// Return flip blockers, or nil; holdFlips=false releases despite gaps (#14352).
++// lastPublished supplies carried contributions. The final result describes
++// contributions for the composed EDS set (eds_set_version.go).
+ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot, holdFlips bool, lastPublished func(string) (uint64, bool)) (*envoycache.Snapshot, []string, map[string]uint64) {
+ 	publishedRefs := publishedReferencedClusters(published)
+ 	oldClusters := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
+@@ -316,8 +296,7 @@
+ 			Version: fmt.Sprintf("%s-carry-%d", newClusters.Version, carryHash),
+ 			Items:   clusterItems,
+ 		}
+-		// The carried assignments keep the contribution they were published
+-		// under, so the composed set is versioned like a direct publication.
++		// Reuse carried contributions so direct and composed publication agree.
+ 		edsHashes = endpointSetHashes(endpointItems, snapWrap.endpointHashes, lastPublished)
+ 		composed.Resources[envoycachetypes.Endpoint] = envoycache.Resources{
+ 			Version: endpointSetVersion(edsHashes),
+diff --git a/pkg/kgateway/proxy_syncer/perclient.go b/pkg/kgateway/proxy_syncer/perclient.go
+--- a/pkg/kgateway/proxy_syncer/perclient.go
++++ b/pkg/kgateway/proxy_syncer/perclient.go
+@@ -24,8 +24,7 @@
+ 
+ type endpointsWithUccName struct {
+ 	endpoints envoycache.Resources
+-	// rowHashes maps each assignment name to the hash of the row that built
+-	// it; the published subset is versioned from it (eds_set_version.go).
++	// rowHashes maps assignment names to built-row contributions (eds_set_version.go).
+ 	// +noKrtEquals folded into endpoints.Version
+ 	rowHashes    map[string]uint64
+ 	resourceName string
+@@ -435,20 +434,12 @@
+ 	return out
+ }
+ 
+-// filterEndpointResourcesForClusters returns the EDS resources that belong with
+-// the EDS clusters in the same CDS snapshot. It drops CLAs for clusters that do
+-// not use EDS or are not in CDS: Envoy requests EDS resources by the names CDS
+-// gives it, and go-control-plane withholds a whole ADS response that carries
+-// one the client did not request (#14471). It adds an empty CLA for every EDS
+-// cluster with no derived one and returns their names, so the snapshot stays
+-// EDS-consistent; the publish gate decides which of those synthesized CLAs the
+-// client receives (settleSynthesizedEndpoints), because an empty CLA would
+-// replace endpoints the client already holds. bootstrapEndpoint names the
+-// gateway's bootstrap local cluster for clients that subscribed to it; its CLA
+-// is kept although that cluster is not in dynamic CDS.
+-//
+-// rowHashes supplies each derived assignment's version contribution. The
+-// returned hashes describe only the published set, including synthesized names.
++// filterEndpointResourcesForClusters keeps CLAs named by EDS clusters and
++// synthesizes absent assignments. Drop orphan CLAs that could block named ADS
++// responses (#14471), but retain the subscribed bootstrap local cluster's CLA.
++// Return synthesized names so the gate can preserve held endpoints instead
++// of sending empties. rowHashes versions derived assignments; returned hashes
++// cover only the published set, including synthesized-name contributions.
+ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources, rowHashes map[string]uint64, bootstrapEndpoint string) (envoycache.Resources, map[string]uint64, map[string]struct{}) {
+ 	if endpointsMatchClusters(clusters, endpoints, bootstrapEndpoint) {
+ 		return endpoints, rowHashes, nil
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -186,8 +186,7 @@
+ 	// none (beginBuildLocked). Set by ProxySyncer.Start before the gate is
+ 	// first used; nil for callers that drive the gate directly.
+ 	currentBuild func(proxyKey string) *XdsSnapWrapper
+-	// publishedEDS remembers, per client, the contribution each assignment was
+-	// published under in the snapshot now in the cache (eds_set_version.go).
++	// publishedEDS tracks each installed assignment's contribution per client.
+ 	publishedEDS map[string]map[string]uint64
+ }
+ 
+@@ -286,8 +285,7 @@
+ 	published := g.connectionSnapshotLocked(cache, proxyKey)
+ 	settled := settleSynthesizedEndpoints(snap, synthesized, published)
+ 	if settled != snap {
+-		// A republished assignment keeps the contribution it had on this
+-		// connection. Omitted assignments contribute nothing to the set.
++		// Retained assignments keep their contribution; omitted ones contribute nothing.
+ 		hashes := endpointSetHashes(settled.Resources[envoycachetypes.Endpoint].Items, edsHashes, nil)
+ 		if published != nil {
+ 			previous := published.GetResourcesAndTTL(envoyresourcev3.EndpointType)
+@@ -320,13 +318,9 @@
+ 		if errors.Is(err, errConnectionSuperseded) {
+ 			return err // computed for the client's previous connection
+ 		}
+-		// go-control-plane installs the snapshot before answering the
+-		// node's open watches, and only answering can fail (the context
+-		// ended). Later requests are answered from the installed snapshot,
+-		// so the bookkeeping below follows installation: an error here must
+-		// not leave an episode, gauge or flip bound behind for a snapshot
+-		// the cache already serves, and the remembered EDS contributions
+-		// must describe the installed set.
++		// Installation precedes watch answering, which may fail. Follow confirmed
++		// cache state in bookkeeping, including remembered EDS contributions;
++		// installation does not establish client delivery.
+ 		if installed, getErr := cache.GetSnapshot(proxyKey); getErr != nil || installed != envoycache.ResourceSnapshot(snap) {
+ 			return err
+ 		}
+@@ -334,7 +328,7 @@
+ 	}
+ 	g.publishedEDS[proxyKey] = edsHashes
+ 	g.published[proxyKey] = struct{}{}
+-	// A publish ends the first-publish and warm withhold episodes.
++	// Installation ends first-publication and warm-hold episodes.
+ 	delete(g.coldEpisodes, proxyKey)
+ 	delete(g.warmEpisodes, proxyKey)
+ 	if g.afterPublish != nil {
+@@ -343,7 +337,7 @@
+ 	return nil
+ }
+ 
+-// lastPublishedEDSLocked answers for the contributions remembered for proxyKey.
++// lastPublishedEDSLocked returns the contributions retained for proxyKey.
+ func (g *publishGate) lastPublishedEDSLocked(proxyKey string) func(string) (uint64, bool) {
+ 	hashes := g.publishedEDS[proxyKey]
+ 	if hashes == nil {
+@@ -946,7 +940,7 @@
+ 		return snap
+ 	}
+ 	settled := *snap
+-	// setSnapshot assigns the final version using the remembered row hashes.
++	// setSnapshot computes the final version from retained row contributions.
+ 	settled.Resources[envoycachetypes.Endpoint] = envoycache.Resources{Items: items}
+ 	return &settled
+ }
+diff --git a/pkg/kgateway/proxy_syncer/xdswrapper.go b/pkg/kgateway/proxy_syncer/xdswrapper.go
+--- a/pkg/kgateway/proxy_syncer/xdswrapper.go
++++ b/pkg/kgateway/proxy_syncer/xdswrapper.go
+@@ -57,9 +57,8 @@
+ 	// row. Sorted.
+ 	// +noKrtEquals
+ 	expiredCarry []string
+-	// endpointHashes maps each assignment in snap to the hash it is versioned
+-	// by (eds_set_version.go); the publish gate remembers it for carry-forward.
+-	// Folded into the EDS version compared by Equals.
++	// endpointHashes holds each assignment's version contribution for carry-forward
++	// (eds_set_version.go). Equals compares their folded EDS version.
+ 	// +noKrtEquals
+ 	endpointHashes map[string]uint64
+ }

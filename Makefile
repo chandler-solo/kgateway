@@ -573,6 +573,10 @@ view-test-coverage:
 formal-lean: ## Re-check the Lean xDS spec proofs, model-check it, and conformance-check an implementation trace against it
 	devel/formal/lean/check.sh
 
+.PHONY: formal-oracle
+formal-oracle: ## Differentially fuzz Go publication against the executable Lean reference
+	python3 -B devel/formal/oracle/check.py $(FORMAL_ORACLE_ARGS)
+
 .PHONY: formal-regression-harness formal-stack-regressions formal-stack-current formal-legacy-contents formal-tlc formal-envoy
 formal-regression-harness: ## Check that regression receipts reject missing, skipped, or wrong failures
 	python3 -B -m unittest discover -s devel/formal/regressions -p '*_test.py'

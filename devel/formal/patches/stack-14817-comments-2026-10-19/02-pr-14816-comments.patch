@@ -1,0 +1,875 @@
+diff --git a/pkg/kgateway/controller/start.go b/pkg/kgateway/controller/start.go
+--- a/pkg/kgateway/controller/start.go
++++ b/pkg/kgateway/controller/start.go
+@@ -83,11 +83,9 @@
+ 	CommonCollections *collections.CommonCollections
+ 	AugmentedPods     krt.Collection[krtcollections.LocalityPod]
+ 	UniqueClients     krt.Collection[ir.UniquelyConnectedClient]
+-	// XDSClientState is the connection state behind UniqueClients (the third
+-	// result of krtcollections.NewUniquelyConnectedClients). Leave it nil
+-	// only if no such state exists: per-client publication then treats every
+-	// reconnecting proxy as a new one, and never reclaims the snapshots of
+-	// departed proxies, so controller memory grows with proxy churn.
++	// XDSClientState is the third result of NewUniquelyConnectedClients.
++	// If nil, reconnects appear cold and departed snapshots are never reclaimed,
++	// allowing memory to grow with proxy churn.
+ 	XDSClientState krtcollections.XDSClientState
+ 
+ 	KrtOptions krtutil.KrtOptions
+diff --git a/pkg/kgateway/proxy_syncer/connection_fence.go b/pkg/kgateway/proxy_syncer/connection_fence.go
+--- a/pkg/kgateway/proxy_syncer/connection_fence.go
++++ b/pkg/kgateway/proxy_syncer/connection_fence.go
+@@ -8,43 +8,29 @@
+ 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+ )
+ 
+-// errConnectionSuperseded is returned for a publish computed for a client's
+-// previous connection after its new connection started: it is not installed.
+-// The new connection gets its own publish once the gate adopts it.
++// errConnectionSuperseded rejects installation from a previous connection.
++// The new connection publishes after gate adoption.
+ var errConnectionSuperseded = errors.New("the client's connection restarted; publish not installed")
+ 
+-// connectionFence orders snapshot-cache installs against connection starts,
+-// for clients whose state reports them (see registerConnectionStartHooks).
++// connectionFence serializes cache installation with connection starts.
++// Admission clears the old entry, but a publisher already holding the gate
++// lock could otherwise refill it before adoption. Generation checks prevent
++// that stale installation:
++//   - Start advances the generation and clears the cache atomically.
++//   - The gate resets its state and adopts the new generation.
++//   - Installation checks the generation and writes the cache atomically.
+ //
+-// A connection start clears the client's cache entry while stream admission is
+-// excluded, so the new stream cannot be answered from it. That alone does not
+-// stop a publisher that was computing for the previous connection when the
+-// stream arrived: it holds the gate lock, which the start hook cannot take
+-// (the reclaimer takes the gate lock before the client state's), and would
+-// install its stale snapshot after the clear, where the new stream's watches
+-// would find it. The fence closes that gap:
+-//
+-//   - start gives the key a fresh generation and clears its entry, as one step;
+-//   - the gate adopts the key's current generation when it starts the new
+-//     connection (publishGate.connectionStarted), after resetting what it knew
+-//     about the previous one;
+-//   - install checks the publisher's generation and installs as one step, so a
+-//     publish computed for an earlier connection is rejected, never installed
+-//     after the clear.
+-//
+-// Its lock is taken after the gate's and after the client state's, and before
+-// the cache's. Keys whose state reports no connection starts keep generation
+-// zero, which is also the gate's, so their publishes install as before.
++// Take the fence lock after gate or client-state locks, before the cache. Admission cannot
++// take the gate lock because reclamation holds it before taking client state.
++// Without start hooks, both generations stay zero and installation is unchanged.
+ type connectionFence struct {
+ 	mu sync.Mutex
+-	// next numbers generations across all keys, so a generation is never
+-	// reused, even after forget.
++	// next allocates generations across keys; forget never permits reuse.
+ 	next uint64
+ 	gen  map[string]uint64
+ }
+ 
+-// start begins a new connection generation for proxyKey and clears its cache
+-// entry. Runs inside stream admission (the connection-start hook).
++// start advances proxyKey's generation and clears its cache under stream admission.
+ func (f *connectionFence) start(cache envoycache.SnapshotCache, proxyKey string) {
+ 	f.mu.Lock()
+ 	defer f.mu.Unlock()
+@@ -63,8 +49,7 @@
+ 	return f.gen[proxyKey]
+ }
+ 
+-// install sets snap for proxyKey only if gen is still its connection
+-// generation.
++// install sets snap only if gen still matches proxyKey's generation.
+ func (f *connectionFence) install(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, gen uint64, snap envoycache.ResourceSnapshot) error {
+ 	f.mu.Lock()
+ 	defer f.mu.Unlock()
+@@ -81,8 +66,7 @@
+ 	delete(f.gen, proxyKey)
+ }
+ 
+-// logPublishFailure logs a publish that did not install. One rejected by the
+-// fence is expected and logged at debug.
++// logPublishFailure logs failed installation; expected fence rejections use debug.
+ func logPublishFailure(proxyKey string, err error) {
+ 	if errors.Is(err, errConnectionSuperseded) {
+ 		logger.Debug("not installing a publish computed for the client's previous connection", "proxy_key", proxyKey)
+diff --git a/pkg/kgateway/proxy_syncer/connection_start_test.go b/pkg/kgateway/proxy_syncer/connection_start_test.go
+--- a/pkg/kgateway/proxy_syncer/connection_start_test.go
++++ b/pkg/kgateway/proxy_syncer/connection_start_test.go
+@@ -23,9 +23,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+ )
+ 
+-// connectionStartFixture drives the real client state's stream callbacks
+-// against a translator whose connection-start hooks are registered, over a
+-// real ADS snapshot cache.
++// connectionStartFixture connects real stream callbacks, start hooks and an ADS cache.
+ type connectionStartFixture struct {
+ 	closeStream func(sid int64)
+ 	request     func(sid int64) error
+@@ -37,7 +35,7 @@
+ 
+ func newConnectionStartFixture(t *testing.T) *connectionStartFixture {
+ 	t.Helper()
+-	// Read once per process; at worst each new stream below waits the 1s default.
++	// Read once per process; each new stream may wait the 1s default.
+ 	t.Setenv("KGW_XDS_FIRST_CONNECT_DELAY", "0s")
+ 	ctx := t.Context()
+ 	cb, uccBuilder, state := krtcollections.NewUniquelyConnectedClients(nil, false)
+@@ -79,8 +77,7 @@
+ 	return snap.GetVersion(resourcev3.ListenerType), true
+ }
+ 
+-// openListenerWatch opens the listener watch of a stream that holds version
+-// (empty for a newly connected stream's first request).
++// openListenerWatch opens a watch reporting held version (empty for a cold client).
+ func (f *connectionStartFixture) openListenerWatch(t *testing.T, version string) chan envoycache.Response {
+ 	t.Helper()
+ 	responses := make(chan envoycache.Response, 1)
+@@ -93,11 +90,9 @@
+ 	return responses
+ }
+ 
+-// A proxy that reconnects is never answered from the entry published to its
+-// previous connection: that entry can predate config it received meanwhile from
+-// another controller replica. The entry is cleared before the new stream is
+-// answered, and the client's current build is published to the new connection;
+-// with no current build the stream waits for the gate's first publish.
++// Clear the pre-reconnect entry before answering the new stream: it may
++// predate another controller's config. Replay the current row, or wait for
++// first publication if none exists.
+ func TestReconnectIsNotServedThePreviousConnectionsEntry(t *testing.T) {
+ 	f := newConnectionStartFixture(t)
+ 	ctx := t.Context()
+@@ -117,8 +112,7 @@
+ 	require.True(t, ok)
+ 	assert.Equal(t, "v2", version, "the new connection is answered from the current build, never the previous connection's entry")
+ 
+-	// Returning when there is no current build: the old entry is gone, so the
+-	// stream waits for the first publish instead of being answered from it.
++	// Without a current row, wait for first publication rather than reuse the old entry.
+ 	f.closeStream(2)
+ 	f.current.Store(nil)
+ 	f.connect(t, 3)
+@@ -126,11 +120,8 @@
+ 	assert.False(t, ok, "the previous connection's entry must not be served")
+ }
+ 
+-// A publish computed for the previous connection must not reach the one that
+-// replaces it, even when it is already under way as the stream arrives: the
+-// publisher holds the gate lock, the new stream's admission clears the entry
+-// without it, and the publisher would otherwise install its build after the
+-// clear, where the new stream's first watch would find it.
++// Reject an old-generation publisher already holding the gate lock when
++// admission clears the cache. It must not refill the new stream's entry.
+ func TestPublishRacingAReconnectIsNotInstalled(t *testing.T) {
+ 	f := newConnectionStartFixture(t)
+ 	ctx := t.Context()
+@@ -141,8 +132,7 @@
+ 	require.True(t, ok)
+ 	require.Equal(t, "v1", version)
+ 
+-	// A publish for the first connection takes the gate lock and is held just
+-	// before it installs.
++	// Pause the old publisher under the gate lock just before installation.
+ 	paused, resume := make(chan struct{}), make(chan struct{})
+ 	var hold sync.Once
+ 	f.translator.gate.beforeInstall = func(string) {
+@@ -158,8 +148,7 @@
+ 	}()
+ 	<-paused
+ 
+-	// Meanwhile the stream closes and the proxy reconnects. Its current build
+-	// is deferred, so the new connection's first publish is withheld.
++	// Reconnect with a deferred current build; first publication stays pending.
+ 	f.closeStream(1)
+ 	deferred := f.build("v2")
+ 	deferred.missingReferenced = []string{"cluster-not-ready"}
+@@ -184,7 +173,7 @@
+ 	case <-time.After(100 * time.Millisecond):
+ 	}
+ 
+-	// The new connection's own publishes install, and answer that watch.
++	// The new generation can install and answer the watch.
+ 	f.translator.syncXds(ctx, f.build("v3"))
+ 	select {
+ 	case r := <-responses:
+@@ -194,9 +183,8 @@
+ 	}
+ }
+ 
+-// Only a key's first stream starts a connection. A stream that joins a key
+-// with streams still connected is served the key's entry as it is, and
+-// publishes keep installing across the change of streams.
++// Only the first stream starts a connection. Additional streams sharing the
++// key use its existing cache entry without resetting publication.
+ func TestStreamJoiningAConnectedKeyKeepsItsEntry(t *testing.T) {
+ 	f := newConnectionStartFixture(t)
+ 
+@@ -214,11 +202,9 @@
+ 	assert.Equal(t, "v2", version, "publishes install while any stream of the key stays connected")
+ }
+ 
+-// A build that waited in the event queue while the client's row moved on must
+-// not be published. The connection-start hook publishes a returning client's
+-// current row as soon as its stream is admitted, ahead of the queue; the older
+-// build arriving afterwards would replace it on the new connection and answer
+-// the new stream's watch with the older config.
++// Skip queued builds superseded by the current row. Admission may replay
++// that row before older events drain; those events must not overwrite it
++// or answer new watches with old config.
+ func TestDelayedBuildDoesNotRollBackANewConnection(t *testing.T) {
+ 	f := newConnectionStartFixture(t)
+ 	ctx := t.Context()
+@@ -231,8 +217,7 @@
+ 	require.True(t, ok)
+ 	require.Equal(t, "v1", version)
+ 
+-	// The row moves on to v2 while v1's event is still queued, and the proxy
+-	// reconnects: the new connection is published the current row.
++	// Advance to v2 before v1's event drains, then reconnect and replay v2.
+ 	v2 := f.build("v2")
+ 	f.current.Store(&v2)
+ 	f.closeStream(1)
+@@ -242,7 +227,7 @@
+ 	require.Equal(t, "v2", version)
+ 	responses := f.openListenerWatch(t, "v2")
+ 
+-	// The queued v1 event finally reaches the gate.
++	// Deliver the queued v1 event.
+ 	f.translator.syncXds(ctx, v1)
+ 	version, _ = f.served()
+ 	assert.Equal(t, "v2", version, "a superseded build must not replace the current one")
+@@ -252,18 +237,15 @@
+ 	case <-time.After(100 * time.Millisecond):
+ 	}
+ 
+-	// v2's own event publishes as usual.
++	// Deliver v2's event normally.
+ 	f.translator.syncXds(ctx, v2)
+ 	version, _ = f.served()
+ 	assert.Equal(t, "v2", version)
+ }
+ 
+-// Forgetting the previous connection and adopting the new generation happen in
+-// one critical section. A queued build that reaches the gate while a
+-// connection starts is decided either before the reset, which withdraws
+-// whatever it armed, or after the adoption, under the new generation. Never in
+-// between: a first-publish timer armed there would outlive the adoption and
+-// later publish the build to the new connection.
++// Reset and generation adoption must share one critical section. A build
++// between them could arm an old first-publication timer that survives adoption
++// and later answers the new connection with its stored payload.
+ func TestNoBuildIsDecidedBetweenResetAndAdoption(t *testing.T) {
+ 	f := newConnectionStartFixture(t)
+ 	ctx := t.Context()
+@@ -281,12 +263,11 @@
+ 	var decidedUnder []uint64
+ 	g.currentBuild = func(key string) *XdsSnapWrapper {
+ 		mu.Lock()
+-		decidedUnder = append(decidedUnder, g.connGen[key]) // the gate lock is held here
++		decidedUnder = append(decidedUnder, g.connGen[key]) // The gate lock is held.
+ 		mu.Unlock()
+ 		return f.current.Load()
+ 	}
+-	// While the connection starts, a queued build reaches the gate; give it
+-	// every chance to be decided before the adoption.
++	// Attempt queued publication while reset is paused before adoption.
+ 	g.connectionReset = func(string) {
+ 		decided := make(chan struct{})
+ 		go func() {
+diff --git a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+--- a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
++++ b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+@@ -284,8 +284,7 @@
+ 	)
+ }
+ 
+-// recordSnapshotReclaim counts one reclaimed snapshot cache entry for the
+-// departed client's gateway.
++// recordSnapshotReclaim counts a reclaimed cache entry for the client's gateway.
+ func recordSnapshotReclaim(proxyKey string) {
+ 	if !metrics.Active() {
+ 		return
+diff --git a/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go b/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
+@@ -122,8 +122,7 @@
+ 	f.snapshots = snapshotPerClient(krtutil.KrtOptions{}, f.uccs, f.gateways, endpoints, PerClientEnvoyClusters{perClient: perClient})
+ 	f.cache = &recordingCache{SnapshotCache: newTestSnapshotCache(t), node: f.ucc.ResourceName()}
+ 	translator := NewProxyTranslator(f.cache, stubPriorXDS{has: true}, 15*time.Second, true)
+-	// Mirror ProxySyncer.Start: the gate checks builds against the current row,
+-	// and clientDeparted runs on Delete.
++	// Mirror Start's current-row guard and clientDeparted on Delete.
+ 	translator.gate.currentBuild = f.snapshots.GetKey
+ 	f.snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+ 		for _, event := range events {
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -57,8 +57,7 @@
+ 	proxyTranslator ProxyTranslator
+ 
+ 	uniqueClients krt.Collection[ir.UniquelyConnectedClient]
+-	// clientState is the synchronous xDS connection state behind uniqueClients;
+-	// the snapshot reclaimer decides through it whether a client is still gone.
++	// clientState synchronously confirms departure before snapshot reclamation.
+ 	clientState krtcollections.XDSClientState
+ 
+ 	statusContributions         krt.Collection[reports.StatusContribution]
+@@ -240,38 +239,19 @@
+ 	}
+ }
+ 
+-// registerConnectionStartHooks makes the start of a client key's connection a
+-// clean slate, if the client state reports connection starts (see
+-// krtcollections.ConnectionStartHooks), and reports whether it does.
++// registerConnectionStartHooks resets a key's cache and gate state when its
++// first stream connects. Return whether the state supports ConnectionStartHooks.
+ //
+-// The snapshot cache keeps the entry last published to a client after its
+-// connection ends, and go-control-plane answers a returning client's first
+-// requests from it. The gate does not count that entry as published to the new
+-// connection, and it can predate config the proxy received meanwhile from
+-// another controller replica, so serving it would roll the proxy back until the
+-// gate's first publish to the new connection, which a deferred build can
+-// withhold for the first-publish budget or the warm withhold bound. Instead:
++// Under admission exclusion, advance the fence generation and clear the old
++// cache entry before watches exist. The entry may predate another controller's
++// config. The fence rejects old-generation publishers already in flight.
+ //
+-//   - while the stream is being admitted, before any watch exists for it and
+-//     with no other stream of the key connected, the fence starts a new
+-//     connection generation and clears the old entry, so the stream's requests
+-//     wait for a publish rather than being answered from it; nothing else can
+-//     be answered from it, since no stream of the key remains;
+-//   - a publish computed for the previous connection, including one already
+-//     holding the gate lock when the stream arrived, is rejected by the fence
+-//     rather than installed after the clear (see connectionFence);
+-//   - once admitted, the gate forgets the previous connection, adopts the new
+-//     generation, and the client's current build, if it has one, is published
+-//     to the new connection. A reconnect too quick for the connected-client
+-//     collection to notice produces no new snapshot row, so without this the
+-//     stream would wait for the next config change.
++// After admission, atomically reset and adopt in the gate, then replay the
++// current row if present. A quick reconnect may not change the KRT client row,
++// so replay avoids waiting for another config event.
+ //
+-// Only the first stream of a key starts a connection. A further stream that
+-// shares the key joins the connection already running: the key's entry is the
+-// one published to that connection, so it is served as it is, and it is never
+-// cleared under streams that are connected.
+-//
+-// currentRow returns the client's current snapshot row, or nil.
++// Streams joining a connected key keep its existing entry; never clear it
++// while another stream uses it. currentRow returns the current build or nil.
+ func (t ProxyTranslator) registerConnectionStartHooks(ctx context.Context, state krtcollections.XDSClientState, currentRow func(proxyKey string) *XdsSnapWrapper) bool {
+ 	hooks, ok := state.(krtcollections.ConnectionStartHooks)
+ 	if !ok {
+@@ -469,9 +449,7 @@
+ 	// it holds no informers.
+ 	logger.Info("caches warm!")
+ 
+-	// caches are warm, now we can do registrations
+-	// The gate publishes a build only while it is the client's current row
+-	// (see publishGate.beginBuildLocked).
++	// Register after cache sync. beginBuildLocked rejects superseded rows.
+ 	s.proxyTranslator.gate.currentBuild = func(proxyKey string) *XdsSnapWrapper {
+ 		return s.perclientSnapCollection.GetKey(proxyKey)
+ 	}
+@@ -486,24 +464,19 @@
+ 		}
+ 	}, false)
+ 
+-	// Reclaim the SnapshotCache entries of departed clients (see
+-	// snapshotReclaimer). The connected-client collection schedules and cancels
+-	// reclaims; whether the client is still gone is decided when the grace
+-	// period ends, against the synchronous connection state.
++	// The client collection schedules reclamation; synchronous connection state
++	// decides whether the client is still absent at grace expiry.
+ 	if s.clientState != nil {
+-		// Clear a returning client's previous entry before its stream is
+-		// answered (see registerConnectionStartHooks).
++		// Clear the old entry before answering the returning stream.
+ 		s.proxyTranslator.registerConnectionStartHooks(ctx, s.clientState, func(proxyKey string) *XdsSnapWrapper {
+ 			return s.perclientSnapCollection.GetKey(proxyKey)
+ 		})
+ 		reclaimer := newSnapshotReclaimer(func(resourceName string) bool {
+ 			return s.proxyTranslator.gate.reclaimDeparted(s.proxyTranslator.xdsCache, resourceName, s.clientState)
+ 		})
+-		// A publish can land after its client left: a build queued behind
+-		// the departure, or a bounded publish already firing. If the reclaim
+-		// ran first, that publish re-creates the entry, and nothing would
+-		// reclaim it again. Re-arm the reclaim (a no-op while one is pending);
+-		// it still clears only if the client is gone when it fires.
++		// A queued or timer publication can recreate an already-reclaimed entry
++		// after departure. Re-arm reclamation; its callback still checks absence.
++		// An existing pending reclaim makes this a no-op.
+ 		s.proxyTranslator.gate.afterPublish = func(resourceName string) {
+ 			if s.uniqueClients.GetKey(resourceName) == nil {
+ 				reclaimer.clientDeparted(resourceName)
+@@ -529,24 +502,10 @@
+ 				snapWrap := e.Latest()
+ 				s.proxyTranslator.syncXds(ctx, snapWrap)
+ 			} else {
+-				// The xDS cache is intentionally left alone: clearing it here
+-				// would withdraw Envoy's last coherent Snapshot and cause
+-				// 500/NC on valid routes ("retain last good"). Since
+-				// readiness deferral no longer removes rows (deferred
+-				// wrappers stay present, annotated), a Delete now means the
+-				// client departed or a transform-level input briefly
+-				// vanished. Either way cancel any pending bounded first
+-				// publish or flip release so a timer cannot fire for a row
+-				// that is gone (a live client re-arms it with its next
+-				// deferred wrapper). Only a departed client stops having the
+-				// cached entry treated as what it runs: a client that returns
+-				// resolves against nothing until the gate publishes to it
+-				// again, while a client that stayed connected still runs what
+-				// was published on its connection.
+-				//
+-				// Entries of truly-departed clients, which surface here
+-				// indistinguishably from transient deletes, are reclaimed by
+-				// the snapshotReclaimer registered above.
++				// Row deletion may mean departure or transient input loss. Cancel pending
++				// work but retain the cache entry here. Connected clients keep their gate
++				// publication state; departed clients start fresh on reconnect.
++				// The reclaimer above clears entries only after confirming departure.
+ 				name := e.Latest().ResourceName()
+ 				s.proxyTranslator.clientSnapshotDeleted(name, s.uniqueClients.GetKey(name) != nil)
+ 			}
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -154,9 +154,8 @@
+ 	// version (warm). May be nil: every client is then treated as cold.
+ 	// Written once at construction.
+ 	clientState krtcollections.XDSClientState
+-	// afterPublish, when set, runs under mu after every snapshot the gate
+-	// installs; the snapshot reclaimer uses it to notice a publish that
+-	// landed after its client left. Written before the gate is first used.
++	// afterPublish runs under mu after each installation so the reclaimer can
++	// detect entries recreated after departure. Set before first use.
+ 	afterPublish func(proxyKey string)
+ 
+ 	mu           sync.Mutex
+@@ -167,25 +166,17 @@
+ 	// snapshotWithdrawn (the row went away, the connection did not) keeps
+ 	// them.
+ 	published map[string]struct{}
+-	// connGen is, per client key, the connection generation the gate's state
+-	// for the key belongs to: adopted from fence when the client's connection
+-	// starts (connectionStarted), zero for clients whose state reports no
+-	// connection starts. setSnapshot installs only while it is still the key's
+-	// generation.
++	// connGen tracks each key's adopted fence generation. Installation requires
++	// it still to match. Without start hooks it stays zero.
+ 	connGen map[string]uint64
+-	// fence orders cache installs against connection starts; it has its own
+-	// lock (see connectionFence).
++	// fence serializes installation with connection starts using its own lock.
+ 	fence connectionFence
+-	// beforeInstall, set only by tests, runs under mu just before setSnapshot
+-	// installs, to hold a publisher at that point.
++	// beforeInstall is a test hook under mu just before cache installation.
+ 	beforeInstall func(proxyKey string)
+-	// connectionReset, set only by tests, runs under mu in connectionStarted
+-	// after the previous connection is forgotten and before the new
+-	// generation is adopted.
++	// connectionReset is a test hook under mu between reset and generation adoption.
+ 	connectionReset func(proxyKey string)
+-	// currentBuild returns a client's current snapshot row, or nil if it has
+-	// none (beginBuildLocked). Set by ProxySyncer.Start before the gate is
+-	// first used; nil for callers that drive the gate directly.
++	// currentBuild returns the current row or nil for beginBuildLocked.
++	// Start sets it before use; direct gate tests may leave it nil.
+ 	currentBuild func(proxyKey string) *XdsSnapWrapper
+ }
+ 
+@@ -253,12 +244,9 @@
+ 	HasColdStreamSince(resourceName string, d time.Duration) bool
+ }
+ 
+-// connectionSnapshotLocked returns the snapshot the gate last published to the
+-// client on its current connection, or nil if it has published none. A cache
+-// entry left over from an earlier connection is ignored: it says nothing about
+-// what the client runs now. (With connection-start hooks, such an entry is also
+-// cleared before the new connection is answered; see
+-// registerConnectionStartHooks.) Callers must hold g.mu.
++// connectionSnapshotLocked returns this connection's last installed snapshot,
++// or nil. Ignore older entries; start hooks also clear them before answering
++// a reconnect (registerConnectionStartHooks). Callers must hold g.mu.
+ func (g *publishGate) connectionSnapshotLocked(cache envoycache.SnapshotCache, proxyKey string) envoycache.ResourceSnapshot {
+ 	if _, ok := g.published[proxyKey]; !ok {
+ 		return nil
+@@ -367,30 +355,16 @@
+ 	return g.resolveDeferredLocked(ctx, cache, snapWrap)
+ }
+ 
+-// beginBuildLocked runs for every new build that reaches the gate, before it
+-// is published, and reports whether to publish it. Timers that re-publish a
+-// stored build do not run it: that build already began.
+-//
+-// A build is published only while it is still the client's current snapshot
+-// row. Builds reach the gate through the snapshot collection's event queue,
+-// and an event can wait there while the row moves on. Publishing a
+-// superseded build is not merely redundant: the connection-start hook
+-// publishes a returning client's current row as soon as its stream is
+-// admitted, ahead of any events still queued, and a queued older build would
+-// then replace it on the new connection, answering the new stream's watches
+-// with the older routes. The connection fence cannot catch this, since the
+-// gate has already adopted the new connection when the old build arrives.
+-// The check runs under the gate lock, so no publish can slip between it and
+-// the publication. A skipped build loses nothing: the row's later change, or
+-// its deletion, has its own event behind it.
+-//
+-// A carry record belongs to one episode of a cluster missing from the builds.
+-// A build that has the cluster again ends the episode, so a later
+-// disappearance is carried for a fresh warm withhold bound. boundCarryLocked
+-// also forgets recovered clusters, but only deferred builds run it, and a
+-// recovery is usually a coherent build: without this, the earlier episode's
+-// start would survive it, and the next disappearance, however brief, would be
+-// dropped at once instead of carried. Callers must hold g.mu.
++// beginBuildLocked checks new builds before publication; stored timer replays
++// skip it because they already began. Callers must hold g.mu.
++//
++// Reject rows superseded while their events were queued. Admission can replay
++// a newer row before those events drain; a generation fence alone cannot catch
++// old rows processed after adoption. The check and publication share the gate
++// lock. Later row changes and deletion have their own queued events.
++//
++// Clear carry ages for recovered clusters, including coherent builds that skip
++// boundCarryLocked, so a later disappearance gets a fresh bound.
+ func (g *publishGate) beginBuildLocked(snapWrap XdsSnapWrapper) bool {
+ 	if g.currentBuild != nil {
+ 		if current := g.currentBuild(snapWrap.proxyKey); current == nil || !current.Equals(snapWrap) {
+@@ -754,16 +728,10 @@
+ 	delete(g.carriedSince, proxyKey)
+ }
+ 
+-// connectionStarted begins the client's new connection in the gate (the
+-// connection-start hook, after the fence started it): it forgets the previous
+-// connection, as clientDeparted does, and adopts the key's new generation, in
+-// one critical section. A build that reached the gate between the two would be
+-// decided against the reset state but under the old generation. Nothing it
+-// installs gets past the fence, but a timer it arms does: offered as a first
+-// publish, it would leave a pending entry and its budget timer behind, which
+-// fire after the adoption and publish that build to the new connection,
+-// answering the new stream's watches with config the connection-start replay
+-// has already moved past.
++// connectionStarted resets old connection state and adopts the fence generation
++// under one lock. Otherwise a build could arm a timer between reset and adoption:
++// installation would fail the fence then, but later expiry could use the new
++// generation to send the old payload after admission replay was superseded.
+ func (g *publishGate) connectionStarted(proxyKey string) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+@@ -808,25 +776,21 @@
+ 	g.cancelCarryExpiryLocked(proxyKey)
+ }
+ 
+-// disconnectedRunner runs fn only while no xDS stream is connected under a
+-// client key, excluding stream admission while fn runs. Satisfied by
+-// krtcollections.XDSClientState.
++// disconnectedRunner runs fn only with no connected stream, excluding admission
++// until fn returns. Implemented by krtcollections.XDSClientState.
+ type disconnectedRunner interface {
+ 	RunIfDisconnected(resourceName string, fn func()) bool
+ }
+ 
+-// reclaimDeparted clears a departed client's snapshot cache entry and reports
+-// whether it did. It holds the gate lock, which every publish holds, and
+-// clears only through clients.RunIfDisconnected: ClearSnapshot also drops the
+-// node's open watches, so clearing after a reconnecting stream was admitted
+-// would strand that stream with no watch for the next SetSnapshot to answer.
++// reclaimDeparted clears an absent client's cache under the gate lock and
++// RunIfDisconnected. Admission exclusion is required: ClearSnapshot drops
++// watches and could strand a concurrently admitted stream. Return whether cleared.
+ func (g *publishGate) reclaimDeparted(cache envoycache.SnapshotCache, proxyKey string, clients disconnectedRunner) bool {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+ 	return clients.RunIfDisconnected(proxyKey, func() {
+ 		cache.ClearSnapshot(proxyKey)
+-		// Nothing of the connection is left; a returning client starts a new
+-		// generation (generations are never reused).
++		// Reconnect allocates a fresh generation; old generations are never reused.
+ 		g.fence.forget(proxyKey)
+ 		delete(g.connGen, proxyKey)
+ 	})
+diff --git a/pkg/kgateway/proxy_syncer/reclaim.go b/pkg/kgateway/proxy_syncer/reclaim.go
+--- a/pkg/kgateway/proxy_syncer/reclaim.go
++++ b/pkg/kgateway/proxy_syncer/reclaim.go
+@@ -5,36 +5,20 @@
+ 	"time"
+ )
+ 
+-// snapshotReclaimGracePeriod is how long a client identity must remain
+-// departed before its xDS snapshot cache entry is reclaimed: how long the
+-// memory of a client that never returns is kept. A client that does return is
+-// never answered from that entry: it is cleared when the client's new
+-// connection is admitted (registerConnectionStartHooks). The grace only rides
+-// out the lag of the connected-client collection, which schedules the reclaim,
+-// behind the stream closing.
+-//
+-// Variable rather than const so tests can shorten it.
++// snapshotReclaimGracePeriod delays reclamation after departure to absorb KRT
++// event lag. Returning clients never use the retained entry: admission clears
++// it first (registerConnectionStartHooks). Variable so tests can shorten it.
+ var snapshotReclaimGracePeriod = 5 * time.Second
+ 
+-// snapshotReclaimer clears SnapshotCache entries of clients that have left
+-// the connected set and stayed gone for a grace period.
++// snapshotReclaimer removes cache entries after a departure grace period,
++// preventing unbounded retention of full snapshots during proxy churn.
++// Snapshot-row deletion alone is insufficient evidence of departure.
+ //
+-// The per-client snapshot subscriber intentionally does not clear the cache on
+-// Delete events (Envoy must keep its last coherent config while updates are
+-// withheld), so without this, entries for truly-departed clients — every
+-// replaced gateway pod, every scale-down, every crashloop restart — accumulate
+-// for the controller's lifetime. Each entry holds a full per-client snapshot,
+-// so client-churn-heavy environments see unbounded controller memory growth.
+-//
+-// Departure and return are signalled by the UniquelyConnectedClients
+-// collection, where a Delete fires only when the last stream for an identity
+-// closes. That collection lags stream admission, so it only schedules and
+-// cancels timers; whether the client is still gone is decided at fire time by
+-// reclaim, against the synchronous connection state (see
+-// publishGate.reclaimDeparted).
++// UniquelyConnectedClients events schedule or cancel timers when the last
++// stream leaves or a client returns. Because KRT lags admission, reclaim
++// checks synchronous connection state at expiry (reclaimDeparted).
+ type snapshotReclaimer struct {
+-	// reclaim clears the client's entry if it is still departed and reports
+-	// whether it did.
++	// reclaim clears the entry only if the client is still absent and reports success.
+ 	reclaim func(resourceName string) bool
+ 
+ 	mu      sync.Mutex
+@@ -48,8 +32,7 @@
+ 	}
+ }
+ 
+-// clientDeparted arms the reclaim timer for the identity; no-op if one is
+-// already pending.
++// clientDeparted arms one reclaim timer per identity.
+ func (r *snapshotReclaimer) clientDeparted(resourceName string) {
+ 	r.mu.Lock()
+ 	defer r.mu.Unlock()
+@@ -63,8 +46,7 @@
+ 	})
+ }
+ 
+-// clientConnected cancels any pending reclaim for the identity (a reconnect
+-// within the grace period).
++// clientConnected cancels the identity's pending reclaim.
+ func (r *snapshotReclaimer) clientConnected(resourceName string) {
+ 	r.mu.Lock()
+ 	defer r.mu.Unlock()
+diff --git a/pkg/kgateway/proxy_syncer/reclaim_test.go b/pkg/kgateway/proxy_syncer/reclaim_test.go
+--- a/pkg/kgateway/proxy_syncer/reclaim_test.go
++++ b/pkg/kgateway/proxy_syncer/reclaim_test.go
+@@ -16,8 +16,7 @@
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+-// shortenReclaimGrace shrinks the grace period for the duration of a test.
+-// Tests using it must not run in parallel.
++// shortenReclaimGrace changes the grace for this test; callers must not run in parallel.
+ func shortenReclaimGrace(t *testing.T, d time.Duration) {
+ 	t.Helper()
+ 	orig := snapshotReclaimGracePeriod
+@@ -25,8 +24,7 @@
+ 	t.Cleanup(func() { snapshotReclaimGracePeriod = orig })
+ }
+ 
+-// fakeReclaim stands in for publishGate.reclaimDeparted: it reclaims only
+-// clients absent from the connected set, and records what it reclaimed.
++// fakeReclaim records reclamation only for clients absent from the connected set.
+ type fakeReclaim struct {
+ 	mu        sync.Mutex
+ 	connected map[string]bool
+@@ -84,8 +82,7 @@
+ }
+ 
+ func TestReclaim_FireTimeDecisionWins(t *testing.T) {
+-	// The collection event announcing a reconnect can lag the stream; the
+-	// decision at fire time must win over the timer.
++	// A reconnect event may lag admission; synchronous state at expiry must win.
+ 	shortenReclaimGrace(t, 30*time.Millisecond)
+ 	f := newFakeReclaim()
+ 	r := newSnapshotReclaimer(f.reclaim)
+@@ -129,8 +126,7 @@
+ 		"only the still-departed client is reclaimed")
+ }
+ 
+-// stubConnections models the synchronous connection state behind
+-// publishGate.reclaimDeparted.
++// stubConnections supplies synchronous state for reclaimDeparted tests.
+ type stubConnections struct{ connected bool }
+ 
+ func (s stubConnections) RunIfDisconnected(_ string, fn func()) bool {
+@@ -141,8 +137,7 @@
+ 	return true
+ }
+ 
+-// openClusterWatch publishes version v1 for node and opens the watch a
+-// connected Envoy holding v1 would have: parked until the next version.
++// openClusterWatch installs v1 and opens a matching watch, parked until change.
+ func openClusterWatch(t *testing.T, cache envoycache.SnapshotCache, node string) chan envoycache.Response {
+ 	t.Helper()
+ 	snap, err := envoycache.NewSnapshot("v1", map[envoyresourcev3.Type][]envoycachetypes.Resource{envoyresourcev3.ClusterType: {}})
+@@ -160,8 +155,7 @@
+ 	return responses
+ }
+ 
+-// The caches below run in ADS mode, as the controller's does: ADS orders and
+-// filters responses, so the watch behavior these cases pin must hold there.
++// Use the controller's ADS cache mode for these watch-lifecycle tests.
+ func TestReclaimDeparted(t *testing.T) {
+ 	const node = "c1"
+ 	v2, err := envoycache.NewSnapshot("v2", map[envoyresourcev3.Type][]envoycachetypes.Resource{envoyresourcev3.ClusterType: {}})
+@@ -197,8 +191,8 @@
+ 		assert.Empty(t, cache.GetStatusKeys(), "a departed client's status must be cleared")
+ 	})
+ 
+-	// Why the clear must be excluded from stream admission: ClearSnapshot also
+-	// drops open watches, so a clear that misses a connected stream strands it.
++	// ClearSnapshot drops watches. Exclude admission so clearing cannot strand
++	// a newly connected stream.
+ 	t.Run("clearing under a connected stream strands its watch", func(t *testing.T) {
+ 		cache := envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil)
+ 		responses := openClusterWatch(t, cache, node)
+@@ -213,9 +207,8 @@
+ 	})
+ }
+ 
+-// A publish that lands after the client left (a build queued behind its
+-// departure) re-creates the entry a reclaim may already have cleared; the
+-// gate re-arms the reclaim, so that entry is reclaimed too.
++// Publication after departure can recreate a reclaimed entry. The gate
++// must re-arm reclamation for that entry too.
+ func TestReclaim_PublishAfterDepartureRearms(t *testing.T) {
+ 	shortenReclaimGrace(t, 20*time.Millisecond)
+ 	const node = "c1"
+diff --git a/pkg/krtcollections/uniqueclients.go b/pkg/krtcollections/uniqueclients.go
+--- a/pkg/krtcollections/uniqueclients.go
++++ b/pkg/krtcollections/uniqueclients.go
+@@ -128,14 +128,11 @@
+ 	stateLock        sync.RWMutex
+ 
+ 	trigger *krt.RecomputeTrigger
+-	// hooks are the connection-start hooks registered on the owning
+-	// callbacks (SetConnectionStartHooks); nil in collections built without
+-	// one.
++	// hooks are start hooks registered on the owning callbacks; nil without an owner.
+ 	hooks *atomic.Pointer[connectionStartHooks]
+ }
+ 
+-// connectionStartHooks run when a client key's first stream is admitted; see
+-// ConnectionStartHooks.
++// connectionStartHooks stores hooks for admission of a key's first stream.
+ type connectionStartHooks struct {
+ 	admitting func(resourceName string)
+ 	admitted  func(resourceName string)
+@@ -187,38 +184,27 @@
+ // If augmentedPods is nil, we won't use the pod locality info, and all pods for the same gateway will receive the same config.
+ type UniquelyConnectedClientsBuilder func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod]) krt.Collection[ir.UniquelyConnectedClient]
+ 
+-// XDSClientState exposes per-client connection state derived from the xDS
+-// callbacks. HasPriorXDSVersion reports whether a stream of the client opened
+-// its listener subscription with a version it had accepted before (an empty
+-// nonce with a non-empty version) — i.e. the Envoy may already be serving
+-// config accepted on a previous stream even though this controller has not
+-// published to it (reconnect, controller restart). The mark belongs to the
+-// resource name, so it covers every stream sharing it, and lasts until the
+-// last stream that reported held config closes.
++// XDSClientState exposes callback-derived connection state. HasPriorXDSVersion
++// detects an initial listener request with a held version and empty nonce.
++// The proxy may hold config from an earlier stream or controller. Warmth is
++// shared by resource name until its last held-version stream closes.
+ //
+-// RunIfDisconnected runs fn only while no stream is connected under
+-// resourceName, and reports whether it ran. Stream admission is excluded for
+-// the duration, so a stream connecting concurrently is admitted either before
+-// the check (fn does not run) or after fn returns. go-control-plane creates a
+-// stream's watches only after its request callback admits it, so fn cannot
+-// interleave with them either.
++// RunIfDisconnected runs fn only with no connected stream for resourceName,
++// excluding admission until fn returns. Watches are created after admission,
++// so none can be created for that key during fn.
+ type XDSClientState interface {
+ 	HasPriorXDSVersion(resourceName string) bool
+ 	RunIfDisconnected(resourceName string, fn func()) bool
+ }
+ 
+-// ConnectionStartHooks is implemented by the XDSClientState returned from
+-// NewUniquelyConnectedClients. A client key's connection starts when its first
+-// stream is admitted: its connected-stream count goes from zero to one, after
+-// it had none (a new client, or one returning after its last stream closed).
++// ConnectionStartHooks is implemented by NewUniquelyConnectedClients' state.
++// A key starts a connection when its stream count goes from zero to one.
+ //
+-// SetConnectionStartHooks registers two hooks for that moment. admitting runs
+-// while stream admission is excluded, so no other stream of the key can be
+-// connected, and before go-control-plane creates any watch for the stream;
+-// it must be quick and must not take locks that are held while calling into
+-// this state. admitted runs after admission, outside that exclusion, and still
+-// before the stream's first request is answered. Register before streams
+-// connect; a later call replaces the hooks.
++// SetConnectionStartHooks registers two callbacks before streams connect:
++// admitting runs under admission exclusion, before watches exist. It must be
++// quick and must not take locks held by callers of this state. admitted runs
++// outside that exclusion but before the first request is answered.
++// Later registrations replace the hooks.
+ type ConnectionStartHooks interface {
+ 	SetConnectionStartHooks(admitting, admitted func(resourceName string))
+ }
+@@ -493,8 +479,7 @@
+ 	x.uniqClientsCount[ucc.ResourceName()] = currentUnique + 1
+ 	if currentUnique == 0 {
+ 		x.uniqClients[ucc.ResourceName()] = *ucc
+-		// The key's connection starts. Still holding the lock, so no other
+-		// stream of the key is admitted while the hook runs.
++		// Under the admission lock, no other stream for the key can join during the hook.
+ 		if h := x.connectionStartHooks(); h != nil && h.admitting != nil {
+ 			h.admitting(ucc.ResourceName())
+ 		}
+@@ -645,8 +630,8 @@
+ 	return false
+ }
+ 
+-// RunIfDisconnected implements XDSClientState. Before the collection is built
+-// no stream can have been admitted, so fn runs.
++// RunIfDisconnected implements XDSClientState. Before collection construction,
++// no stream has been admitted, so fn runs.
+ func (x *callbacks) RunIfDisconnected(resourceName string, fn func()) bool {
+ 	c := x.collection.Load()
+ 	if c == nil {
+@@ -656,7 +641,7 @@
+ 	return c.runIfDisconnected(resourceName, fn)
+ }
+ 
+-// runIfDisconnected holds the write lock that add() takes to admit a stream.
++// runIfDisconnected uses add's admission write lock.
+ func (x *callbacksCollection) runIfDisconnected(resourceName string, fn func()) bool {
+ 	x.stateLock.Lock()
+ 	defer x.stateLock.Unlock()
+diff --git a/pkg/krtcollections/uniqueclients_test.go b/pkg/krtcollections/uniqueclients_test.go
+--- a/pkg/krtcollections/uniqueclients_test.go
++++ b/pkg/krtcollections/uniqueclients_test.go
+@@ -955,9 +955,8 @@
+ 	g.Expect(state.RunIfDisconnected(role, func() {})).To(BeFalse())
+ }
+ 
+-// Connection-start hooks run when a key's first stream is admitted, once per
+-// connection: not for follow-up requests, not for a second stream joining the
+-// key, and again when the key returns after its last stream closed.
++// Run start hooks once per zero-to-one stream transition, including reconnects,
++// but not follow-up requests or additional streams sharing a connected key.
+ func TestUniqueClientsConnectionStartHooks(t *testing.T) {
+ 	t.Cleanup(SetXdsFirstConnectDelayForTest(0))
+ 	g := NewWithT(t)

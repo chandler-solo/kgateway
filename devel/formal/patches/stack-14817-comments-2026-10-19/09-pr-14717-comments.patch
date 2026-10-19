@@ -1,0 +1,443 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -41,28 +41,18 @@
+ 	}
+ }
+ 
+-// ClusterDiscoveryMode determines which backends become Envoy clusters in a
+-// proxy's CDS, and therefore which ClusterLoadAssignments reach its EDS.
++// ClusterDiscoveryMode selects backends for CDS and their corresponding EDS assignments.
+ type ClusterDiscoveryMode string
+ 
+ const (
+-	// ClusterDiscoveryAll emits a cluster for every backend in discovery scope,
+-	// whether or not the generated configuration references it.
+-	//
+-	// This is historically what made route retargets safe: a destination that
+-	// already exists cannot be missing when a route starts naming it. The cost
+-	// is that every proxy replica carries, and reports stats for, the whole
+-	// inventory -- including backends no route will ever target.
++	// ClusterDiscoveryAll emits every backend in discovery scope, referenced or not.
++	// Pre-emission reduces missing-cluster risk on retarget, but every proxy carries
++	// the full cluster inventory and stats.
+ 	ClusterDiscoveryAll ClusterDiscoveryMode = "ALL"
+-	// ClusterDiscoveryReferenced emits only the clusters the generated
+-	// configuration references, including ancillary ones named from filter
+-	// configuration (ext_authz, ext_proc, rate limit, access-log sinks, JWKS).
+-	//
+-	// A gateway whose routes select a destination at request time -- a cluster
+-	// header, or a cluster specifier plugin -- reverts to ALL for that gateway,
+-	// because the candidates such a route may select are named nowhere in the
+-	// configuration and pruning them would silently reroute to the plugin's
+-	// fallback rather than fail visibly.
++	// ClusterDiscoveryReferenced emits only referenced clusters, including filter
++	// dependencies such as ext_authz, JWKS and logging. Runtime selectors whose
++	// candidates are not enumerable force emit-all for that gateway; pruning can
++	// silently select a plugin fallback.
+ 	ClusterDiscoveryReferenced ClusterDiscoveryMode = "REFERENCED"
+ )
+ 
+@@ -467,20 +457,10 @@
+ 	// engine removed. Off by default.
+ 	XdsSnapshotConsistencyCheck bool `split_words:"true" default:"false"`
+ 
+-	// ClusterDiscoveryMode selects which backends reach a proxy's CDS.
+-	// Supported values are:
+-	//
+-	//   - "ALL" (default): every backend in discovery scope becomes a cluster.
+-	//   - "REFERENCED": only clusters the generated configuration references.
+-	//
+-	// REFERENCED is what shrinks config_dump and per-proxy stats cardinality on
+-	// clusters with many Services and few routed ones. It is experimental: a
+-	// route retarget publishes the new cluster in the same coherent snapshot as
+-	// the route that names it, and Envoy does not necessarily apply CDS before
+-	// RDS within one snapshot, so a retarget can briefly 503 NC where ALL never
+-	// would. The transition graces that close that window are separate work;
+-	// until then, treat this as a trade of a transient retarget blip for a
+-	// permanently smaller data plane.
++	// ClusterDiscoveryMode selects "ALL" (default) or "REFERENCED" backends for CDS.
++	// REFERENCED reduces config and per-proxy stats. It is experimental here:
++	// retargets publish new CDS and RDS together, but Envoy need not apply them in
++	// that order, allowing transient no-cluster 503s. Transition graces follow later.
+ 	ClusterDiscoveryMode ClusterDiscoveryMode `split_words:"true" default:"ALL"`
+ 
+ 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
+diff --git a/pkg/kgateway/proxy_syncer/backends.go b/pkg/kgateway/proxy_syncer/backends.go
+--- a/pkg/kgateway/proxy_syncer/backends.go
++++ b/pkg/kgateway/proxy_syncer/backends.go
+@@ -164,9 +164,8 @@
+ 	erroredClusters     []string
+ 	erroredClustersHash uint64
+ 	clustersHash        uint64
+-	// clusterVersions maps each published cluster name to its ClusterVersion, the
+-	// per-row equality hash clustersHash folds, so a filter that drops clusters
+-	// can version what survives without digesting a proto (emission_filter.go).
++	// clusterVersions stores per-row ClusterVersion hashes so emission filtering
++	// can version retained clusters without digesting protos.
+ 	// +noKrtEquals folded into clustersHash
+ 	clusterVersions map[string]uint64
+ 	// perClientErrors are the rows whose Error was produced for this client
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping.go b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+@@ -6,16 +6,9 @@
+ 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
+ )
+ 
+-// clusterScoping is the whole referenced-only cluster discovery feature's
+-// configuration, resolved once from Settings.
+-//
+-// It exists so that "is this feature on" is one question with one answer,
+-// asked in the handful of places that would otherwise each re-derive it from
+-// the mode. Every path it touches -- collecting the emitted set, filtering CDS,
+-// and the transition windows that make the emitted set safe to change -- is
+-// guarded by ScopesClusters, and when that is false none of them run: no walk
+-// over the generated protos, no filtering, no per-client state, and the
+-// published snapshot is the one the syncer built.
++// clusterScoping resolves settings once for collection, filtering and transition
++// windows. ScopesClusters guards every path. When false, skip emission walks,
++// filtering and scoping state, and preserve the built snapshot.
+ type clusterScoping struct {
+ 	mode apisettings.ClusterDiscoveryMode
+ }
+@@ -24,22 +17,15 @@
+ 	return clusterScoping{mode: s.ClusterDiscoveryMode}
+ }
+ 
+-// ScopesClusters reports whether CDS and EDS are scoped to what the generated
+-// configuration references. False is the default, and means this proxy is sent
+-// a cluster for every backend in discovery scope exactly as it was before the
+-// feature existed.
++// ScopesClusters reports referenced-only CDS/EDS discovery.
++// False is the default and emits every backend in discovery scope.
+ func (c clusterScoping) ScopesClusters() bool {
+ 	return c.mode == apisettings.ClusterDiscoveryReferenced
+ }
+ 
+-// emittedClustersFor computes the gateway's emitted-cluster set, or nothing at
+-// all when CDS is not scoped.
+-//
+-// The zero emittedClusters is not "no clusters are emitted": with scoping off
+-// nothing consults it, and the filter it feeds is itself skipped. Returning it
+-// here keeps the walk -- which visits every message of every generated listener
+-// and route, including typed_config payloads -- off the translation path
+-// entirely for deployments that have not opted in.
++// emittedClustersFor computes the gateway's set only when scoping is enabled.
++// The zero result with scoping off is unused, not an empty emission policy;
++// skip the proto walk entirely.
+ func emittedClustersFor(scoping clusterScoping, routes, listeners envoycache.Resources) emittedClusters {
+ 	if !scoping.ScopesClusters() {
+ 		return emittedClusters{}
+@@ -47,8 +33,7 @@
+ 	return collectReferencedClustersForEmission(routes, listeners)
+ }
+ 
+-// scopedClusters is the enabled configuration, for tests that exercise the
+-// scoped paths directly. The zero clusterScoping is the disabled one.
++// scopedClusters enables direct scoping tests; zero clusterScoping disables them.
+ func scopedClusters() clusterScoping {
+ 	return clusterScoping{mode: apisettings.ClusterDiscoveryReferenced}
+ }
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping_test.go b/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping_test.go
+@@ -12,9 +12,7 @@
+ 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
+ )
+ 
+-// TestClusterScopingIsOffByDefault: an upgrade must not change what any proxy
+-// is sent. The zero Settings, and the documented default, both leave CDS
+-// unscoped.
++// Zero settings and documented defaults must preserve unscoped discovery.
+ func TestClusterScopingIsOffByDefault(t *testing.T) {
+ 	assert.False(t, clusterScopingFrom(apisettings.Settings{}).ScopesClusters(),
+ 		"the zero Settings must not scope clusters")
+@@ -26,10 +24,7 @@
+ 	}).ScopesClusters())
+ }
+ 
+-// TestDisabledScopingSkipsTheEmissionWalkEntirely pins that turning the feature
+-// off is not just "compute the set and ignore it". The walk visits every
+-// message of every generated listener and route, descending into typed_config,
+-// and a deployment that has not opted in should not pay for it.
++// Disabled scoping must skip the proto walk, not compute and discard its result.
+ func TestDisabledScopingSkipsTheEmissionWalkEntirely(t *testing.T) {
+ 	routes := sliceToResources([]*envoyroutev3.RouteConfiguration{{
+ 		Name: "route-config",
+@@ -55,10 +50,7 @@
+ 		"the same inputs must collect normally once scoping is on")
+ }
+ 
+-// TestDisabledScopingFilterIsIdentity: with the feature off the filter returns
+-// its input unchanged, including the case where the emitted set would have
+-// dropped something. Nothing about a published snapshot depends on the emitted
+-// set unless an operator asked for it.
++// Disabled filtering returns its input unchanged regardless of the emission set.
+ func TestDisabledScopingFilterIsIdentity(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("routed", "unreferenced")
+ 
+@@ -70,9 +62,8 @@
+ 	assert.Equal(t, versions, gotVersions)
+ }
+ 
+-// TestDisabledScopingLeavesTheGatewayProjectionEmpty: the emitted set rides on
+-// GatewayXdsResources, and with scoping off it must stay zero so it cannot
+-// contribute to that row's equality or be mistaken for "no clusters emitted".
++// With scoping off, keep the projection zero so it neither affects equality
++// nor represents an empty emission policy.
+ func TestDisabledScopingLeavesTheGatewayProjectionEmpty(t *testing.T) {
+ 	assert.True(t,
+ 		emittedClustersFor(clusterScoping{}, envoycache.Resources{}, envoycache.Resources{}).
+diff --git a/pkg/kgateway/proxy_syncer/emission_filter.go b/pkg/kgateway/proxy_syncer/emission_filter.go
+--- a/pkg/kgateway/proxy_syncer/emission_filter.go
++++ b/pkg/kgateway/proxy_syncer/emission_filter.go
+@@ -5,30 +5,15 @@
+ 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+ )
+ 
+-// filterClustersToEmitted drops backend clusters the gateway's generated
+-// configuration does not reference, which is what shrinks a proxy's
+-// config_dump and its per-cluster stats cardinality to the backends it
+-// actually uses.
++// filterClustersToEmitted retains referenced backend clusters, reducing config
++// and stats. Return retained row hashes so CDS versions reflect the filtered set.
+ //
+-// It returns the retained clusters and the digests of the ones kept, so the
+-// caller can version the result over what survived: dropping a cluster has to
+-// move the CDS version, or Envoy keeps serving the set it already has.
++// Skip filtering when scoping is off or a runtime selector makes the set
++// incomplete. Preserve errored names for the caller's EDS alignment and status;
++// their clusters were already excluded upstream.
+ //
+-// Three cases pass through untouched, each deliberately:
+-//
+-//   - CDS is not scoped, which is the default, so the filter is inert until an
+-//     operator opts in.
+-//   - A gateway with an unresolvable request-time selector. Its routes may
+-//     select a cluster named nowhere in the configuration, and pruning
+-//     candidates would not fail visibly -- the selecting plugin falls back --
+-//     so the whole gateway reverts to emitting everything.
+-//   - Errored clusters, which are already excluded from CDS upstream of here
+-//     and whose names the caller still needs for EDS alignment and status.
+-//
+-// Ancillary clusters contributed by plugins as ExtraClusters are merged into
+-// CDS after this runs and are not filtered. They are per-gateway and O(plugins),
+-// not O(Services), so they are not the population #13586 is about, and a plugin
+-// that declares one has already taken responsibility for it being needed.
++// ExtraClusters merge afterward and remain unfiltered: plugins contribute these
++// per gateway, unlike the Service inventory targeted by #13586.
+ func filterClustersToEmitted(
+ 	scoping clusterScoping,
+ 	emitted emittedClusters,
+@@ -59,9 +44,7 @@
+ 	return clusters, retainedVersions, true
+ }
+ 
+-// emittedClustersHash folds the retained cluster digests the way the unfiltered
+-// path folds all of them, so a filtered snapshot carries a version derived from
+-// exactly the clusters it contains.
++// emittedClustersHash folds retained row hashes using the unfiltered rule.
+ func emittedClustersHash(clusterVersions map[string]uint64) uint64 {
+ 	var hash uint64
+ 	for _, version := range clusterVersions {
+diff --git a/pkg/kgateway/proxy_syncer/emission_filter_test.go b/pkg/kgateway/proxy_syncer/emission_filter_test.go
+--- a/pkg/kgateway/proxy_syncer/emission_filter_test.go
++++ b/pkg/kgateway/proxy_syncer/emission_filter_test.go
+@@ -45,9 +45,7 @@
+ 	return set
+ }
+ 
+-// TestFilterClustersToEmittedIsInertInAllMode: ALL is the default and must be
+-// byte-identical to not having the feature, or every existing deployment changes
+-// shape on upgrade.
++// ALL must preserve the input bytes and existing deployment behavior.
+ func TestFilterClustersToEmittedIsInertInAllMode(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("routed", "unreferenced")
+ 
+@@ -59,9 +57,7 @@
+ 	assert.Equal(t, versions, gotVersions)
+ }
+ 
+-// TestFilterClustersToEmittedDropsUnreferencedBackends is the feature: the
+-// clusters no route, filter or ancillary reference names leave CDS, and with
+-// them their stats and their share of every proxy's memory.
++// Remove unreferenced backends from CDS to reduce proxy config and stats.
+ func TestFilterClustersToEmittedDropsUnreferencedBackends(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("routed", "ancillary", "unreferenced-a", "unreferenced-b")
+ 
+@@ -73,9 +69,7 @@
+ 	assert.Equal(t, map[string]uint64{"routed": versions["routed"], "ancillary": versions["ancillary"]}, gotVersions)
+ }
+ 
+-// TestFilterClustersToEmittedVersionsOverWhatSurvives: a dropped cluster that
+-// leaves the CDS version unchanged is a cluster Envoy goes on serving, which
+-// would make the whole filter invisible to the data plane.
++// Filtering must change CDS version when the retained set changes.
+ func TestFilterClustersToEmittedVersionsOverWhatSurvives(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("routed", "unreferenced")
+ 	before := clusters.Version
+@@ -90,10 +84,8 @@
+ 		"the version must be the fold of exactly the retained clusters")
+ }
+ 
+-// TestFilterClustersToEmittedRevertsForRequestTimeSelectors is the guard doing
+-// its job. The candidates such a route may select are named nowhere, so pruning
+-// would not 503 — it would silently route to the plugin's fallback. Reverting to
+-// emit-all for that gateway is the only safe answer.
++// Unenumerated runtime destinations require emit-all; pruning may silently
++// select the plugin's fallback.
+ func TestFilterClustersToEmittedRevertsForRequestTimeSelectors(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("routed", "candidate-a", "candidate-b")
+ 	unfilterable := emissionSet("routed")
+@@ -107,9 +99,7 @@
+ 	assert.Equal(t, versions, gotVersions)
+ }
+ 
+-// TestFilterClustersToEmittedReportsNoChangeWhenEverythingIsReferenced keeps the
+-// common fully-routed case off the re-versioning path, so a deployment where
+-// every backend is referenced produces the same version it did before.
++// Preserve the original version when every backend remains referenced.
+ func TestFilterClustersToEmittedReportsNoChangeWhenEverythingIsReferenced(t *testing.T) {
+ 	clusters, versions := clusterResourcesFor("a", "b")
+ 
+@@ -121,9 +111,7 @@
+ 	assert.Equal(t, versions, gotVersions)
+ }
+ 
+-// TestFilterClustersToEmittedKeepsBlackhole: routes whose backends fail
+-// resolution target the blackhole cluster. The collector always puts it in the
+-// set; this pins that the filter therefore keeps it.
++// Preserve blackhole, which unresolved-backend routes target.
+ func TestFilterClustersToEmittedKeepsBlackhole(t *testing.T) {
+ 	blackhole := wellknown.BlackholeClusterName
+ 	clusters, versions := clusterResourcesFor(blackhole, "unreferenced")
+@@ -137,11 +125,8 @@
+ 	assert.Equal(t, []string{blackhole}, resourceNames(got))
+ }
+ 
+-// TestSnapshotPerClientEmitsOnlyReferencedClusters is the feature end to end:
+-// the same inputs, published twice, differ by the setting alone. The routed
+-// backend and the blackhole survive; the two backends no route names do not,
+-// and their ClusterLoadAssignments go with them because EDS is aligned to
+-// whatever CDS ends up containing.
++// Compare snapshot assembly with scoping on and off. Keep the routed backend
++// and blackhole; remove unused clusters and align their CLAs to filtered CDS.
+ func TestSnapshotPerClientEmitsOnlyReferencedClusters(t *testing.T) {
+ 	for _, tc := range []struct {
+ 		name     string
+diff --git a/pkg/kgateway/proxy_syncer/perclient.go b/pkg/kgateway/proxy_syncer/perclient.go
+--- a/pkg/kgateway/proxy_syncer/perclient.go
++++ b/pkg/kgateway/proxy_syncer/perclient.go
+@@ -103,11 +103,8 @@
+ 		clustersHash := clustersForUcc.clustersHash
+ 		clusterVersions := clustersForUcc.clusterVersions
+ 
+-		// Drop backends the generated configuration does not reference, when the
+-		// operator has asked for that. Filtering here rather than in translation
+-		// keeps base translation shared and O(backends), and EDS follows for free
+-		// because filterEndpointResourcesForClusters below aligns CLAs to
+-		// whatever CDS ends up containing.
++		// Filter after shared backend translation to keep it O(backends).
++		// EDS alignment below removes assignments absent from the resulting CDS.
+ 		var filtered bool
+ 		clusterResources, clusterVersions, filtered = filterClustersToEmitted(
+ 			scoping,
+@@ -116,8 +113,7 @@
+ 			clusterVersions,
+ 		)
+ 		if filtered {
+-			// Version over what survived: a dropped cluster that leaves the
+-			// version unchanged is a cluster Envoy never stops serving.
++			// Version retained clusters so removals reach version-based watches.
+ 			clustersHash = emittedClustersHash(clusterVersions)
+ 			clusterResources.Version = strconv.FormatUint(clustersHash, 10)
+ 			logger.Debug("emitting referenced clusters only",
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -166,10 +166,8 @@
+ 	return envoycache.NewResourcesWithTTL(strconv.FormatUint(h, 10), r)
+ }
+ 
+-// toTranslationOutput projects one gateway translation into the xDS resources
+-// and status the syncer publishes. scoping decides whether the emitted-cluster
+-// set is computed at all: it is only read when CDS is scoped, and the walk over
+-// every generated proto is not worth paying for a value nothing will consult.
++// toTranslationOutput projects gateway xDS and status. Compute emission names
++// only when scoping uses them, avoiding an unused full proto walk.
+ func toTranslationOutput(gw ir.Gateway, xdsSnap irtranslator.TranslationResult, r reports.ReportMap, scoping clusterScoping) *gatewayTranslationOutput {
+ 	c, ch := sliceToResourcesHash(xdsSnap.ExtraClusters)
+ 	routes := sliceToResources(xdsSnap.Routes)
+@@ -355,8 +353,7 @@
+ 
+ 	s.translator.Init(ctx)
+ 
+-	// Resolved once: every path this feature touches asks scoping.ScopesClusters(),
+-	// and with it false none of them do anything.
++	// Resolve once; ScopesClusters guards every scoping path.
+ 	scoping := clusterScopingFrom(s.commonCols.Settings)
+ 	translationOutputs := krt.NewCollection(s.commonCols.GatewayIndex.Gateways, func(kctx krt.HandlerContext, gw ir.Gateway) *gatewayTranslationOutput {
+ 		// Note: s.commonCols.GatewayIndex.Gateways is already filtered to only include Gateways
+diff --git a/pkg/kgateway/proxy_syncer/xdswrapper.go b/pkg/kgateway/proxy_syncer/xdswrapper.go
+--- a/pkg/kgateway/proxy_syncer/xdswrapper.go
++++ b/pkg/kgateway/proxy_syncer/xdswrapper.go
+@@ -24,10 +24,8 @@
+ 
+ type XdsSnapWrapper struct {
+ 	snap *envoycache.Snapshot
+-	// erroredClusters lists clusters whose current translation failed. The
+-	// publish-time per-cluster resolution treats them fail-closed: they are
+-	// never resurrected from the previously-published snapshot (see
+-	// resolveDeferredPerCluster). Sorted.
++	// erroredClusters lists failed translations. Resolution never carries their
++	// old config (resolveDeferredPerCluster). Sorted.
+ 	erroredClusters []string
+ 	// +noKrtEquals
+ 	proxyKey string
+@@ -88,22 +86,13 @@
+ 			return false
+ 		}
+ 	}
+-	// The gap classification drives publication, so it is compared directly
+-	// rather than inferred from versions: a synthesized empty CLA and a
+-	// derived-but-empty one are byte-identical protos. Without this, a wrapper
+-	// can transition deferred->ready with every version equal, KRT suppresses
+-	// the event, and syncXds keeps holding a route flip whose blocking cluster
+-	// has already derived its (empty) truth — unbounded when the publish
+-	// budget is disabled — or keeps leaving out a CLA that is now derived. The
+-	// same applies to a referenced cluster arriving errored-from-birth
+-	// (missingReferenced shrinks, no version changes).
+-	// erroredClusters is compared by name too. Without cluster scoping an
+-	// errored cluster leaves the CDS items and so moves the CDS version, but
+-	// with scoping a cluster the gateway no longer names is filtered out
+-	// whether or not it errors, so its error changes no version. A held flip
+-	// or a grace can still carry that cluster from the published snapshot,
+-	// and only a new event lets the carry see the error and drop it (fail
+-	// closed). Error-text-only changes stay suppressed: only names count.
++	// Compare gap classification directly: placeholder and derived empty CLAs can
++	// have equal versions while requiring different publication decisions. The same
++	// applies when a previously missing cluster arrives errored-from-birth.
++	//
++	// Also compare errored cluster names. Scoping may already filter a cluster,
++	// making its error invisible to CDS versioning. KRT must still notify carries
++	// and graces so they drop stale config. Ignore error-text-only changes.
+ 	return slices.Equal(p.missingReferenced, in.missingReferenced) &&
+ 		slices.Equal(p.missingEndpointsReferenced, in.missingEndpointsReferenced) &&
+ 		slices.Equal(p.synthesizedEndpoints, in.synthesizedEndpoints) &&
+diff --git a/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go b/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
+--- a/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
++++ b/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
+@@ -59,10 +59,8 @@
+ 		"a change in which CLAs are synthesized must not be equal")
+ }
+ 
+-// With cluster scoping, a cluster the gateway stopped naming is filtered out of
+-// CDS whether or not it errors, so its error changes no version. The wrapper
+-// must still differ, or a carry of that cluster (a held flip, a grace) never
+-// sees the error and keeps serving its pre-error config.
++// An already-filtered cluster's error may leave versions unchanged. Equality
++// must still notify carries/graces so they drop its stale pre-error config.
+ func TestXdsSnapWrapperEquals_ComparesErroredClusters(t *testing.T) {
+ 	newSnap := func() *envoycache.Snapshot {
+ 		snap := &envoycache.Snapshot{}

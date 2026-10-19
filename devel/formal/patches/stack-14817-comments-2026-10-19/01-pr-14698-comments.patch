@@ -1,0 +1,3536 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -342,67 +342,39 @@
+ 	// Enables setting the `dev.kgateway.auth_policy:auth_succeeded=true` dynamic metadata on successfully-authenticated routes.
+ 	EnableAuthMetadata bool `split_words:"true" default:"false"`
+ 
+-	// PerClientPublishBudget bounds how long per-client xDS publication may
+-	// be withheld while referenced clusters are not yet ready. It governs:
+-	//
+-	//   - first publish: a client that has NEVER been published a snapshot
+-	//     receives the latest deferred snapshot at expiry (it is always
+-	//     internally consistent), so a freshly scheduled gateway pod binds
+-	//     its listeners and becomes Ready instead of crash-looping; routes
+-	//     to still-unready clusters return 503 until they cohere. Clients
+-	//     that reported a prior accepted xDS version on connect are warm:
+-	//     they stay withheld while referenced clusters are missing from CDS
+-	//     (for at most PerClientWarmWithholdBound),
+-	//     but publish at expiry when the only gaps are clusters whose
+-	//     endpoints were never derived (by then that is translation backlog
+-	//     or a plugin gap with no convergence guarantee, and withholding
+-	//     longer would freeze the client's config indefinitely); the client
+-	//     keeps the endpoints it holds for those clusters.
+-	//   - flip release: a route flip held because it targets a
+-	//     newly-referenced cluster with no derived endpoints is published at
+-	//     expiry, so a reference that never becomes ready cannot pin the
+-	//     client's route/listener/secret updates indefinitely.
+-	//
+-	// Keep the budget well below the gateway proxy's startup probe window
+-	// (60s by default): a first publish bounded above the probe window
+-	// recreates the crash loop the bound exists to prevent. A value of 0
+-	// disables all bounds: clients wait for coherence with no deadline.
++	// PerClientPublishBudget limits first-publication and route-flip holds:
++	//
++	//   - A cold client's latest deferred snapshot is installed at expiry so
++	//     startup can proceed; unresolved routes may return 503.
++	//   - A warm client reported a held listener version. Missing CDS clusters
++	//     extend its hold up to PerClientWarmWithholdBound. Missing CLA rows
++	//     alone do not: at expiry, omit them to preserve held endpoints.
++	//   - A flip to a newly referenced cluster with no derived CLA is released
++	//     at expiry, allowing route, listener and secret updates to resume.
++	//
++	// Keep the budget below the startup probe window (60s by default).
++	// A value of 0 disables publication bounds and waits for coherence.
+ 	PerClientPublishBudget time.Duration `split_words:"true" default:"15s"`
+ 
+-	// PerClientWarmWithholdBound is the last-resort bound on how long a warm
+-	// client (one that reported a prior accepted xDS version on connect, so it
+-	// may still be serving config from an earlier stream) stays withheld
+-	// because referenced clusters are missing from CDS. Withholding keeps
+-	// routes the proxy is serving from failing with no cluster, but a cluster
+-	// that never appears would otherwise freeze the client's config, including
+-	// certificate rotations, until the proxy restarts. Once a warm client has
+-	// been withheld this long, the latest deferred snapshot is published
+-	// anyway; routes to the missing clusters fail until they appear.
+-	//
+-	// The same bound limits how long an already-published client keeps being
+-	// sent the last config of a referenced cluster that went missing from CDS
+-	// (carried forward as make-before-break): past it the cluster is dropped,
+-	// so endpoints that old are not served indefinitely.
+-	//
+-	// Keep it well above the longest time translation takes to catch up after
+-	// a controller restart: a bound shorter than that fails warm routes on
+-	// every restart. Only applies while PerClientPublishBudget is non-zero. A
+-	// value of 0 removes the bound: warm clients stay withheld until the
+-	// missing clusters appear, and missing clusters are carried indefinitely.
++	// PerClientWarmWithholdBound limits holds for warm clients whose referenced
++	// clusters are missing from CDS. A warm client may still serve config from
++	// an earlier stream. At expiry, install the latest deferred snapshot even
++	// if unresolved routes will fail, so missing clusters cannot freeze all
++	// updates, including certificate rotation.
++	//
++	// This also limits how long published clusters and endpoints are carried
++	// while absent from new builds. Expired clusters are dropped.
++	//
++	// Allow enough time for translation after a controller restart. Applies
++	// only when PerClientPublishBudget is non-zero. A value of 0 allows warm
++	// holds and carries to continue until the missing clusters return.
+ 	PerClientWarmWithholdBound time.Duration `split_words:"true" default:"10m"`
+ 
+-	// XdsSnapshotConsistencyCheck checks every per-client xDS snapshot
+-	// immediately before it is published for an EDS or RDS resource that no
+-	// CDS or LDS resource of the same snapshot references (go-control-plane
+-	// withholds an ADS response that carries an unrequested resource) and for
+-	// a listener naming a RouteConfiguration the snapshot lacks, recording
+-	// violations in the
+-	// kgateway_xds_snapshot_perclient_inconsistent_snapshots_total counter and
+-	// the error log. The snapshot is still published either way: the check is
+-	// an invariant monitor for test and CI environments (any increment is a
+-	// kgateway bug worth reporting), never a gate — withholding on
+-	// inconsistency would reintroduce the unbounded withholds the publication
+-	// engine removed. Off by default.
++	// XdsSnapshotConsistencyCheck logs and counts unreferenced EDS/RDS resources
++	// and missing listener RouteConfigurations before cache installation.
++	// Unrequested resources can prevent named ADS responses. Violations increment
++	// kgateway_xds_snapshot_perclient_inconsistent_snapshots_total but never
++	// block publication. Intended for tests and CI; disabled by default.
+ 	XdsSnapshotConsistencyCheck bool `split_words:"true" default:"false"`
+ 
+ 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
+diff --git a/pkg/kgateway/controller/start.go b/pkg/kgateway/controller/start.go
+--- a/pkg/kgateway/controller/start.go
++++ b/pkg/kgateway/controller/start.go
+@@ -83,10 +83,8 @@
+ 	CommonCollections *collections.CommonCollections
+ 	AugmentedPods     krt.Collection[krtcollections.LocalityPod]
+ 	UniqueClients     krt.Collection[ir.UniquelyConnectedClient]
+-	// XDSClientState is the connection state behind UniqueClients (the third
+-	// result of krtcollections.NewUniquelyConnectedClients). Leave it nil
+-	// only if no such state exists: per-client publication then treats every
+-	// reconnecting proxy as a new one.
++	// XDSClientState is the third result of NewUniquelyConnectedClients.
++	// If nil, publication treats reconnecting proxies as new clients.
+ 	XDSClientState krtcollections.XDSClientState
+ 
+ 	KrtOptions krtutil.KrtOptions
+diff --git a/pkg/kgateway/proxy_syncer/backends_test_helpers_test.go b/pkg/kgateway/proxy_syncer/backends_test_helpers_test.go
+--- a/pkg/kgateway/proxy_syncer/backends_test_helpers_test.go
++++ b/pkg/kgateway/proxy_syncer/backends_test_helpers_test.go
+@@ -90,9 +90,8 @@
+ 	return names
+ }
+ 
+-// newTestPerClientClustersFromCol lets publication tests vary each client's
+-// translated rows independently while using the production CDS assembler.
+-// Driving it from clients preserves the empty row after the last backend leaves.
++// newTestPerClientClustersFromCol varies client rows through the production
++// CDS assembler. A client still gets an empty row after its last backend leaves.
+ func newTestPerClientClustersFromCol(col krt.Collection[uccWithCluster], clients krt.Collection[ir.UniquelyConnectedClient]) PerClientEnvoyClusters {
+ 	rows := krt.NewCollection(clients, func(kctx krt.HandlerContext, ucc ir.UniquelyConnectedClient) *clustersWithErrors {
+ 		all := krt.Fetch(kctx, col)
+diff --git a/pkg/kgateway/proxy_syncer/cla.go b/pkg/kgateway/proxy_syncer/cla.go
+--- a/pkg/kgateway/proxy_syncer/cla.go
++++ b/pkg/kgateway/proxy_syncer/cla.go
+@@ -152,8 +152,8 @@
+ type PerClientEnvoyEndpoints struct {
+ 	endpoints krt.Collection[UccWithEndpoints]
+ 	index     krt.Index[string, UccWithEndpoints]
+-	// sources are the backend endpoint inputs the per-client rows are built
+-	// from, indexed by the CLA they produce. Nil when unknown (test doubles).
++	// sources indexes backend endpoint inputs by CLA name. Nil in test doubles
++	// that do not identify sources.
+ 	sources          krt.Collection[ir.EndpointsForBackend]
+ 	sourcesByCluster krt.Index[string, ir.EndpointsForBackend]
+ }
+@@ -164,14 +164,11 @@
+ 	return krt.Fetch(kctx, ie.endpoints, krt.FilterIndex(ie.index, ucc.ResourceName()))
+ }
+ 
+-// HasEndpointsSource reports whether some backend derives endpoints for the
+-// named CLA. When it does, a client without a row for that CLA is waiting for
+-// its per-client row to be built (every reconnect rebuilds them); when it
+-// does not, no row will ever come and an empty CLA is the cluster's steady
+-// state (an EC2 Backend with discovery disabled, #14352). It registers a KRT
+-// dependency on that name, so a source appearing or disappearing recomputes
+-// the caller. Without a source index (test doubles) it reports true: the safe
+-// reading of an unknown backend is that its endpoints are on their way.
++// HasEndpointsSource reports whether a backend produces the named CLA.
++// With a source, a missing client row awaits derivation; without one, an empty
++// CLA is steady state (EC2 discovery disabled, #14352). The lookup registers a
++// KRT dependency so source changes recompute the caller. A missing source
++// index, as in test doubles, conservatively returns true.
+ func (ie *PerClientEnvoyEndpoints) HasEndpointsSource(kctx krt.HandlerContext, claName string) bool {
+ 	if ie.sources == nil {
+ 		return true
+diff --git a/pkg/kgateway/proxy_syncer/consistency_checking_cache_test.go b/pkg/kgateway/proxy_syncer/consistency_checking_cache_test.go
+--- a/pkg/kgateway/proxy_syncer/consistency_checking_cache_test.go
++++ b/pkg/kgateway/proxy_syncer/consistency_checking_cache_test.go
+@@ -7,25 +7,16 @@
+ 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+ )
+ 
+-// consistencyCheckingCache decorates a SnapshotCache so that EVERY snapshot
+-// published by any test — including intermediate publishes no assertion looks
+-// at, and publishes fired from the gate's budget timers — is checked for
+-// resources no other resource of the snapshot references (every EDS resource
+-// must match a CDS reference, every RDS resource an LDS reference) and for
+-// RouteConfigurations a listener names but the snapshot lacks (see
+-// snapshotConsistencyError).
++// consistencyCheckingCache checks every test cache installation, including
++// intermediate snapshots and timer callbacks. It rejects unreferenced CLAs
++// and RouteConfigurations, allowing the bootstrap local cluster, and reports
++// listener references to missing RouteConfigurations.
+ //
+-// Accounting for the known bootstrap local cluster, this is a universal
+-// invariant: it must hold on every publish, including the deliberately
+-// incomplete ones (bounded first publish, flip release, CLAs left out so a
+-// client keeps its endpoints), because their incompleteness lives in edges
+-// the check does not model: route->cluster and EDS cluster->CLA. That makes
+-// this a zero-false-positive oracle. Those closures are deliberately NOT
+-// asserted here and remain an opt-in assertion (assertSnapshotCoherent) for
+-// tests that expect full coherence.
++// Route-to-cluster and EDS-cluster-to-CLA closure are deliberately excluded:
++// bounded releases may lack clusters, and omitted CLAs preserve held endpoints.
++// Tests requiring those closures use assertSnapshotCoherent.
+ //
+-// t.Errorf (not Fatalf) is used because SetSnapshot runs on gate timer
+-// goroutines; Errorf is safe from non-test goroutines.
++// Use Errorf because timer callbacks run outside the test goroutine.
+ type consistencyCheckingCache struct {
+ 	envoycache.SnapshotCache
+ 	t *testing.T
+@@ -35,8 +26,7 @@
+ 	return &consistencyCheckingCache{SnapshotCache: inner, t: t}
+ }
+ 
+-// newTestSnapshotCache is the standard cache constructor for tests in this
+-// package: a plain ADS snapshot cache wrapped with the consistency oracle.
++// newTestSnapshotCache wraps an ADS cache with the consistency checks.
+ func newTestSnapshotCache(t *testing.T) envoycache.SnapshotCache {
+ 	return newConsistencyCheckingCache(t, envoycache.NewSnapshotCache(true, envoycache.IDHash{}, nil))
+ }
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -37,55 +37,32 @@
+ 
+ 	if snapWrap.deferred() {
+ 		recordSnapshotDefer(proxyKey, snapWrap.missingReferenced, snapWrap.missingEndpointsReferenced)
+-		// Per-cluster readiness resolution. The snapshot was built while some
+-		// referenced cluster was not ready; decide per cluster against the
+-		// snapshot published on the client's current connection instead of
+-		// withholding everything:
+-		//
+-		//   - a client not yet published on this connection is withheld up to
+-		//     the first-publish budget (see publishGate);
+-		//   - previously-published clusters that vanished from the build are
+-		//     carried forward with their CLAs (make-before-break);
+-		//   - previously-referenced clusters whose CLA row is not derived keep
+-		//     the endpoints the client holds for them
+-		//     (settleSynthesizedEndpoints): a missing row is unknown, not
+-		//     empty, since a Service without EndpointSlices still derives an
+-		//     empty row;
+-		//   - only a route flip onto a NEWLY-referenced not-yet-derived
+-		//     cluster is held: routes/listeners/secrets stay at the published
+-		//     versions while the new clusters warm in the background, and the
+-		//     flip goes out in a later snapshot once they are ready — or at
+-		//     the flip-release bound (see publishGate), whichever comes
+-		//     first, so a backend that never derives endpoints cannot pin
+-		//     updates forever (#14352). The hold also gives the flip a
+-		//     reference-ahead shape: the CDS carrying a new cluster is
+-		//     published in an earlier snapshot than the RDS that uses it.
+-		//
+-		// The whole decision runs under the gate lock so it cannot race the
+-		// gate's expiring budget timers (see resolveDeferred).
++		// Resolve gaps against this connection's published snapshot under the gate
++		// lock, excluding concurrent timer publication:
++		//   - Withhold a first snapshot up to its budget.
++		//   - Carry missing published clusters with their CLAs.
++		//   - Preserve held endpoints while a previously referenced CLA is underived.
++		//     A derived empty CLA is known backend state and publishes normally.
++		//   - Hold routes, listeners and secrets for a new underived target while
++		//     publishing CDS/EDS. Release on derivation or budget expiry (#14352).
++		// This orders the new cluster's snapshot before the route flip.
+ 		if err := s.gate.resolveDeferred(ctx, s.xdsCache, snapWrap); err != nil {
+ 			logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+ 		}
+ 		return
+ 	}
+ 
+-	// The snapshot publishes no unrequested resource by construction:
+-	// snapshotPerClient drops CLAs for clusters absent from CDS, and the
+-	// per-cluster resolution only carries cluster/CLA pairs — so we do not
+-	// rely on a post-hoc MakeConsistent() pass, which would also have mutated
+-	// the snapshot shared with the krt cache. Publication goes through the
+-	// publish gate so it settles synthesized CLAs, cancels any pending bounded
+-	// publish or flip release, and cannot race an expiring budget timer.
++	// snapshotPerClient filters orphan CLAs; resolution carries cluster/CLA
++	// pairs. Avoid MakeConsistent, which would mutate the KRT-shared snapshot.
++	// The gate settles synthesized CLAs and cancels superseded timers under lock.
+ 	if err := s.gate.publish(ctx, s.xdsCache, snapWrap); err != nil {
+-		// A rejected snapshot leaves the client on its previous config; surface
+-		// it rather than silently dropping the update.
++		// Report cache publication errors instead of silently dropping them.
+ 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+ 	}
+ }
+ 
+-// publishedReferencedClusters returns the routing targets of the published
+-// snapshot's routes and listeners. The result is shared: callers must not
+-// modify it.
++// publishedReferencedClusters returns published route and listener targets.
++// Callers must not modify the shared result.
+ func publishedReferencedClusters(published envoycache.ResourceSnapshot) map[string]struct{} {
+ 	routes := published.GetResourcesAndTTL(envoyresourcev3.RouteType)
+ 	listeners := published.GetResourcesAndTTL(envoyresourcev3.ListenerType)
+@@ -94,21 +71,14 @@
+ 	})
+ }
+ 
+-// publishedRefs memoizes publishedReferencedClusters. Every deferred build
+-// resolves against the client's published snapshot under the gate's single
+-// lock, and finding the published routing targets unmarshals each listener's
+-// filter chain, so recomputing it per build serializes that work for every
+-// client behind one lock. The published routes and listeners change far less
+-// often than deferred builds arrive: a snapshot that keeps them, whether held,
+-// carried or resolved, reuses the very item maps of the gateway translation
+-// that produced them, which are never modified once built.
++// publishedRefs caches routing targets to avoid repeated listener unmarshalling
++// under the shared gate lock. Held and carried snapshots reuse the immutable
++// route and listener item maps from their gateway translation.
+ var publishedRefs = &referencedClustersMemo{}
+ 
+-// referencedClustersMemo caches referenced-cluster sets by the identity of the
+-// routes and listeners item maps they were computed from. An entry keeps those
+-// maps referenced, so their addresses cannot be reused by other maps while it
+-// exists; identity therefore implies equal content. The cache is cleared when
+-// it reaches maxReferencedClustersMemo entries.
++// referencedClustersMemo keys target sets by route and listener map identity.
++// Entries retain these immutable maps, preventing address reuse while cached.
++// Clear the cache at maxReferencedClustersMemo entries.
+ type referencedClustersMemo struct {
+ 	mu      sync.Mutex
+ 	entries map[[2]uintptr]referencedClustersEntry
+@@ -145,46 +115,29 @@
+ 	return refs
+ }
+ 
+-// resolveDeferredPerCluster composes the snapshot actually published for a
+-// deferred wrapper, given the snapshot published on the client's current
+-// connection:
++// resolveDeferredPerCluster composes a deferred build against this connection's
++// published snapshot:
++//   - Carry missing referenced clusters and their CLAs.
++//   - Publish new routes if all gaps were already referenced. The gate
++//     preserves held endpoints for underived CLAs.
++//   - Otherwise hold routes, listeners and secrets, carry their full published
++//     cluster closure (including filter dependencies), and publish new CDS/EDS.
+ //
+-//   - missing referenced clusters present in the published snapshot are
+-//     carried forward together with their CLAs;
+-//   - if every remaining gap is a previously-referenced cluster (present in
+-//     the published routes' reference set), the new routes publish as-is;
+-//     clusters among them whose CLA is not derived keep the endpoints the
+-//     client holds (the gate settles synthesized CLAs at publish time);
+-//   - otherwise some gap is a newly-referenced cluster that has never been
+-//     ready: routes, listeners, and secrets are held at their published
+-//     versions (so nothing flips onto the unready cluster), every published
+-//     cluster the build lacks is carried forward with its CLA (the held
+-//     configuration's whole dependency closure, filter-called clusters
+-//     included), and the new CDS/EDS — including the warming cluster — still
+-//     goes out.
+-//
+-// A carried cluster's CLA is taken from the published snapshot unless the
+-// build already has that assignment for another cluster sharing its EDS
+-// service_name; the built assignment is then kept.
+-//
+-// The second return value lists the flip-blocking clusters when the hold was
+-// applied, nil otherwise. holdFlips=false composes the released form — the
+-// new routes publish as-is even with never-ready gaps — used by the gate's
+-// flip-release bound so a steady-state-unready reference cannot pin the
+-// client's route/listener/secret updates forever (#14352).
++// Keep a built CLA when another cluster shares the carried cluster's
++// service_name; the built assignment takes precedence over the retained one.
++// The second result lists targets blocking a held flip, or nil.
++// With holdFlips=false, release the flip despite unresolved gaps (#14352).
+ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot, holdFlips bool) (*envoycache.Snapshot, []string) {
+ 	publishedRefs := publishedReferencedClusters(published)
+ 	oldClusters := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
+ 
+-	// A gap does not block updates if the published config already references
+-	// the cluster, even if it is still missing after a bounded release. Missing
+-	// clusters available in published CDS can also be carried forward. A
+-	// previously-referenced cluster whose CLA row is not derived keeps the
+-	// endpoints the client holds for it.
++	// Previously referenced gaps do not block updates, even after a bounded
++	// release. Carry missing published clusters and preserve held endpoints
++	// where the CLA row is still underived.
+ 	var flipBlocking []string
+ 	for _, name := range snapWrap.missingReferenced {
+ 		if _, wasReferenced := publishedRefs[name]; wasReferenced {
+-			continue // already live, including a missing cluster published at budget expiry
++			continue // Already referenced, including gaps admitted by a bounded release.
+ 		}
+ 		if _, wasPublished := oldClusters[name]; wasPublished {
+ 			continue // carried forward below
+@@ -193,7 +146,7 @@
+ 	}
+ 	for _, name := range snapWrap.missingEndpointsReferenced {
+ 		if _, wasReferenced := publishedRefs[name]; wasReferenced {
+-			continue // previously-referenced: the client keeps its endpoints
++			continue // Preserve endpoints for an existing reference.
+ 		}
+ 		flipBlocking = append(flipBlocking, name)
+ 	}
+@@ -202,16 +155,10 @@
+ 	composed := &envoycache.Snapshot{}
+ 	*composed = *snapWrap.snap
+ 
+-	// carryRefs are the clusters whose cluster/CLA pairs must exist in the
+-	// composed snapshot. While the flip is held, that is every cluster the
+-	// published snapshot has: the held routes and listeners are exactly the
+-	// published ones, so their whole dependency closure is the published CDS --
+-	// route targets, and also the clusters their filters call (ext_authz,
+-	// ext_proc, JWKS, OAuth2, rate limit, access log). Carrying only the routes'
+-	// targets would let a build that stops naming such a cluster remove it while
+-	// the held listener still calls it. The hold is bounded by the flip-release
+-	// timer, so the extra clusters are carried for at most a budget. On the
+-	// truth path, only previously-published missing clusters are carried.
++	// carryRefs lists cluster/CLA pairs needed by the composed snapshot.
++	// A held flip keeps all published CDS, including filter dependencies such
++	// as ext_authz and JWKS, because its old listeners still use them. The flip
++	// timer bounds this hold. Without a hold, carry only missing published targets.
+ 	carryRefs := make(map[string]struct{})
+ 	var heldBlocking []string
+ 	if holdFlips && len(flipBlocking) > 0 {
+@@ -239,8 +186,7 @@
+ 		}
+ 	}
+ 
+-	// Carry forward cluster/CLA pairs (a carried CLA always travels with
+-	// its cluster) for carryRefs missing from the new build.
++	// Carry missing cluster/CLA pairs from the published snapshot.
+ 	newClusters := composed.Resources[envoycachetypes.Cluster]
+ 	newEndpoints := composed.Resources[envoycachetypes.Endpoint]
+ 	oldEndpoints := published.GetResourcesAndTTL(envoyresourcev3.EndpointType)
+@@ -255,19 +201,14 @@
+ 			continue
+ 		}
+ 		if _, expired := expiredSet[name]; expired {
+-			// Carried for the whole warm withhold bound (boundCarryLocked):
+-			// neither the truth path nor a held flip's closure brings it back.
++			// The carry bound expired; neither normal resolution nor a held flip
++			// may restore this cluster.
+ 			continue
+ 		}
+ 		if _, errored := erroredSet[name]; errored {
+-			// Fail closed: a cluster whose current translation is errored is
+-			// never resurrected from the published snapshot, even while a flip
+-			// is held for an unrelated cluster. Serving it with its stale
+-			// (pre-error) config would silently bypass the very policy whose
+-			// failure errored it — e.g. an invalid BackendTLSPolicy must 5xx
+-			// (Gateway API conformance
+-			// BackendTLSPolicyInvalidCACertificateRef), not keep serving with
+-			// the previous TLS configuration.
++			// Never restore an errored cluster from old config, even for a held flip.
++			// That would bypass failed policy validation. An invalid BackendTLSPolicy
++			// must produce 5xx (BackendTLSPolicyInvalidCACertificateRef), not use old TLS.
+ 			continue
+ 		}
+ 		if _, ok := clusterItems[name]; ok {
+@@ -275,31 +216,25 @@
+ 		}
+ 		old, ok := oldClusters[name]
+ 		if !ok {
+-			continue // neither snapshot has it; the route 503s as it already did
++			continue // Neither snapshot has the cluster; its route remains unresolved.
+ 		}
+ 		if len(carried) == 0 {
+-			// copy-on-write: never mutate the krt-cached wrapper's maps
++			// Copy before writing; KRT shares the wrapper's maps.
+ 			clusterItems = cloneResourceItems(newClusters.Items)
+ 			endpointItems = cloneResourceItems(newEndpoints.Items)
+ 		}
+ 		clusterItems[name] = old
+ 		carried = append(carried, name)
+-		// The hash folds in the carried CONTENT, not just the names: the same
+-		// carried set over the same new-build version can otherwise reproduce
+-		// an identical version string around a vanish/return/vanish cycle
+-		// whose carried protos differ, and a client reconnecting with that
+-		// version as last-accepted would never be resent the newer content.
++		// Hash carried content as well as names. Otherwise a vanish/return/vanish
++		// cycle can reuse a version for different protos, suppressing a needed resend.
+ 		carryHash ^= utils.HashString(name) ^ utils.HashProto(old.Resource)
+ 		claName, requiresEndpointResource := endpointResourceNameForCluster(old)
+ 		if !requiresEndpointResource {
+ 			continue
+ 		}
+ 		if _, built := endpointItems[claName]; built {
+-			// Another cluster in this build already requires this assignment
+-			// (an EDS service_name shared between clusters): keep the build's
+-			// assignment. Replacing it with the published copy would serve stale
+-			// endpoints to the cluster that was built, under a version that
+-			// claims the built content.
++			// Another built cluster shares this EDS service_name. Keep its current
++			// assignment; the retained copy would pair stale endpoints with a new version.
+ 			continue
+ 		}
+ 		if oldCla, ok := oldEndpoints[claName]; ok {
+diff --git a/pkg/kgateway/proxy_syncer/perclient.go b/pkg/kgateway/proxy_syncer/perclient.go
+--- a/pkg/kgateway/proxy_syncer/perclient.go
++++ b/pkg/kgateway/proxy_syncer/perclient.go
+@@ -81,11 +81,9 @@
+ 		clustersForUcc := krt.FetchOne(kctx, clusterSnapshot, krt.FilterKey(ucc.ResourceName()))
+ 		clientEndpointResources := krt.FetchOne(kctx, endpointResources, krt.FilterKey(ucc.ResourceName()))
+ 
+-		// Annotate missing routing targets and underived CLAs for the bounded
+-		// publication gate. A derived empty CLA is backend truth, not a gap.
+-		// A nil row means its transform has not run yet (the cluster transform
+-		// also returns nil while no backend exists), so there is nothing to
+-		// publish.
++		// Record missing targets and underived CLAs for the gate. Derived empty
++		// CLAs are known backend state. A nil cluster row has not run its transform
++		// yet (or has no backend), so there is no row to publish.
+ 		if clustersForUcc == nil || clientEndpointResources == nil {
+ 			logger.Debug("per-client inputs not ready; deferring snapshot", "client", ucc.ResourceName())
+ 			return nil
+@@ -109,17 +107,15 @@
+ 			clusterResources.Items,
+ 			clustersForUcc.erroredClusters,
+ 		)
+-		// Keep EDS resources aligned with the EDS clusters in the same CDS snapshot.
+-		// Envoy's named EDS requests are induced by CDS; stale CLAs for clusters no
+-		// longer present in CDS can make go-control-plane suppress ADS responses.
++		// Match EDS to this snapshot's CDS. Orphan CLAs can make the cache
++		// withhold a named ADS response.
+ 		bootstrapEndpoint := ""
+ 		if ucc.KnowsLocalCluster {
+ 			bootstrapEndpoint, _, _ = ucc.LocalClusterInfo()
+ 		}
+ 		endpointRes, synthesizedEndpoints := filterEndpointResourcesForClusters(clusterResources, clientEndpointResources.endpoints, bootstrapEndpoint)
+-		// Post-synthesis every EDS cluster has a CLA; the synthesized set
+-		// identifies exactly the referenced clusters whose CLA was not
+-		// derived (a derived-but-empty CLA is truth, not a gap).
++		// Each EDS cluster now has a CLA. Synthesized placeholders identify
++		// underived rows; derived empty CLAs are not gaps.
+ 		missingEndpointClusters := findMissingReferencedEndpointResources(
+ 			listenerRouteSnapshot.ReferencedClusters,
+ 			clusterResources.Items,
+@@ -129,9 +125,8 @@
+ 
+ 		snap.missingReferenced = missingClusters
+ 		snap.missingEndpointsReferenced = missingEndpointClusters
+-		// Only synthesized CLAs whose rows are on their way are settled against
+-		// what the client holds. A synthesized CLA with no endpoints source is
+-		// the cluster's steady state and publishes like a derived empty one.
++		// Settle only placeholders with a pending endpoint source. Without a
++		// source, the synthesized empty CLA is steady state and publishes normally.
+ 		for name := range synthesizedEndpoints {
+ 			if name == bootstrapEndpoint || endpoints.HasEndpointsSource(kctx, name) {
+ 				snap.synthesizedEndpoints = append(snap.synthesizedEndpoints, name)
+@@ -246,23 +241,15 @@
+ 	return xdsSnapshotsForUcc
+ }
+ 
+-// collectReferencedClusters returns the clusters the given routes and
+-// listeners route to: the cluster or weighted clusters of every route action
+-// and TCP proxy, including route configurations inlined in an HTTP connection
+-// manager. It reads only those fields, so it never unpacks HTTP filter or
+-// per-route configs.
++// collectReferencedClusters collects direct and weighted HTTP/TCP route targets,
++// including inline HTTP routes. It does not unpack filter or per-route configs.
+ //
+-// Clusters that filters call out to (ext_authz, ext_proc, JWKS, OAuth2, rate
+-// limit, access logs) are not routing targets and are not collected. They are
+-// ordinary backends in the same per-client CDS, so they can lag like any
+-// other, but holding every route update of a gateway behind one side service
+-// would starve it on a single unready dependency; the filter fails, or
+-// degrades per its failure_mode_allow, until the cluster is ready. Their
+-// endpoints on the client are still kept while their CLAs are not derived
+-// (settleSynthesizedEndpoints).
++// Ancillary clusters (ext_authz, ext_proc, JWKS, OAuth2, rate limit and logging)
++// do not hold route updates: one unavailable side service must not block the
++// whole gateway. Filters follow their own failure policy. The gate still
++// preserves held endpoints for underived ancillary CLAs.
+ //
+-// This is computed once per GatewayXdsResources (shared across all connected
+-// clients for that role) rather than per client.
++// Compute once per GatewayXdsResources, shared by clients with the same role.
+ func collectReferencedClusters(routes, listeners envoycache.Resources) map[string]struct{} {
+ 	referenced := make(map[string]struct{})
+ 	for _, item := range routes.Items {
+@@ -295,9 +282,8 @@
+ 	}
+ }
+ 
+-// addFilterChainTargets adds the targets of the filter chain's TCP proxies and
+-// of any route configuration its HTTP connection managers inline; a manager
+-// that uses RDS contributes through the route configurations instead.
++// addFilterChainTargets collects TCP targets and inline HTTP route targets.
++// RDS targets come from the separate route configurations.
+ func addFilterChainTargets(filterChain *envoylistenerv3.FilterChain, referenced map[string]struct{}) {
+ 	for _, filter := range filterChain.GetFilters() {
+ 		typedConfig := filter.GetTypedConfig()
+@@ -356,20 +342,12 @@
+ 	return missingClusters
+ }
+ 
+-// findMissingReferencedEndpointResources reports the referenced EDS clusters
+-// whose ClusterLoadAssignment was not derived by the per-client endpoints
+-// collection — i.e. their CLA in the snapshot is a synthesized empty
+-// placeholder (see filterEndpointResourcesForClusters). Whether such a
+-// backend has endpoints is UNKNOWN — per-client derivation lag for kube
+-// Services (whose endpoints transform emits a row for every resolvable
+-// port, even sliceless ones like ExternalName), or a plugin that
+-// contributed an EDS cluster without an endpoints row — which is what
+-// warrants deferral. PRESENCE, not contents, is the test: a derived CLA
+-// with zero usable endpoints is the backend's known truth (scale-to-zero
+-// and crashlooping backends are steady states, not races — #14352) and must
+-// not defer the snapshot; this matches the existence semantics of the
+-// whole-snapshot gate this replaced, the behavior production configs are
+-// built against.
++// findMissingReferencedEndpointResources lists referenced EDS clusters whose
++// CLA rows are underived and replaced by synthesized empty placeholders.
++// Derivation may lag, or a plugin may never supply a row. A derived empty CLA
++// is known backend state and must not defer publication: scale-to-zero and
++// crashlooping backends need not converge to usable endpoints (#14352).
++// Services, including ExternalName, derive empty rows even without slices.
+ func findMissingReferencedEndpointResources(
+ 	referencedClusters map[string]struct{},
+ 	clusters map[string]envoycachetypes.ResourceWithTTL,
+@@ -428,22 +406,14 @@
+ 	return out
+ }
+ 
+-// filterEndpointResourcesForClusters returns the EDS resources that belong with
+-// the EDS clusters in the same CDS snapshot. It drops CLAs for clusters that do
+-// not use EDS or are not in CDS: Envoy requests EDS resources by the names CDS
+-// gives it, and go-control-plane withholds a whole ADS response that carries
+-// one the client did not request (#14471). It adds an empty CLA for every EDS
+-// cluster with no derived one and returns their names, so the snapshot stays
+-// EDS-consistent; the publish gate decides which of those synthesized CLAs the
+-// client receives (settleSynthesizedEndpoints), because an empty CLA would
+-// replace endpoints the client already holds. bootstrapEndpoint names the
+-// gateway's bootstrap local cluster for clients that subscribed to it; its CLA
+-// is kept although that cluster is not in dynamic CDS.
++// filterEndpointResourcesForClusters keeps CLAs named by this snapshot's EDS
++// clusters and synthesizes missing assignments. Orphan CLAs can block a named
++// ADS response (#14471). Return synthesized names so the gate can preserve
++// held endpoints instead of replacing them with empty assignments.
++// Keep bootstrapEndpoint for subscribed clients despite its static CDS entry.
+ //
+-// The version is the input's when nothing was dropped or added, so leaving a
+-// filtered state restores it. Otherwise the dropped and synthesized names are
+-// folded into it: the input version already covers the content of every kept
+-// CLA, so no CLA is hashed here.
++// Preserve the input version if the set is unchanged. Otherwise fold dropped
++// and synthesized names into it; the input version covers kept CLA content.
+ func filterEndpointResourcesForClusters(clusters envoycache.Resources, endpoints envoycache.Resources, bootstrapEndpoint string) (envoycache.Resources, map[string]struct{}) {
+ 	if endpointsMatchClusters(clusters, endpoints, bootstrapEndpoint) {
+ 		return endpoints, nil
+@@ -490,11 +460,9 @@
+ 	return envoycache.NewResourcesWithTTL(endpoints.Version+"-"+strconv.FormatUint(namesHash, 10), filteredEndpoints), synthesized
+ }
+ 
+-// endpointsMatchClusters reports, without allocating, whether endpoints holds
+-// exactly one CLA for each EDS cluster in clusters and for bootstrapEndpoint,
+-// and nothing else: the common case, in which there is nothing to filter or
+-// synthesize. It gives up (returns false) on anything unusual, such as an EDS
+-// service_name alias, and leaves that to the general path.
++// endpointsMatchClusters checks without allocation for one CLA per EDS cluster,
++// plus bootstrapEndpoint, and no extras. Return false for aliases or unusual
++// inputs so the general path handles them.
+ func endpointsMatchClusters(clusters envoycache.Resources, endpoints envoycache.Resources, bootstrapEndpoint string) bool {
+ 	required := 0
+ 	for name, item := range clusters.Items {
+diff --git a/pkg/kgateway/proxy_syncer/perclient_eds_consistency_test.go b/pkg/kgateway/proxy_syncer/perclient_eds_consistency_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_eds_consistency_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_eds_consistency_test.go
+@@ -1,15 +1,8 @@
+ package proxy_syncer
+ 
+-// Regression tests for EDS snapshot consistency. The per-client CDS includes a
+-// cluster for every backend, referenced or not, so an EDS cluster can be in
+-// CDS before (or without) its ClusterLoadAssignment. The published snapshot
+-// must still satisfy go-control-plane's Snapshot.Consistent() invariant: every
+-// EDS cluster has exactly one CLA and there are no CLAs without a cluster.
+-// filterEndpointResourcesForClusters drops stale/STATIC CLAs and synthesizes
+-// empty assignments for EDS clusters that have no CLA yet; referenced clusters
+-// backed by a synthesized empty mark the wrapper deferred (presence, not
+-// contents), and the empties reach Envoy for unreferenced clusters and on the
+-// bounded publish paths (see publishGate).
++// EDS consistency regressions: filter orphan/STATIC CLAs and synthesize absent
++// assignments. A referenced placeholder defers publication; a derived empty
++// CLA does not. The gate may omit placeholders to preserve held endpoints.
+ 
+ import (
+ 	"testing"
+@@ -33,8 +26,7 @@
+ func TestFilterEndpointResourcesForClusters_SynthesizesEmptyCLAForEDSClusterWithoutCLA(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+-	// One EDS cluster in CDS; one stale CLA whose cluster is gone. Expect: the
+-	// EDS cluster gets a synthesized empty CLA, and the stale CLA is dropped.
++	// Drop the stale CLA and synthesize one for the remaining EDS cluster.
+ 	clusters := envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
+ 		{Resource: &envoyclusterv3.Cluster{
+ 			Name:                 "eds-x",
+@@ -54,11 +46,8 @@
+ 	g.Expect(cla.GetEndpoints()).To(gomega.BeEmpty(), "the synthesized assignment is empty (active with no hosts)")
+ }
+ 
+-// TestSnapshotPerClientPublishesConsistentSnapshotForUnreferencedEDSClusterWithoutEndpoints
+-// exercises the production path: an EDS cluster lands in the per-client CDS
+-// that no route references and has no endpoints. The published snapshot must
+-// still be EDS-consistent (Snapshot.Consistent() passes), which before this
+-// change it was not.
++// An unreferenced EDS cluster without endpoints must still produce an
++// EDS-consistent snapshot through the production assembly path.
+ func TestSnapshotPerClientPublishesConsistentSnapshotForUnreferencedEDSClusterWithoutEndpoints(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -66,8 +55,7 @@
+ 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+ 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+ 
+-	// A route config the listener references, but with no routes (so no cluster
+-	// is referenced).
++	// The listener uses this empty route config; no cluster is referenced.
+ 	routes := routeResourcesForClusters()
+ 	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
+ 	mostXdsSnapshots := krt.NewStaticCollection[GatewayXdsResources](nil, []GatewayXdsResources{{
+@@ -77,7 +65,7 @@
+ 		ReferencedClusters: collectReferencedClusters(routes, listeners),
+ 	}})
+ 
+-	// An unreferenced EDS cluster in CDS, with no endpoints anywhere.
++	// An unreferenced EDS cluster with no endpoint row.
+ 	clusterCol := krt.NewStaticCollection[uccWithCluster](nil, []uccWithCluster{
+ 		edsClusterForClient(ucc, "cluster-0", 1),
+ 	})
+diff --git a/pkg/kgateway/proxy_syncer/perclient_endpoint_source_test.go b/pkg/kgateway/proxy_syncer/perclient_endpoint_source_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_endpoint_source_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_endpoint_source_test.go
+@@ -21,8 +21,8 @@
+ 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
+ )
+ 
+-// sourceFixture wires snapshotPerClient to static collections and the gate the
+-// way ProxySyncer.Start does, with an explicit set of backend endpoint sources.
++// sourceFixture mirrors Start's snapshot and gate wiring with explicit
++// backend endpoint sources.
+ type sourceFixture struct {
+ 	ucc       ir.UniquelyConnectedClient
+ 	uccs      krt.StaticCollection[ir.UniquelyConnectedClient]
+@@ -96,15 +96,10 @@
+ 	return endpointCount(rs.(*envoycache.Snapshot), cla)
+ }
+ 
+-// TestFirstPublishLeavesOutRowsStillBeingBuilt: a new proxy's first snapshot
+-// can publish as soon as its route targets' rows exist, while rows for other
+-// clusters (a filter-called ext_authz backend, say) are still being built.
+-// Publishing their synthesized empty CLAs would let Envoy finish initializing
+-// with zero hosts behind them, so ext_authz denies every request until the row
+-// lands; leaving them out makes Envoy wait for them, as it did before the
+-// placeholders existed. A cluster no backend derives endpoints for (an EC2
+-// Backend with discovery disabled) never gets a row, so its empty CLA is its
+-// steady state and still publishes, letting it activate immediately.
++// The first snapshot may precede ancillary endpoint rows. Omit their
++// placeholders so Envoy waits for derivation rather than activating empty
++// backends, such as ext_authz. Without an endpoint source (EC2 discovery
++// disabled), an empty CLA is steady state and should publish immediately.
+ func TestFirstPublishLeavesOutRowsStillBeingBuilt(t *testing.T) {
+ 	f := newSourceFixture(t, stubPriorXDS{has: false},
+ 		"routed",
+@@ -130,11 +125,8 @@
+ 		"the derived CLA publishes as soon as the row lands")
+ }
+ 
+-// TestReconnectWithoutClientStateKeepsFilterClusterEndpoints: a deployment that
+-// does not wire XDSClientState cannot tell a reconnecting proxy from a new one.
+-// Leaving out rows still being built must not depend on that, or every
+-// reconnect would publish explicit empty CLAs over the endpoints the proxy
+-// holds for clusters whose rows are rebuilt last.
++// Without XDSClientState, a reconnect looks cold. Still omit placeholders
++// whose rows are rebuilding, preserving endpoints from the previous stream.
+ func TestReconnectWithoutClientStateKeepsFilterClusterEndpoints(t *testing.T) {
+ 	f := newSourceFixture(t, nil,
+ 		"routed",
+@@ -144,7 +136,7 @@
+ 	)
+ 	require.Eventually(t, func() bool { n, ok := f.hosts("authz"); return ok && n == 1 }, 2*time.Second, 5*time.Millisecond)
+ 
+-	// Stream reset: the client's rows are dropped and the cache entry retained.
++	// Reset the stream: drop client rows but retain the cache entry.
+ 	f.uccs.DeleteObject(f.ucc.ResourceName())
+ 	f.rows.DeleteObject(endpointsForClient(f.ucc, "routed", 0).ResourceName())
+ 	f.rows.DeleteObject(endpointsForClient(f.ucc, "authz", 0).ResourceName())
+diff --git a/pkg/kgateway/proxy_syncer/perclient_hold_closure_test.go b/pkg/kgateway/proxy_syncer/perclient_hold_closure_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_hold_closure_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_hold_closure_test.go
+@@ -17,8 +17,8 @@
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+-// listenerCallingAuthz is an HTTP listener whose ext_authz filter calls
+-// clusterName, routing through RDS route-config.
++// listenerCallingAuthz builds an ext_authz listener using clusterName and
++// RDS route-config.
+ func listenerCallingAuthz(t *testing.T, clusterName string) *envoylistenerv3.Listener {
+ 	t.Helper()
+ 	authz := &envoyextauthzv3.ExtAuthz{Services: &envoyextauthzv3.ExtAuthz_GrpcService{GrpcService: &envoycorev3.GrpcService{
+@@ -40,12 +40,9 @@
+ 	}}}
+ }
+ 
+-// TestHeldFlipKeepsClustersTheHeldListenerCalls: while a route flip is held,
+-// the published routes AND listeners stay live, so every cluster they depend
+-// on must stay in CDS -- not only the routes' targets. Here one change both
+-// moves the route onto a not-yet-derived cluster and drops the ext_authz
+-// backend from the build; the held listener still calls ext_authz, so its
+-// cluster (and CLA) must be carried for as long as the hold lasts.
++// A held flip retains old listeners and their filter dependencies. If the
++// build drops ext_authz while adding an underived route target, carry the
++// authz cluster and CLA until the hold ends.
+ func TestHeldFlipKeepsClustersTheHeldListenerCalls(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, true, time.Hour)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -91,11 +88,9 @@
+ 		"the held routes' target is carried too")
+ }
+ 
+-// TestCarryKeepsBuiltAssignmentSharedByServiceName: two clusters share one EDS
+-// assignment through EdsClusterConfig.service_name. When one is carried and the
+-// other is built, the shared assignment must be the built one: the carried
+-// copy is stale for the built cluster, and the EDS version describes the built
+-// content.
++// With a shared EDS service_name, a built assignment overrides the carried
++// copy. Retaining the old CLA would give the built cluster stale endpoints
++// under a version describing the new assignment.
+ func TestCarryKeepsBuiltAssignmentSharedByServiceName(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, true, time.Hour)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -114,8 +109,8 @@
+ 		[]envoycachetypes.ResourceWithTTL{endpointsForClient(ucc, "shared", 10).Endpoints.ResourceWithTTL()})
+ 	require.NoError(t, pt.gate.publish(ctx, pt.xdsCache, XdsSnapWrapper{snap: published, proxyKey: publishGateTestClient}))
+ 
+-	// c1 is missing from this build (carried); c2 is built against a derived,
+-	// now-empty "shared" assignment (the backend scaled to zero).
++	// Carry missing c1; c2 uses the newly derived empty "shared" assignment
++	// after scale-to-zero.
+ 	build := &envoycache.Snapshot{}
+ 	build.Resources[envoycachetypes.Listener] = listeners
+ 	build.Resources[envoycachetypes.Route] = routeResourcesForClusters("c1", "c2")
+diff --git a/pkg/kgateway/proxy_syncer/perclient_percluster_test.go b/pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_percluster_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_percluster_test.go
+@@ -1,18 +1,8 @@
+ package proxy_syncer
+ 
+-// Tests for the per-cluster readiness resolution.
+-//
+-// snapshotPerClient no longer defers the whole snapshot when a referenced
+-// cluster is not ready; syncXds resolves the gaps per cluster against the
+-// currently-published snapshot:
+-//
+-//   - a cluster whose CLA row was derived publishes that row as the
+-//     backend's truth even when it is empty (scale-to-zero, #14352) — such
+-//     a snapshot is not deferred at all;
+-//   - a newly-referenced cluster whose CLA has NOT been derived holds only
+-//     the route flip (bounded by the publish budget); every other update
+-//     (other clusters' endpoints, the warming cluster's own CDS entry)
+-//     keeps publishing.
++// Per-cluster resolution tests: derived CLAs publish even when empty.
++// An underived new target holds routes, listeners and secrets up to the
++// budget while CDS/EDS updates continue.
+ 
+ import (
+ 	"errors"
+@@ -34,13 +24,8 @@
+ 	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
+ )
+ 
+-// TestSnapshotPerClientScaleToZeroPublishesEmptyCLA: when a previously-active
+-// cluster's Service scales to zero, the now-empty ClusterLoadAssignment
+-// publishes so Envoy stops routing to dead endpoints (the original "traffic
+-// to upstream endpoints which no longer exist" complaint, #14184). The
+-// derived-but-empty row is the backend's truth: the wrapper is not even
+-// deferred, so it publishes on the plain path with no resolution or budget
+-// involved (#14352).
++// Scale-to-zero must publish the derived empty CLA without deferral, removing
++// dead endpoints (#14184, #14352). No resolution or budget is needed.
+ func TestSnapshotPerClientScaleToZeroPublishesEmptyCLA(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -85,13 +70,11 @@
+ 	g.Expect(initialServed.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-old"),
+ 		"steady state: the active cluster's CLA is served")
+ 
+-	// The Service scales 3 -> 0: the CLA still exists but has no usable
+-	// endpoint.
++	// Scale from three endpoints to zero; the derived CLA remains present.
+ 	endpointCol.UpdateObject(endpointScaledToZero)
+ 
+-	// C2: truth wins. The empty CLA reaches the served cache so Envoy drops
+-	// the dead endpoints; the routes stay as they are (only that cluster's
+-	// traffic degrades, accurately).
++	// The cache gets the empty CLA and unchanged routes. Only this backend's
++	// traffic is expected to degrade.
+ 	g.Eventually(func() bool {
+ 		resourceSnapshot, err := cache.GetSnapshot(nodeID)
+ 		if err != nil {
+@@ -115,14 +98,8 @@
+ 	assertSnapshotCoherent(t, served)
+ }
+ 
+-// TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip covers the isolation
+-// half of the flip hold: while a newly-referenced cluster's CLA has not been
+-// derived (a backend that never produces EndpointSlices, or derivation that
+-// has not caught up), only the route flip is held. The warming cluster's CDS
+-// entry and every unrelated update keep publishing — the old whole-snapshot
+-// gate stranded them all behind the one unready backend. (These tests run
+-// with budget 0, so the hold itself is unbounded here; the flip-release
+-// bound is covered in publish_gate_test.go.)
++// An underived new target holds the flip while CDS/EDS updates continue.
++// Budget 0 disables release here; publish_gate_test.go covers the timer.
+ func TestSnapshotPerClientWarmingClusterHoldsOnlyRouteFlip(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -169,11 +146,8 @@
+ 	initialEndpointVersion := initialServed.Resources[envoycachetypes.Endpoint].Version
+ 	initialRouteVersion := initialServed.Resources[envoycachetypes.Route].Version
+ 
+-	// Routes now additionally reference cluster-new, a backend whose CLA is
+-	// never derived (an ExternalName-like backend with no EndpointSlices, or
+-	// derivation that has not caught up). Its cluster arrives; a synthesized
+-	// empty CLA stands in indefinitely. Meanwhile cluster-old's endpoints
+-	// change.
++	// Add cluster-new without deriving its CLA; the placeholder persists.
++	// Update cluster-old's endpoints in the same build.
+ 	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
+ 	updated := initial
+ 	updated.Routes = updatedRoutes
+@@ -182,9 +156,7 @@
+ 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
+ 	endpointCol.UpdateObject(endpointsForClient(ucc, "cluster-old", 5))
+ 
+-	// C3 isolation: only the flip onto cluster-new is held. The warming
+-	// cluster reaches the served CDS, and cluster-old's endpoint update
+-	// publishes — nothing is stranded behind the unready backend.
++	// Hold the flip while publishing cluster-new and cluster-old's endpoint update.
+ 	var heldServed *envoycache.Snapshot
+ 	g.Eventually(func() bool {
+ 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+@@ -201,20 +173,12 @@
+ 	assertSnapshotCoherent(t, heldServed)
+ }
+ 
+-// TestSnapshotPerClientFlipReleasesOnByteIdenticalDerivedEmptyCLA pins the
+-// hardest release trigger for a held flip: the blocking cluster's CLA derives
+-// EMPTY, which is byte-identical to the synthesized placeholder already in
+-// the snapshot, so every per-type version — including the recomputed EDS
+-// version, which hashes CLA protos — is unchanged. The only observable
+-// change is the wrapper's gap classification, so if Equals does not compare
+-// it, KRT suppresses the event and the flip stays held forever (the test
+-// runs with budget 0, so no timer can mask the miss).
++// Deriving an empty CLA can leave every version unchanged in this fixture.
++// Equals must compare the gap classification so KRT delivers the release.
++// Budget 0 prevents a timer from masking a missed event.
+ //
+-// The errored cluster exists to keep filterEndpointResourcesForClusters on
+-// its recomputed-version branch in BOTH builds (its derived CLA is dropped
+-// every time because the errored cluster is excluded from CDS); without it
+-// the post-derivation build takes the returns-original branch, whose version
+-// string comes from a different hash scheme and changes incidentally.
++// The errored cluster keeps both builds on the EDS filter's recomputed-version
++// path. Otherwise changing paths could incidentally change the version.
+ func TestSnapshotPerClientFlipReleasesOnByteIdenticalDerivedEmptyCLA(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -240,8 +204,7 @@
+ 	})
+ 	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, []UccWithEndpoints{
+ 		endpointsForClient(ucc, "cluster-old", 2),
+-		// The errored cluster's derived CLA: dropped by the EDS filter on
+-		// every build, pinning the recomputed-version branch.
++		// Drop this errored cluster's CLA in every build to keep the same version path.
+ 		endpointsForClient(ucc, "cluster-err", 3),
+ 	})
+ 
+@@ -265,8 +228,7 @@
+ 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+ 	g.Expect(snapshotReferencesCluster(initialServed, "cluster-old")).To(gomega.BeTrue())
+ 
+-	// The flip: routes retarget onto cluster-new, whose CLA has not been
+-	// derived, so resolution holds the served routes at cluster-old.
++	// Retarget to cluster-new before its CLA derives; retain cluster-old's routes.
+ 	updatedRoutes := routeResourcesForClusters("cluster-new")
+ 	updated := initial
+ 	updated.Routes = updatedRoutes
+@@ -283,9 +245,8 @@
+ 	}, time.Second, 20*time.Millisecond).Should(gomega.BeTrue(),
+ 		"the flip onto the underived cluster must be held")
+ 
+-	// cluster-new's CLA derives, empty — byte-identical to the synthesized
+-	// placeholder, so no per-type version changes. The classification change
+-	// alone must release the flip.
++	// Derive an empty CLA with unchanged versions. Classification alone
++	// must release the flip.
+ 	endpointCol.UpdateObject(emptyEndpointsForClient(ucc, "cluster-new", 5))
+ 
+ 	g.Eventually(func() bool {
+@@ -296,16 +257,9 @@
+ 	assertSnapshotCoherent(t, eventuallyCacheSnapshot(t, cache, nodeID))
+ }
+ 
+-// TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip pins the
+-// fail-closed rule for errored clusters: even while a route flip is held for
+-// an unrelated warming cluster, a previously-referenced cluster whose current
+-// translation is errored is dropped from the served CDS instead of being
+-// carried forward from the published snapshot. Serving it with its stale
+-// (pre-error) config would silently bypass the policy whose failure errored
+-// it — Gateway API conformance requires requests to a backend targeted by an
+-// invalid BackendTLSPolicy to receive a 5xx
+-// (BackendTLSPolicyInvalidCACertificateRef); the fail-open variant was
+-// rejected in PR #13976.
++// Drop errored clusters even while holding an unrelated flip. Carrying old
++// config could bypass an invalid BackendTLSPolicy, which must produce 5xx
++// (BackendTLSPolicyInvalidCACertificateRef; fail-open rejected in #13976).
+ func TestSnapshotPerClientErroredClusterIsNotCarriedDuringHeldFlip(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -349,9 +303,7 @@
+ 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
+ 	g.Expect(initialServed.Resources[envoycachetypes.Cluster].Items).To(gomega.HaveKey("cluster-old"))
+ 
+-	// Simultaneously: routes retarget to additionally reference cluster-new
+-	// (whose CLA is never derived, so the flip is held), and cluster-old's
+-	// translation goes errored (e.g. its BackendTLSPolicy became invalid).
++	// Add an underived target while cluster-old's translation fails.
+ 	updatedRoutes := routeResourcesForClusters("cluster-old", "cluster-new")
+ 	updated := initial
+ 	updated.Routes = updatedRoutes
+@@ -360,17 +312,13 @@
+ 	clusterCol.UpdateObject(edsClusterForClient(ucc, "cluster-new", 3))
+ 	erroredOld := clusterOld
+ 	erroredOld.Error = errors.New("backend tls policy references a nonexistent ca certificate")
+-	// Mirror production versioning: baseClusterVersion returns 0 for an
+-	// errored translation, which is what propagates the ok->errored
+-	// transition through the version-based delta equality.
++	// Match production: baseClusterVersion returns 0 on errors, making the
++	// ok-to-error transition visible to version-based equality.
+ 	erroredOld.ClusterVersion = 0
+ 	clusterCol.UpdateObject(erroredOld)
+ 
+-	// Fail closed: the errored cluster must leave the served CDS (its held
+-	// routes 5xx) even though the flip is held for cluster-new; the warming
+-	// cluster still reaches the served CDS. The served snapshot legitimately
+-	// contains a route to the dropped errored cluster, so the coherence
+-	// assertion does not apply here.
++	// Drop the errored cluster while publishing the warming cluster. The held
++	// routes may reference the dropped cluster, so full closure is not expected.
+ 	var heldServed *envoycache.Snapshot
+ 	g.Eventually(func() bool {
+ 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+diff --git a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+--- a/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
++++ b/pkg/kgateway/proxy_syncer/perclient_publication_metrics.go
+@@ -4,9 +4,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
+ )
+ 
+-// Per-client publication counters. These make the publish-time resolution
+-// legible in the field: the #14184 triage had to infer all of this from debug
+-// log volume.
++// Counters expose per-client publication decisions for operational diagnosis.
+ const (
+ 	publicationReasonLabel = "reason"
+ 	publicationModeLabel   = "mode"
+@@ -15,27 +13,17 @@
+ 	deferReasonMissingEndpoints = "missing_endpoints"
+ 
+ 	boundedPublishFirstPublish = "first_publish"
+-	// boundedPublishWarmTruth marks a bounded publish to a warm
+-	// (prior-xDS-version) client whose only remaining gaps were referenced
+-	// clusters with no derived CLA — their steady-state truth, not
+-	// propagation lag (#14352). Warm clients with clusters missing from CDS
+-	// stay withheld.
++	// boundedPublishWarmTruth records budget expiry with all referenced CDS
++	// present but some CLA rows underived (#14352). Missing CDS extends the hold.
+ 	boundedPublishWarmTruth = "warm_truth"
+-	// boundedPublishFlipRelease marks a held route flip published at budget
+-	// expiry: the newly-referenced cluster never became ready, and holding
+-	// longer would keep the client's route/listener/secret updates pinned
+-	// (#14352).
++	// boundedPublishFlipRelease records release at budget expiry, allowing
++	// route, listener and secret updates despite an underived target (#14352).
+ 	boundedPublishFlipRelease = "flip_release"
+-	// boundedPublishWarmRelease marks a warm client published after staying
+-	// withheld, with referenced clusters missing from CDS, for the whole warm
+-	// withhold bound (KGW_PER_CLIENT_WARM_WITHHOLD_BOUND): the missing clusters
+-	// were not translation catching up, and holding longer would freeze the
+-	// client's config until its proxy restarts.
++	// boundedPublishWarmRelease records publication after the warm missing-CDS
++	// hold reaches KGW_PER_CLIENT_WARM_WITHHOLD_BOUND.
+ 	boundedPublishWarmRelease = "warm_release"
+-	// boundedPublishCarryExpired marks a published client stopped being
+-	// carried a referenced cluster missing from CDS after the warm withhold
+-	// bound: the cluster's last config is no longer served and routes to it
+-	// fail until it reappears.
++	// boundedPublishCarryExpired records dropping a missing cluster after the
++	// carry bound. Its routes remain unresolved until it returns.
+ 	boundedPublishCarryExpired = "carry_expired"
+ 
+ 	withheldReasonPriorXDSVersion = "prior_xds_version"
+@@ -168,8 +156,7 @@
+ 	)
+ )
+ 
+-// recordSnapshotDefer counts one deferred build for the client's gateway, per
+-// recorded gap kind.
++// recordSnapshotDefer counts a build once per gap kind for the client's gateway.
+ func recordSnapshotDefer(proxyKey string, missing, missingEndpoints []string) {
+ 	if !metrics.Active() {
+ 		return
+@@ -215,9 +202,7 @@
+ 	)
+ }
+ 
+-// recordBoundedPublish counts a deferred snapshot published at budget expiry,
+-// by mode (first_publish for cold clients, warm_truth for warm clients whose
+-// only gaps were endpoint-less clusters).
++// recordBoundedPublish counts budget-triggered publications by mode.
+ func recordBoundedPublish(proxyKey string, mode string) {
+ 	if !metrics.Active() {
+ 		return
+@@ -230,10 +215,8 @@
+ 	)
+ }
+ 
+-// recordWarmWithheldClients publishes the number of warm clients currently
+-// withheld for one gateway.
+-// recordFirstPublishPendingClients publishes the number of clients of one
+-// gateway whose first publish on their connection is withheld.
++// recordWarmWithheldClients sets the gateway's withheld-warm-client count.
++// recordFirstPublishPendingClients sets its pending-first-publication count.
+ func recordFirstPublishPendingClients(labels resourceNameDetails, n int) {
+ 	snapshotPerClientFirstPublishPendingClients.Set(float64(n),
+ 		metrics.Label{Name: gatewayLabel, Value: labels.Gateway},
+@@ -248,8 +231,7 @@
+ 	)
+ }
+ 
+-// recordInconsistentSnapshot counts a pre-publication consistency violation
+-// (see snapshotConsistencyError).
++// recordInconsistentSnapshot counts a snapshotConsistencyError violation.
+ func recordInconsistentSnapshot(proxyKey string) {
+ 	if !metrics.Active() {
+ 		return
+@@ -261,8 +243,7 @@
+ 	)
+ }
+ 
+-// recordDeferredWithheld counts a deferred snapshot withheld at budget expiry
+-// for a warm client.
++// recordDeferredWithheld counts a warm snapshot still held at budget expiry.
+ func recordDeferredWithheld(proxyKey string) {
+ 	if !metrics.Active() {
+ 		return
+diff --git a/pkg/kgateway/proxy_syncer/perclient_publication_metrics_test.go b/pkg/kgateway/proxy_syncer/perclient_publication_metrics_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_publication_metrics_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_publication_metrics_test.go
+@@ -15,8 +15,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics/metricstest"
+ )
+ 
+-// The proxyKey has no gateway/namespace segments, so labels fall back to
+-// "unknown" — the metric plumbing, not name parsing, is under test.
++// Labels fall back to "unknown" for this key; this tests metrics, not key parsing.
+ var unknownLabels = []metrics.Label{
+ 	{Name: "gateway", Value: "unknown"},
+ 	{Name: "namespace", Value: "unknown"},
+@@ -26,8 +25,8 @@
+ 	return append(append([]metrics.Label{}, unknownLabels...), metrics.Label{Name: name, Value: value})
+ }
+ 
+-// A deferred build followed by a bounded first publish increments
+-// defers_total{missing_clusters} and bounded_publishes_total{first_publish}.
++// A bounded first publish increments defers_total{missing_clusters} and
++// bounded_publishes_total{first_publish}.
+ func TestPublicationMetrics_DeferAndBoundedPublish(t *testing.T) {
+ 	ResetMetrics()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+@@ -81,8 +80,8 @@
+ 	})
+ }
+ 
+-// A warm client published at budget expiry because its only gaps were
+-// clusters with no derived CLA increments bounded_publishes_total{warm_truth}.
++// A warm publish with only underived CLAs increments
++// bounded_publishes_total{warm_truth}.
+ func TestPublicationMetrics_WarmTruthBoundedPublish(t *testing.T) {
+ 	ResetMetrics()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+@@ -105,8 +104,7 @@
+ 	})
+ }
+ 
+-// A warm (prior-xDS-version) client withheld at budget expiry (missing
+-// clusters) increments deferred_withheld_total{prior_xds_version}.
++// A warm missing-CDS hold increments deferred_withheld_total{prior_xds_version}.
+ func TestPublicationMetrics_DeferredWithheld(t *testing.T) {
+ 	ResetMetrics()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+@@ -126,11 +124,8 @@
+ 	})
+ }
+ 
+-// With KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK enabled, publishing a snapshot that
+-// fails the consistency check (here: an orphan CLA with no CDS cluster)
+-// increments inconsistent_snapshots_total — and still publishes (the check
+-// records, never withholds). Uses a plain cache: the package's oracle cache
+-// would rightly fail the test on this publish.
++// The monitor counts this orphan CLA but still installs the snapshot.
++// Use a plain cache because the test oracle rejects inconsistent snapshots.
+ func TestPublicationMetrics_InconsistentSnapshotRecorded(t *testing.T) {
+ 	ResetMetrics()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+@@ -165,8 +160,8 @@
+ 
+ 	pt := newPublishGateTestTranslator(t, false, 0)
+ 
+-	// Publish a coherent snapshot containing cluster-missing, then a deferred
+-	// build that lost it: resolution carries it forward.
++	// Publish cluster-missing, then omit it from a deferred build so resolution
++	// carries it forward.
+ 	coherent := coherentWrapperV("v1")
+ 	coherent.snap.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("c1", []envoycachetypes.ResourceWithTTL{
+ 		{Resource: &envoyclusterv3.Cluster{Name: "cluster-missing"}},
+@@ -184,9 +179,8 @@
+ 	})
+ }
+ 
+-// first_publish_pending_clients counts a client while its first publish on the
+-// connection is withheld, and stops when it publishes, by a coherent build or
+-// at the budget, or leaves.
++// first_publish_pending_clients counts held first publications until cache
++// installation (coherent or bounded) or client departure.
+ func TestPublicationMetrics_FirstPublishPending(t *testing.T) {
+ 	const metricName = "kgateway_xds_snapshot_perclient_first_publish_pending_clients"
+ 	ctx := context.Background()
+diff --git a/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go b/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_reconnect_test.go
+@@ -1,10 +1,7 @@
+ package proxy_syncer
+ 
+-// Tests for publication across a client reconnect. When a client's last stream
+-// closes and a new one opens, every per-client row is rebuilt from scratch.
+-// The per-backend endpoints collection recomputes every backend for every
+-// client, so it usually lands last; until it does, the client's EDS row lacks
+-// CLAs that exist. These tests stall that collection to hold the window open.
++// Reconnect rebuilds all client rows. Endpoint fan-out often finishes last,
++// leaving CLAs temporarily absent. Stall it to test that window.
+ 
+ import (
+ 	"context"
+@@ -33,8 +30,7 @@
+ 
+ func (b reconnectBackend) ResourceName() string { return b.name }
+ 
+-// recordingCache records every snapshot published to one node, on top of the
+-// package's consistency oracle.
++// recordingCache records each installation for one node and checks consistency.
+ type recordingCache struct {
+ 	envoycache.SnapshotCache
+ 	node      string
+@@ -91,8 +87,7 @@
+ 	}
+ 	f.backends = krt.NewStaticCollection[reconnectBackend](nil, initial)
+ 
+-	// CDS, like the production per-client transform: one row per client built
+-	// from every backend, complete as soon as it exists.
++	// Mirror production CDS: a complete backend row for each client.
+ 	perClient := krt.NewCollection(f.uccs, func(kctx krt.HandlerContext, c ir.UniquelyConnectedClient) *clustersWithErrors {
+ 		var rows []uccWithCluster
+ 		for _, b := range krt.Fetch(kctx, f.backends) {
+@@ -100,8 +95,7 @@
+ 		}
+ 		return assemblePerClientClusters(c, rows)
+ 	})
+-	// EDS, shaped like NewPerClientEnvoyEndpoints: one transform per backend
+-	// that builds a row for every client.
++	// Mirror NewPerClientEnvoyEndpoints: each backend builds rows for all clients.
+ 	endpointRows := krt.NewManyCollection(f.backends, func(kctx krt.HandlerContext, b reconnectBackend) []UccWithEndpoints {
+ 		clients := krt.Fetch(kctx, f.uccs)
+ 		if f.stall.Load() && len(clients) > 0 {
+@@ -122,7 +116,7 @@
+ 	f.snapshots = snapshotPerClient(krtutil.KrtOptions{}, f.uccs, f.gateways, endpoints, PerClientEnvoyClusters{perClient: perClient})
+ 	f.cache = &recordingCache{SnapshotCache: newTestSnapshotCache(t), node: f.ucc.ResourceName()}
+ 	translator := NewProxyTranslator(f.cache, stubPriorXDS{has: true}, 15*time.Second, true)
+-	// Mirror ProxySyncer.Start, including clientDeparted on Delete.
++	// Mirror Start, including clientDeparted on Delete.
+ 	f.snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+ 		for _, event := range events {
+ 			if event.Event == controllers.EventDelete {
+@@ -149,15 +143,14 @@
+ 	})
+ }
+ 
+-// reconnect removes the client, runs whileAway, and brings the client back with
+-// the endpoints collection stalled, returning the publish count at reconnect.
++// reconnect removes the client, calls whileAway, then reconnects with endpoint
++// derivation stalled. Return the installation count at reconnect.
+ func (f *reconnectFixture) reconnect(t *testing.T, whileAway func()) int {
+ 	t.Helper()
+ 	f.uccs.DeleteObject(f.ucc.ResourceName())
+ 	require.Eventually(t, func() bool { return len(f.snapshots.List()) == 0 }, 2*time.Second, 5*time.Millisecond)
+-	// Let the endpoint transform observe departure before stalling its rebuild.
+-	// Otherwise a quick reconnect can retain the old rows and skip the missing
+-	// endpoint window this fixture is meant to exercise.
++	// Drain departure before stalling rebuild. Otherwise a quick reconnect
++	// can reuse old rows and miss the absent-endpoint window.
+ 	require.Eventually(t, func() bool { return len(f.endpoints.List()) == 0 }, 2*time.Second, 5*time.Millisecond)
+ 	if whileAway != nil {
+ 		whileAway()
+@@ -165,8 +158,7 @@
+ 	mark := f.cache.publishCount()
+ 	f.stall.Store(true)
+ 	f.uccs.UpdateObject(f.ucc)
+-	// Wait until the rebuilt client's snapshot has been built while its CLA rows
+-	// were still missing, which is the window under test.
++	// Wait for a rebuilt snapshot that still lacks CLA rows.
+ 	require.Eventually(t, func() bool {
+ 		wraps := f.snapshots.List()
+ 		return len(wraps) == 1 && len(wraps[0].synthesizedEndpoints) > 0
+@@ -199,10 +191,8 @@
+ 	return snap.(*envoycache.Snapshot)
+ }
+ 
+-// While a reconnected client's CLA rows are rebuilt, nothing published may
+-// replace endpoints it holds with an empty CLA: not for the route target, and
+-// not for a cluster only a filter calls (ext_authz, ext_proc, JWKS), which is
+-// never a routing target and so never defers the snapshot.
++// Rebuilt CLA rows must not replace held endpoints with empty placeholders,
++// including filter-only clusters that do not defer routing publication.
+ func TestReconnectWhileEndpointRowsRebuildKeepsClientEndpoints(t *testing.T) {
+ 	f := newReconnectFixture(t, []string{"cluster-a"}, []string{"cluster-a", "cluster-authz"})
+ 	require.Eventually(t, func() bool {
+@@ -239,11 +229,9 @@
+ 	assertSnapshotCoherent(t, served)
+ }
+ 
+-// A client that returns after a route change is not resolved against the
+-// snapshot published before it left: that entry can predate config the client
+-// received from another controller replica. Holding the flip against it would
+-// republish the old route, and carrying from it would resurrect the deleted
+-// backend with its old endpoints.
++// Do not resolve reconnect against the old cache entry: another controller
++// may have sent newer config. Holding or carrying from it could restore
++// old routes or deleted backends.
+ func TestReconnectDoesNotResolveAgainstPreviousConnection(t *testing.T) {
+ 	f := newReconnectFixture(t, []string{"cluster-a"}, []string{"cluster-a", "cluster-b"})
+ 	require.Eventually(t, func() bool {
+@@ -273,9 +261,8 @@
+ 	assertSnapshotCoherent(t, served)
+ }
+ 
+-// A published client whose CLA row for a live cluster disappears keeps the
+-// endpoints already published for it, instead of receiving an empty CLA; a
+-// derived empty CLA is still the backend's truth and publishes as-is.
++// Preserve published endpoints when their row disappears. A derived empty
++// CLA still publishes as known backend state.
+ func TestPublishedClientKeepsEndpointsWhenRowIsNotDerived(t *testing.T) {
+ 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw")
+ 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+diff --git a/pkg/kgateway/proxy_syncer/perclient_test.go b/pkg/kgateway/proxy_syncer/perclient_test.go
+--- a/pkg/kgateway/proxy_syncer/perclient_test.go
++++ b/pkg/kgateway/proxy_syncer/perclient_test.go
+@@ -371,9 +371,8 @@
+ 		newTestPerClientClustersFromCol(clusterCol, uccs),
+ 	)
+ 
+-	// The wrapper is built immediately but marked deferred: cluster-b is
+-	// referenced and missing, so syncXds holds the route flip (or withholds
+-	// entirely for a never-published client).
++	// cluster-b is referenced but missing. Hold the flip, or withhold the
++	// first snapshot if this connection has none.
+ 	wrap := eventuallyDeferredWrapper(t, snapshots)
+ 	g.Expect(wrap.missingReferenced).To(gomega.ConsistOf("cluster-b"),
+ 		"the missing referenced cluster must be recorded for syncXds to resolve")
+@@ -454,8 +453,7 @@
+ 		newTestPerClientClustersFromCol(clusterCol, uccs),
+ 	)
+ 
+-	// Deferred: the referenced EDS cluster has no usable endpoint yet. Its
+-	// CLA is a synthesized empty so the snapshot stays EDS-consistent.
++	// The referenced EDS cluster has no derived CLA; synthesize an empty placeholder.
+ 	wrap := eventuallyDeferredWrapper(t, snapshots)
+ 	g.Expect(wrap.missingEndpointsReferenced).To(gomega.ConsistOf("cluster-a"))
+ 	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("cluster-a"),
+@@ -735,10 +733,8 @@
+ 	mostXdsSnapshots.UpdateObject(updated)
+ 	clusterCol.UpdateObject(clusterNew)
+ 
+-	// The flip onto cluster-new is held while its EDS is absent: the served
+-	// routes keep targeting cluster-old, but cluster-new already enters the
+-	// served CDS (with a synthesized empty CLA) so it can warm — the
+-	// reference-ahead shape.
++	// Hold routes at cluster-old while publishing cluster-new and its placeholder
++	// CLA first: the reference-ahead snapshot shape.
+ 	var heldServed *envoycache.Snapshot
+ 	g.Eventually(func() bool {
+ 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+@@ -779,15 +775,8 @@
+ 	assertSnapshotCoherent(t, finalServed)
+ }
+ 
+-// TestSnapshotPerClientRetargetToDerivedBackend pins the two phases of a
+-// route retarget onto a brand-new backend under presence semantics: while
+-// the new cluster's CLA has not been derived (the per-client endpoints
+-// collection has no row for it), the flip is held at the published routes;
+-// once a CLA row is derived — even an EMPTY one — it is the backend's truth
+-// (presence, not contents, gates deferral: "empty forever, on purpose" is a
+-// production-proven config shape, #14352) and the flip publishes, with the
+-// route failing until endpoints arrive, exactly as the whole-snapshot
+-// existence gate this replaced behaved.
++// Hold a retarget while its CLA is underived. Release when the row appears,
++// even empty: permanent emptiness must not pin the flip (#14352).
+ func TestSnapshotPerClientRetargetToDerivedBackend(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -842,9 +831,7 @@
+ 	mostXdsSnapshots.UpdateObject(updated)
+ 	clusterCol.UpdateObject(clusterNew)
+ 
+-	// Phase 1: no CLA row has been derived for cluster-new (only a
+-	// synthesized empty stands in), so the flip is held: served routes keep
+-	// targeting cluster-old while cluster-new warms in the served CDS.
++	// Phase 1: hold routes at cluster-old while cluster-new has only a placeholder.
+ 	var heldServed *envoycache.Snapshot
+ 	g.Eventually(func() bool {
+ 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+@@ -855,9 +842,8 @@
+ 		"an underived CLA must not flip the served route onto the new cluster")
+ 	assertSnapshotCoherent(t, heldServed)
+ 
+-	// Phase 2: a derived-but-EMPTY CLA row appears (the EndpointSlice exists
+-	// with no ready endpoints). Presence is truth: the flip publishes and the
+-	// route fails until endpoints arrive — it must not stay pinned (#14352).
++	// Phase 2: publish the derived empty CLA and release the flip (#14352).
++	// The route can fail until usable endpoints arrive.
+ 	endpointCol.UpdateObject(endpointNewEmpty)
+ 
+ 	var flippedServed *envoycache.Snapshot
+@@ -941,9 +927,7 @@
+ 	mostXdsSnapshots.UpdateObject(updated)
+ 	clusterCol.UpdateObject(clusterNew)
+ 
+-	// The weighted split is held while cluster-new has no usable endpoints:
+-	// the served routes keep sending 100% to cluster-old while cluster-new
+-	// warms in the served CDS.
++	// Hold the weighted flip while the new CLA is underived; keep 100% on cluster-old.
+ 	var heldServed *envoycache.Snapshot
+ 	g.Eventually(func() bool {
+ 		heldServed = eventuallyCacheSnapshot(t, cache, nodeID)
+@@ -1001,8 +985,7 @@
+ 		newTestPerClientClustersFromCol(clusterCol, uccs),
+ 	)
+ 
+-	// Deferred: the referenced EDS cluster resolves its CLA by service_name,
+-	// which has no usable endpoint yet (synthesized empty).
++	// The referenced service_name has no derived CLA; use an empty placeholder.
+ 	wrap := eventuallyDeferredWrapper(t, snapshots)
+ 	g.Expect(wrap.missingEndpointsReferenced).To(gomega.ConsistOf("cluster-a"))
+ 	g.Expect(wrap.snap.Resources[envoycachetypes.Endpoint].Items).To(gomega.HaveKey("backend-service"),
+@@ -1330,13 +1313,8 @@
+ 	g.Expect(snap.snap.Resources[envoycachetypes.Cluster].Items).ToNot(gomega.HaveKey("cluster-b"))
+ }
+ 
+-// TestCollectReferencedClusters_ExcludesAncillaryReferences verifies that
+-// cluster names reachable only through ancillary / control-plane
+-// typed_config (access-log GrpcService, JWT jwks HttpUri, etc.) are
+-// deliberately NOT treated as gated dataplane targets. Those clusters are
+-// ordinary backends that can lag like any other, but holding every route
+-// update of the gateway behind one side service is not what this readiness
+-// guard is for.
++// Ancillary typed_config references do not hold routing updates. Side-service
++// failures must not block every route update for the gateway.
+ func TestCollectReferencedClusters_ExcludesAncillaryReferences(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -1413,12 +1391,8 @@
+ 		"ancillary JWT jwks cluster must not be treated as a gated dataplane target")
+ }
+ 
+-// TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef verifies that
+-// a user BackendRef typo — e.g. an HTTPRoute pointing at a Service that does
+-// not exist — does not starve the readiness gate on startup. IR-time
+-// resolution substitutes wellknown.BlackholeClusterName for the unresolved
+-// target, and the gate explicitly skips blackhole so valid routes still
+-// reach Envoy.
++// An unresolved BackendRef becomes BlackholeClusterName during IR translation.
++// Skip it in the readiness gate so valid routes can publish (#14184).
+ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -1494,14 +1468,8 @@
+ 		"a snapshot must publish so Envoy can serve the good route even when another route's BackendRef is unresolvable")
+ }
+ 
+-// TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRuntime
+-// verifies that a BackendRef pointing at a nonexistent Service arriving after
+-// the control plane is already serving does not cause the per-client snapshot
+-// to be withdrawn. IR translation substitutes blackhole for the unresolved
+-// target, which the gate skips, so the snapshot re-publishes with the new
+-// route set rather than being withdrawn. The existing good route keeps
+-// flowing; the typo'd route blackholes in Envoy — no 500/NC for valid
+-// traffic.
++// A new unresolved BackendRef becomes blackhole and must not withdraw the
++// snapshot or block existing valid routes. Check publication of the new routes.
+ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRuntime(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -1602,20 +1570,9 @@
+ 		"snapshot must stay published after an unresolvable BackendRef arrives; withdrawing it strands Envoy on restart")
+ }
+ 
+-// TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly pins the
+-// defensive behaviour of snapshotPerClient when the per-client clusters
+-// collection is empty for a UCC. In production this is hard to reach because
+-// finalBackends emits a BackendObjectIR for every Service port in the
+-// cluster, so the per-client clusters collection is non-empty even for a
+-// gateway whose HTTPRoutes only use RequestRedirect or DirectResponse. The
+-// test constructs that condition synthetically — zero entries in the cluster
+-// collection and zero referenced clusters in the route config — to exercise
+-// the branch that treats a nil clusterSnapshot entry as "zero clusters"
+-// rather than "not yet computed". Without that branch the snapshot would
+-// stall indefinitely whenever the path is reached (controller starting
+-// before Service informers sync, or a deployment whose only backends are
+-// non-K8s and all fail translation); with it, publishing proceeds because
+-// the referenced-cluster gate has nothing to wait for.
++// Redirect-only routes need no clusters. Test a synthetic empty client row,
++// which is unusual in production because every Service port contributes a
++// backend. The gate must publish rather than wait for a nonexistent target.
+ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 
+@@ -1623,7 +1580,7 @@
+ 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
+ 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
+ 
+-	// Routes with only a Redirect action — no cluster references.
++	// Redirect-only routes have no cluster references.
+ 	routes := sliceToResources([]*envoyroutev3.RouteConfiguration{
+ 		{
+ 			Name: "route-config",
+@@ -1652,9 +1609,7 @@
+ 		ReferencedClusters: referencedClusters,
+ 	}})
+ 
+-	// No per-client clusters at all for this UCC — simulates a deployment with
+-	// only redirect-only routes and no Service-backed backends contributing
+-	// clusters. The client-keyed collection still emits a complete empty row.
++	// An empty client-keyed row with no contributing Service backends.
+ 	pcc := newTestPerClientClustersFromCol(krt.NewStaticCollection[uccWithCluster](nil, nil), uccs)
+ 	endpointCol := krt.NewStaticCollection[UccWithEndpoints](nil, nil)
+ 
+@@ -1963,9 +1918,8 @@
+ 	return wrap
+ }
+ 
+-// registerSyncXds wires a test ProxyTranslator to the wrapper collection the
+-// way proxy_syncer does in production: every non-delete event is pushed
+-// through syncXds against the translator's snapshot cache.
++// registerSyncXds sends non-delete wrapper events through syncXds and the cache,
++// matching production registration.
+ func registerSyncXds(snapshots krt.Collection[XdsSnapWrapper], translator ProxyTranslator) {
+ 	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+ 		for _, event := range events {
+@@ -1977,11 +1931,8 @@
+ 	}, true)
+ }
+ 
+-// assertSnapshotCoherent verifies the published snapshot's internal
+-// invariants: go-control-plane consistency (every EDS cluster has exactly one
+-// CLA, no CLA without a cluster) and reference closure (every route/listener-
+-// referenced cluster exists in CDS, so Envoy cannot 500/NC on a published
+-// route).
++// assertSnapshotCoherent checks EDS consistency and closure of the collected
++// route/listener targets in CDS. It does not check delivery or Envoy activation.
+ func assertSnapshotCoherent(t *testing.T, snap *envoycache.Snapshot) {
+ 	t.Helper()
+ 	if err := snap.Consistent(); err != nil {
+@@ -2002,10 +1953,8 @@
+ 	}
+ }
+ 
+-// TestCollectReferencedClusters_ListenerTargets covers the listener side of the
+-// walk: TCP proxies in filter chains and in the default filter chain, and route
+-// configurations inlined in an HTTP connection manager. A manager using RDS
+-// contributes through the route configurations, not the listener.
++// Collect TCP targets from normal/default filter chains and inline HTTP routes.
++// RDS targets come from the separate route configurations.
+ func TestCollectReferencedClusters_ListenerTargets(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 	tcpFilter := func(tcp *envoytcpv3.TcpProxy) *envoylistenerv3.Filter {
+@@ -2055,9 +2004,8 @@
+ 	}))
+ }
+ 
+-// The EDS version is the input's whenever nothing is dropped or synthesized, and
+-// otherwise changes with the dropped and synthesized names, so a client is
+-// pushed every change in what is published without hashing any CLA.
++// Keep the input EDS version for an unchanged set; otherwise include dropped
++// and synthesized names without hashing CLAs.
+ func TestFilterEndpointResourcesForClusters_VersionTracksPublishedSet(t *testing.T) {
+ 	g := gomega.NewWithT(t)
+ 	edsCluster := func(name string) envoycachetypes.ResourceWithTTL {
+@@ -2084,9 +2032,7 @@
+ 	g.Expect(versionFor("a")).To(gomega.Equal(dropB), "the version is deterministic")
+ }
+ 
+-// The filter publishes exactly one CLA per EDS cluster (plus the bootstrap
+-// one), whichever path it takes: the allocation-free check for the common case
+-// must agree with the general path, including in the cases it hands over.
++// Both filter paths must return one CLA per EDS cluster, plus bootstrap.
+ func TestFilterEndpointResourcesForClusters_PublishesRequiredSet(t *testing.T) {
+ 	eds := func(name, serviceName string) envoycachetypes.ResourceWithTTL {
+ 		c := &envoyclusterv3.Cluster{Name: name, ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}}
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -86,8 +86,7 @@
+ 	// Listeners are items in the LDS response payload.
+ 	Listeners envoycache.Resources
+ 
+-	// ReferencedClusters are the routing targets of Routes and Listeners (see
+-	// collectReferencedClusters).
++	// ReferencedClusters lists route and listener targets (collectReferencedClusters).
+ 	// +noKrtEquals derived from Routes and Listeners, whose content-hash versions Equals compares
+ 	ReferencedClusters map[string]struct{}
+ 
+@@ -200,8 +199,7 @@
+ ) *ProxySyncer {
+ 	optCfg := processStatusSyncerOptions(opts...)
+ 	if xdsClientState == nil {
+-		// Nothing fails without it, so say so: integrations that build their
+-		// own StartConfig silently lose this protection otherwise.
++		// Warn integrations that omit connection-state protection.
+ 		logger.Warn("no xDS client state wired; every reconnecting proxy is treated as a new one, so a deferred first publish to a proxy still serving config is not withheld past the first-publish budget")
+ 	}
+ 	return &ProxySyncer{
+@@ -218,17 +216,13 @@
+ 
+ type ProxyTranslator struct {
+ 	xdsCache envoycache.SnapshotCache
+-	// gate bounds how long publication may be withheld from a client while
+-	// its referenced clusters are unready — the first publish on a client's
+-	// connection and the release of a held route flip (see publish_gate.go).
+-	// Pointer so the state is shared across ProxyTranslator copies.
++	// gate bounds first-publication and held-flip delays (publish_gate.go).
++	// A pointer shares state across ProxyTranslator copies.
+ 	gate *publishGate
+ }
+ 
+-// NewProxyTranslator builds the translator that publishes per-client
+-// snapshots. xdsClientState, when non-nil, tells warm clients (ones that
+-// reported a prior accepted xDS version) from cold ones; a nil value treats
+-// every client as cold.
++// NewProxyTranslator publishes per-client snapshots. xdsClientState identifies
++// warm clients by a reported held version; nil treats all clients as cold.
+ func NewProxyTranslator(xdsCache envoycache.SnapshotCache, xdsClientState krtcollections.XDSClientState, publishBudget time.Duration, checkSnapshotConsistency bool) ProxyTranslator {
+ 	return ProxyTranslator{
+ 		xdsCache: xdsCache,
+@@ -236,9 +230,8 @@
+ 	}
+ }
+ 
+-// clientSnapshotDeleted handles the deletion of a client's snapshot row. If
+-// the client is still connected, only its snapshot went away (see
+-// publishGate.snapshotWithdrawn); otherwise the client departed.
++// clientSnapshotDeleted withdraws a connected client's snapshot row or ends
++// the gate's connection state if the client has departed.
+ func (t ProxyTranslator) clientSnapshotDeleted(proxyKey string, connected bool) {
+ 	if connected {
+ 		t.gate.snapshotWithdrawn(proxyKey)
+@@ -398,7 +391,7 @@
+ 
+ func (s *ProxySyncer) Start(ctx context.Context) error {
+ 	logger.Info("starting Proxy Syncer", "controller", s.controllerName)
+-	// Set before the registrations below, which are the gate's only callers.
++	// Initialize before registering the gate's callers.
+ 	s.proxyTranslator.gate.warmWithholdBound = s.commonCols.Settings.PerClientWarmWithholdBound
+ 
+ 	// wait for krt collections to sync
+@@ -414,10 +407,9 @@
+ 	// it holds no informers.
+ 	logger.Info("caches warm!")
+ 
+-	// caches are warm, now we can do registrations
+-	// A client whose snapshot row was already gone when it disconnected gets
+-	// no row Delete then; end its connection when the client itself leaves.
+-	// The check skips a client that has already reconnected.
++	// Register after cache sync. A client may disconnect after its snapshot row
++	// disappears, leaving no row Delete event. Handle departure here, but skip
++	// clients that have already reconnected.
+ 	s.uniqueClients.RegisterBatch(func(events []krt.Event[ir.UniquelyConnectedClient]) {
+ 		for _, e := range events {
+ 			if name := e.Latest().ResourceName(); e.Event == controllers.EventDelete && s.uniqueClients.GetKey(name) == nil {
+@@ -434,25 +426,13 @@
+ 				snapWrap := e.Latest()
+ 				s.proxyTranslator.syncXds(ctx, snapWrap)
+ 			} else {
+-				// The xDS cache is intentionally left alone: clearing it here
+-				// would withdraw Envoy's last coherent Snapshot and cause
+-				// 500/NC on valid routes ("retain last good"). Since
+-				// readiness deferral no longer removes rows (deferred
+-				// wrappers stay present, annotated), a Delete now means the
+-				// client departed or a transform-level input briefly
+-				// vanished. Either way cancel any pending bounded first
+-				// publish or flip release so a timer cannot fire for a row
+-				// that is gone (a live client re-arms it with its next
+-				// deferred wrapper). Only a departed client stops having the
+-				// cached entry treated as what it runs: a client that returns
+-				// resolves against nothing until the gate publishes to it
+-				// again, while a client that stayed connected still runs what
+-				// was published on its connection.
++				// Retain the cache entry; a row Delete may mean departure or temporary
++				// input loss. Cancel pending timers for the vanished row. A connected
++				// client keeps its gate publication state; a departed client must start
++				// fresh rather than resolve against this old cache entry.
+ 				//
+-				// Known leak: the SnapshotCache entry for a departed UCC is
+-				// never cleared and accumulates over the controller's
+-				// lifetime. Pre-existing behavior; reclaiming these entries
+-				// is a separate follow-up (#14307).
++				// Departed entries currently accumulate in SnapshotCache. Reclamation is
++				// tracked separately in #14307.
+ 				name := e.Latest().ResourceName()
+ 				s.proxyTranslator.clientSnapshotDeleted(name, s.uniqueClients.GetKey(name) != nil)
+ 			}
+diff --git a/pkg/kgateway/proxy_syncer/publication_stack_test.go b/pkg/kgateway/proxy_syncer/publication_stack_test.go
+--- a/pkg/kgateway/proxy_syncer/publication_stack_test.go
++++ b/pkg/kgateway/proxy_syncer/publication_stack_test.go
+@@ -75,8 +75,7 @@
+ 	if len(snap.Resources[envoycachetypes.Cluster].Items) != 0 {
+ 		t.Fatal("validation mutated the shared CDS map")
+ 	}
+-	// An EDS cluster without a CLA is how the gate leaves a client's endpoints
+-	// alone; Envoy keeps them, so it is not a violation.
++	// An omitted CLA preserves held endpoints and is not a consistency violation.
+ 	dangling := *snap
+ 	dangling.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("cds", []envoycachetypes.ResourceWithTTL{
+ 		{Resource: &envoyclusterv3.Cluster{Name: "left-out", ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}}},
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -17,190 +17,108 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+ )
+ 
+-// publishGate bounds how long per-client publication may be withheld while
+-// referenced clusters are unready. Unreadiness is not guaranteed to converge
+-// (#14352) — a plugin can contribute an EDS cluster whose endpoints row
+-// never appears, and translation backlog can stretch "briefly behind" past
+-// any probe window — so every withhold needs a bound. The gate owns two,
+-// governed by the same budget (KGW_PER_CLIENT_PUBLISH_BUDGET; 0 disables
+-// both):
+-//
+-//   - first publish (offerColdLocked/firePending): how long a client that
+-//     has not been published a snapshot on its current connection waits for
+-//     its referenced clusters to become ready;
+-//   - flip release (publishHeldLocked/fireFlipRelease): how long a held
+-//     route flip may pin the client's route/listener/secret updates at their
+-//     published versions while a newly-referenced cluster stays unready.
+-//
+-// The gate resolves only against snapshots it published on the client's
+-// current connection (connectionSnapshotLocked). The snapshot cache keeps a
+-// client's entry after the client leaves, so after a reconnect the entry can
+-// predate config the client received from another controller replica:
+-// holding a flip against it would republish its old routes, and carrying
+-// from it would resurrect deleted backends with their old endpoints. A
+-// reconnected client therefore goes through first publish, like a new one.
+-//
+-// First publish: the per-cluster resolution (resolveDeferred) withholds a
+-// deferred snapshot from a client not yet published on this connection —
+-// there is no known config to hold or carry, and publishing routes to
+-// unready clusters would 503 them.
+-// That is correct for the brief converging case, but with no bound a
+-// permanently-unready reference leaves the pod with no listeners at all — it
+-// never reports Ready and crash-loops, and each restart reconnects as a new
+-// client that re-triggers the per-client fan-out. So the gate arms one timer
+-// per unpublished client. If the client's inputs cohere within the budget,
+-// the coherent publish wins and the timer is discarded. At expiry the latest
+-// deferred snapshot is published as-is — it is always internally consistent
+-// — so the pod binds its listeners and becomes Ready while routes to
+-// still-unready clusters return 503 until they cohere.
+-//
+-// One exception: a client that reported a prior accepted listener version on
+-// connect is warm — an Envoy that reconnected (or outlived a controller
+-// restart) and is still serving config from its previous stream. Publishing
+-// a snapshot whose routes name clusters absent from its CDS would replace
+-// that working config with one that NCs those routes, so warm clients stay
+-// withheld while any referenced cluster is MISSING (the #13868
+-// make-before-break property). A controller-local cache miss alone cannot
+-// prove a client is cold; the client-reported version can.
+-// That withhold has its own last-resort bound (warmWithholdBound,
+-// KGW_PER_CLIENT_WARM_WITHHOLD_BOUND, minutes rather than seconds): a cluster
+-// still missing that long after a restart is not translation catching up, and
+-// holding longer would freeze the client's routes, listeners and
+-// certificates until its proxy restarts. The perclient_warm_withheld_clients
+-// gauge shows the clients currently held.
+-// A reconnect resumes the episode rather than restarting the bound. And when
+-// proxies share a key (pod locality off), a proxy under it that holds no config
+-// lifts the withhold once it has waited a budget: it has no listeners until the
+-// shared snapshot publishes (see firePending).
+-//
+-// The warm withhold deliberately does NOT extend to gaps that are only
+-// underived CLAs (missingEndpointsReferenced). A CLA still underived a full
+-// budget after the client connected is backlog or a plugin that never
+-// derives endpoints for its EDS cluster — states with no convergence
+-// guarantee. Withholding on them would freeze the warm client indefinitely —
+-// no route change, cert rotation, or endpoint update would ever reach it —
+-// and would starve any cold pod that shares its UCC key (the prior-version
+-// mark is key-level). So at expiry, if every referenced cluster is present
+-// in CDS, the snapshot publishes without those CLAs; the client keeps the
+-// endpoints it holds for them (settleSynthesizedEndpoints), and the next
+-// build publishes each CLA as soon as it is derived.
+-//
+-// Flip release: resolveDeferredPerCluster holds routes/listeners/secrets at
+-// their published versions while a route flip targets a newly-referenced
+-// cluster that is not yet ready. The hold is per resource type, so while it
+-// lasts EVERY route/listener/secret update for the client is pinned — fine
+-// for a backend whose translation or endpoints catch up in seconds, but a
+-// reference that never resolves (a plugin that contributes an EDS cluster
+-// with no endpoints source; a cluster that never reaches CDS) would pin
+-// them forever. So the first held publish of an episode arms a release timer; if
+-// the client is still holding at expiry, the latest held wrapper is
+-// re-resolved with holds disabled and published: the flip goes out, routes
+-// to still-unready clusters fail until those clusters become ready — the
+-// truthful steady-state answer — and pinned updates resume. Repeated holds
+-// refresh the pending wrapper but do not extend the deadline; the episode
+-// ends when a publish without a hold goes out.
+-//
+-// All snapshot-cache mutations for gated clients go through the gate's lock,
+-// so an expiring timer can never overwrite a newer publish, and each timer
+-// acts only on the episode that armed it.
++// publishGate bounds first-publication and route-flip holds. An underived
++// target may never converge (#14352), so waiting must not block startup or
++// unrelated updates forever. KGW_PER_CLIENT_PUBLISH_BUDGET governs both holds;
++// 0 disables the bounds.
++//
++// Resolve only against snapshots installed on this connection. A retained
++// cache entry may predate config from another controller; reusing it after
++// reconnect could restore old routes or deleted backends.
++//
++// First publication waits for coherence up to the budget, then installs the
++// latest deferred snapshot. This allows startup to proceed, although unresolved
++// routes may return 503. Coherent publication cancels the timer.
++//
++// A warm client reported a held listener version and may still serve earlier
++// config. Missing referenced CDS extends its hold up to warmWithholdBound
++// (KGW_PER_CLIENT_WARM_WITHHOLD_BOUND). Reconnect resumes the episode. A cold
++// proxy sharing the key lifts the hold after its startup budget. The
++// perclient_warm_withheld_clients gauge reports warm holds.
++//
++// Missing CLA rows alone do not extend the first-publication budget. Omit them
++// to preserve held endpoints; publish each row when derived. Derived empty
++// CLAs are known backend state and do not cause deferral.
++//
++// A held flip retains routes, listeners and secrets while new CDS/EDS publishes.
++// At budget expiry, re-resolve the latest wrapper with holds disabled so a
++// permanent gap cannot pin all updates. Later held builds replace the wrapper
++// without extending the deadline. A no-hold publication ends the episode.
++//
++// Cache mutations and timer checks share the gate lock. Timers verify their
++// episode before acting. Installation does not establish delivery or application.
+ type publishGate struct {
+-	// budget is how long a withhold (first publish or held flip) may last
+-	// before its bounded publish; 0 disables both bounds (withhold/hold until
+-	// coherent, with no deadline). Written once at construction.
++	// budget limits first-publication and flip holds; 0 waits for coherence
++	// without a deadline. Set at construction.
+ 	budget time.Duration
+-	// warmWithholdBound is the last-resort bound on how long a warm client
+-	// stays withheld while referenced clusters are missing from CDS
+-	// (KGW_PER_CLIENT_WARM_WITHHOLD_BOUND); 0 removes it. It only applies
+-	// while budget is non-zero. Written before the gate is first used.
++	// warmWithholdBound limits warm missing-CDS holds. Zero disables it;
++	// it applies only with a non-zero budget. Set before first use.
+ 	warmWithholdBound time.Duration
+-	// warmWithheld counts, per gateway, the warm clients currently withheld
+-	// (pendingFirstPublish.warmWithheldSince set), for the warm_withheld_clients
+-	// gauge. Guarded by mu; created on first use.
++	// warmWithheld counts pending warm holds per gateway for the gauge.
++	// Guarded by mu; allocated on first use.
+ 	warmWithheld map[resourceNameDetails]int
+-	// firstPublishPending counts, per gateway, the clients whose first publish
+-	// on their connection is being withheld (pendingFirstPublish.counted), for
+-	// the first_publish_pending_clients gauge. Guarded by mu; created on first
+-	// use.
++	// firstPublishPending counts pending first publications per gateway.
++	// Guarded by mu; allocated on first use.
+ 	firstPublishPending map[resourceNameDetails]int
+-	// warmEpisodes keeps, per client key, when a withheld warm client's episode
+-	// started, across the client's departure: a proxy that reconnects resumes
+-	// its episode instead of restarting the bound, so a connection that resets
+-	// more often than the bound is still released. Entries expire once the
+-	// departure is older than the bound, and any publish removes them. Guarded
+-	// by mu; created on first use.
++	// warmEpisodes retains warm-hold start times across brief departures so
++	// reconnects cannot restart the bound. Entries expire after a bound away
++	// or end on publication. Guarded by mu; allocated on first use.
+ 	warmEpisodes map[string]warmEpisode
+-	// carriedSince records, per client, since when each referenced cluster
+-	// missing from the builds has been carried forward from the snapshot the
+-	// client was published (boundCarryLocked). Guarded by mu; created on
+-	// first use.
++	// carriedSince tracks each missing cluster's carry start per client.
++	// Guarded by mu; allocated on first use (boundCarryLocked).
+ 	carriedSince map[string]map[string]time.Time
+-	// carryExpiry holds, per client, the timer that ends its earliest carry at
+-	// the warm withhold bound when no build arrives to do it
+-	// (armCarryExpiryLocked). Guarded by mu; created on first use.
++	// carryExpiry schedules each client's earliest carry deadline even without
++	// new builds. Guarded by mu; allocated on first use.
+ 	carryExpiry map[string]*carryExpiry
+-	// coldEpisodes does the same for the first-publish budget: a client whose
+-	// connection (or snapshot row) resets more often than the budget resumes
+-	// its first-publish episode instead of restarting it, so it still gets
+-	// its bounded first publish. Entries expire once the departure is older
+-	// than the budget, and any publish removes them. Guarded by mu; created on
+-	// first use.
++	// coldEpisodes retains first-publication start times across connection or
++	// row resets. Entries expire after a budget away or end on publication.
++	// Guarded by mu; allocated on first use.
+ 	coldEpisodes map[string]warmEpisode
+-	// checkConsistency verifies every publish, recording (never withholding
+-	// on) violations — an invariant monitor for test/CI environments
+-	// (KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK). Written once at construction.
++	// checkConsistency logs and counts violations without blocking publication.
++	// Set at construction from KGW_XDS_SNAPSHOT_CONSISTENCY_CHECK.
+ 	checkConsistency bool
+-	// clientState reports whether a client reported a prior accepted xDS
+-	// version (warm). May be nil: every client is then treated as cold.
+-	// Written once at construction.
++	// clientState identifies warm clients by held listener versions.
++	// Nil treats all clients as cold. Set at construction.
+ 	clientState krtcollections.XDSClientState
+ 
+ 	mu           sync.Mutex
+ 	pending      map[string]*pendingFirstPublish
+ 	pendingFlips map[string]*pendingFlipRelease
+-	// published holds the clients the gate has published a snapshot to on
+-	// their current connection; clientDeparted removes them, and
+-	// snapshotWithdrawn (the row went away, the connection did not) keeps
+-	// them.
++	// published tracks cache installations on each current connection.
++	// Departure removes the mark; snapshot-row withdrawal keeps it.
+ 	published map[string]struct{}
+ }
+ 
+ type pendingFirstPublish struct {
+-	// wrap is the latest deferred wrapper; the timer publishes whatever is
+-	// latest at expiry. Its missing clusters decide whether a warm client
+-	// publishes or stays withheld. A nil wrap.snap means nothing is pending.
++	// wrap is the latest deferred build. Its gaps determine the expiry action.
++	// A nil wrap.snap means no pending build.
+ 	wrap  XdsSnapWrapper
+ 	timer *time.Timer
+-	// since is when the first-publish episode started; the budget runs from
+-	// it, across brief departures (see coldEpisodes).
++	// since starts the budget, including resumed coldEpisodes.
+ 	since time.Time
+ 	// Preserve the warm withhold start across budget rechecks.
+ 	warmWithheldSince time.Time
+-	// counted records that the client is in firstPublishPending: from the
+-	// entry's creation until its first publish or its end.
++	// counted marks membership in firstPublishPending until installation or end.
+ 	counted bool
+ }
+ 
+-// warmEpisode preserves an episode's start across a brief departure (used for
+-// both the warm withhold and the first-publish budget).
++// warmEpisode retains a warm-hold or first-publication start across departure.
+ type warmEpisode struct {
+ 	since      time.Time
+ 	departedAt time.Time
+ }
+ 
+-// carryExpiry re-resolves a client's latest deferred build once its earliest
+-// carried cluster reaches the warm withhold bound (see armCarryExpiryLocked).
++// carryExpiry re-resolves the latest deferred build at its earliest carry bound.
+ type carryExpiry struct {
+-	// wrap is the client's latest deferred build, the one whose resolution
+-	// carried.
++	// wrap is the latest deferred build that carried clusters.
+ 	wrap  XdsSnapWrapper
+ 	timer *time.Timer
+ }
+ 
+ type pendingFlipRelease struct {
+-	// wrap is the latest deferred wrapper whose flip was held; at expiry it
+-	// is re-resolved against the then-published snapshot with holds disabled.
++	// wrap is the latest held build; expiry re-resolves it without holds.
+ 	wrap XdsSnapWrapper
+-	// blocking are the latest flip-blocking cluster names, for the expiry log.
++	// blocking lists the current flip-blocking clusters for the expiry log.
+ 	blocking []string
+ 	timer    *time.Timer
+ }
+@@ -216,9 +134,8 @@
+ 	}
+ }
+ 
+-// warm reports whether the client reported a prior accepted listener version:
+-// it may be serving config from an earlier stream that this gate never
+-// published.
++// warm reports a held listener version. The client may serve earlier config
++// that this gate never published.
+ func (g *publishGate) warm(proxyKey string) bool {
+ 	return g.clientState != nil && g.clientState.HasPriorXDSVersion(proxyKey)
+ }
+@@ -228,10 +145,9 @@
+ 	HasColdStreamSince(resourceName string, d time.Duration) bool
+ }
+ 
+-// connectionSnapshotLocked returns the snapshot the gate last published to the
+-// client on its current connection, or nil if it has published none. A cache
+-// entry left over from an earlier connection is ignored: it says nothing about
+-// what the client runs now. Callers must hold g.mu.
++// connectionSnapshotLocked returns this connection's last installed snapshot,
++// or nil. Ignore older cache entries; they do not identify the client's current
++// config. Callers must hold g.mu.
+ func (g *publishGate) connectionSnapshotLocked(cache envoycache.SnapshotCache, proxyKey string) envoycache.ResourceSnapshot {
+ 	if _, ok := g.published[proxyKey]; !ok {
+ 		return nil
+@@ -243,15 +159,9 @@
+ 	return snap
+ }
+ 
+-// setSnapshot is the single funnel through which the gate writes to the
+-// snapshot cache. It first settles the snapshot's synthesized CLAs against
+-// what the client already holds (settleSynthesizedEndpoints). With
+-// checkConsistency enabled it then verifies that the snapshot publishes no
+-// resource its other resources do not reference, and that every
+-// RouteConfiguration its listeners name is present, which the publication
+-// paths maintain by construction; a violation is recorded and logged but the
+-// snapshot is still published (a publish-blocking check would reintroduce
+-// unbounded withholds). Callers must hold g.mu.
++// setSnapshot settles synthesized CLAs and writes the cache under g.mu.
++// Optional consistency checks log and count violations without blocking
++// installation. Callers must hold g.mu.
+ func (g *publishGate) setSnapshot(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, snap *envoycache.Snapshot, synthesized []string) error {
+ 	snap = settleSynthesizedEndpoints(snap, synthesized, g.connectionSnapshotLocked(cache, proxyKey))
+ 	if g.checkConsistency {
+@@ -262,28 +172,24 @@
+ 		}
+ 	}
+ 	if err := cache.SetSnapshot(ctx, proxyKey, snap); err != nil {
+-		// go-control-plane installs the snapshot before answering the
+-		// node's open watches, and only answering can fail (the context
+-		// ended). Later requests are answered from the installed snapshot,
+-		// so the bookkeeping below follows installation: an error here must
+-		// not leave an episode, gauge or flip bound behind for a snapshot
+-		// the cache already serves.
++		// SetSnapshot installs before answering watches; answering may fail.
++		// Update bookkeeping if readback confirms installation, even on error.
++		// This records cache state, not client receipt or application.
+ 		if installed, getErr := cache.GetSnapshot(proxyKey); getErr != nil || installed != envoycache.ResourceSnapshot(snap) {
+ 			return err
+ 		}
+ 		logger.Error("installed xds snapshot but failed to answer open watches", "proxy_key", proxyKey, "error", err)
+ 	}
+-	// A successful publish ends the first-publish and warm withhold episodes.
++	// Installation ends first-publication and warm-hold episodes.
+ 	delete(g.coldEpisodes, proxyKey)
+ 	delete(g.warmEpisodes, proxyKey)
+ 	g.published[proxyKey] = struct{}{}
+ 	return nil
+ }
+ 
+-// publish publishes a coherent (or per-cluster-resolved, no-hold) snapshot
+-// and cancels any pending bounded first publish and any pending flip release
+-// — a publish without a hold means the episode resolved — under one lock so
+-// a concurrently-expiring timer cannot overwrite the newer snapshot.
++// publish installs a coherent or resolved no-hold snapshot and cancels pending
++// first-publication and flip timers under one lock, preventing stale callbacks
++// from overwriting it.
+ func (g *publishGate) publish(ctx context.Context, cache envoycache.SnapshotCache, snapWrap XdsSnapWrapper) error {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+@@ -301,21 +207,14 @@
+ 		delete(g.pending, proxyKey)
+ 	}
+ 	g.cancelFlipReleaseLocked(proxyKey)
+-	// This build supersedes the one a pending carry expiry would re-resolve;
+-	// a deferred build that carries re-arms it after publishing.
++	// Supersede any pending carry build; deferred resolution re-arms if needed.
+ 	g.cancelCarryExpiryLocked(proxyKey)
+ 	return g.setSnapshot(ctx, cache, proxyKey, snap, synthesized)
+ }
+ 
+-// resolveDeferred decides how a deferred wrapper publishes. The cache read,
+-// the per-cluster resolution, and the resulting publish all happen under one
+-// lock acquisition so an expiring budget timer cannot interleave: a
+-// first-publish timer firing between an unlocked cache check and the cold
+-// offer would strand the newest deferred snapshot unpublished until the next
+-// build event, and a flip-release timer firing between an unlocked cache read
+-// and the held publish would be overwritten by a hold composed against the
+-// pre-release snapshot (re-pinning the just-released routes for another full
+-// budget).
++// resolveDeferred reads the cache, resolves gaps and publishes under one lock.
++// Otherwise a timer could publish between selection and installation, stranding
++// a newer first build or letting a stale hold overwrite a released flip.
+ func (g *publishGate) resolveDeferred(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -327,17 +226,10 @@
+ 	return g.resolveDeferredLocked(ctx, cache, snapWrap)
+ }
+ 
+-// beginBuildLocked runs for every new build that reaches the gate, before it
+-// is published. Timers that re-publish a stored build do not run it: that
+-// build already began.
+-//
+-// A carry record belongs to one episode of a cluster missing from the builds.
+-// A build that has the cluster again ends the episode, so a later
+-// disappearance is carried for a fresh warm withhold bound. boundCarryLocked
+-// also forgets recovered clusters, but only deferred builds run it, and a
+-// recovery is usually a coherent build: without this, the earlier episode's
+-// start would survive it, and the next disappearance, however brief, would be
+-// dropped at once instead of carried. Callers must hold g.mu.
++// beginBuildLocked runs once per new build, not for stored timer replays.
++// Clear carry ages for recovered clusters so their next disappearance gets
++// a fresh bound. Coherent recoveries skip boundCarryLocked, so they must end
++// the old episode here. Callers must hold g.mu.
+ func (g *publishGate) beginBuildLocked(snapWrap XdsSnapWrapper) {
+ 	since := g.carriedSince[snapWrap.proxyKey]
+ 	if len(since) == 0 {
+@@ -362,17 +254,10 @@
+ ) error {
+ 	published := g.connectionSnapshotLocked(cache, snapWrap.proxyKey)
+ 	if published == nil {
+-		// Not yet published on this connection: there is no known config to
+-		// hold or carry, and publishing an incoherent snapshot would 503 the
+-		// unready routes — so withhold (cold-start make-before-break,
+-		// unchanged from the whole-snapshot gate), but only up to the
+-		// first-publish budget: a pod with no config at all never goes Ready
+-		// and crash-loops, so past the budget the latest deferred snapshot is
+-		// published anyway. Clients that reported a prior accepted xDS
+-		// version are warm, not cold: they stay withheld at expiry only
+-		// while clusters are missing from CDS; when the only gaps are
+-		// underived CLAs, the snapshot publishes without them rather than
+-		// freezing the client indefinitely.
++		// Without an installation on this connection, there is no snapshot to
++		// carry or hold against. Wait up to the first-publication budget. Warm
++		// missing-CDS clients may wait longer; missing CLAs alone are omitted
++		// at expiry to preserve held endpoints.
+ 		g.offerColdLocked(ctx, cache, snapWrap)
+ 		return nil
+ 	}
+@@ -381,22 +266,19 @@
+ 	resolved, heldBlocking := resolveDeferredPerCluster(snapWrap, published, true)
+ 	var publishErr error
+ 	if len(heldBlocking) > 0 {
+-		// The held snapshot still publishes (CDS/EDS keep flowing); the
+-		// gate additionally arms the flip-release bound for the episode.
++		// Publish CDS/EDS while holding the flip, and arm its release timer.
+ 		publishErr = g.publishHeldLocked(ctx, cache, snapWrap, resolved, heldBlocking)
+ 	} else {
+ 		publishErr = g.publishLocked(ctx, cache, snapWrap.proxyKey, resolved, snapWrap.synthesizedEndpoints)
+ 	}
+-	// Armed after publishing, which cancels it on the no-hold path.
++	// Arm after publishing; the no-hold path cancels this timer.
+ 	g.armCarryExpiryLocked(ctx, cache, candidate)
+ 	return publishErr
+ }
+ 
+-// offerColdLocked records the latest deferred wrapper for a client not yet
+-// published on this connection and arms the budget timer once per episode;
+-// the timer publishes whatever is latest unless the client turns out to be
+-// warm (prior xDS version) with clusters missing from CDS, or a coherent
+-// publish got there first. Callers must hold g.mu.
++// offerColdLocked stores the latest deferred build and arms one budget timer
++// per episode. Coherent publication cancels it; warm missing-CDS clients may
++// remain held at expiry. Callers must hold g.mu.
+ func (g *publishGate) offerColdLocked(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -434,15 +316,9 @@
+ 	})
+ }
+ 
+-// firePending runs at budget expiry: publish the latest deferred snapshot,
+-// unless the pending entry was canceled, superseded by a later episode, or
+-// drained, or the client reported a prior xDS version (warm reconnect) AND
+-// some referenced cluster is missing from CDS — publishing that would NC
+-// routes the proxy is still serving. A warm client whose only gaps are
+-// clusters with no derived CLA publishes anyway: by expiry that gap has no
+-// convergence guarantee (#14352), and withholding would freeze the client
+-// indefinitely (see the type comment). The check and publish happen under
+-// the gate lock, so they cannot interleave with publish().
++// firePending handles first-publication expiry under the gate lock. Ignore
++// canceled, superseded or drained entries. Warm missing-CDS clients may stay
++// held; underived CLAs alone do not extend the budget (#14352).
+ func (g *publishGate) firePending(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -454,23 +330,19 @@
+ 	if g.pending[proxyKey] != st || st.wrap.snap == nil {
+ 		return
+ 	}
+-	// Keep the entry so a later deferred wrapper of the same episode re-arms
+-	// the timer instead of restarting the accounting.
++	// Retain episode accounting so a later deferred build can re-arm the timer.
+ 	wrap := st.wrap
+ 	st.wrap = XdsSnapWrapper{}
+ 	st.timer = nil
+ 	if _, published := g.published[proxyKey]; published {
+-		// Defensive: every publish path deletes or resolves the pending entry
+-		// under this same lock, so a publish on this connection alongside a
+-		// pending wrapper should be unreachable — but publishing over it
+-		// would regress a newer snapshot, so bail.
++		// Publication should have cleared this pending build under the same lock.
++		// Skip it defensively rather than overwrite a newer installation.
+ 		return
+ 	}
+ 	mode := boundedPublishFirstPublish
+ 	warm := g.warm(proxyKey)
+-	// A cold proxy sharing the key must receive config after its startup
+-	// budget. The key still has warm proxies whose endpoints setSnapshot
+-	// must preserve when their endpoint rows have not been derived yet.
++	// A cold proxy sharing a warm key must get its bounded first snapshot.
++	// setSnapshot still preserves the warm siblings' underived endpoints.
+ 	if cold, ok := g.clientState.(coldStreamReader); ok && cold.HasColdStreamSince(proxyKey, g.budget) {
+ 		warm = false
+ 	}
+@@ -486,13 +358,9 @@
+ 				"proxy_key", proxyKey, "missing_clusters", wrap.missingReferenced, "missing_endpoint_clusters", wrap.missingEndpointsReferenced,
+ 				"withheld_for", withheldFor, "warm_withhold_bound", g.warmWithholdBound)
+ 			recordDeferredWithheld(proxyKey)
+-			// Re-check every budget without waiting for another deferred
+-			// build: with static inputs none may ever arrive. The check
+-			// reaches the bound, publishes the warm truth promptly if the
+-			// missing clusters appear while some endpoints are still
+-			// underived, and publishes once the key stops being warm (its
+-			// warm streams closed, or a proxy holding no config has waited a
+-			// budget under it).
++			// Recheck each budget even with static inputs. This enforces the warm
++			// bound and notices recovered CDS, closed warm streams or a cold sibling
++			// that has waited its startup budget.
+ 			next := g.budget
+ 			if g.warmWithholdBound > 0 {
+ 				next = min(next, g.warmWithholdBound-withheldFor)
+@@ -503,20 +371,15 @@
+ 			})
+ 			return
+ 		}
+-		// Withheld for the whole bound: whatever is missing is not translation
+-		// catching up after a restart. Stop holding the client's routes,
+-		// listeners and certificates for it; routes to the missing clusters
+-		// fail until those clusters appear.
++		// The warm bound expired. Release updates despite missing CDS;
++		// routes to absent clusters can fail until they return.
+ 		mode = boundedPublishWarmRelease
+ 		logger.Warn("warm client withheld for the full warm withhold bound; publishing deferred snapshot, routes to the missing clusters will fail until they appear",
+ 			"proxy_key", proxyKey, "missing_clusters", wrap.missingReferenced, "missing_endpoint_clusters", wrap.missingEndpointsReferenced,
+ 			"withheld_for", withheldFor)
+ 	case warm:
+-		// Warm client, but every referenced cluster is present in CDS and
+-		// the only gaps are clusters with underived CLAs: by now that is
+-		// backlog or a plugin gap with no convergence guarantee (#14352),
+-		// and withholding would freeze this client's config indefinitely.
+-		// Their CLAs are left out, so the client keeps its endpoints for them.
++		// CDS is complete. Omit underived CLAs to preserve held endpoints and
++		// release other updates; these rows may never arrive (#14352).
+ 		mode = boundedPublishWarmTruth
+ 		logger.Warn("first-publish budget expired for warm client; publishing without the CLAs that are not derived yet",
+ 			"proxy_key", proxyKey, "missing_endpoint_clusters", wrap.missingEndpointsReferenced)
+@@ -533,8 +396,7 @@
+ 	recordBoundedPublish(proxyKey, mode)
+ }
+ 
+-// markWarmWithheldLocked records that a warm client's episode started
+-// withholding at now, for the warm bound and the warm_withheld_clients gauge.
++// markWarmWithheldLocked starts warm-bound accounting and updates the gauge.
+ // Callers must hold g.mu.
+ func (g *publishGate) markWarmWithheldLocked(proxyKey string, st *pendingFirstPublish, now time.Time) {
+ 	st.warmWithheldSince = now
+@@ -547,8 +409,8 @@
+ 	g.adjustWarmWithheldLocked(proxyKey, +1)
+ }
+ 
+-// unmarkWarmWithheldLocked clears the warm-withheld mark when the episode
+-// publishes or ends. Callers must hold g.mu.
++// unmarkWarmWithheldLocked clears the warm-hold mark at publication or end.
++// Callers must hold g.mu.
+ func (g *publishGate) unmarkWarmWithheldLocked(proxyKey string, st *pendingFirstPublish) {
+ 	if st.warmWithheldSince.IsZero() {
+ 		return
+@@ -557,9 +419,8 @@
+ 	g.adjustWarmWithheldLocked(proxyKey, -1)
+ }
+ 
+-// unmarkFirstPublishPendingLocked takes the client out of the
+-// first_publish_pending_clients gauge when its first publish goes out or its
+-// pending entry ends. Callers must hold g.mu.
++// unmarkFirstPublishPendingLocked removes the client's pending-first-publication
++// gauge entry at installation or end. Callers must hold g.mu.
+ func (g *publishGate) unmarkFirstPublishPendingLocked(proxyKey string, st *pendingFirstPublish) {
+ 	if !st.counted {
+ 		return
+@@ -600,14 +461,10 @@
+ 	recordWarmWithheldClients(labels, n)
+ }
+ 
+-// publishHeldLocked publishes a snapshot whose route flip is held at the
+-// published versions and arms the flip-release bound once per episode. If the
+-// client is still holding at budget expiry, fireFlipRelease publishes the
+-// latest held wrapper re-resolved with holds disabled, so a newly-referenced
+-// cluster that never becomes ready (a steady-state-empty backend, #14352)
+-// pins the client's route/listener/secret updates for at most one budget
+-// instead of forever. budget<=0 disables the bound: the hold lasts until the
+-// flip resolves. Callers must hold g.mu.
++// publishHeldLocked installs a snapshot retaining published routes, listeners
++// and secrets, and arms one flip-release timer per episode. At expiry, resolve
++// the latest build without holds so permanent gaps cannot pin updates (#14352).
++// budget<=0 waits for resolution without a deadline. Callers must hold g.mu.
+ func (g *publishGate) publishHeldLocked(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -616,8 +473,7 @@
+ 	blocking []string,
+ ) error {
+ 	proxyKey := snapWrap.proxyKey
+-	// Like any publish, this supersedes the build a pending carry expiry would
+-	// re-resolve; a deferred build re-arms it after publishing.
++	// Supersede any pending carry build; deferred resolution re-arms if needed.
+ 	g.cancelCarryExpiryLocked(proxyKey)
+ 	if err := g.setSnapshot(ctx, cache, proxyKey, held, snapWrap.synthesizedEndpoints); err != nil {
+ 		return err
+@@ -640,23 +496,19 @@
+ 	return nil
+ }
+ 
+-// fireFlipRelease runs at flip-hold budget expiry: re-resolve the latest held
+-// wrapper against the currently-published snapshot with holds disabled and
+-// publish it. The flip goes out; routes to still-unready clusters fail until
+-// those clusters become ready, which is the truthful steady-state answer —
+-// and pinned route/listener/secret updates resume. It acts only on the
+-// episode that armed it, and runs under the gate lock, so it cannot
+-// interleave with publish() or resolveDeferred().
++// fireFlipRelease re-resolves the latest held build without holds under the
++// gate lock. Only the arming episode may release; unresolved routes may fail
++// while route, listener and secret updates resume.
+ func (g *publishGate) fireFlipRelease(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, pf *pendingFlipRelease) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+ 	if g.pendingFlips[proxyKey] != pf {
+-		return // released by a no-hold publish, or a later episode's hold
++		return // A no-hold publication or later episode superseded this callback.
+ 	}
+ 	delete(g.pendingFlips, proxyKey)
+ 	published := g.connectionSnapshotLocked(cache, proxyKey)
+ 	if published == nil {
+-		return // nothing published to resolve against; nothing was held
++		return // No published snapshot means there is no held flip to release.
+ 	}
+ 	released, _ := resolveDeferredPerCluster(g.boundCarryLocked(pf.wrap, published, time.Now()), published, false)
+ 	logger.Warn("flip-hold budget expired; publishing held route flip, routes to still-unready clusters will fail until they become ready",
+@@ -678,9 +530,8 @@
+ 	}
+ }
+ 
+-// clientDeparted ends a client's connection: it cancels any pending bounded
+-// first publish or flip release, so a timer cannot publish to a key after its
+-// client left, and forgets what the gate published on the connection.
++// clientDeparted cancels pending first-publication and flip timers and clears
++// this connection's publication mark.
+ func (g *publishGate) clientDeparted(proxyKey string) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+@@ -689,22 +540,18 @@
+ 	delete(g.carriedSince, proxyKey)
+ }
+ 
+-// snapshotWithdrawn handles a client whose wrapper row was deleted while it
+-// stays connected (its gateway's translation briefly produced nothing: a
+-// GatewayClass deleted and recreated, a route lookup error). There is nothing
+-// left to publish, so pending bounded publishes are canceled, but the client
+-// still runs what the gate published on this connection: when the row
+-// returns, a deferred build resolves against it (carrying the clusters the
+-// client serves, holding flips) instead of starting over as a first publish.
++// snapshotWithdrawn cancels pending work when a connected client's row vanishes,
++// for example during GatewayClass recreation. Keep its publication mark so
++// returning deferred rows resolve against this connection's installed snapshot
++// rather than restart first publication.
+ func (g *publishGate) snapshotWithdrawn(proxyKey string) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+ 	g.withdrawLocked(proxyKey)
+ }
+ 
+-// withdrawLocked cancels the client's pending bounded first publish and flip
+-// release, keeping the warm episode for a reconnect to resume. Callers must
+-// hold g.mu.
++// withdrawLocked cancels pending first-publication and flip timers, retaining
++// warm-episode accounting for reconnect. Callers must hold g.mu.
+ func (g *publishGate) withdrawLocked(proxyKey string) {
+ 	if st := g.pending[proxyKey]; st != nil {
+ 		if st.timer != nil {
+@@ -720,32 +567,20 @@
+ 	g.cancelCarryExpiryLocked(proxyKey)
+ }
+ 
+-// settleSynthesizedEndpoints decides what the client receives for each CLA in
+-// snap that snapshotPerClient synthesized while the client's per-client row
+-// for it is still being built: some backend derives endpoints for it, and the
+-// per-client rows are rebuilt from scratch whenever a client connects or
+-// reconnects, so the row is on its way. Envoy keeps a cluster's endpoints when
+-// its CLA is absent from a response but drops them for an empty one, and an
+-// EDS cluster without a CLA waits for it (up to its initial fetch timeout)
+-// rather than serving with no hosts. So a synthesized CLA is published only
+-// where the cluster is new to an already-published client:
+-//
+-//   - the client was published a CLA for it on this connection: republish
+-//     that CLA;
+-//   - the client was published the cluster on this connection without a CLA:
+-//     leave it out again;
+-//   - the client has not been published a snapshot on this connection: leave
+-//     it out. A reconnecting proxy keeps the endpoints it holds; a new proxy
+-//     waits for the row instead of going Ready with zero hosts behind, say,
+-//     its ext_authz cluster. This does not depend on the client reporting a
+-//     prior version, so it holds even without connection state;
+-//   - the cluster is new to the client: publish the empty CLA, so the cluster
+-//     activates without waiting for its initial fetch timeout.
+-//
+-// A derived CLA, even an empty one, is the backend's truth and always
+-// publishes, and so does a synthesized one with no endpoints source (it is
+-// not in synthesized). published is the snapshot returned by
+-// connectionSnapshotLocked.
++// settleSynthesizedEndpoints handles placeholders whose source rows are still
++// rebuilding. An omitted CLA preserves held endpoints; an explicit empty clears
++// them. A new EDS cluster waits for an omitted CLA up to its fetch timeout.
++//
++//   - If this connection published the CLA, retain it.
++//   - If it published the cluster without a CLA, keep omitting the CLA.
++//   - Before any installation on this connection, omit the CLA. This preserves
++//     reconnect endpoints even without client state, and lets new proxies wait.
++//   - For a new cluster on an already-published connection, send the empty CLA
++//     so initialization need not wait for the fetch timeout.
++//
++// Derived CLAs, even empty, always publish. Source-less synthesized empties are
++// steady state and absent from synthesized. published is this connection's
++// snapshot from connectionSnapshotLocked.
+ func settleSynthesizedEndpoints(snap *envoycache.Snapshot, synthesized []string, published envoycache.ResourceSnapshot) *envoycache.Snapshot {
+ 	if len(synthesized) == 0 {
+ 		return snap
+@@ -802,24 +637,13 @@
+ 	return &settled
+ }
+ 
+-// snapshotConsistencyError reports resources the snapshot publishes that none
+-// of its other resources reference: a CLA whose cluster is not an EDS cluster
+-// in its CDS, or a RouteConfiguration no listener names. Envoy requests those
+-// types by the names CDS and LDS give it, and go-control-plane withholds an
+-// ADS response that carries a resource the client did not request (#14471),
+-// freezing that type for the client. The gateway's bootstrap local cluster is
+-// the one intended exception: its CLA is published without a dynamic cluster
+-// to clients that subscribed to it.
+-//
+-// It also reports a listener that names a RouteConfiguration the snapshot
+-// lacks. No publication path leaves one out on purpose (a held flip keeps
+-// routes and listeners at the same published build), and Envoy warms such a
+-// listener until RDS answers, then serves it with no routes.
+-//
+-// The converse for EDS, an EDS cluster without a CLA, is not reported: Envoy
+-// keeps the cluster's current endpoints when its CLA is absent, which is how
+-// a client keeps endpoints that have not been derived yet (see
+-// settleSynthesizedEndpoints).
++// snapshotConsistencyError reports orphan CLAs, unreferenced RouteConfigurations
++// and listener references to missing RouteConfigurations. Orphan resources can
++// block named ADS responses (#14471). Allow the subscribed bootstrap local
++// cluster's CLA despite its absence from dynamic CDS.
++//
++// Do not require a CLA for every EDS cluster: omission preserves held endpoints
++// while rows rebuild (settleSynthesizedEndpoints).
+ func snapshotConsistencyError(proxyKey string, snap *envoycache.Snapshot) error {
+ 	references := envoycache.GetAllResourceReferences(snap.Resources)
+ 	bootstrapEndpoint := ""
+@@ -859,20 +683,14 @@
+ 	}
+ }
+ 
+-// boundCarryLocked bounds how long a referenced cluster missing from the
+-// builds is carried forward from the snapshot the client was published.
+-//
+-// Carrying keeps the client's last config for a cluster whose translation is
+-// lagging (make-before-break), but nothing else ends it: a cluster whose
+-// backend is gone while routes still name it would be served its last cluster
+-// and endpoints forever, and endpoint addresses that old can belong to other
+-// workloads by then. After the warm withhold bound (the gate's existing bound
+-// on "a referenced cluster missing from CDS is not coming back") the cluster is
+-// no longer carried and routes to it fail until it reappears. The returned
+-// wrapper lists only the missing clusters still carried, and the expired ones
+-// in expiredCarry; the bound, like every other, applies only while the publish
+-// budget is non-zero. A build applies it when it is resolved, and
+-// armCarryExpiryLocked when no build arrives. Callers must hold g.mu.
++// boundCarryLocked limits retention of missing referenced clusters and their
++// endpoints. Without expiry, a deleted backend could retain addresses later
++// assigned to another workload. After warmWithholdBound, drop the cluster and
++// allow its routes to fail until it returns.
++//
++// Return active carries in missingReferenced and expired ones in expiredCarry.
++// The bound requires a non-zero publication budget. Builds enforce it during
++// resolution; armCarryExpiryLocked handles quiet inputs. Callers must hold g.mu.
+ func (g *publishGate) boundCarryLocked(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot, now time.Time) XdsSnapWrapper {
+ 	key := snapWrap.proxyKey
+ 	if g.budget <= 0 || g.warmWithholdBound <= 0 {
+@@ -886,7 +704,7 @@
+ 		_, stillMissing := missing[name]
+ 		_, carryable := publishedClusters[name]
+ 		if !stillMissing || !carryable {
+-			delete(since, name) // it came back, or it is no longer there to carry
++			delete(since, name) // The cluster recovered or is no longer available to carry.
+ 		}
+ 	}
+ 	var expired map[string]struct{}
+@@ -930,24 +748,18 @@
+ 		_, gone := expired[name]
+ 		return gone
+ 	})
+-	// A held flip carries its whole published closure; it must not carry these
+-	// back, or the next build would find them published and start them over.
++	// Exclude expired clusters from held closure, or the next build restarts
++	// their carry episodes.
+ 	bounded.expiredCarry = slices.Sorted(maps.Keys(expired))
+ 	return bounded
+ }
+ 
+-// armCarryExpiryLocked schedules the end of the client's earliest carry.
+-// boundCarryLocked enforces the warm withhold bound only when a build is
+-// resolved, and with quiet inputs none may arrive: a cluster whose backend was
+-// deleted while routes still name it would be carried for as long as nothing
+-// else changed. At the earliest carried cluster's deadline the timer
+-// re-resolves wrap, the client's latest deferred build, through the same path
+-// as a new build, which stops carrying whatever has been carried for the bound
+-// and re-arms for the rest.
+-//
+-// The timer never re-publishes an older build: every publish cancels it
+-// (publishLocked, publishHeldLocked), a deferred build then re-arms it with
+-// itself, and a departure or withdrawn row cancels it. Callers must hold g.mu.
++// armCarryExpiryLocked schedules the earliest carry deadline. At expiry,
++// re-resolve the latest deferred build to drop expired clusters and re-arm
++// for remaining carries, even if no new build arrives.
++//
++// Each publication cancels the old timer; deferred resolution may re-arm it.
++// Departure and row withdrawal also cancel it. Callers must hold g.mu.
+ func (g *publishGate) armCarryExpiryLocked(ctx context.Context, cache envoycache.SnapshotCache, wrap XdsSnapWrapper) {
+ 	key := wrap.proxyKey
+ 	g.cancelCarryExpiryLocked(key)
+@@ -958,7 +770,7 @@
+ 		}
+ 	}
+ 	if earliest.IsZero() {
+-		return // nothing carried (or the bound is off, which records nothing)
++		return // No active carry, including when the bound is disabled.
+ 	}
+ 	ce := &carryExpiry{wrap: wrap}
+ 	if g.carryExpiry == nil {
+@@ -977,27 +789,25 @@
+ 	}
+ }
+ 
+-// fireCarryExpiry re-resolves the client's latest deferred build at a carry's
+-// deadline (see armCarryExpiryLocked). It acts only for the arming that
+-// scheduled it, under the gate lock like every other publication.
++// fireCarryExpiry re-resolves the latest deferred build at the carry deadline.
++// Check the arming identity under the gate lock before acting.
+ func (g *publishGate) fireCarryExpiry(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, ce *carryExpiry) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+ 	if g.carryExpiry[proxyKey] != ce {
+-		return // superseded by a later build, or the client left
++		return // A later build or departure superseded this callback.
+ 	}
+ 	delete(g.carryExpiry, proxyKey)
+ 	if g.connectionSnapshotLocked(cache, proxyKey) == nil {
+-		return // defensive: a reset connection cancels the timer
++		return // Defensive: connection reset should have canceled this timer.
+ 	}
+ 	if err := g.resolveDeferredLocked(ctx, cache, ce.wrap); err != nil {
+ 		logger.Error("failed to set xds snapshot", "proxy_key", proxyKey, "error", err)
+ 	}
+ }
+ 
+-// rememberColdEpisodeLocked keeps a departing unpublished client's
+-// first-publish episode start so a reconnect resumes it (see coldEpisodes).
+-// Callers must hold g.mu.
++// rememberColdEpisodeLocked preserves an unpublished client's budget start for
++// reconnect (coldEpisodes). Callers must hold g.mu.
+ func (g *publishGate) rememberColdEpisodeLocked(proxyKey string, since time.Time) {
+ 	if since.IsZero() || g.budget <= 0 {
+ 		return
+@@ -1014,9 +824,8 @@
+ 	g.coldEpisodes[proxyKey] = warmEpisode{since: since, departedAt: now}
+ }
+ 
+-// rememberWarmEpisodeLocked keeps a departing warm client's episode start so a
+-// reconnect resumes it (see warmEpisodes). Without a bound there is nothing to
+-// resume. Callers must hold g.mu.
++// rememberWarmEpisodeLocked preserves the warm-hold start for reconnect when
++// the bound is enabled (warmEpisodes). Callers must hold g.mu.
+ func (g *publishGate) rememberWarmEpisodeLocked(proxyKey string, since time.Time) {
+ 	if since.IsZero() || g.warmWithholdBound <= 0 {
+ 		return
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate_test.go b/pkg/kgateway/proxy_syncer/publish_gate_test.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate_test.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate_test.go
+@@ -19,14 +19,13 @@
+ 
+ const publishGateTestClient = "c1"
+ 
+-// newTestUcc builds a minimal UCC; the cluster/endpoint fixtures only consume
+-// the proto they wrap, not the client identity.
++// newTestUcc wraps the fixture proto; these tests do not use client identity.
+ func newTestUcc(name string) ir.UniquelyConnectedClient {
+ 	return ir.NewUniquelyConnectedClient(name, "", nil, ir.PodLocality{})
+ }
+ 
+-// stubPriorXDS models the client-state reader: has=false is a cold client,
+-// has=true a warm reconnect that reported a prior accepted version.
++// stubPriorXDS reports a cold client when false, a warm held-version client
++// when true.
+ type stubPriorXDS struct{ has bool }
+ 
+ func (s stubPriorXDS) HasPriorXDSVersion(string) bool { return s.has }
+@@ -38,14 +37,13 @@
+ 		budget,
+ 		true,
+ 	)
+-	// Stop the gate's timers with the test: a warm client withheld at the
+-	// budget re-arms every budget for as long as the test binary runs.
++	// Stop timers at cleanup; warm holds otherwise re-arm for the binary's lifetime.
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+ 	return &pt
+ }
+ 
+-// deferredWrapperV builds a deferred wrapper whose listener version identifies
+-// it in assertions; the missing reference is what keeps it deferred.
++// deferredWrapperV identifies builds by listener version and keeps a missing
++// reference to trigger deferral.
+ func deferredWrapperV(version string) XdsSnapWrapper {
+ 	snap := &envoycache.Snapshot{}
+ 	snap.Resources[envoycachetypes.Listener] = envoycache.NewResources(version, nil)
+@@ -56,13 +54,9 @@
+ 	}
+ }
+ 
+-// deferredMissingEndpointsWrapperV builds a deferred wrapper whose only gap is
+-// a referenced cluster with no derived CLA — the steady-state shape of an EDS
+-// cluster whose plugin has no endpoints source, such as an AWS EC2 Backend with
+-// discovery disabled (#14352): every referenced cluster is present in CDS, but
+-// one's ClusterLoadAssignment was never derived (a synthesized empty stands
+-// in). A Service without EndpointSlices, ExternalName included, derives an
+-// empty CLA instead and is not a gap at all.
++// deferredMissingEndpointsWrapperV has complete referenced CDS but an underived
++// CLA, as with EC2 discovery disabled (#14352). A placeholder stands in for it.
++// Services, including ExternalName without slices, derive empty rows instead.
+ func deferredMissingEndpointsWrapperV(version string) XdsSnapWrapper {
+ 	snap := &envoycache.Snapshot{}
+ 	snap.Resources[envoycachetypes.Listener] = envoycache.NewResources(version, nil)
+@@ -88,8 +82,7 @@
+ 	return snap.GetVersion(resourcev3.ListenerType), true
+ }
+ 
+-// A cold, never-published client is withheld within the budget and published
+-// at expiry so the pod can start.
++// Hold a cold client's first build until budget expiry.
+ func TestFirstPublish_ColdClientPublishesAtBudget(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
+ 
+@@ -106,7 +99,7 @@
+ 	assert.Equal(t, "v1", v)
+ }
+ 
+-// The latest deferred snapshot is the one published at budget expiry.
++// Install the latest deferred build at budget expiry.
+ func TestFirstPublish_LatestDeferredWins(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 80*time.Millisecond)
+ 
+@@ -121,10 +114,8 @@
+ 	assert.Equal(t, "v2", v)
+ }
+ 
+-// A client that reported a prior accepted xDS version is warm: while clusters
+-// are missing from CDS it must stay withheld at budget expiry (publishing
+-// routes to absent clusters would NC config it is already serving), but a
+-// coherent snapshot still publishes immediately.
++// Warm missing-CDS clients stay held at budget expiry; coherent builds
++// still install immediately.
+ func TestFirstPublish_PriorXDSVersionClientStaysWithheld(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, true, 40*time.Millisecond)
+ 
+@@ -142,10 +133,7 @@
+ 	assert.Equal(t, "coherent", v)
+ }
+ 
+-// A warm client whose only gaps are clusters with no derived CLA publishes at
+-// budget expiry: that gap has no convergence guarantee (#14352), and
+-// withholding would freeze the client's config indefinitely after a
+-// controller restart.
++// Underived CLAs alone do not extend a warm client's budget (#14352).
+ func TestFirstPublish_WarmClientPublishesEndpointTruthAtBudget(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, true, 50*time.Millisecond)
+ 
+@@ -163,8 +151,7 @@
+ 	assert.Equal(t, "v1", v)
+ }
+ 
+-// A warm client with BOTH missing and underived-CLA gaps stays withheld: the
+-// missing clusters dominate (publishing would NC their routes).
++// Missing CDS extends the warm hold even when CLA rows are also underived.
+ func TestFirstPublish_WarmClientMixedGapsStaysWithheld(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, true, 40*time.Millisecond)
+ 
+@@ -179,8 +166,7 @@
+ 		"a warm client must stay withheld while any referenced cluster is missing from CDS, even if other gaps are underived CLAs")
+ }
+ 
+-// A coherent snapshot supersedes a pending bounded publish, and the canceled
+-// timer must never overwrite it.
++// A canceled first-publication timer must not overwrite a coherent build.
+ func TestFirstPublish_CoherentSupersedesPending(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 100*time.Millisecond)
+ 
+@@ -196,7 +182,7 @@
+ 	assert.Equal(t, "coherent", v, "a canceled first-publish timer must not overwrite a coherent snapshot")
+ }
+ 
+-// A departed client's pending bounded publish must not fire.
++// A departed client's first-publication timer must not install a snapshot.
+ func TestFirstPublish_DepartureCancelsPending(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
+ 
+@@ -208,8 +194,7 @@
+ 	assert.False(t, ok, "a departed client's pending first publish must not fire")
+ }
+ 
+-// KGW_PER_CLIENT_PUBLISH_BUDGET=0 is the conservative opt-out: never-published
+-// clients are withheld with no deadline.
++// KGW_PER_CLIENT_PUBLISH_BUDGET=0 disables the first-publication deadline.
+ func TestFirstPublish_BudgetZeroDisablesBound(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 0)
+ 
+@@ -224,11 +209,8 @@
+ 
+ // --- flip-release bound ---
+ 
+-// flipHoldFixture drives a published client into a held route flip: the
+-// published snapshot routes to cluster-old, then a deferred wrapper flips the
+-// routes onto cluster-new, which is newly referenced and has no derived CLA
+-// (synthesized empty), so resolution holds routes/listeners/secrets at the
+-// published versions.
++// flipHoldFixture publishes cluster-old, then retargets to underived cluster-new.
++// Resolution retains routes, listeners and secrets at their published versions.
+ func flipHoldFixture(t *testing.T, pt *ProxyTranslator) (heldRouteVersion string, flipWrap XdsSnapWrapper) {
+ 	t.Helper()
+ 
+@@ -250,7 +232,7 @@
+ 	})
+ 	require.NoError(t, pt.gate.publish(context.Background(), pt.xdsCache, XdsSnapWrapper{snap: published, proxyKey: publishGateTestClient}))
+ 
+-	// The flip: routes now target cluster-new, whose CLA was never derived.
++	// Retarget to cluster-new before its CLA derives.
+ 	newCluster := edsClusterForClient(newTestUcc(publishGateTestClient), "cluster-new", 3)
+ 	flipSnap := &envoycache.Snapshot{}
+ 	flipSnap.Resources[envoycachetypes.Listener] = listeners
+@@ -266,8 +248,7 @@
+ 	flipWrap = XdsSnapWrapper{
+ 		snap:     flipSnap,
+ 		proxyKey: publishGateTestClient,
+-		// cluster-new's CLA was never derived: the empty CLA in the snapshot
+-		// mirrors the synthesized placeholder the transform would emit.
++		// Mirror the synthesized placeholder for cluster-new's underived CLA.
+ 		missingEndpointsReferenced: []string{"cluster-new"},
+ 	}
+ 	return published.GetVersion(resourcev3.RouteType), flipWrap
+@@ -282,9 +263,8 @@
+ 	return snap
+ }
+ 
+-// A held route flip is released at budget expiry: the new routes publish and
+-// the still-unready cluster's routes fail until it becomes ready, instead of
+-// pinning every route/listener/secret update forever (#14352).
++// Release the held flip at expiry so an unresolved target cannot pin every
++// route, listener and secret update (#14352).
+ func TestFlipRelease_HeldFlipPublishesAtBudget(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
+ 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
+@@ -306,8 +286,7 @@
+ 	assertSnapshotCoherent(t, released)
+ }
+ 
+-// Releasing a flip onto a cluster absent from CDS must also unblock later
+-// route/listener/secret updates while that cluster remains missing.
++// Releasing a missing-CDS flip must also allow later route/listener/secret updates.
+ func TestFlipRelease_MissingClusterDoesNotHoldSubsequentUpdates(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -320,7 +299,7 @@
+ 	pt.syncXds(context.Background(), flipWrap)
+ 	require.Equal(t, heldRouteVersion, servedSnapshot(t, pt).GetVersion(resourcev3.RouteType))
+ 
+-	// Fire the release directly to exercise expiry without timing-dependent assertions.
++	// Invoke expiry directly to avoid timing-dependent assertions.
+ 	pt.gate.mu.Lock()
+ 	pending := pt.gate.pendingFlips[publishGateTestClient]
+ 	if pending != nil {
+@@ -353,15 +332,14 @@
+ 	}
+ }
+ 
+-// A build that resolves the flip (endpoints derived, snapshot coherent)
+-// cancels the pending release; the expired timer must not overwrite it.
++// Coherent recovery cancels the release; its callback must not overwrite recovery.
+ func TestFlipRelease_ResolvedFlipCancelsPending(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 100*time.Millisecond)
+ 	_, flipWrap := flipHoldFixture(t, pt)
+ 
+ 	pt.syncXds(context.Background(), flipWrap)
+ 
+-	// The gap resolves before expiry: the same flip arrives coherent.
++	// Resolve the same flip before expiry.
+ 	resolved := flipWrap
+ 	resolved.missingEndpointsReferenced = nil
+ 	resolvedSnap := &envoycache.Snapshot{}
+@@ -379,7 +357,7 @@
+ 		"a canceled flip-release timer must not overwrite the resolved snapshot")
+ }
+ 
+-// A departed client's pending flip release must not fire.
++// A departed client's flip-release timer must not install a snapshot.
+ func TestFlipRelease_DepartureCancelsPending(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 50*time.Millisecond)
+ 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
+@@ -392,8 +370,7 @@
+ 		"a departed client's pending flip release must not fire")
+ }
+ 
+-// KGW_PER_CLIENT_PUBLISH_BUDGET=0 also disables the flip-release bound: the
+-// hold lasts until the flip resolves.
++// KGW_PER_CLIENT_PUBLISH_BUDGET=0 holds flips until resolution.
+ func TestFlipRelease_BudgetZeroDisablesBound(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 0)
+ 	heldRouteVersion, flipWrap := flipHoldFixture(t, pt)
+@@ -408,10 +385,8 @@
+ 
+ // --- connection scope, stale timers, synthesized CLAs ---
+ 
+-// A client that left and came back is not resolved against the snapshot the
+-// gate published before it left: the entry may predate what the client runs.
+-// It is withheld as a first publish instead, and that bound still fires even
+-// though the cache still holds the old entry.
++// Ignore the pre-departure cache entry after reconnect; the client may hold
++// newer config. The first-publication budget still applies.
+ func TestFirstPublish_ReconnectIgnoresEntryFromPreviousConnection(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 100*time.Millisecond)
+ 	ctx := context.Background()
+@@ -434,8 +409,8 @@
+ 		"the bounded first publish must fire although the cache holds the previous connection's entry")
+ }
+ 
+-// A first-publish timer whose callback waited on the gate lock while its
+-// episode ended and a new one began must not publish the new episode early.
++// An old first-publication callback blocked on the lock must not release
++// a newer episode early.
+ func TestFirstPublish_StaleTimerDoesNotPublishLaterEpisode(t *testing.T) {
+ 	budget := 300 * time.Millisecond
+ 	pt := newPublishGateTestTranslator(t, false, budget)
+@@ -443,7 +418,7 @@
+ 	pt.syncXds(ctx, deferredWrapperV("v1"))
+ 
+ 	pt.gate.mu.Lock()
+-	time.Sleep(budget + 100*time.Millisecond) // the first timer fired and waits on the lock
++	time.Sleep(budget + 100*time.Millisecond) // The old callback is blocked on the lock.
+ 	delete(pt.gate.pending, publishGateTestClient)
+ 	pt.gate.offerColdLocked(ctx, pt.xdsCache, deferredWrapperV("v2"))
+ 	pt.gate.mu.Unlock()
+@@ -458,8 +433,8 @@
+ 	}, 2*time.Second, 5*time.Millisecond, "the later episode publishes at its own budget")
+ }
+ 
+-// A flip-release timer whose callback waited on the gate lock while its
+-// episode ended and a new hold began must not release the new hold early.
++// An old flip-release callback blocked on the lock must not release
++// a newer episode early.
+ func TestFlipRelease_StaleTimerDoesNotReleaseLaterEpisode(t *testing.T) {
+ 	budget := 300 * time.Millisecond
+ 	pt := newPublishGateTestTranslator(t, false, budget)
+@@ -469,7 +444,7 @@
+ 	pt.syncXds(ctx, flipWrap)
+ 
+ 	pt.gate.mu.Lock()
+-	time.Sleep(budget + 100*time.Millisecond) // the first release timer fired and waits on the lock
++	time.Sleep(budget + 100*time.Millisecond) // The old release callback is blocked on the lock.
+ 	require.NoError(t, pt.gate.publishLocked(ctx, pt.xdsCache, publishGateTestClient, published, nil))
+ 	current := pt.gate.connectionSnapshotLocked(pt.xdsCache, publishGateTestClient)
+ 	require.NotNil(t, current)
+@@ -486,8 +461,7 @@
+ 	}, 2*time.Second, 5*time.Millisecond, "the later hold releases at its own budget")
+ }
+ 
+-// A cold sibling lifts the publication hold, but does not make the warm
+-// proxies sharing its snapshot forget the endpoints they already hold.
++// A cold sibling lifts the hold without replacing warm siblings' endpoints.
+ func TestFirstPublish_SharedColdClientPreservesWarmEndpoints(t *testing.T) {
+ 	pt := newSharedKeyTestTranslator(t, true, 20*time.Millisecond, time.Minute)
+ 	wrap := deferredWrapperV("v1")
+@@ -527,9 +501,8 @@
+ 		return endpointsForClient(ucc, name, 1).Endpoints.ResourceWithTTL()
+ 	}
+ 
+-	// cluster-known had endpoints published; cluster-left-out was published
+-	// without a CLA; cluster-new was never published; cluster-derived has a
+-	// derived (empty) CLA, which is truth and is never settled.
++	// cluster-known has a published CLA; cluster-left-out has none;
++	// cluster-new is new; cluster-derived has a real empty CLA that must publish.
+ 	build := &envoycache.Snapshot{}
+ 	build.Resources[envoycachetypes.Cluster] = edsClusters("cluster-known", "cluster-left-out", "cluster-new", "cluster-derived")
+ 	build.Resources[envoycachetypes.Endpoint] = envoycache.NewResourcesWithTTL("eds", []envoycachetypes.ResourceWithTTL{
+@@ -560,9 +533,8 @@
+ 		assert.NoError(t, snapshotConsistencyError(publishGateTestClient, settled))
+ 	})
+ 	t.Run("first publish on a connection", func(t *testing.T) {
+-		// Warm or cold alike: a reconnecting proxy keeps the endpoints it holds,
+-		// and a new proxy waits for the rows instead of going Ready with zero
+-		// hosts behind clusters whose rows are still being built.
++		// On first publication, omit rebuilding rows regardless of warmth:
++		// reconnects keep endpoints and new proxies wait for derivation.
+ 		settled := settleSynthesizedEndpoints(build, synthesized, nil)
+ 		assert.Equal(t, map[string]int{"cluster-derived": 0}, served(settled),
+ 			"synthesized CLAs whose rows are on their way are left out of a connection's first publish")
+@@ -572,11 +544,9 @@
+ 	})
+ }
+ 
+-// A client whose snapshot row is deleted while it stays connected (a
+-// GatewayClass deleted and recreated, a route lookup error) still runs what
+-// was published on its connection. When the row returns lagging a cluster
+-// the client serves, that cluster is carried, not dropped by a bounded first
+-// publish; a client that really departed starts over.
++// Row withdrawal while connected preserves publication state. When the row
++// returns, carry the missing cluster rather than use bounded first publication.
++// Actual departure clears that state.
+ func TestSnapshotRowFlapKeepsConnectionState(t *testing.T) {
+ 	ucc := newTestUcc(publishGateTestClient)
+ 	full := func() *envoycache.Snapshot {
+@@ -626,10 +596,8 @@
+ 	})
+ }
+ 
+-// A cold client whose connection resets more often than the first-publish
+-// budget resumes its episode on reconnect instead of restarting it, so it
+-// still gets its bounded first publish; one that stays away longer than the
+-// budget starts a fresh episode.
++// Reconnect within a budget resumes first publication; a longer departure
++// starts a new episode.
+ func TestFirstPublish_BudgetResumesAcrossBriefDepartures(t *testing.T) {
+ 	const budget = 400 * time.Millisecond
+ 	ctx := context.Background()
+@@ -661,8 +629,7 @@
+ 	})
+ }
+ 
+-// installThenFailCache installs every snapshot and then reports the error
+-// go-control-plane returns when it cannot answer an open watch.
++// installThenFailCache simulates successful installation followed by a watch error.
+ type installThenFailCache struct {
+ 	envoycache.SnapshotCache
+ }
+@@ -674,10 +641,8 @@
+ 	return context.Canceled
+ }
+ 
+-// A snapshot the cache installed is what the client is served from then on,
+-// even if answering an open watch failed, so the gate's bookkeeping follows
+-// the installation: the bounded first publish counts as published, and a
+-// held flip still gets its release bound.
++// Bookkeeping follows cache installation despite a watch error: complete
++// first publication and retain the held flip's release deadline.
+ func TestSetSnapshotErrorAfterInstallKeepsBookkeeping(t *testing.T) {
+ 	ctx := context.Background()
+ 	newTranslator := func(budget time.Duration) *ProxyTranslator {
+@@ -705,10 +670,8 @@
+ 	})
+ }
+ 
+-// A published client keeps being sent the last config of a referenced cluster
+-// that went missing from CDS (make-before-break), but not past the warm
+-// withhold bound: after it the cluster is dropped and routes to it fail,
+-// rather than serving endpoints that old indefinitely.
++// Drop a missing referenced cluster after the carry bound rather than retain
++// its old endpoints indefinitely.
+ func TestCarryOfAMissingClusterIsBounded(t *testing.T) {
+ 	ResetMetrics()
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+@@ -753,8 +716,7 @@
+ 		labelsWith("mode", boundedPublishCarryExpired)))
+ }
+ 
+-// carryTestBuild is a snapshot whose routes target routeTargets and whose CDS
+-// and EDS hold clusters, for the carry-expiry tests.
++// carryTestBuild supplies routeTargets and cluster/CLA pairs for carry tests.
+ func carryTestBuild(t *testing.T, version string, routeTargets []string, clusters ...string) *envoycache.Snapshot {
+ 	t.Helper()
+ 	ucc := newTestUcc(publishGateTestClient)
+@@ -777,9 +739,7 @@
+ 	return snap
+ }
+ 
+-// With no build after the one that started carrying a cluster, the bound is
+-// still enforced: a backend deleted while routes still name it is a quiet
+-// input, and nothing else would ever re-resolve the client.
++// Enforce carry expiry even when a deleted backend produces no further builds.
+ func TestCarryExpiresWithoutAnotherBuild(t *testing.T) {
+ 	ResetMetrics()
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+@@ -807,10 +767,8 @@
+ 		labelsWith("mode", boundedPublishCarryExpired)))
+ }
+ 
+-// A carry ends when its cluster comes back. If the cluster goes missing again
+-// later, that is a new episode: it is carried for a fresh bound, not dropped at
+-// once because an earlier episode started long ago. The recovery here is a
+-// coherent build, which never runs the deferred path's carry bookkeeping.
++// Coherent recovery ends the carry episode, even outside deferred resolution.
++// A later disappearance must get a fresh bound.
+ func TestCarryStartsFreshAfterTheClusterRecovers(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+ 	pt.gate.warmWithholdBound = 80 * time.Millisecond
+@@ -826,9 +784,9 @@
+ 	pt.syncXds(ctx, XdsSnapWrapper{snap: carryTestBuild(t, "v1", routed, "cluster-a", "cluster-b"), proxyKey: publishGateTestClient})
+ 	pt.syncXds(ctx, lagging("v2"))
+ 	time.Sleep(30 * time.Millisecond)
+-	// It recovers: a coherent build has it again.
++	// Recover in a coherent build.
+ 	pt.syncXds(ctx, XdsSnapWrapper{snap: carryTestBuild(t, "v3", routed, "cluster-a", "cluster-b"), proxyKey: publishGateTestClient})
+-	time.Sleep(70 * time.Millisecond) // past the bound measured from the first episode's start
++	time.Sleep(70 * time.Millisecond) // Pass the first episode's deadline.
+ 
+ 	pt.syncXds(ctx, lagging("v4"))
+ 	served := servedSnapshot(t, pt)
+@@ -841,9 +799,7 @@
+ 	}, 2*time.Second, 5*time.Millisecond, "and still ends at its own bound")
+ }
+ 
+-// A carry expiry re-publishes the client's latest build only. Once a later
+-// build has superseded the one that carried, the expiry must not bring the
+-// older one back.
++// Carry expiry must not restore a build superseded by a later publication.
+ func TestCarryExpiryNeverRepublishesAnOlderBuild(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+ 	pt.gate.warmWithholdBound = 20 * time.Millisecond
+@@ -854,16 +810,14 @@
+ 		snap: carryTestBuild(t, "v2", []string{"cluster-a", "cluster-b"}, "cluster-a"), proxyKey: publishGateTestClient,
+ 		missingReferenced: []string{"cluster-b"},
+ 	})
+-	// The route stops naming the missing cluster: a coherent build.
++	// A coherent build removes the missing target.
+ 	pt.syncXds(ctx, XdsSnapWrapper{snap: carryTestBuild(t, "v3", []string{"cluster-a"}, "cluster-a"), proxyKey: publishGateTestClient})
+ 
+ 	time.Sleep(100 * time.Millisecond)
+ 	assert.Equal(t, "v3", servedSnapshot(t, pt).GetVersion(resourcev3.ListenerType), "the superseded build is not re-published")
+ }
+ 
+-// A held flip carries its whole published closure, but not a cluster that has
+-// been carried for the bound: publishing it again would make it look freshly
+-// carried to the next build, which would carry it for another full bound.
++// Held closure must exclude expired carries, or later builds restart their bounds.
+ func TestHeldFlipDoesNotCarryAnExpiredCluster(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, time.Hour)
+ 	pt.gate.warmWithholdBound = 50 * time.Millisecond
+@@ -875,12 +829,11 @@
+ 		missingReferenced: []string{"cluster-b"},
+ 	})
+ 	pt.gate.mu.Lock()
+-	pt.gate.cancelCarryExpiryLocked(publishGateTestClient) // let the held build below be the one that expires it
++	pt.gate.cancelCarryExpiryLocked(publishGateTestClient) // Let the held build below observe expiry.
+ 	pt.gate.mu.Unlock()
+ 	time.Sleep(60 * time.Millisecond)
+ 
+-	// Past the bound, a build that also moves a route onto a cluster the
+-	// client has never had: the flip is held, with its published closure.
++	// After expiry, add a new target whose gap holds the flip and published closure.
+ 	pt.syncXds(ctx, XdsSnapWrapper{
+ 		snap:              carryTestBuild(t, "v3", []string{"cluster-a", "cluster-b", "cluster-new"}, "cluster-a"),
+ 		proxyKey:          publishGateTestClient,
+@@ -894,11 +847,8 @@
+ 	assert.False(t, hasCLA)
+ }
+ 
+-// Resolving a deferred build finds the published routing targets by walking
+-// the published listeners' filter chains, under the gate's single lock. The
+-// walk is memoized by the identity of the published routes and listeners, so
+-// builds that keep them reuse it, while different routing config, even under
+-// a reused version label, is walked afresh.
++// Memoize routing targets by immutable map identity under the gate lock.
++// Reuse the walk for retained maps, but not different content with reused labels.
+ func TestPublishedReferencedClustersIsMemoizedByIdentity(t *testing.T) {
+ 	memo := &referencedClustersMemo{}
+ 	routesA := routeResourcesForClusters("cluster-a")
+@@ -918,7 +868,7 @@
+ 	assert.Equal(t, 1, walks, "the same routing config is walked once")
+ 
+ 	routesB := routeResourcesForClusters("cluster-b")
+-	routesB.Version = routesA.Version // a reused label must not alias different content
++	routesB.Version = routesA.Version // Reused labels must not alias different content.
+ 	assert.Equal(t, map[string]struct{}{"cluster-b": {}}, refsOf(routesB))
+ 	assert.Equal(t, 2, walks)
+ }
+diff --git a/pkg/kgateway/proxy_syncer/warm_withhold_test.go b/pkg/kgateway/proxy_syncer/warm_withhold_test.go
+--- a/pkg/kgateway/proxy_syncer/warm_withhold_test.go
++++ b/pkg/kgateway/proxy_syncer/warm_withhold_test.go
+@@ -14,16 +14,14 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/metrics/metricstest"
+ )
+ 
+-// newWarmWithholdTestTranslator builds a gate for a warm client (it reported a
+-// prior xDS version) with the given budget and warm withhold bound.
++// newWarmWithholdTestTranslator sets a warm client's publication and hold bounds.
+ func newWarmWithholdTestTranslator(t *testing.T, budget, bound time.Duration) *ProxyTranslator {
+ 	pt := newPublishGateTestTranslator(t, true, budget)
+ 	pt.gate.warmWithholdBound = bound
+ 	return pt
+ }
+ 
+-// warmWithheldCount reads the gate's count of currently withheld warm clients
+-// across all gateways.
++// warmWithheldCount totals warm holds across gateways.
+ func warmWithheldCount(pt *ProxyTranslator) int {
+ 	pt.gate.mu.Lock()
+ 	defer pt.gate.mu.Unlock()
+@@ -34,9 +32,7 @@
+ 	return n
+ }
+ 
+-// A warm client withheld for missing clusters is published once the bound is
+-// reached, even when no further deferred build arrives to re-arm the timer:
+-// the permanent case is exactly the one with static inputs.
++// Enforce the warm bound with static inputs and no further build events.
+ func TestWarmWithhold_ReleasedAtBoundWithStaticInputs(t *testing.T) {
+ 	ResetMetrics()
+ 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+@@ -72,8 +68,7 @@
+ 	})
+ }
+ 
+-// With the bound at 0 the warm withhold has no deadline, and the client stays
+-// counted as withheld.
++// A zero warm bound allows indefinite holds while retaining the gauge count.
+ func TestWarmWithhold_BoundZeroWithholdsWithoutDeadline(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, 0)
+ 
+@@ -86,8 +81,7 @@
+ 	assert.Equal(t, 1, warmWithheldCount(pt))
+ }
+ 
+-// If the missing clusters appear while endpoints are still underived, the
+-// warm-truth publish happens at the next budget check, not at the bound.
++// Once missing CDS arrives, publish at the next budget check despite underived CLAs.
+ func TestWarmWithhold_MissingClustersResolvedPublishesTruthPromptly(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, time.Minute)
+ 
+@@ -139,8 +133,7 @@
+ 	assert.False(t, ok, "a departed client must not be released at the bound")
+ }
+ 
+-// mutablePriorXDS models a client key whose warm mark can change between
+-// budget checks: the mark is cleared when every stream under the key closes.
++// mutablePriorXDS models warm status clearing when the key's warm streams close.
+ type mutablePriorXDS struct {
+ 	mu  sync.Mutex
+ 	has bool
+@@ -158,8 +151,7 @@
+ 	m.has = has
+ }
+ 
+-// The bound measures the whole withhold episode: a change in WHICH clusters
+-// are missing must not restart it.
++// Changing the missing-cluster set must not restart the warm episode.
+ func TestWarmWithhold_ChangingMissingSetDoesNotRestartBound(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, 250*time.Millisecond)
+ 	start := time.Now()
+@@ -180,8 +172,7 @@
+ 		"the bound must run from the first withhold, not from the latest change in missing clusters")
+ }
+ 
+-// A cold client is never counted as a withheld warm client, even while it
+-// waits out the first-publish budget.
++// Cold clients awaiting first publication do not count as warm holds.
+ func TestWarmWithhold_ColdClientNeverCounted(t *testing.T) {
+ 	pt := newPublishGateTestTranslator(t, false, 40*time.Millisecond)
+ 
+@@ -194,9 +185,8 @@
+ 	assert.Zero(t, warmWithheldCount(pt))
+ }
+ 
+-// The warm mark is read at every budget check, not latched at the first one:
+-// once the key stops being warm (every stream that reported a prior version
+-// has closed), the next check publishes as a first publish.
++// Recheck warmth at each budget. Once all held-version streams close, release
++// the key as a first publication.
+ func TestWarmWithhold_MarkClearedPublishesAtNextCheck(t *testing.T) {
+ 	prior := &mutablePriorXDS{has: true}
+ 	pt := newPublishGateTestTranslator(t, true, 20*time.Millisecond)
+@@ -217,8 +207,8 @@
+ 	assert.Zero(t, warmWithheldCount(pt))
+ }
+ 
+-// Once a warm client has been released, later builds resolve per cluster
+-// against what was published; the cold-path withhold never applies again.
++// After release, resolve later builds against this connection's published
++// snapshot instead of restarting first publication.
+ func TestWarmWithhold_AfterReleaseLaterBuildsResolvePerCluster(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, 60*time.Millisecond)
+ 
+@@ -237,9 +227,7 @@
+ 	assert.Zero(t, warmWithheldCount(pt))
+ }
+ 
+-// A stream that flaps (closes and reconnects under the same key) while the
+-// client is withheld must not restart the bound: a client whose connection
+-// resets more often than the bound would otherwise never be released.
++// Reconnect must resume the warm episode so repeated resets cannot extend it forever.
+ func TestWarmWithhold_ReconnectDuringWithholdDoesNotRestartBound(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, 250*time.Millisecond)
+ 	start := time.Now()
+@@ -250,8 +238,7 @@
+ 			break
+ 		}
+ 		time.Sleep(100 * time.Millisecond)
+-		// The last stream closes (its snapshot row is deleted) and the
+-		// proxy reconnects, still holding the config it had.
++		// Close the last stream and reconnect with its held config.
+ 		pt.gate.clientDeparted(publishGateTestClient)
+ 		pt.syncXds(context.Background(), deferredWrapperV("v1"))
+ 	}
+@@ -259,8 +246,8 @@
+ 	assert.True(t, ok, "a client that keeps reconnecting while withheld must still be released at the bound")
+ }
+ 
+-// sharedKeyClients models a key with warm proxies and, optionally, a proxy
+-// holding no config that has waited a full budget under the same key.
++// sharedKeyClients models warm proxies and an optional cold proxy that has
++// waited a budget under the same key.
+ type sharedKeyClients struct{ coldWaited bool }
+ 
+ func (sharedKeyClients) HasPriorXDSVersion(string) bool { return true }
+@@ -274,9 +261,8 @@
+ 	return pt
+ }
+ 
+-// A proxy holding no config that shares the key with warm proxies is published
+-// to once it has waited a budget: otherwise it has no listeners and
+-// crash-loops on behalf of its warm siblings.
++// A cold proxy sharing a warm key must receive a bounded first snapshot
++// so the warm siblings do not block its startup.
+ func TestWarmWithhold_ColdProxySharingKeyIsPublishedTo(t *testing.T) {
+ 	for _, bound := range []time.Duration{time.Minute, 0} {
+ 		t.Run(fmt.Sprintf("bound=%s", bound), func(t *testing.T) {
+@@ -306,8 +292,7 @@
+ 	assert.Equal(t, 1, warmWithheldCount(pt))
+ }
+ 
+-// A proxy that stays away longer than the bound starts a fresh episode when it
+-// returns: only reconnects within the bound resume the old one.
++// Departures shorter than the bound resume the warm episode; longer ones restart it.
+ func TestWarmWithhold_LongAbsenceStartsFreshEpisode(t *testing.T) {
+ 	pt := newWarmWithholdTestTranslator(t, 20*time.Millisecond, 200*time.Millisecond)
+ 
+@@ -343,8 +328,8 @@
+ 	assert.False(t, remembered, "a publish must drop the remembered episode")
+ }
+ 
+-// The client state the syncer is given must expose the cold-proxy check;
+-// without it, a cold proxy sharing a warm key is never published to.
++// Expose the cold-stream check through the syncer's client state so a cold
++// proxy can lift a shared warm hold.
+ func TestWarmWithhold_ClientStateReportsColdProxies(t *testing.T) {
+ 	_, _, state := krtcollections.NewUniquelyConnectedClients(nil, false)
+ 	_, ok := state.(coldStreamReader)
+diff --git a/pkg/kgateway/proxy_syncer/xdswrapper.go b/pkg/kgateway/proxy_syncer/xdswrapper.go
+--- a/pkg/kgateway/proxy_syncer/xdswrapper.go
++++ b/pkg/kgateway/proxy_syncer/xdswrapper.go
+@@ -24,48 +24,32 @@
+ 
+ type XdsSnapWrapper struct {
+ 	snap *envoycache.Snapshot
+-	// erroredClusters lists clusters whose current translation failed. The
+-	// publish-time per-cluster resolution treats them fail-closed: they are
+-	// never resurrected from the previously-published snapshot (see
+-	// resolveDeferredPerCluster).
++	// erroredClusters lists failed translations. Resolution never carries their
++	// old config (resolveDeferredPerCluster).
+ 	// +noKrtEquals
+ 	erroredClusters []string
+ 	// +noKrtEquals
+ 	proxyKey string
+-	// missingReferenced lists referenced clusters absent from this snapshot's
+-	// CDS (translation lagging, or the backend is gone). Sorted.
++	// missingReferenced lists targets absent from CDS due to lag or removal. Sorted.
+ 	missingReferenced []string
+-	// missingEndpointsReferenced lists referenced EDS clusters whose CLA was
+-	// not derived by the per-client endpoints collection; a synthesized empty
+-	// stands in for it in the snapshot, and whether the backend has endpoints
+-	// is unknown (the client's per-client rows are still being built, or a
+-	// plugin contributed an EDS cluster without an endpoints row; kube
+-	// Services always derive a row, even sliceless ones like ExternalName).
+-	// A derived-but-empty CLA is the backend's known truth and is NOT listed
+-	// (#14352). Sorted.
++	// missingEndpointsReferenced lists referenced EDS clusters with underived CLA
++	// rows and synthesized placeholders. Derived empty CLAs are known backend
++	// state and excluded (#14352). Services derive rows even without slices;
++	// plugin-provided EDS clusters may never get one. Sorted.
+ 	missingEndpointsReferenced []string
+-	// synthesizedEndpoints lists every EDS resource whose CLA in snap is a
+-	// synthesized empty standing in for a per-client row that is still being
+-	// built (some backend derives endpoints for it), referenced or not. The
+-	// publish gate decides which of them the client receives
+-	// (settleSynthesizedEndpoints). A synthesized CLA with no endpoints source
+-	// at all is the cluster's steady state and is not listed. Sorted.
++	// synthesizedEndpoints lists placeholder CLAs with pending source rows,
++	// including unreferenced ones. The gate settles them before installation.
++	// Source-less empty CLAs are steady state and excluded. Sorted.
+ 	synthesizedEndpoints []string
+-	// expiredCarry lists clusters the publish gate stopped carrying at the
+-	// warm withhold bound; resolution must not carry them back with a held
+-	// flip's closure. Set only on the gate's copy of a wrapper, never on a KRT
+-	// row. Sorted.
++	// expiredCarry prevents held closure from restoring expired clusters.
++	// Set only on gate-local wrapper copies, never KRT rows. Sorted.
+ 	// +noKrtEquals
+ 	expiredCarry []string
+ }
+ 
+-// deferred reports whether the snapshot was built while some referenced
+-// cluster was not ready. syncXds resolves such a snapshot per cluster against
+-// the snapshot published on the client's current connection:
+-// previously-published clusters are carried forward, previously-referenced
+-// clusters whose CLA row is not derived keep the endpoints the client holds,
+-// and a route flip onto a newly-referenced not-yet-derived cluster is held
+-// back for at most the publish budget (see publishGate).
++// deferred reports missing referenced CDS or underived CLA rows. syncXds
++// resolves against this connection's snapshot, carrying missing clusters,
++// retaining held endpoints and bounding flips to new underived targets.
+ func (p XdsSnapWrapper) deferred() bool {
+ 	return len(p.missingReferenced) > 0 || len(p.missingEndpointsReferenced) > 0
+ }
+@@ -84,18 +68,12 @@
+ 			return false
+ 		}
+ 	}
+-	// The gap classification drives publication, so it is compared directly
+-	// rather than inferred from versions: a synthesized empty CLA and a
+-	// derived-but-empty one are byte-identical protos. Without this, a wrapper
+-	// can transition deferred->ready with every version equal, KRT suppresses
+-	// the event, and syncXds keeps holding a route flip whose blocking cluster
+-	// has already derived its (empty) truth — unbounded when the publish
+-	// budget is disabled — or keeps leaving out a CLA that is now derived. The
+-	// same applies to a referenced cluster arriving errored-from-birth
+-	// (missingReferenced shrinks, no version changes).
+-	// erroredClusters needs no comparison: membership changes always change
+-	// the CDS version (an errored cluster leaves/enters the cluster items and
+-	// hash), and error-text-only changes are deliberately suppressed.
++	// Compare gap classification directly: placeholder and derived empty CLAs can
++	// have equal versions. Otherwise KRT can suppress a flip release or a newly
++	// derived CLA, indefinitely with the budget disabled. An errored-from-birth
++	// cluster can likewise shrink missingReferenced without changing a version.
++	// erroredClusters membership changes CDS items and version; error-text-only
++	// changes are intentionally ignored.
+ 	return slices.Equal(p.missingReferenced, in.missingReferenced) &&
+ 		slices.Equal(p.missingEndpointsReferenced, in.missingEndpointsReferenced) &&
+ 		slices.Equal(p.synthesizedEndpoints, in.synthesizedEndpoints)
+diff --git a/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go b/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
+--- a/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
++++ b/pkg/kgateway/proxy_syncer/xdswrapper_equals_test.go
+@@ -8,13 +8,8 @@
+ 	"github.com/stretchr/testify/assert"
+ )
+ 
+-// TestXdsSnapWrapperEquals_ComparesGapClassification pins the regression where
+-// a wrapper's deferred->ready transition was invisible to KRT: a synthesized
+-// empty CLA and a derived-but-empty CLA are byte-identical protos, so every
+-// per-type version can be unchanged while missingEndpointsReferenced shrinks.
+-// Equals must compare the gap classification itself, or the event is
+-// suppressed and syncXds never releases a held route flip whose blocking
+-// cluster derived its (empty) truth.
++// A placeholder becoming derived-empty can preserve every version.
++// Equals must compare gap classification so KRT delivers the flip release.
+ func TestXdsSnapWrapperEquals_ComparesGapClassification(t *testing.T) {
+ 	newSnap := func() *envoycache.Snapshot {
+ 		snap := &envoycache.Snapshot{}
+@@ -51,8 +46,8 @@
+ 	assert.True(t, deferredWrap.Equals(same),
+ 		"identical versions and identical classification are equal")
+ 
+-	// An unreferenced cluster's CLA turning from synthesized into derived-empty
+-	// changes nothing any version sees, but the gate stops leaving that CLA out.
++	// Deriving an unreferenced empty CLA can leave versions unchanged while
++	// changing whether the gate omits it.
+ 	synthesizedOnly := readyWrap
+ 	synthesizedOnly.synthesizedEndpoints = []string{"cluster-unreferenced"}
+ 	assert.False(t, readyWrap.Equals(synthesizedOnly),
+diff --git a/pkg/krtcollections/uniqueclients.go b/pkg/krtcollections/uniqueclients.go
+--- a/pkg/krtcollections/uniqueclients.go
++++ b/pkg/krtcollections/uniqueclients.go
+@@ -78,9 +78,7 @@
+ 	originalRole string
+ 	// connectedAt is when the stream was admitted.
+ 	connectedAt time.Time
+-	// priorXDSVersion records that a request on this stream reported config the
+-	// proxy already held from an earlier stream (a reconnect, or a proxy that
+-	// outlived a controller restart).
++	// priorXDSVersion marks held config reported from an earlier stream.
+ 	priorXDSVersion bool
+ }
+ 
+@@ -120,10 +118,9 @@
+ 	// cluster once every stream currently in that bucket has confirmed it, or the same
+ 	// full-EDS-withholding this file exists to prevent reappears for the still-old siblings.
+ 	knownLocalClusterBySid map[int64]bool
+-	// priorXDSVersions counts, per resource name, the connected streams that
+-	// reported config the proxy already held. It is per stream, not a flag per
+-	// name: when replicas share a name (pod locality off), the name must stop
+-	// being warm once the streams that reported held config have closed.
++	// priorXDSVersions counts held-version streams per resource name. Shared names
++	// (pod locality off) stop being warm when their last warm stream closes,
++	// even if cold streams remain.
+ 	priorXDSVersions map[string]int
+ 	stateLock        sync.RWMutex
+ 
+@@ -175,14 +172,10 @@
+ // If augmentedPods is nil, we won't use the pod locality info, and all pods for the same gateway will receive the same config.
+ type UniquelyConnectedClientsBuilder func(ctx context.Context, krtOpts krtutil.KrtOptions, augmentedPods krt.Collection[LocalityPod]) krt.Collection[ir.UniquelyConnectedClient]
+ 
+-// XDSClientState exposes per-client connection state derived from the xDS
+-// callbacks. HasPriorXDSVersion reports whether a stream of the client opened
+-// its listener subscription with a version it had accepted before (an empty
+-// nonce with a non-empty version) — i.e. the Envoy may already be serving
+-// config accepted on a previous stream even though this controller has not
+-// published to it (reconnect, controller restart). The mark belongs to the
+-// resource name, so it covers every stream sharing it, and lasts until the
+-// last of them closes.
++// XDSClientState exposes callback-derived connection state. HasPriorXDSVersion
++// detects an initial listener request with a non-empty version and empty nonce.
++// The proxy may hold config from another stream or controller. Warmth is
++// shared by resource name and ends when its last held-version stream closes.
+ type XDSClientState interface {
+ 	HasPriorXDSVersion(resourceName string) bool
+ }
+@@ -523,19 +516,14 @@
+ 	return nil
+ }
+ 
+-// hasPriorXDSVersion reports whether r is a stream's initial listener request
+-// carrying a version the proxy accepted before. Only listeners count: an Envoy
+-// serves traffic through its listeners, so warmth exists to protect config the
+-// proxy is serving. A proxy can hold an accepted cluster version and no
+-// listeners at all (its previous stream broke while CDS was still warming,
+-// before it requested listeners); it has nothing to protect and must start
+-// within the first-publish budget like a new proxy.
++// hasPriorXDSVersion detects an initial listener request carrying a held version.
++// CDS alone does not count: a proxy interrupted during cluster warming may
++// have no listeners and still needs bounded startup.
+ func hasPriorXDSVersion(r *envoy_service_discovery_v3.DiscoveryRequest) bool {
+ 	return r.GetTypeUrl() == resource.ListenerType && r.GetResponseNonce() == "" && r.GetVersionInfo() != ""
+ }
+ 
+-// markPriorXDSVersion records that stream sid reported held config. Each
+-// stream counts once toward its resource name.
++// markPriorXDSVersion counts each held-version stream once for its resource name.
+ func (x *callbacksCollection) markPriorXDSVersion(sid int64, resourceName string) {
+ 	x.stateLock.Lock()
+ 	defer x.stateLock.Unlock()
+@@ -562,12 +550,9 @@
+ 	return x.priorXDSVersions[resourceName] > 0
+ }
+ 
+-// HasColdStreamSince reports whether a stream that reported no held config
+-// has been connected under resourceName for at least d. When proxies share a
+-// name, such a proxy has no listeners until the shared snapshot publishes, so
+-// publication uses this to stop withholding on behalf of its warm siblings.
+-// It scans the connected streams, so call it only at publication deadlines,
+-// not per request.
++// HasColdStreamSince reports a cold stream connected under resourceName for
++// at least d. It lets a cold proxy lift a shared key's warm hold. This scans
++// streams; call only at publication deadlines, not per request.
+ func (x *callbacks) HasColdStreamSince(resourceName string, d time.Duration) bool {
+ 	c := x.collection.Load()
+ 	if c == nil {
+diff --git a/pkg/krtcollections/uniqueclients_test.go b/pkg/krtcollections/uniqueclients_test.go
+--- a/pkg/krtcollections/uniqueclients_test.go
++++ b/pkg/krtcollections/uniqueclients_test.go
+@@ -790,9 +790,8 @@
+ 	}
+ }
+ 
+-// priorVersionRequest builds a listener request on the shared test role.
+-// version is the version the proxy reports holding; nonce is empty on a
+-// stream's initial request for a type and set on follow-ups (ACKs and NACKs).
++// priorVersionRequest reports a held listener version on the test role.
++// Initial requests have no nonce; ACK/NACK follow-ups do.
+ func priorVersionRequest(role, version, nonce string) *envoy_service_discovery_v3.DiscoveryRequest {
+ 	return typedPriorVersionRequest(role, resource.ListenerType, version, nonce)
+ }
+@@ -811,10 +810,8 @@
+ 	}
+ }
+ 
+-// Only a held listener version marks a key warm. A proxy whose previous stream
+-// broke while its clusters were warming holds a cluster version but no
+-// listeners: it serves nothing, so it must not be withheld like a proxy that
+-// is serving config.
++// Only held listener versions mark warmth. CDS accepted before listener
++// discovery must not extend an unfinished proxy's startup budget.
+ func TestUniqueClientsPriorXDSVersionNeedsHeldListeners(t *testing.T) {
+ 	t.Cleanup(SetXdsFirstConnectDelayForTest(0))
+ 	g := NewWithT(t)
+@@ -834,9 +831,8 @@
+ 	g.Expect(state.HasPriorXDSVersion(role)).To(BeTrue(), "a held listener version is warm")
+ }
+ 
+-// A key is warm only when a stream's initial request reports a version it
+-// already holds; follow-up requests never mark it, and the mark ends when the
+-// key's last stream closes.
++// Only initial held-version requests mark warmth, not follow-ups.
++// Closing the key's last stream clears the mark.
+ func TestUniqueClientsPriorXDSVersionMark(t *testing.T) {
+ 	t.Cleanup(SetXdsFirstConnectDelayForTest(0))
+ 	g := NewWithT(t)
+@@ -864,10 +860,8 @@
+ 	g.Expect(state.HasPriorXDSVersion(role)).To(BeFalse(), "a later cold stream must not inherit an ended mark")
+ }
+ 
+-// When proxies share a key (pod locality off), the key must stop being warm
+-// once the streams that reported a held version have closed, even if cold
+-// streams remain. Otherwise a new proxy is withheld as if it were serving
+-// config it never received.
++// A shared key stops being warm when its last held-version stream closes,
++// even with cold streams remaining, so new proxies are not held for old config.
+ func TestUniqueClientsPriorXDSVersionEndsWithWarmStreams(t *testing.T) {
+ 	t.Cleanup(SetXdsFirstConnectDelayForTest(0))
+ 	g := NewWithT(t)
+@@ -887,8 +881,7 @@
+ 		"with only a cold stream left, the key must no longer be warm")
+ }
+ 
+-// HasColdStreamSince reports only streams that hold no config and have been
+-// connected for at least the given time, under the given key.
++// HasColdStreamSince filters by key, cold status and connection age.
+ func TestUniqueClientsHasColdStreamSince(t *testing.T) {
+ 	t.Cleanup(SetXdsFirstConnectDelayForTest(0))
+ 	g := NewWithT(t)

@@ -1,0 +1,679 @@
+diff --git a/api/settings/settings.go b/api/settings/settings.go
+--- a/api/settings/settings.go
++++ b/api/settings/settings.go
+@@ -483,20 +483,13 @@
+ 	// permanently smaller data plane.
+ 	ClusterDiscoveryMode ClusterDiscoveryMode `split_words:"true" default:"ALL"`
+ 
+-	// ClusterDereferenceGrace is how long a cluster that has left the emitted
+-	// set is still published, in REFERENCED mode only.
+-	//
+-	// Removing it the moment the last route stops naming it is unsafe in the
+-	// other direction from an addition: Envoy is delivered CDS before RDS, so
+-	// the cluster would go before the route that still targets it, and requests
+-	// in that window get 503 NC. Retaining it for a bounded period makes the
+-	// emitted set "referenced now, plus recently de-referenced", so the route
+-	// update always lands first.
+-	//
+-	// The window must exceed worst-case RDS propagation for the fleet, which is
+-	// why it is tunable rather than fixed. 0 removes clusters immediately,
+-	// which is only safe if the deployment accepts that race. Ignored in ALL
+-	// mode, where nothing is ever de-referenced.
++	// ClusterDereferenceGrace retains clusters after their last reference in
++	// REFERENCED mode. Immediate CDS removal can precede the RDS update and cause
++	// no-cluster 503s. The grace allows the route update to propagate first;
++	// elapsed time does not confirm delivery or application.
++	//
++	// Set above the fleet's worst-case RDS delay. Zero removes immediately and
++	// accepts the ordering risk. Ignored in ALL mode.
+ 	ClusterDereferenceGrace time.Duration `split_words:"true" default:"5s"`
+ 
+ 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping.go b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping.go
+@@ -20,9 +20,8 @@
+ // published snapshot is the one the syncer built.
+ type clusterScoping struct {
+ 	mode apisettings.ClusterDiscoveryMode
+-	// dereferenceGrace is how long a cluster that has left the emitted set is
+-	// still published. Meaningless with scoping off, where no cluster ever
+-	// leaves the set, so it is read only through DereferenceGrace.
++	// dereferenceGrace retains clusters after their last reference. Read through
++	// DereferenceGrace, which disables it when scoping is off.
+ 	dereferenceGrace time.Duration
+ }
+ 
+@@ -33,10 +32,8 @@
+ 	}
+ }
+ 
+-// DereferenceGrace is how long a de-referenced cluster stays published, and 0
+-// whenever CDS is not scoped: with every backend emitted unconditionally, no
+-// cluster is ever de-referenced, so there is nothing to hold on to and the gate
+-// keeps no state for it.
++// DereferenceGrace returns retention after the last reference, or zero with
++// scoping off. Unscoped discovery needs no reference-based retention state.
+ func (c clusterScoping) DereferenceGrace() time.Duration {
+ 	if !c.ScopesClusters() {
+ 		return 0
+@@ -73,8 +70,7 @@
+ 	return clusterScoping{mode: apisettings.ClusterDiscoveryReferenced}
+ }
+ 
+-// scopedClustersWithGrace is the enabled configuration with a de-reference
+-// window, for tests that exercise the removal transition.
++// scopedClustersWithGrace enables removal-window tests.
+ func scopedClustersWithGrace(grace time.Duration) clusterScoping {
+ 	s := scopedClusters()
+ 	s.dereferenceGrace = grace
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace.go b/pkg/kgateway/proxy_syncer/dereference_grace.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace.go
+@@ -9,41 +9,27 @@
+ 	envoyresourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+ )
+ 
+-// dereferenceState is one client's record of when each published cluster left
+-// the emitted set. It lives under the publish gate's lock, alongside the other
+-// per-client timed publication state.
++// dereferenceState tracks one client's removal windows under the gate lock.
+ type dereferenceState struct {
+-	// since is keyed by cluster name. An entry exists only while the cluster is
+-	// published but no longer emitted; re-referencing deletes it, so a route
+-	// that flaps keeps its cluster continuously rather than oscillating.
++	// since records when published clusters lost their references. Re-reference
++	// deletes the entry so flapping routes retain their cluster continuously.
+ 	since map[string]time.Time
+-	// wrap is the latest snapshot for this client, re-resolved when a window
+-	// closes; nothing else recomputes it merely because time passed.
++	// wrap is the latest build to re-resolve at expiry; time alone produces no KRT event.
+ 	wrap  XdsSnapWrapper
+ 	timer *time.Timer
+-	// epoch identifies the latest arming. A callback whose timer was
+-	// re-armed or cancelled after it started acts only if both its state and
+-	// its epoch are still current.
++	// epoch identifies the arming. A callback must match both current state and epoch
++	// after a timer is replaced or canceled.
+ 	epoch uint64
+ }
+ 
+-// graceDereferencedClusters decides which of the currently-published clusters a
+-// build has stopped emitting should still be published, and reports when the
+-// oldest of them expires.
++// graceDereferencedClusters retains published clusters within their removal
++// windows and returns the earliest expiry. Immediate CDS removal can precede
++// the RDS update, causing no-cluster 503s. Ordered ADS is not a removal barrier;
++// the grace gives old routes time to stop referencing the cluster, without
++// confirming delivery or application.
+ //
+-// Removing a de-referenced cluster the moment the last route stops naming it is
+-// unsafe in the opposite direction from adding one. Envoy is delivered CDS
+-// before RDS, so the cluster would go out before the route that still targets
+-// it, and requests in that window get 503 NC. Retaining it briefly makes the
+-// emitted set "referenced now, plus recently de-referenced", which puts the
+-// route update first without depending on delivery order at all.
+-//
+-// The window is the removal-side fix regardless of how CDS and RDS are ordered
+-// on the wire, which is why it is not replaced by ordered ADS: ordered ADS
+-// fixes CDS before RDS, and that is exactly the wrong order here.
+-//
+-// Callers must hold the gate lock. A zero grace disables retention, and a
+-// client with no state allocates none.
++// Callers must hold the gate lock. Zero disables retention; inactive clients
++// allocate no state.
+ func (g *publishGate) graceDereferencedClustersLocked(
+ 	proxyKey string,
+ 	published envoycache.ResourceSnapshot,
+@@ -57,12 +43,8 @@
+ 	publishedClusters := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
+ 	state := g.dereferenced[proxyKey]
+ 	if state != nil {
+-		// A record outlives its cluster when the carry declined to keep it (it
+-		// errored, and errored clusters are never resurrected): the cluster is
+-		// gone from the client, but its record would keep the state, and the
+-		// timer that re-publishes state.wrap, alive past later publishes that
+-		// never refreshed it, and would deny the cluster's next genuine
+-		// de-reference its window. Records exist only for published clusters.
++		// Drop records for clusters no longer published, including failed carries.
++		// Stale records retain old timer builds and deny later removals a fresh grace.
+ 		for name := range state.since {
+ 			if _, stillPublished := publishedClusters[name]; !stillPublished {
+ 				delete(state.since, name)
+@@ -74,9 +56,7 @@
+ 	var soonest time.Duration
+ 	for name := range publishedClusters {
+ 		if _, stillEmitted := building.Items[name]; stillEmitted {
+-			// Re-referenced (or never de-referenced): drop any record, so the
+-			// next de-reference starts a fresh window rather than inheriting an
+-			// expired one.
++			// Re-reference ends this window; a later removal gets a fresh one.
+ 			if state != nil {
+ 				delete(state.since, name)
+ 			}
+@@ -95,8 +75,7 @@
+ 
+ 		remaining := g.dereferenceGrace - now.Sub(left)
+ 		if remaining <= 0 {
+-			// Grace elapsed: stop publishing it, and forget it so a later
+-			// re-reference is a fresh addition rather than an expired removal.
++			// Expiry ends retention; a later return is a fresh addition.
+ 			delete(state.since, name)
+ 			continue
+ 		}
+@@ -115,14 +94,9 @@
+ 	return graced, soonest
+ }
+ 
+-// armDereferenceTimerLocked schedules the re-publish that actually removes a
+-// graced cluster. Without it, a cluster whose grace expires would linger until
+-// something else about the client changed: nothing recomputes a client's
+-// snapshot merely because time passed.
+-//
+-// The timer is re-armed to the soonest remaining expiry on every publish, so a
+-// second de-reference during an open window does not extend the first one's.
+-// Callers must hold the gate lock.
++// armDereferenceTimerLocked schedules pruning even without new input events.
++// Re-arm at the earliest remaining expiry on every publication so later
++// removals cannot extend earlier windows. Callers must hold the gate lock.
+ func (g *publishGate) armDereferenceTimerLocked(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -154,16 +128,13 @@
+ 	}
+ }
+ 
+-// fireDereferencePrune re-publishes the client's latest snapshot now that a
+-// grace window has closed, under the same lock as every other publication, so
+-// pruning cannot race a coherent publish. It acts only for the arming that
+-// scheduled it: a callback already waiting on the lock when its timer was
+-// re-armed or cancelled, or its state replaced, does nothing.
++// fireDereferencePrune re-resolves the latest build under the gate lock.
++// Ignore callbacks whose state or arming epoch was replaced or canceled.
+ func (g *publishGate) fireDereferencePrune(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, state *dereferenceState, epoch uint64) {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+ 	if g.dereferenced[proxyKey] != state || state.epoch != epoch {
+-		return // superseded: re-armed, cancelled, or every graced cluster was re-referenced
++		return // Superseded by re-arming, cancellation or re-reference of every cluster.
+ 	}
+ 	if state.wrap.snap == nil {
+ 		// Defensive: every arming stores the build it re-publishes.
+@@ -179,9 +150,8 @@
+ 	wrap := state.wrap
+ 	graced, soonest := g.graceDereferencedClustersLocked(
+ 		proxyKey, published, wrap.snap.Resources[envoycachetypes.Cluster], time.Now())
+-	// Keep a held flip held: its own bound (the flip release) decides when it
+-	// goes out. Re-resolving with holds disabled would release it at this
+-	// grace instead, onto a cluster that may still be unready.
++	// Preserve the flip's independent hold; this removal timer must not release
++	// a route onto an unready cluster early.
+ 	holding := g.pendingFlips[proxyKey] != nil
+ 	resolved, _, edsHashes := resolveDeferredPerCluster(wrap, published, holding, graced, g.lastPublishedEDSLocked(proxyKey))
+ 	logger.Debug("de-reference grace elapsed; re-publishing without the expired clusters",
+@@ -193,19 +163,13 @@
+ 	g.armDereferenceTimerLocked(ctx, cache, proxyKey, wrap, soonest)
+ }
+ 
+-// retainsDereferenced reports whether any cluster can outlive its last
+-// reference. False is the whole feature switched off, and the coherent publish
+-// path stays exactly as it was.
++// retainsDereferenced reports an enabled removal grace; false leaves the
++// coherent publication path unchanged.
+ func (g *publishGate) retainsDereferenced() bool { return g.dereferenceGrace > 0 }
+ 
+-// publishWithDereferenceGrace publishes a coherent snapshot, carrying forward
+-// the clusters whose grace window is still open.
+-//
+-// A removal is coherent by construction, so it never reaches the deferred
+-// resolution path; this is the removal side's equivalent, and it holds nothing:
+-// routes, listeners and secrets are published as built. The only difference
+-// from a plain publish is that clusters which just left the emitted set, and
+-// their ClusterLoadAssignments, are still in the snapshot.
++// publishWithDereferenceGrace carries clusters and CLAs within their removal
++// windows while publishing routes, listeners and secrets as built. A removal
++// can be coherent, so it needs this path rather than deferred resolution.
+ func (g *publishGate) publishWithDereferenceGrace(
+ 	ctx context.Context,
+ 	cache envoycache.SnapshotCache,
+@@ -213,15 +177,14 @@
+ ) error {
+ 	g.mu.Lock()
+ 	defer g.mu.Unlock()
+-	// A new build, like those publish and resolveDeferred take.
++	// Process a new build, as publish and resolveDeferred do.
+ 	if !g.beginBuildLocked(snapWrap) {
+ 		return nil
+ 	}
+ 
+ 	published := g.connectionSnapshotLocked(cache, snapWrap.proxyKey)
+ 	if published == nil {
+-		// Never published: there is nothing to carry forward, and nothing can
+-		// have been de-referenced yet.
++		// No installation on this connection means nothing can be carried.
+ 		return g.publishLocked(ctx, cache, snapWrap.proxyKey, snapWrap.snap, snapWrap.synthesizedEndpoints, snapWrap.endpointHashes)
+ 	}
+ 
+@@ -232,9 +195,7 @@
+ 	}
+ 
+ 	resolved, _, edsHashes := resolveDeferredPerCluster(snapWrap, published, false, graced, g.lastPublishedEDSLocked(snapWrap.proxyKey))
+-	// Through publishLocked like any other publish without a hold: this build
+-	// supersedes a pending first publish or flip release, whose timer would
+-	// otherwise re-publish its older build when it fires.
++	// Use publishLocked to cancel superseded first-publication and flip timers.
+ 	if err := g.publishLocked(ctx, cache, snapWrap.proxyKey, resolved, snapWrap.synthesizedEndpoints, edsHashes); err != nil {
+ 		return err
+ 	}
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace_test.go b/pkg/kgateway/proxy_syncer/dereference_grace_test.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace_test.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace_test.go
+@@ -16,9 +16,7 @@
+ 	"github.com/stretchr/testify/require"
+ )
+ 
+-// clusterWrapperV builds a coherent wrapper publishing exactly these clusters,
+-// each with its ClusterLoadAssignment, so a carried-forward cluster can be
+-// checked to bring its endpoints with it.
++// clusterWrapperV builds a coherent cluster/CLA set to test retained endpoints.
+ func clusterWrapperV(version string, clusters ...string) XdsSnapWrapper {
+ 	clusterItems := make([]envoycachetypes.ResourceWithTTL, 0, len(clusters))
+ 	endpointItems := make([]envoycachetypes.ResourceWithTTL, 0, len(clusters))
+@@ -76,11 +74,8 @@
+ 	require.Empty(t, pt.gate.dereferenced, "a first publication has no previous references to retain")
+ }
+ 
+-// TestDereferenceGraceKeepsTheClusterUntilTheWindowCloses is the removal-side
+-// guarantee. Envoy is delivered CDS before RDS, so dropping a de-referenced
+-// cluster in the same snapshot as the route that stopped naming it sends the
+-// removal first and 503s the gap. The cluster must survive the publish that
+-// de-references it, and disappear on its own afterwards.
++// Retain the cluster in the dereferencing snapshot, then remove it at expiry
++// without another build. This checks cache transitions, not Envoy ordering.
+ func TestDereferenceGraceKeepsTheClusterUntilTheWindowCloses(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 100*time.Millisecond)
+ 	ctx := context.Background()
+@@ -104,8 +99,7 @@
+ 		"the pruned cluster's CLA must go with it, or the EDS set outlives its CDS entry")
+ }
+ 
+-// TestDereferenceGraceIsDisabledByZero: an operator who accepts the removal
+-// race gets today's immediate behavior, and the gate keeps no state for it.
++// Zero grace removes immediately without allocating retention state.
+ func TestDereferenceGraceIsDisabledByZero(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 0)
+ 	ctx := context.Background()
+@@ -117,10 +111,7 @@
+ 	assert.Empty(t, pt.gate.dereferenced, "a disabled grace must not allocate per-client state")
+ }
+ 
+-// TestDereferenceGraceDoesNotOscillateOnAFlappingRoute: a route that flips away
+-// and back must leave the cluster continuously published. If re-referencing did
+-// not clear the record, the original window would still expire and prune a
+-// cluster the configuration currently names.
++// Re-reference clears the old expiry so a flapping route keeps its cluster.
+ func TestDereferenceGraceDoesNotOscillateOnAFlappingRoute(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 60*time.Millisecond)
+ 	ctx := context.Background()
+@@ -132,15 +123,13 @@
+ 	assert.Empty(t, pt.gate.dereferenced[publishGateTestClient],
+ 		"re-referencing must clear the record, not leave a window running")
+ 
+-	// Well past the original window: the cluster is referenced, so it stays.
++	// Keep the referenced cluster past its original removal deadline.
+ 	time.Sleep(150 * time.Millisecond)
+ 	assert.ElementsMatch(t, []string{"kept", "flapping"}, publishedClusterNames(t, pt),
+ 		"an expired window from an earlier de-reference must not prune a currently-referenced cluster")
+ }
+ 
+-// TestDereferenceGraceForgetsExpiredClusters keeps the per-client record from
+-// growing without bound: once a cluster is actually pruned its entry is dropped,
+-// so a long-lived proxy does not accumulate one entry per cluster it ever lost.
++// Remove expired records so a long-lived client does not retain every past cluster.
+ func TestDereferenceGraceForgetsExpiredClusters(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 20*time.Millisecond)
+ 	ctx := context.Background()
+@@ -158,9 +147,7 @@
+ 		"a pruned cluster's record must be dropped, not retained forever")
+ }
+ 
+-// TestClientDepartedCancelsTheGraceTimer: a timer must never publish to a key
+-// whose client has gone, which is the same rule the first-publish and
+-// flip-release bounds already follow.
++// Departure must cancel the removal timer, as it does other publication timers.
+ func TestClientDepartedCancelsTheGraceTimer(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -174,10 +161,7 @@
+ 	assert.Empty(t, pt.gate.dereferenced, "a departed client leaves no armed timer behind")
+ }
+ 
+-// TestDereferenceGraceNeverResurrectsAnErroredCluster: carrying forward is
+-// fail-closed. A cluster whose current translation errored must not be served
+-// from the published snapshot, or a backend that just failed validation would
+-// keep serving its pre-error configuration for the length of the window.
++// Never retain an errored cluster's old config; failed validation must fail closed.
+ func TestDereferenceGraceNeverResurrectsAnErroredCluster(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, time.Hour)
+ 	ctx := context.Background()
+@@ -192,9 +176,7 @@
+ 		"an errored cluster must not be carried forward by the grace window")
+ }
+ 
+-// TestGraceDereferencedClustersReportsSoonestExpiry: the timer is armed to the
+-// earliest deadline, so a second de-reference during an open window cannot
+-// postpone the first one's removal.
++// A later removal must not postpone the earliest existing deadline.
+ func TestGraceDereferencedClustersReportsSoonestExpiry(t *testing.T) {
+ 	g := newPublishGate(0, false, nil, scopedClustersWithGrace(time.Minute))
+ 	published := &envoycache.Snapshot{}
+@@ -209,8 +191,7 @@
+ 	require.Len(t, graced, 2)
+ 	require.InDelta(t, time.Minute, soonest, float64(time.Second))
+ 
+-	// 30s later the first entry has half its window left; a fresh third
+-	// de-reference must not push the deadline out.
++	// After 30s, adding a third window must preserve the first window's remaining 30s.
+ 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v2", []envoycachetypes.ResourceWithTTL{
+ 		{Resource: edsClusterProto("first-out")},
+ 		{Resource: edsClusterProto("second-out")},
+@@ -221,9 +202,7 @@
+ 		"the timer must fire for the oldest window, not the newest")
+ }
+ 
+-// TestGraceDereferencedClustersDropsExpiredEntries is the state-machine half of
+-// the prune: past the window the cluster is no longer graced, which is what lets
+-// the re-publish actually remove it.
++// Expired clusters must leave the retained set so pruning can remove them.
+ func TestGraceDereferencedClustersDropsExpiredEntries(t *testing.T) {
+ 	g := newPublishGate(0, false, nil, scopedClustersWithGrace(time.Second))
+ 	published := &envoycache.Snapshot{}
+@@ -241,10 +220,8 @@
+ 	assert.Zero(t, soonest, "with nothing graced there is nothing left to wake up for")
+ }
+ 
+-// A graced cluster that errors is not carried (fail closed), so it leaves the
+-// client. Its grace record must go with it: left behind, it kept the state and
+-// its timer alive past later publishes, and the timer then re-published the
+-// build that armed it over a newer one.
++// An errored cluster loses its retention record too. Otherwise an old timer
++// can retain and reinstall a build superseded by later publications.
+ func TestDereferenceGraceForgetsAClusterTheCarryDropped(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 100*time.Millisecond)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -267,9 +244,7 @@
+ 	assert.Nil(t, pt.gate.dereferenced[publishGateTestClient], "no record may outlive the cluster it was kept for")
+ }
+ 
+-// The same stale record used to deny the cluster's next genuine de-reference
+-// its window: by then the record was older than the grace, so the cluster was
+-// pruned at once.
++// A stale record must not deny a recovered cluster a fresh removal window.
+ func TestDereferenceGraceGivesARecoveredClusterAFreshWindow(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 100*time.Millisecond)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -287,10 +262,8 @@
+ 	assert.Contains(t, publishedClusterNames(t, pt), "flaky", "a de-referenced cluster keeps its full window")
+ }
+ 
+-// A coherent build that still carries graced clusters supersedes a held flip
+-// like any other publish without a hold: the flip release must not fire later
+-// and re-publish the older held build over it (here: route back to the empty
+-// placeholder for a backend that has since derived its endpoints).
++// Coherent recovery with retained clusters must cancel the old flip timer,
++// preventing it from restoring an older build and endpoint placeholder.
+ func TestGracedCoherentPublishCancelsAPendingFlipRelease(t *testing.T) {
+ 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 100*time.Millisecond, true,
+ 		scopedClustersWithGrace(time.Hour))
+@@ -313,7 +286,7 @@
+ 	v1.Resources[envoycachetypes.Endpoint] = envoycache.NewResourcesWithTTL("eds-1", []envoycachetypes.ResourceWithTTL{endpointsForClient(ucc, "cluster-a", 2).Endpoints.ResourceWithTTL()})
+ 	pt.syncXds(ctx, XdsSnapWrapper{snap: v1, proxyKey: publishGateTestClient})
+ 
+-	// The route flips to cluster-b before its endpoints are derived: held.
++	// Hold the retarget while cluster-b's CLA is underived.
+ 	v2 := &envoycache.Snapshot{}
+ 	v2.Resources[envoycachetypes.Listener] = listeners("v2")
+ 	v2.Resources[envoycachetypes.Route] = routeResourcesForClusters("cluster-b")
+@@ -327,7 +300,7 @@
+ 	})
+ 	require.Equal(t, "v1", servedSnapshot(t, pt).GetVersion(resourcev3.ListenerType), "flip held")
+ 
+-	// cluster-b derives its endpoints: coherent, with cluster-a graced.
++	// Derive cluster-b's endpoints; publish coherently while retaining cluster-a.
+ 	v3 := &envoycache.Snapshot{}
+ 	v3.Resources[envoycachetypes.Listener] = listeners("v3")
+ 	v3.Resources[envoycachetypes.Route] = routeResourcesForClusters("cluster-b")
+@@ -346,9 +319,7 @@
+ 	assert.True(t, ok && n == 1, "cluster-b keeps its derived endpoints")
+ }
+ 
+-// Pruning an expired grace re-publishes the latest build. If that build's
+-// flip is held, it must stay held until it is ready or its own release bound
+-// fires, not go out at the (shorter) grace.
++// Removal expiry must preserve a flip until readiness or its own release bound.
+ func TestGracePruneKeepsAHeldFlipHeld(t *testing.T) {
+ 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true,
+ 		scopedClustersWithGrace(80*time.Millisecond))
+@@ -371,8 +342,7 @@
+ 	})
+ 	pt.syncXds(ctx, XdsSnapWrapper{snap: published, proxyKey: publishGateTestClient})
+ 
+-	// The routes now name cluster-new (endpoints not derived yet, so the flip
+-	// is held) and no longer name cluster-gone (graced for 80ms).
++	// Retarget to underived cluster-new while cluster-gone gets an 80ms removal grace.
+ 	flip := &envoycache.Snapshot{}
+ 	flip.Resources[envoycachetypes.Listener] = listeners
+ 	flip.Resources[envoycachetypes.Route] = routeResourcesForClusters("cluster-new")
+@@ -395,10 +365,8 @@
+ 	assert.False(t, snapshotReferencesCluster(served, "cluster-new"))
+ }
+ 
+-// A flip release can grace clusters its routes stopped naming. It must arm the
+-// prune that removes them, storing the build to re-publish; before, it created
+-// the grace state without either, so the clusters lingered until a later build,
+-// and a stale prune callback that found that state dereferenced its nil build.
++// Flip release can start removal graces. Store the build and arm pruning then;
++// otherwise clusters linger without another build, or stale callbacks find nil.
+ func TestFlipReleaseArmsTheGracePrune(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, 100*time.Millisecond)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -432,9 +400,7 @@
+ 	}, 2*time.Second, 10*time.Millisecond, "cluster-old is removed when its grace closes")
+ }
+ 
+-// A prune callback that was already waiting on the gate lock when its timer was
+-// re-armed or cancelled must do nothing: its state or epoch is no longer
+-// current.
++// Ignore a prune callback blocked on the lock before re-arming or cancellation.
+ func TestStaleGracePruneCallbackDoesNothing(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, time.Hour)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+@@ -461,9 +427,7 @@
+ 		"a callback whose state was replaced must not touch the new one")
+ }
+ 
+-// The de-reference grace path takes new builds just as publish and
+-// resolveDeferred do, so it too skips a build whose client's row has moved on
+-// while the build waited in the event queue.
++// Like other new-build paths, removal grace must skip superseded queued rows.
+ func TestDereferenceGracePathSkipsASupersededBuild(t *testing.T) {
+ 	pt := newGraceTestTranslator(t, time.Minute)
+ 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
+diff --git a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+--- a/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
++++ b/pkg/kgateway/proxy_syncer/kube_gw_translator_syncer.go
+@@ -69,19 +69,11 @@
+ 		return
+ 	}
+ 
+-	// The snapshot publishes no unrequested resource by construction:
+-	// snapshotPerClient drops CLAs for clusters absent from CDS, and the
+-	// per-cluster resolution only carries cluster/CLA pairs — so we do not
+-	// rely on a post-hoc MakeConsistent() pass, which would also have mutated
+-	// the snapshot shared with the krt cache. Publication goes through the
+-	// publish gate so it settles synthesized CLAs, cancels any pending bounded
+-	// publish or flip release, and cannot race an expiring budget timer.
+-	// A de-reference produces a perfectly coherent build -- nothing is missing,
+-	// a cluster simply stopped being emitted -- so the removal side cannot ride
+-	// on the deferred path above. When a grace is configured, a coherent
+-	// snapshot is published through the same carry-forward resolution, with no
+-	// holds, so a cluster that just left the emitted set stays published until
+-	// its window closes.
++	// Filter orphan CLAs and carry cluster/CLA pairs without mutating KRT-shared
++	// snapshots through MakeConsistent. The gate settles placeholders and
++	// coordinates timers under its lock.
++	// Removals can be coherent, so apply their grace on the coherent path too,
++	// retaining clusters without holding routes, listeners or secrets.
+ 	if s.gate.retainsDereferenced() {
+ 		if err := s.gate.publishWithDereferenceGrace(ctx, s.xdsCache, snapWrap); err != nil {
+ 			logPublishFailure(proxyKey, err)
+@@ -158,38 +150,15 @@
+ 	return refs
+ }
+ 
+-// resolveDeferredPerCluster composes the snapshot actually published for a
+-// deferred wrapper, given the snapshot published on the client's current
+-// connection:
++// resolveDeferredPerCluster carries missing targets and CLAs from this
++// connection's snapshot. Existing referenced gaps allow new routes; the gate
++// preserves held endpoints. New gaps hold routes, listeners and secrets with
++// their full cluster closure while CDS/EDS updates continue.
+ //
+-//   - missing referenced clusters present in the published snapshot are
+-//     carried forward together with their CLAs;
+-//   - if every remaining gap is a previously-referenced cluster (present in
+-//     the published routes' reference set), the new routes publish as-is;
+-//     clusters among them whose CLA is not derived keep the endpoints the
+-//     client holds (the gate settles synthesized CLAs at publish time);
+-//   - otherwise some gap is a newly-referenced cluster that has never been
+-//     ready: routes, listeners, and secrets are held at their published
+-//     versions (so nothing flips onto the unready cluster), every published
+-//     cluster the build lacks is carried forward with its CLA (the held
+-//     configuration's whole dependency closure, filter-called clusters
+-//     included), and the new CDS/EDS — including the warming cluster — still
+-//     goes out.
+-//
+-// A carried cluster's CLA is taken from the published snapshot unless the
+-// build already has that assignment for another cluster sharing its EDS
+-// service_name; the built assignment is then kept.
+-//
+-// The second return value lists the flip-blocking clusters when the hold was
+-// applied, nil otherwise. holdFlips=false composes the released form — the
+-// new routes publish as-is even with never-ready gaps — used by the gate's
+-// flip-release bound so a steady-state-unready reference cannot pin the
+-// client's route/listener/secret updates forever (#14352).
+-// graced names clusters whose de-reference grace is still open; they are
+-// carried forward like any other published cluster. lastPublished answers for
+-// assignments copied from the published snapshot with the hash each was last
+-// published under (eds_set_version.go). The last result holds the
+-// contributions of the composed EDS set.
++// Prefer a built assignment when clusters share an EDS service_name.
++// Return flip blockers, or nil; holdFlips=false releases despite gaps (#14352).
++// graced adds clusters within their removal windows. lastPublished supplies
++// carried EDS contributions; the final result describes the composed set.
+ func resolveDeferredPerCluster(snapWrap XdsSnapWrapper, published envoycache.ResourceSnapshot, holdFlips bool, graced map[string]struct{}, lastPublished func(string) (uint64, bool)) (*envoycache.Snapshot, []string, map[string]uint64) {
+ 	publishedRefs := publishedReferencedClusters(published)
+ 	oldClusters := published.GetResourcesAndTTL(envoyresourcev3.ClusterType)
+@@ -257,10 +226,8 @@
+ 		}
+ 	}
+ 
+-	// Clusters within their de-reference grace are carried the same way: they
+-	// are absent from this build because nothing references them any more, and
+-	// they stay published until the window closes so the route update that
+-	// stopped naming them reaches Envoy first.
++	// Carry removal-graced clusters to allow the route update to propagate
++	// before their later removal.
+ 	for name := range graced {
+ 		carryRefs[name] = struct{}{}
+ 	}
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -242,10 +242,8 @@
+ 	gate *publishGate
+ }
+ 
+-// NewProxyTranslator builds the publishing half of the syncer. dereferenceGrace
+-// is how long a cluster that has left the emitted set stays published; pass 0
+-// when cluster discovery emits everything, since nothing is ever de-referenced
+-// then.
++// NewProxyTranslator constructs the publisher with a removal grace.
++// Pass 0 for unscoped discovery, which has no reference-based removals.
+ func NewProxyTranslator(
+ 	xdsCache envoycache.SnapshotCache,
+ 	xdsClientState krtcollections.XDSClientState,
+diff --git a/pkg/kgateway/proxy_syncer/publish_gate.go b/pkg/kgateway/proxy_syncer/publish_gate.go
+--- a/pkg/kgateway/proxy_syncer/publish_gate.go
++++ b/pkg/kgateway/proxy_syncer/publish_gate.go
+@@ -158,10 +158,8 @@
+ 	// landed after its client left. Written before the gate is first used.
+ 	afterPublish func(proxyKey string)
+ 
+-	// dereferenceGrace is how long a cluster that has left the emitted set is
+-	// still published; 0 disables retention. Only non-zero in REFERENCED
+-	// cluster discovery mode, where clusters leave the set at all. Written
+-	// once at construction.
++	// dereferenceGrace retains clusters after their last reference. Zero disables
++	// it; only REFERENCED mode enables it. Set at construction.
+ 	dereferenceGrace time.Duration
+ 
+ 	mu           sync.Mutex
+@@ -390,9 +388,8 @@
+ 	// This build supersedes the one a pending carry expiry would re-resolve;
+ 	// a deferred build that carries re-arms it after publishing.
+ 	g.cancelCarryExpiryLocked(proxyKey)
+-	// Deliberately NOT cancelling the de-reference timer: a publish that carried
+-	// graced clusters forward still needs the timer that later removes them.
+-	// graceDereferencedClustersLocked cancels it when the last window closes.
++	// Keep the removal timer for retained clusters. Cancel only when the last
++	// window closes (graceDereferencedClustersLocked).
+ 	return g.setSnapshot(ctx, cache, proxyKey, snap, synthesized, edsHashes)
+ }
+ 
+@@ -489,8 +486,7 @@
+ 	}
+ 	candidate := snapWrap
+ 	snapWrap = g.boundCarryLocked(snapWrap, published, time.Now())
+-	// Retain clusters this build stopped emitting, briefly, so the route update
+-	// that de-referenced them reaches Envoy before they disappear.
++	// Retain removed references briefly to allow route updates to propagate.
+ 	graced, soonestExpiry := g.graceDereferencedClustersLocked(
+ 		snapWrap.proxyKey, published, snapWrap.snap.Resources[envoycachetypes.Cluster], time.Now())
+ 	resolved, heldBlocking, edsHashes := resolveDeferredPerCluster(snapWrap, published, true, graced, g.lastPublishedEDSLocked(snapWrap.proxyKey))
+@@ -502,10 +498,8 @@
+ 	} else {
+ 		publishErr = g.publishLocked(ctx, cache, snapWrap.proxyKey, resolved, snapWrap.synthesizedEndpoints, edsHashes)
+ 	}
+-	// Armed after publishing: a carried-forward graced cluster is only removed
+-	// by this timer, and arming before the publish would let publishLocked's
+-	// cleanup cancel the very timer that prunes what it just carried. The same
+-	// holds for the carry expiry.
++	// Arm removal and carry timers after publishing; publication cleanup would
++	// otherwise cancel the timers needed to remove retained clusters.
+ 	g.armDereferenceTimerLocked(ctx, cache, snapWrap.proxyKey, snapWrap, soonestExpiry)
+ 	g.armCarryExpiryLocked(ctx, cache, candidate)
+ 	return publishErr
+@@ -787,9 +781,7 @@
+ 		logPublishFailure(proxyKey, err)
+ 		return
+ 	}
+-	// The release may grace clusters its routes stopped naming; like every
+-	// other publish that graces, arm the prune that removes them, or they
+-	// linger until some later build.
++	// A released flip may start removal windows; arm pruning even without later builds.
+ 	g.armDereferenceTimerLocked(ctx, cache, proxyKey, pf.wrap, soonestExpiry)
+ 	recordBoundedPublish(proxyKey, boundedPublishFlipRelease)
+ 	g.armCarryExpiryLocked(ctx, cache, pf.wrap)
+@@ -857,9 +849,8 @@
+ 	g.withdrawLocked(proxyKey)
+ }
+ 
+-// withdrawLocked cancels the client's pending bounded first publish, flip
+-// release and de-reference prune, keeping the first-publish and warm episodes
+-// for a reconnect to resume. Callers must hold g.mu.
++// withdrawLocked cancels first-publication, flip and removal timers, retaining
++// episode starts for reconnect. Callers must hold g.mu.
+ func (g *publishGate) withdrawLocked(proxyKey string) {
+ 	if st := g.pending[proxyKey]; st != nil {
+ 		if st.timer != nil {

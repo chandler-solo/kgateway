@@ -1,0 +1,300 @@
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping_metrics.go b/pkg/kgateway/proxy_syncer/cluster_scoping_metrics.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping_metrics.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping_metrics.go
+@@ -13,11 +13,8 @@
+ )
+ 
+ var (
+-	// clusterScopingEmittedClusters is how many of a client's translated
+-	// backend clusters actually reached its CDS. Reading it against
+-	// xds_snapshot_resources{resource="cluster"} is the whole point of the
+-	// feature: the gap between them is the inventory each proxy no longer
+-	// carries.
++	// clusterScopingEmittedClusters counts backend clusters retained by scoping.
++	// Compare with xds_snapshot_resources{resource="cluster"} to see the reduction.
+ 	clusterScopingEmittedClusters = metrics.NewGauge(
+ 		metrics.GaugeOpts{
+ 			Subsystem: clusterScopingSubsystem,
+@@ -26,10 +23,8 @@
+ 		},
+ 		[]string{gatewayLabel, namespaceLabel},
+ 	)
+-	// clusterScopingDroppedClusters is the complement: clusters translated for
+-	// this client and withheld because nothing references them. Zero here with
+-	// scoping on means the deployment routes to everything it discovers and has
+-	// nothing to gain from the feature.
++	// clusterScopingDroppedClusters counts translated backends removed by scoping.
++	// Zero means no backends were pruned, including emit-all fallback.
+ 	clusterScopingDroppedClusters = metrics.NewGauge(
+ 		metrics.GaugeOpts{
+ 			Subsystem: clusterScopingSubsystem,
+@@ -38,15 +33,9 @@
+ 		},
+ 		[]string{gatewayLabel, namespaceLabel},
+ 	)
+-	// clusterScopingDisabledGateways counts gateways whose emitted set could not
+-	// be trusted, so CDS reverted to carrying every backend for them.
+-	//
+-	// This is the metric to alert on. A gateway lands here when a route picks
+-	// its destination at request time, from a set the configuration never
+-	// enumerates, and the failure mode without the revert is silent: the
+-	// selecting plugin falls back rather than 503ing, so requests quietly go
+-	// somewhere else. A nonzero value means the optimization is off for that
+-	// gateway and someone should look at why.
++	// clusterScopingDisabledGateways marks emit-all fallback for incomplete emission
++	// sets. Investigate non-zero values: pruning runtime candidates could silently
++	// select fallback destinations instead of producing visible failures.
+ 	clusterScopingDisabledGateways = metrics.NewGauge(
+ 		metrics.GaugeOpts{
+ 			Subsystem: clusterScopingSubsystem,
+@@ -55,14 +44,9 @@
+ 		},
+ 		[]string{gatewayLabel, namespaceLabel},
+ 	)
+-	// clusterScopingTransitionsTotal counts the clusters whose emitted-set change
+-	// needed a window to be safe, by which window. Each cluster counts once per
+-	// window it enters, not once per publish while the window is open.
+-	//
+-	// These are expected during route churn, not faults. What is worth watching
+-	// is the rate: a fleet whose route edits keep landing on never-sent clusters
+-	// is a fleet paying reference-ahead latency on most of them, which is a
+-	// reason to shorten the window rather than a bug.
++	// clusterScopingTransitionsTotal counts clusters entering or leaving transition
++	// windows, once per event rather than per publication. Frequent addition holds
++	// indicate route edits paying propagation-window latency; these are not faults.
+ 	clusterScopingTransitionsTotal = metrics.NewCounter(
+ 		metrics.CounterOpts{
+ 			Subsystem: clusterScopingSubsystem,
+@@ -76,17 +60,15 @@
+ const (
+ 	// transitionDereferenceGraced is a cluster kept past its last reference.
+ 	transitionDereferenceGraced = "dereference_graced"
+-	// transitionDereferencePruned is one actually removed once its window closed.
++	// transitionDereferencePruned counts removal after grace expiry.
+ 	transitionDereferencePruned = "dereference_pruned"
+-	// transitionReferenceAheadHeld is a newly-emitted cluster delivered ahead of
+-	// the route update that named it; a retarget onto n new clusters counts n,
+-	// like the de-reference transitions count clusters.
++	// transitionReferenceAheadHeld counts each new cluster entering an addition
++	// window; a retarget to n new clusters counts n.
+ 	transitionReferenceAheadHeld = "reference_ahead_held"
+ )
+ 
+-// recordClusterScopingEmission reports how a client's CDS was scoped. Called on
+-// every publish that filtered, so the gauges track the current state rather
+-// than a high-water mark.
++// recordClusterScopingEmission updates gauges on every filtered build,
++// including zero drops, so they reflect current rather than peak state.
+ func recordClusterScopingEmission(clientKey string, emitted, dropped int) {
+ 	if !metrics.Active() {
+ 		return
+@@ -100,10 +82,8 @@
+ 	clusterScopingDroppedClusters.Set(float64(dropped), labels...)
+ }
+ 
+-// recordClusterScopingDisabled reports whether this gateway's CDS had to revert
+-// to carrying every backend. Recorded for filterable gateways too, as 0, so the
+-// series exists and an alert can fire on a transition to 1 rather than on the
+-// appearance of a label.
++// recordClusterScopingDisabled reports emit-all fallback as 1, otherwise 0.
++// Keep zero series so alerts can detect a value change, not a new label set.
+ func recordClusterScopingDisabled(clientKey string, disabled bool) {
+ 	if !metrics.Active() {
+ 		return
+@@ -119,16 +99,14 @@
+ 	)
+ }
+ 
+-// clusterScopingDisabledState remembers, per gateway, whether its CDS was last
+-// reported unscoped, so the warning fires when a gateway turns unscoped rather
+-// than on every rebuild of every one of its clients.
++// clusterScopingDisabledState tracks each gateway's fallback status so warnings
++// fire on transition, not every client rebuild.
+ var clusterScopingDisabledState = struct {
+ 	sync.Mutex
+ 	gateways map[resourceNameDetails]bool
+ }{gateways: make(map[resourceNameDetails]bool)}
+ 
+-// noteClusterScopingDisabled records whether clientKey's gateway is unscoped
+-// and reports whether that is a change to unscoped.
++// noteClusterScopingDisabled updates the gateway and reports transition to fallback.
+ func noteClusterScopingDisabled(clientKey string, disabled bool) bool {
+ 	cd := getDetailsFromXDSClientResourceName(clientKey)
+ 	gateway := resourceNameDetails{Namespace: cd.Namespace, Gateway: cd.Gateway}
+@@ -153,8 +131,7 @@
+ 	}
+ }
+ 
+-// gatewayHasClients reports whether any of clients belongs to clientKey's
+-// gateway.
++// gatewayHasClients checks for any client sharing clientKey's gateway.
+ func gatewayHasClients(clientKey string, clients []ir.UniquelyConnectedClient) bool {
+ 	departed := getDetailsFromXDSClientResourceName(clientKey)
+ 	for _, ucc := range clients {
+@@ -166,12 +143,9 @@
+ 	return false
+ }
+ 
+-// forgetClusterScopingGateway drops a gateway's scoping gauges, and the state
+-// behind its unscoped warning, once none of its clients is connected. The
+-// gauges are written on every publish and nothing else removes them, so a
+-// deleted gateway would otherwise export its last values forever: a
+-// disabled_gateways of 1 keeps an alert firing for a gateway that is gone. A
+-// client that connects again re-creates them on its first publish.
++// forgetClusterScopingGateway removes gauges and warning state after the last
++// client leaves, avoiding stale alerts for deleted gateways. Reconnect recreates
++// the series on its first build.
+ func forgetClusterScopingGateway(clientKey string) {
+ 	cd := getDetailsFromXDSClientResourceName(clientKey)
+ 	labels := []metrics.Label{
+diff --git a/pkg/kgateway/proxy_syncer/cluster_scoping_metrics_test.go b/pkg/kgateway/proxy_syncer/cluster_scoping_metrics_test.go
+--- a/pkg/kgateway/proxy_syncer/cluster_scoping_metrics_test.go
++++ b/pkg/kgateway/proxy_syncer/cluster_scoping_metrics_test.go
+@@ -12,9 +12,7 @@
+ 	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+ )
+ 
+-// TestClusterScopingMetricsReportWhatWasDroppedAndWhy: the emitted/dropped pair
+-// is how an operator sees what the feature bought them, so both series must
+-// exist for a scoped client even when nothing was dropped.
++// Emit both retained and dropped series for scoped clients, including zero drops.
+ func TestClusterScopingMetricsReportWhatWasDroppedAndWhy(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+@@ -38,10 +36,7 @@
+ 	})
+ }
+ 
+-// TestClusterScopingDisabledIsAZeroSeriesUntilItIsNot: an alert should fire on
+-// the value going to 1, which requires the series to exist while the gateway is
+-// healthy. Recording only the disabled case would make the alert depend on a
+-// label appearing, which is far harder to write correctly.
++// Keep a zero disabled series so alerts can detect its transition to one.
+ func TestClusterScopingDisabledIsAZeroSeriesUntilItIsNot(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+@@ -67,10 +62,7 @@
+ 		})
+ }
+ 
+-// TestDereferenceTransitionsAreCountedOncePerWindow: the counter measures
+-// de-reference events, not publishes. A cluster sitting in an open window must
+-// not be re-counted every time the client publishes, or the rate would track
+-// churn rather than removals.
++// Count removal windows once, not every publication during the grace.
+ func TestDereferenceTransitionsAreCountedOncePerWindow(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+@@ -94,10 +86,7 @@
+ 	})
+ }
+ 
+-// TestReferenceAheadTransitionsAreCountedOncePerCluster: a retarget onto
+-// clusters the proxy has never been sent counts each such cluster once, the
+-// way the de-reference transitions count clusters, and does not count the
+-// publish that releases the hold.
++// Count each new cluster once on addition hold, not again on release.
+ func TestReferenceAheadTransitionsAreCountedOncePerCluster(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+@@ -117,8 +106,7 @@
+ 	assert.Equal(t, float64(2), held, "two never-sent clusters, one held update: count the clusters, once each")
+ }
+ 
+-// A cluster counts once per window, not once per build that the window spans,
+-// and a hold the deferred path applies counts like a coherent one.
++// Rebuilds must not recount open windows; deferred and coherent holds count alike.
+ func TestReferenceAheadTransitionsCountWindowsNotBuilds(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+@@ -146,8 +134,7 @@
+ 	assert.Equal(t, float64(2), held(), "the deferred path's hold counts its new cluster")
+ }
+ 
+-// The unscoped warning fires when a gateway turns unscoped, not on every
+-// rebuild of each of its clients while it stays that way.
++// Warn on transition to fallback, not each client's rebuild.
+ func TestClusterScopingDisabledIsNotedOnTransition(t *testing.T) {
+ 	const gateway = "kube-gateway-api~ns-note~gw-note"
+ 	assert.False(t, noteClusterScopingDisabled(gateway, false))
+@@ -157,9 +144,8 @@
+ 	assert.True(t, noteClusterScopingDisabled(gateway, true), "turning unscoped again is")
+ }
+ 
+-// A gateway's scoping gauges are dropped when its last client departs, so a
+-// deleted gateway does not keep exporting its last values (a disabled gauge of
+-// 1 would keep an alert firing), and are kept while any client remains.
++// Keep gateway gauges while clients remain; remove them after the last leaves
++// so a deleted gateway cannot keep a stale disabled alert active.
+ func TestClusterScopingSeriesAreForgottenWithTheGatewaysLastClient(t *testing.T) {
+ 	metrics.SetRegistry(false, nil)
+ 	metrics.SetActive(true)
+diff --git a/pkg/kgateway/proxy_syncer/dereference_grace.go b/pkg/kgateway/proxy_syncer/dereference_grace.go
+--- a/pkg/kgateway/proxy_syncer/dereference_grace.go
++++ b/pkg/kgateway/proxy_syncer/dereference_grace.go
+@@ -106,9 +106,7 @@
+ 			graced = make(map[string]struct{})
+ 		}
+ 		if !recorded {
+-			// Counted where the window opens, not on every publish that keeps
+-			// it open, so the counter measures de-reference events rather than
+-			// publish frequency.
++			// Count each removal window once, independent of publication frequency.
+ 			opened++
+ 		}
+ 		graced[name] = struct{}{}
+diff --git a/pkg/kgateway/proxy_syncer/perclient.go b/pkg/kgateway/proxy_syncer/perclient.go
+--- a/pkg/kgateway/proxy_syncer/perclient.go
++++ b/pkg/kgateway/proxy_syncer/perclient.go
+@@ -126,18 +126,14 @@
+ 				"translated", len(clustersForUcc.clusters.Items))
+ 		}
+ 		if scoping.ScopesClusters() {
+-			// Reported whether or not anything was dropped, so the series exist
+-			// for every scoped client: an operator comparing emitted against
+-			// translated needs both numbers even when they are equal, and a
+-			// gateway that reverted needs its disabled series to read 0 -> 1
+-			// rather than to appear from nowhere.
++			// Record both gauges even without drops, and report fallback as a value
++			// change from 0 to 1 rather than only creating a new series.
+ 			recordClusterScopingEmission(ucc.ResourceName(),
+ 				len(clusterResources.Items),
+ 				len(clustersForUcc.clusters.Items)-len(clusterResources.Items))
+ 			disabled := !listenerRouteSnapshot.EmittedClusters.Filterable()
+ 			recordClusterScopingDisabled(ucc.ResourceName(), disabled)
+-			// Warned on the transition, not on every rebuild of every client of
+-			// the gateway: the gauge carries the state.
++			// Warn on fallback transition; the gauge carries ongoing state.
+ 			if noteClusterScopingDisabled(ucc.ResourceName(), disabled) {
+ 				logger.Warn("cluster scoping disabled for this gateway: a route selects its destination at request time",
+ 					"client", ucc.ResourceName(),
+diff --git a/pkg/kgateway/proxy_syncer/proxy_syncer.go b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+--- a/pkg/kgateway/proxy_syncer/proxy_syncer.go
++++ b/pkg/kgateway/proxy_syncer/proxy_syncer.go
+@@ -498,10 +498,9 @@
+ 	s.proxyTranslator.gate.currentBuild = func(proxyKey string) *XdsSnapWrapper {
+ 		return s.perclientSnapCollection.GetKey(proxyKey)
+ 	}
+-	// A client whose snapshot row was already gone when it disconnected gets
+-	// no row Delete then; end its connection when the client itself leaves.
+-	// The check skips a client that has already reconnected. When it was its
+-	// gateway's last client, the gateway's cluster scoping series go too.
++	// Departure may follow snapshot-row deletion without another row event.
++	// End the connection here unless it reconnected; remove gateway scoping
++	// series when its last client leaves.
+ 	s.uniqueClients.RegisterBatch(func(events []krt.Event[ir.UniquelyConnectedClient]) {
+ 		for _, e := range events {
+ 			if name := e.Latest().ResourceName(); e.Event == controllers.EventDelete && s.uniqueClients.GetKey(name) == nil {
+diff --git a/pkg/kgateway/proxy_syncer/reference_ahead.go b/pkg/kgateway/proxy_syncer/reference_ahead.go
+--- a/pkg/kgateway/proxy_syncer/reference_ahead.go
++++ b/pkg/kgateway/proxy_syncer/reference_ahead.go
+@@ -96,8 +96,7 @@
+ 	if len(sent) == 0 {
+ 		delete(g.aheadSent, proxyKey)
+ 	}
+-	// Counted where a cluster's window opens, so each cluster counts once per
+-	// window whichever path held it and however many builds it spans.
++	// Count each cluster once per addition window, across all paths and rebuilds.
+ 	recordClusterScopingTransition(proxyKey, transitionReferenceAheadHeld, opened)
+ 	slices.Sort(ahead)
+ 	return ahead, longest
