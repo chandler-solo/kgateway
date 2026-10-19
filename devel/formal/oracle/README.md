@@ -39,6 +39,17 @@ is a new temporary directory. `--fuzztime` applies separately to each of the
 two targets and accepts either a duration or Go's execution-count suffix `x`;
 `--parallel` defaults to two fuzz workers. `--minimizetime` defaults to ten
 seconds per minimization attempt and can be increased for a failing input.
+
+An execution-count budget includes Go's baseline corpus replay. For example,
+`--fuzztime 20x` permits only twenty executions, not twenty seconds. If the
+corpus contains 447 inputs, that budget ends during baseline replay. Go can
+report `PASS` for those inputs, but this runner still fails the fuzzing gate
+because no generated cases ran. The error reports the completed/total
+baseline count and suggests a larger budget. Use `--fuzztime 20s` for twenty
+seconds, or a count larger than the corpus (such as `20000x`). The corpus can
+grow as Go caches interesting inputs; duration budgets can also end during
+baseline replay. Failed receipts retain baseline counts and progress.
+
 The runner builds both
 native executables, runs examples, 1,000 reproducible publication histories,
 the KRT adapter suite and protocol/property checks, then native coverage-guided

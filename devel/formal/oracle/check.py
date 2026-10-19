@@ -9,7 +9,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -70,10 +72,52 @@ def check_unit_receipt(path):
     return len(passed)
 
 
+def fuzz_observation(output):
+    """Separate Go's baseline replay from generated fuzz executions."""
+    baseline = re.findall(
+        r"^fuzz: .*?(?:gathering baseline coverage|testing seed corpus): (\d+)/(\d+) completed",
+        output, re.MULTILINE,
+    )
+    executions = re.findall(r"^fuzz: .*?execs: (\d+)\b", output, re.MULTILINE)
+    completed, total = map(int, baseline[-1]) if baseline else (None, None)
+    count = int(executions[-1]) if executions else None
+    # Go's execs count includes baseline executions. A progress line alone
+    # does not establish that any generated input ran.
+    generated = max(0, count - total) if count is not None and total is not None else 0
+    return {
+        "baseline_completed": completed,
+        "baseline_total": total,
+        "executions": count,
+        "generated_executions": generated,
+        "go_passed": "PASS" in output.splitlines() and bool(re.search(
+            r"^ok\s+github\.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer\s", output, re.MULTILINE,
+        )),
+        "progress": [line for line in output.splitlines() if line.startswith("fuzz:")],
+    }
+
+
+def check_fuzz_receipt(observation, target, budget, log):
+    if not observation["go_passed"]:
+        raise RuntimeError(f"{target}: missing successful Go test completion; see {log}")
+    completed, total = observation["baseline_completed"], observation["baseline_total"]
+    if completed is None:
+        raise RuntimeError(f"{target}: missing baseline execution receipt; see {log}")
+    if completed != total or observation["generated_executions"] == 0:
+        suggested_count = max(20000, total + 1000)
+        raise RuntimeError(
+            f"{target}: --fuzztime={budget} ended after baseline replay "
+            f"({completed}/{total} inputs); no generated fuzz execution was recorded. "
+            "Go reported PASS for the inputs it ran, but the fuzzing gate requires generated cases. "
+            "An 'x' budget counts baseline executions too; use a larger count "
+            f"(for example --fuzztime {suggested_count}x), or --fuzztime 20s for 20 seconds. "
+            f"Log: {log}"
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts", type=Path)
-    parser.add_argument("--fuzztime", default="60s")
+    parser.add_argument("--fuzztime", default="60s", help="budget per target: duration (20s) or executions including baseline replay (20000x)")
     parser.add_argument("--minimizetime", default="10s")
     parser.add_argument("--histories", type=int, default=1000)
     parser.add_argument("--parallel", type=int, default=2)
@@ -141,15 +185,18 @@ def main():
                     raise RuntimeError("mutation changed source")
                 receipt["mutations"][name] = {"detected": True, "overlay_sha256": digest(mutated)}
         receipt["fuzz_progress"] = {}
+        receipt["fuzz_observations"] = {}
         for target in ["FuzzPublicationOracle", "FuzzPublicationCacheOracle"]:
             command = ["go", "test", "-tags", "e2e,formal_oracle", "-run", "^$", "-fuzz", f"^{target}$", f"-fuzztime={args.fuzztime}", f"-fuzzminimizetime={args.minimizetime}", f"-parallel={args.parallel}", PKG]
             log = artifacts / f"{target}.log"
-            if run(command, log, env, commands):
-                raise RuntimeError(f"{target} found a mismatch or harness failure; preserve the corpus and log")
+            code = run(command, log, env, commands)
             output = log.read_text()
-            if "execs:" not in output or "PASS" not in output:
-                raise RuntimeError("no completed fuzz execution receipt")
+            observation = fuzz_observation(output)
+            receipt["fuzz_observations"][target] = observation
             receipt["fuzz_progress"][target] = [s for s in output.splitlines() if "execs:" in s]
+            if code:
+                raise RuntimeError(f"{target} found a mismatch or harness failure; preserve the corpus and log: {log}")
+            check_fuzz_receipt(observation, target, args.fuzztime, log)
         if not all(digest(ROOT / p) == h for p, h in receipt["sources"].items()):
             raise RuntimeError("sources changed during verification; rerun on a stable tree")
         receipt["outcome"] = "pass"
@@ -165,4 +212,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RuntimeError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        sys.exit(1)
