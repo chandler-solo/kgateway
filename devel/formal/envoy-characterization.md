@@ -255,6 +255,18 @@ whole first publication for a client with no cache entry).
 
 ### Initial fetch timeouts and a route ahead of its cluster
 
+**October 19 correction:** the historical phrase below, “Envoy bounds every
+missing dependency itself,” is superseded. Finite EDS/RDS initialization timers
+can produce degraded active state; bootstrap CDS/LDS explicitly use `0s` and
+can wait indefinitely, while local-cluster EDS uses `1s`. Generated EDS and RDS
+are unset (`15s`), independently of their parents. A timeout does not prove
+resource receipt, complete configuration, forwarding or a hard global deadline.
+The [source-specific profile](timeouts/README.md) adds actual chart rendering,
+explicit disabled controls, default-15s observations and cached rewarming across
+pinned upstream and enterprise images. The two-second experiment below remains
+historical evidence for its own synthetic configuration.
+
+
 `-scenario timeouts` sets a two-second `initial_fetch_timeout` on the
 bootstrap CDS and LDS sources and on every ADS config source, then withholds
 dependencies. The other scenarios disable the timeout to isolate the control

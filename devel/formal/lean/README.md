@@ -64,6 +64,15 @@ and [program plan](../xds-formal-research-plan.md).
   the sibling and leaves the accepted version behind. The CLI checks that
   each semantics violates exactly the property the other keeps.
 
+- `InitialFetchTimeouts.lean` proves seven abstract expiry guard/provenance
+  properties over unbounded timestamps, provider generations and arbitrary
+  names/payloads. A due deadline and owning provider are required, expiration
+  preserves receive/accept counts, and cached lookup requires matching identity.
+  Disabled/completed subscriptions cannot expire in this relation. These guards
+  are specified premises, not verified C++ behavior or temporal liveness. The
+  [source-specific timeout suite](../timeouts/README.md) records implementation
+  evidence and open cancellation/replacement/error obligations.
+
 The [assumption ledger](ASSUMPTIONS.md) distinguishes characterization from
 open obligations. Its Go test checks declarations and anchors, not execution
 or universal truth. Passing dependency probes may reproduce known defects.
@@ -72,6 +81,8 @@ or universal truth. Passing dependency probes may reproduce known defects.
 
 ```sh
 CGO_ENABLED=0 make formal-lean
+# Focus only on the new abstract timeout proofs:
+make formal-timeout-lean
 # Or retain receipts at a chosen path:
 CGO_ENABLED=0 FORMAL_ARTIFACT_DIR=/tmp/xds-formal-run ./devel/formal/lean/check.sh
 ```

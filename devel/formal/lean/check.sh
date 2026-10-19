@@ -46,7 +46,7 @@ PY
 shasum -a 256 go.mod go.sum > "$ARTIFACT_DIR/dependency-digests.txt"
 # Full unit suites include digest and dependency probes omitted by the old
 # TestSnapshotPerClient-only gate. JSON receipts distinguish skipped tests.
-FORMAL_LIFECYCLE_OUT="$ARTIFACT_DIR/lifecycle" go test -tags e2e -count=1 -json ./pkg/kgateway/proxy_syncer ./devel/testing ./pkg/kgateway/translator/xdscheck ./devel/formal/gcpprobe ./devel/formal/lifecycle ./devel/formal/cmd/checkreceipts ./devel/formal/cmd/corpusexport ./pkg/sds/server ./pkg/krtcollections ./pkg/kgateway/endpoints > "$ARTIFACT_DIR/go-tests.jsonl"
+FORMAL_LIFECYCLE_OUT="$ARTIFACT_DIR/lifecycle" go test -tags e2e -count=1 -json ./pkg/kgateway/proxy_syncer ./devel/testing ./pkg/kgateway/translator/xdscheck ./devel/formal/gcpprobe ./devel/formal/lifecycle ./devel/formal/cmd/checkreceipts ./devel/formal/cmd/corpusexport ./devel/formal/cmd/envoyprobe ./pkg/sds/server ./pkg/krtcollections ./pkg/kgateway/endpoints > "$ARTIFACT_DIR/go-tests.jsonl"
 go run -tags e2e ./devel/formal/cmd/checkreceipts "$ROOT_DIR" "$ARTIFACT_DIR/go-tests.jsonl"
 go run -tags e2e ./devel/formal/cmd/checklifecycle "$ARTIFACT_DIR/lifecycle/"*.jsonl
 test "$(find "$ARTIFACT_DIR/lifecycle" -name '*.jsonl' | wc -l | tr -d ' ')" -eq 4

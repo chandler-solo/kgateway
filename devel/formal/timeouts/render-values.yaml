@@ -1,0 +1,18 @@
+# Rendering inputs for an isolated probe, not deployment defaults.
+gateway:
+  name: formal
+  fullnameOverride: formal
+  gatewayName: gw
+  gatewayNamespace: formal
+  gatewayClassName: kgateway
+  image:
+    repository: envoyproxy/envoy
+    tag: v1.39.1
+  xds:
+    host: xds.invalid
+    port: 18000
+    tls:
+      enabled: false
+  stats:
+    enabled: false
+    matcher: {}

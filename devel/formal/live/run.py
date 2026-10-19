@@ -61,11 +61,17 @@ def main():
     if any(out.iterdir()):
         parser.error("artifacts must be fresh; existing evidence is never reused")
     print(f"Live publication artifacts: {out}", flush=True)
+    renderer = out / "bootstrap-renderer"
+    subprocess.run(["make", "formal-envoyprobe-build", f"FORMAL_ENVOYPROBE_BIN={renderer}"], cwd=ROOT, check=True)
     reg = helpers()
     receipt = {"schema": 1, "evidence_level": "real control-plane setup/callbacks/KRT/gate/timers/gRPC + independent Envoy admin/HTTP",
                "limits": ["supplied translated snapshots", "fixture Kubernetes TokenReview authority",
                           "one client key/proxy, two control planes", "plaintext local test transport",
                           "no complete controller or deployed-system refinement proof"],
+               "tools": {name: subprocess.check_output(command, cwd=ROOT, text=True).strip()
+                         for name, command in {"helm": ["helm", "version", "--short"], "go": ["go", "version"]}.items()},
+               "profiles_sha256": digest(HERE / "profiles.json"),
+               "render_values_sha256": digest(HERE.parent / "timeouts/render-values.yaml"),
                "fixture_sha256": {p.name: digest(p) for p in HERE.glob("*.txt")}, "subjects": {}, "images": {}, "runs": []}
     receipt["runner_sources_sha256"] = {p.name: digest(p) for p in HERE.glob("*.py")}
     sources = {}
@@ -74,6 +80,10 @@ def main():
         dest = out / name
         dest.mkdir()
         source = reg.materialize(subject, dest)
+        rendered = dest / "rendered-bootstrap.json"
+        subprocess.run([str(renderer), "-render-chart", str(source / "pkg/kgateway/helm/envoy"),
+                        "-render-values", str(HERE.parent / "timeouts/render-values.yaml"),
+                        "-render-output", str(rendered)], check=True, timeout=60)
         before = reg.production_digest(source)
         dependencies = {p: digest(source / p) for p in ("go.mod", "go.sum")}
         code, _, log = reg.run_make(source, "pkg/kgateway/proxy_syncer ./pkg/kgateway/setup", "^$", dest, "pristine-build")
@@ -84,9 +94,14 @@ def main():
         target = source / "pkg/kgateway/setup/formal_live_test.go"
         require(not target.exists(), "driver would overwrite subject tests")
         shutil.copyfile(HERE / "publication_test.go.txt", target)
+        bootstrap_helper = source / "pkg/kgateway/setup/formal_live_bootstrap_test.go"
+        require(not bootstrap_helper.exists(), "bootstrap helper would overwrite subject tests")
+        shutil.copyfile(HERE / "bootstrap.go.txt", bootstrap_helper)
         receipt["subjects"][name] = {**subject, "archive_sha256": digest(dest / "source.tar.gz"),
                                     "dependencies": dependencies, "original_production_sha256": hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
                                     "additional_bridge_sha256": check_original_sources(reg, source, before), "pristine_compile": "pass"}
+        receipt["subjects"][name]["bootstrap_template_sha256"] = digest(source / "pkg/kgateway/helm/envoy/templates/configmap.yaml")
+        receipt["subjects"][name]["rendered_bootstrap_sha256"] = digest(rendered)
         sources[name] = source, before, dependencies
     for name in args.profile or profiles["images"]:
         image = profiles["images"][name]["image"]
@@ -105,7 +120,8 @@ def main():
                                "GO_TEST_ARGS=-timeout=2m -count=1 -race", f"GO_TEST_USER_ARGS=-run {reg.make_shell_arg(selector)}",
                                f"GOTESTSUM_ARGS=--format=short --jsonfile={reg.make_shell_arg(str(dest / 'test.jsonl'))}"]
                     env = dict(os.environ, CGO_ENABLED="1", FORMAL_LIVE_OUT=str(dest), FORMAL_LIVE_IMAGE=image,
-                               FORMAL_LIVE_SUBJECT=subject_name, FORMAL_LIVE_REVISION=subject["revision"], FORMAL_LIVE_WORKERS=str(workers))
+                               FORMAL_LIVE_SUBJECT=subject_name, FORMAL_LIVE_REVISION=subject["revision"], FORMAL_LIVE_WORKERS=str(workers),
+                               FORMAL_LIVE_BOOTSTRAP=str(out / subject_name / "rendered-bootstrap.json"))
                     with (dest / "test.log").open("w") as log:
                         result = subprocess.run(command, cwd=source, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=240)
                     require(result.returncode == 0, f"driver failure is not a counterexample: {dest / 'test.log'}")

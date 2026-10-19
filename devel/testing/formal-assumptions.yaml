@@ -131,3 +131,21 @@ assumptions:
     specAnchors:
       - Reconnect
       - NoResponseFromEarlierGeneration
+  - id: ENV-TIMEOUT
+    status: open
+    summary: source-specific subscription timers preserve provider ownership and cache identity; timeout initialization does not imply receipt, freshness, application or successful traffic
+    plannedDischarge: RF-032 adds pinned source inspection, actual bootstrap rendering, abstract Lean guards, fifteen timed TLC configurations and direct runtime histories on upstream and enterprise binaries. Runtime timer arm/cancel/expiry and provider-replacement races, rejection, transport failure and cached RDS still need coverage. Establish implementation correspondence separately; logical-time fairness is not a real deadline bound.
+    specFile: devel/formal/lean/XdsSpec/InitialFetchTimeouts.lean
+    specAnchors:
+      - expiryMatchesProvider
+      - expiryNeedsDeadline
+      - expiryPreservesWire
+      - disabledCannotExpire
+      - cacheHasMatchingIdentity
+    dischargedBy:
+      - file: devel/formal/cmd/envoyprobe/timeout_profile_test.go
+        test: TestTimeoutRewarmingDoesNotInventEDSChange
+      - file: devel/formal/cmd/envoyprobe/timeout_profile_test.go
+        test: TestTimeoutFixtureLeavesGeneratedSourcesUnset
+      - file: devel/formal/cmd/envoyprobe/timeout_profile_test.go
+        test: TestTimeoutDisabledEDSControlDoesNotDisableRDS

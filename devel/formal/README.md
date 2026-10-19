@@ -4,7 +4,16 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
-The latest extension adds a [held-reconnect composition](composed/README.md) from
+The October 19 extension adds [source-specific initial-fetch timeouts](timeouts/README.md):
+a pinned ConfigSource inventory, timed TLC checks, abstract Lean safety proofs,
+actual bootstrap rendering and direct upstream/enterprise Envoy histories.
+`make formal-timeout-profiles` runs the runtime matrix; the required Lean/TLC
+runners include the new specification. [Live publication histories](live/README.md)
+also preserve the rendered parent/local-cluster initialization graph. These are
+separate evidence levels, with timer ownership/refinement and full-controller
+composition still open. Production timeout defaults are unchanged.
+
+An earlier extension adds a [held-reconnect composition](composed/README.md) from
 the pinned stack's gate through real cache/server and Envoy observations, with
 an executable bounded model projection. `make formal-composed-reconnect`
 requires the rollback counterexample and later recovery on the selected images.
@@ -69,7 +78,9 @@ The Go package at `pkg/kgateway/translator/xdscheck` checks concrete Envoy xDS s
 
 ### Future proof systems
 
-Lean, Dafny, F*, and Coq compiler proofs are future work, not part of this MVP. A later proof effort can target a smaller semantic compiler from Gateway/Policy IR into an abstract xDS snapshot, then use this validator as a concrete check at the protobuf boundary.
+Compiler proofs in Lean, Dafny, F* or Coq remain future work. The existing Lean
+state-machine and timeout proofs establish abstract properties, with no verified
+translator or Envoy refinement. A later proof effort can target a smaller semantic compiler from Gateway/Policy IR into an abstract xDS snapshot, then use this validator as a concrete check at the protobuf boundary.
 
 ## Non-goals
 

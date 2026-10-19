@@ -1,0 +1,13 @@
+name: Formal research tools
+description: Expose Helm from the repository's pinned Go tool dependencies
+runs:
+  using: composite
+  steps:
+    - name: Provide pinned Helm
+      shell: bash
+      run: |
+        mkdir -p "$RUNNER_TEMP/formal-bin"
+        printf '%s\n' '#!/bin/sh' 'exec go tool helm "$@"' > "$RUNNER_TEMP/formal-bin/helm"
+        chmod +x "$RUNNER_TEMP/formal-bin/helm"
+        echo "$RUNNER_TEMP/formal-bin" >> "$GITHUB_PATH"
+        go tool helm version --short

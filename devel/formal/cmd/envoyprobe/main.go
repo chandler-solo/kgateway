@@ -115,6 +115,9 @@ type probeServer struct {
 	responseCount atomic.Int64
 	log           *json.Encoder
 	mu            sync.Mutex
+	timeoutCase   string
+	traceStart    time.Time
+	traceSequence int
 }
 
 // observeNack records a NACK. The warming scenario treats any NACK as fatal;
@@ -144,6 +147,8 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return restartResources(phase)
 	case "timeouts":
 		return timeoutResources(phase)
+	case "timeout-profile":
+		return timeoutProfileResources(s.timeoutCase, phase)
 	case "init":
 		return initResources(phase)
 	default:
@@ -152,6 +157,9 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 }
 
 func (s *probeServer) versionFor(phase int, typ string) string {
+	if s.scenario == "timeout-profile" {
+		return timeoutProfileVersion(s.resourcesFor(phase)[typ])
+	}
 	if s.scenario == "restart" {
 		return restartVersion(phase, typ)
 	}
@@ -164,6 +172,15 @@ func (s *probeServer) versionFor(phase int, typ string) string {
 func (s *probeServer) record(v any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.scenario == "timeout-profile" {
+		event := v.(map[string]any)
+		if event["event"] == "response" {
+			event["event"] = "response-callback"
+		}
+		s.traceSequence++
+		event["schema"], event["seq"] = 1, s.traceSequence
+		event["elapsed_ns"] = time.Since(s.traceStart).Nanoseconds()
+	}
 	if err := s.log.Encode(v); err != nil {
 		panic(err)
 	}
@@ -351,6 +368,12 @@ func endpointState(body string, phase int) bool {
 }
 
 func run() (runErr error) {
+	renderChart := flag.String("render-chart", "", "render this Envoy Helm chart and exit")
+	renderValues := flag.String("render-values", "", "values file for bootstrap rendering")
+	renderOutput := flag.String("render-output", "", "output JSON for bootstrap rendering")
+	bootstrapSource := flag.String("bootstrap", "", "rendered bootstrap; retain its timeout graph with probe transport")
+	timeoutCase := flag.String("timeout-case", "", "timeout-profile history")
+	workers := flag.Int("workers", 1, "Envoy worker count")
 	useCache := flag.Bool("snapshot-cache", false, "use the actual go-control-plane cache/server")
 	ordered := flag.Bool("ordered", false, "use ordered ADS with -snapshot-cache")
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
@@ -360,10 +383,13 @@ func run() (runErr error) {
 	flag.BoolVar(&edsCacheEnabled, "eds-cache", false, "set envoy.restart_features.use_eds_cache_for_ads in the bootstrap runtime layer, as kgateway's Envoy bootstrap does")
 	flag.DurationVar(&resourceFetchTimeout, "resource-fetch-timeout", 0, "initial_fetch_timeout on EDS and RDS config sources: 0 writes 0s (disabled), negative leaves it unset (Envoy default 15 s, kgateway's shape), positive sets it")
 	flag.Parse()
+	if *renderChart != "" {
+		return renderTimeoutBootstrap(*renderChart, *renderValues, *renderOutput)
+	}
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" && *scenario != "init" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" && *scenario != "init" && *scenario != "timeout-profile" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
@@ -398,7 +424,18 @@ func run() (runErr error) {
 		return err
 	}
 	defer logfile.Close()
-	p := &probeServer{disablePanic: *disablePanic, scenario: *scenario, updates: make(chan int, 1), nacks: make(chan string, 8), log: json.NewEncoder(logfile)}
+	p := &probeServer{disablePanic: *disablePanic, scenario: *scenario, updates: make(chan int, 1), nacks: make(chan string, 8), log: json.NewEncoder(logfile), timeoutCase: *timeoutCase, traceStart: time.Now()}
+	if *scenario == "timeout-profile" {
+		defer func() { p.record(map[string]any{"event": "end", "failed": runErr != nil}) }()
+	}
+	if *scenario == "timeout-profile" {
+		if !*useCache || *bootstrapSource == "" {
+			return errors.New("timeout-profile requires -snapshot-cache and -bootstrap")
+		}
+		if !validTimeoutCase(*timeoutCase) {
+			return fmt.Errorf("unknown timeout case %q", *timeoutCase)
+		}
+	}
 	if *scenario == "secrets" {
 		if p.secrets.first, err = newProbeCertificate("cert-1"); err != nil {
 			return err
@@ -415,7 +452,7 @@ func run() (runErr error) {
 	defer stopServer()
 	advance := func(phase int) error { p.updates <- phase; return nil }
 	if *useCache {
-		advance, err = installCacheServer(serverCtx, srv, p, *ordered, true)
+		advance, err = installCacheServer(serverCtx, srv, p, *ordered, *scenario != "timeout-profile" || *timeoutCase != "missing-cds")
 		if err != nil {
 			return err
 		}
@@ -474,6 +511,15 @@ func run() (runErr error) {
  "static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}],
  "listeners":[{"name":"upstream","address":{"socket_address":{"address":"127.0.0.1","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"upstream","route_config":{"virtual_hosts":[{"name":"all","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"probe-upstream"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]}}
 `, runtimeLayer, fetchTimeout, fetchTimeout, port)
+	if *bootstrapSource != "" {
+		bootstrap, err = adaptTimeoutBootstrap(*bootstrapSource, bootstrap, dir)
+		if err != nil {
+			return err
+		}
+		if *scenario == "timeout-profile" && *timeoutCase == "local-cycle" {
+			bootstrap = strings.Replace(bootstrap, `"initial_fetch_timeout":"1s"`, `"initial_fetch_timeout":"0s"`, 1)
+		}
+	}
 	cfg := filepath.Join(dir, "bootstrap.json")
 	if err = os.WriteFile(cfg, []byte(bootstrap), 0o600); err != nil {
 		return err
@@ -486,7 +532,7 @@ func run() (runErr error) {
 	if !strings.Contains(dockerOS, "Docker Desktop") {
 		runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
 	}
-	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-p", "127.0.0.1::10002", "-p", "127.0.0.1::10004", "-p", "127.0.0.1::10006", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", "1", "--disable-hot-restart", "--log-level", "info")
+	runArgs = append(runArgs, "-p", "127.0.0.1::9901", "-p", "127.0.0.1::10000", "-p", "127.0.0.1::10002", "-p", "127.0.0.1::10004", "-p", "127.0.0.1::10006", "-v", cfg+":/probe.json:ro", *image, "-c", "/probe.json", "--concurrency", strconv.Itoa(*workers), "--disable-hot-restart", "--log-level", "info")
 	id, err := command(runArgs...)
 	if err != nil {
 		return err
@@ -522,6 +568,9 @@ func run() (runErr error) {
 	// Reconnect backoff and a container restart need more than the warming
 	// schedule's budget.
 	budget := 25 * time.Second
+	if *scenario == "timeout-profile" {
+		budget = 100 * time.Second
+	}
 	if *scenario == "restart" {
 		budget = 90 * time.Second
 		if edsCacheEnabled {
@@ -545,6 +594,9 @@ func run() (runErr error) {
 		return body
 	}
 	save("server-info.json", "/server_info")
+	if *scenario == "timeout-profile" {
+		return runTimeoutProfile(ctx, dir, admin, front, p, advance)
+	}
 	if *scenario == "references" {
 		return runReferences(ctx, dir, admin, front, inline, p, advance, *useCache)
 	}

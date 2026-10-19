@@ -39,6 +39,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
         PublicationTransitions*) model=PublicationTransitions; expected=pass ;;
         AdmissionPending*) model=AdmissionPending; expected=pass ;;
+        InitialFetchTimeoutsDisabledParents|InitialFetchTimeoutsDisabledEds|InitialFetchTimeoutsDisabledLocal) model=InitialFetchTimeouts; expected=temporal ;;
+        InitialFetchTimeouts*) model=InitialFetchTimeouts; expected=pass ;;
         CarryEpisodes*) model=CarryEpisodes; expected=pass ;;
         QueuedPublication*) model=QueuedPublication; expected=pass ;;
         WatchDeliveryCompositionImmediateLost|WatchDeliveryCompositionNoRetry) model=WatchDeliveryComposition; expected=temporal ;;
@@ -64,6 +66,14 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         CarryEpisodesRecoveryBug) invariant=FreshEpisodeGetsFullCarryInterval ;;
         QueuedPublicationLateStampBug) invariant=NoObsoleteCandidateResponse ;;
         AdmissionPendingSplitBug) invariant=NoEarlierPendingResponse ;;
+        InitialFetchTimeoutsStaleBug) invariant=NoStaleTimerEffect ;;
+        InitialFetchTimeoutsEarlyBug) invariant=NoEarlyExpiry ;;
+        InitialFetchTimeoutsDisabledBug) invariant=NoDisabledExpiry ;;
+        InitialFetchTimeoutsDeliveryBug) invariant=NoFabricatedDelivery ;;
+        InitialFetchTimeoutsCacheKeyBug) invariant=CacheIdentityRespected ;;
+        InitialFetchTimeoutsReadyCompleteBug) invariant=ReadyMeansComplete ;;
+        InitialFetchTimeoutsCacheFreshBug) invariant=CacheMeansFresh ;;
+        InitialFetchTimeoutsGlobalBoundBug) invariant=GlobalFifteenSecondBound ;;
         PublicationTransitionsCacheMeansDeliveredBug) invariant=ReferenceAheadIntervalRespected ;;
         PublicationTransitionsPruneReleasesHoldBug) invariant=IndependentHoldNotReleasedByPrune ;;
         WatchDeliveryCompositionInstallMeansSendBug) invariant=InstallationMeansSend ;;

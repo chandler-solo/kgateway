@@ -637,6 +637,17 @@ formal-live-harness: ## Check live publication trace validation and source isola
 formal-live-publication: formal-live-harness ## Check repaired publication histories and historical counterexamples through real Envoy
 	python3 -B devel/formal/live/run.py $(FORMAL_LIVE_ARGS)
 
+.PHONY: formal-timeout-harness formal-timeout-profiles formal-timeout-lean
+formal-timeout-harness: ## Check timeout profiles, observation validation and checker mutations
+	python3 -B -m unittest discover -s devel/formal/timeouts -p '*_test.py'
+	$(MAKE) go-test TEST_TAG=e2e TEST_PKG=./devel/formal/cmd/envoyprobe GO_TEST_ARGS='-count=1 -race'
+
+formal-timeout-profiles: formal-timeout-harness ## Characterize source-specific initial fetch timeouts on pinned Envoy images
+	python3 -B devel/formal/timeouts/run.py $(FORMAL_TIMEOUT_ARGS)
+
+formal-timeout-lean: ## Prove timeout guard and cache-provenance properties
+	cd devel/formal/lean && lake build XdsSpec.InitialFetchTimeouts
+
 #----------------------------------------------------------------------------------
 # Container Structure Tests
 #----------------------------------------------------------------------------------

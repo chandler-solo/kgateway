@@ -1486,3 +1486,53 @@ rejects all 468 deliberate mutations and verifies original source, fixture and
 dependency hashes. No additional medium-or-higher defect is established by these
 histories at 8e7546. The remaining full-controller and proof boundaries above
 remain open.
+
+
+## RF-032 Source-specific initial-fetch timeout assurance, October 19, 2026
+
+- **Classification:** model/bootstrap fidelity and coverage correction. No new
+  medium-or-higher product defect is established by these scoped histories.
+- **Source evidence:** at proposed stack `8e75468f4d0e`, bootstrap CDS and LDS
+  explicitly use `0s`, bootstrap local EDS uses `1s`, and generated Kubernetes EDS
+  and RDS remain unset with Envoy's `15s` default. The EDS cache runtime flag is
+  enabled. Parent ConfigSources do not determine their dependencies' durations.
+- **Correction:** the old “every missing dependency” finite-bound statement is
+  superseded. EDS/RDS timeout permits degraded initialization, not necessarily
+  complete or fresh configuration, received data, selectable endpoints or
+  successful traffic. Missing CDS/LDS can still block startup. The previous
+  unset-parent live fixture also omitted local-cluster initialization; its claim
+  of complete bootstrap fidelity is superseded by actual chart rendering.
+- **Formal evidence:** fifteen timed TLC configurations add independent
+  subscription counters, initialization causes, provider replacement, stale
+  callback controls and conditional temporal checks. Required counterexamples
+  refute disabled-source progress, early/stale/disabled expiry, fabricated
+  delivery, wrong cache identity, readiness implying completeness, cached data
+  implying fresh receipt and a global 15-second bound. All 75 required outcomes
+  match; wide ADS remains deferred. Seven Lean theorems establish abstract guard
+  and provenance safety over unbounded timestamps, generations and names, with
+  no verified Envoy/Go correspondence or temporal theorem.
+- **Runtime evidence:** [the timeout profile](timeouts/README.md) completed all
+  eight histories across four pinned binaries and two worker counts (64 runs),
+  with 176 independent observations and 624 rejected capture mutations. It corroborates
+  Send and nonce evidence using independent active/warming admin state, timeout/
+  cache counters, readiness and HTTP. The cached-rewarm case keeps the EDS
+  version/content unchanged and requires no fresh EDS response. Its direct proto
+  version fixture is separate from production's zero-marshal algorithm.
+- **Watch-path distinction:** the deliberately disabled local-EDS control can
+  stall before CDS on the unrepaired immediate named-watch decline. Installing
+  another snapshot cannot answer an already-lost watch. This is a nonproduction
+  control; the parked-watch retention and unsubscribe repairs remain separate.
+- **Composition evidence:** the corrected full live setup matrix has 24 repaired
+  passes and 12 expected historical counterexamples across the three pinned
+  upstream-current/enterprise binaries and both worker counts, with 156 admin
+  observations and 2,318 HTTP samples. A final audit rejects 504 capture mutations
+  and preserves original fixture/source identities. Earlier historical metrics
+  are not rewritten. Actual controller translation and Kubernetes execution
+  remain outside that fixture boundary.
+- **Open obligations:** runtime timer-arm/cancel/expiry/provider instrumentation,
+  replacement and queued callback races, reconnect/errors/rejection, cached RDS,
+  shared providers/service names, secret dependencies and complete controller
+  composition. The model represents some of these mechanisms without proving
+  their implementation. Time-progress fairness is separate from a dispatcher
+  or network latency bound. See the profile's executable commands and remaining
+  work; production defaults and prior counterexamples are unchanged.

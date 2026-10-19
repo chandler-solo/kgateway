@@ -4,18 +4,56 @@ This is the current status of the research branch, superseding stronger claims
 in historical investigation notes. The program is **open**. Findings and next
 actions are tracked in [research-findings.md](research-findings.md).
 
+## October 19 timeout extension
+
+[Source-specific timeout formalization](timeouts/README.md) supersedes older
+claims that every missing xDS dependency has a finite Envoy bound, or that an
+unset-CDS/LDS fixture reproduced the complete kgateway bootstrap graph.
+
+| Conclusion | Evidence level and boundary |
+|---|---|
+| CDS/LDS explicitly disable initial-fetch expiry; local EDS uses 1s; generated EDS/RDS use the unset 15s default | Pinned source inspection, actual chart rendering and separately checked executed/admin bootstraps |
+| Disabled sources can block initialization; default EDS/RDS expiry can yield degraded active state | Timed bounded model and direct runtime observations; finite silence windows are not infinite-wait proofs |
+| EDS rewarming can complete from cached data without a fresh EDS response | Direct real-cache/server/Envoy histories with counter increments, active/warming admin state and HTTP; no general cache-freshness theorem |
+| Expiry needs the owning provider and a due deadline and cannot invent receive/accept counts or select a wrong cache identity | Seven abstract Lean safety theorems; C++/Go refinement and runtime provider-replacement races remain open |
+| Timers do not establish a global fifteen-second deadline or complete configuration | Required model counterexamples; real scheduling and network bounds are unproved |
+
+The fifteen added TLC configurations bring the required suite to 75, all matching
+their designated outcomes; the original wide ADS model remains explicitly
+deferred. Full `make formal-lean`, four race-enabled probe tests, ten timeout
+harness tests, five live harness tests, scoped Go lint and workflow lint pass.
+The existing sixteen direct Envoy profiles and twelve legacy runtime/image
+profiles were rerun successfully.
+
+The corrected live setup/bootstrap matrix completed all 36 histories: 24 repaired
+passes and 12 historical counterexamples. Its final independent audit checked
+156 admin/application observations, 2,318 HTTP samples and 504 capture mutations
+without changing original captures or fixture hashes. These are new October 19
+observations; older run counts below remain historical. Pinned Helm 3 rendering
+was byte-identical to the Helm 4 bootstraps used for this complete live run.
+
+The direct timeout acceptance matrix passed all 64 histories across four image
+digests and both worker counts: 176 independent observations and 624 rejected
+mutations, using repository-pinned Helm 3. Details and limits are recorded in the
+[timeout profile](timeouts/README.md). Its supplied translations are separate
+from live setup/KRT publication coverage. Enterprise standard/FIPS binaries
+remain in scope, without a claim of full downstream controller execution or
+validated deployment. Generated artifacts stay outside Git. No production
+timeout default or publication policy is changed.
+
 ## Profile
 
-October 17 profiles: `stack-14817-8e75468f4d0e` and
-[`live/profiles.json`](live/profiles.json), with research HEAD
-`c80355675bea099274a8b14a6584023d4179b044` plus research harness/documentation
-changes. The earlier held-reconnect observations remain pinned to stack
+October 19 profiles: `stack-14817-8e75468f4d0e`,
+[`live/profiles.json`](live/profiles.json) and
+[`timeouts/profiles.json`](timeouts/profiles.json), with research starting HEAD
+`7b44c4c84721c2a7df465cc1271a28e88cf12be5` plus the working-tree timeout
+formalization, harness and documentation changes. The earlier held-reconnect observations remain pinned to stack
 `215ebe8e6450`; the new live profile separately checks repaired `8e75468f4d0e`
 and historical `7d930bb2183b`.
 
 | Subject | Identity and disposition |
 |---|---|
-| Research | Lifecycle/composed-runtime work plus live setup/KRT/timer histories and a bounded admission/timer model; no production publication code or Lean theorem changed |
+| Research | Lifecycle/composed-runtime work, live setup/KRT/timer histories, timed bounded models and new abstract timeout Lean proofs; production publication code unchanged |
 | Updated proposed stack | `kgateway-dev/kgateway` stack 14817, pinned at `8e75468f4d0e055deb9b8f34e4254831f011e2a3`; **not ported into this tree**; earlier immutable profiles and counterexamples preserved |
 | Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; ordinary upgrade adaptation is assumed; no downstream controller deployment validated |
 | Deployment | No live deployment identified by this review |
@@ -79,7 +117,8 @@ whole-repository/e2e/image/deployment validation.
 | Multi-client frame/isolation | Proved in Lean | Disjoint client components by construction; no shared-key refinement |
 | Recovery from deferred state | Constructive existence proof | No fairness, wall-clock bound, or guarantee of coherent future input |
 | Finite model safety | Model-checked with bounded names and states | Run output records each explored domain; not arbitrary concurrency |
-| Finite model recovery | Reachability checked | Does not imply eventuality on all fair executions |
+| Lean finite checker recovery | Reachability checked | Does not imply eventuality on all fair executions |
+| Timed initialization progress | Bounded TLC temporal checks with explicit weak fairness | Conditional on the representative chain and progress actions; disabled-source counterexamples remain required; no real scheduling or network deadline |
 | Cold empty-endpoint publication | Go tests, Lean safety/recovery, TLC temporal check, live XdsWarming and XdsStarvation suites passed once against the research image | Missing CDS still blocks; the live suites are pass/fail without traces and the starvation suite is a regression pin, not a #14184 reproducer |
 | Derived empty warm publication | Guard proofs plus concrete KRT/cache regressions | No endpoint-health gate; new live scenario code requires a fresh run on each named runtime profile |
 | Retained dependency and version provenance | Go regression tests | Shared assignments preserve current bytes/hash; supported ancillary/transitive dependencies retained; opaque and recognized dynamic extensions conservatively retain eligible CDS; arbitrary extension semantics and revocation remain open |
@@ -100,10 +139,10 @@ whole-repository/e2e/image/deployment validation.
 | SotW rejection semantics | Directly characterized for CDS, LDS, EDS, RDS, and SDS; descriptive Lean model (RF-026) | CDS and LDS apply valid siblings on NACK; EDS, RDS, and SDS reject the whole response; convergence models keep the atomic abstraction; Delta untested |
 | Cache installation receipts | Trace relation from decision to installation on the per-type version tuple (RF-006) | Delivery, acceptance, and activation not instrumented; transform-only scenarios counted |
 | Secret delivery and removal | Directly characterized over SotW ADS (RF-027) | Rotation applies in place; removal is ACKed and revokes nothing; missing secret holds only its listener; a provider-key change is served over SotW; CA and client-certificate secrets, standalone SDS server, and Delta untested |
-| Control-plane and proxy restart | Directly characterized through SnapshotCache in both ADS modes, including a restart during rewarming (RF-028); TLC counterexample and three passing configurations in `ReconnectWhileWarming.tla`; live XdsWarming restart-during-warming test passed once | Empty cache is harmless while the proxy keeps serving; reconnect carries versions without nonces; a restarted proxy is served from the warm cache; a reconnect while a cluster is warming re-requests EDS, LDS, RDS but not CDS until EDS completes the warming, so a withheld or equal-version-parked EDS blocks CDS repairs for up to the EDS initial fetch timeout (15 s in kgateway's bootstrap, where the EDS cache then completes the warming; unbounded only with the timeout disabled); the kgateway first-publish gate for a cache-less client is not exercised |
-| Initial fetch timeouts | Directly characterized at 2 s | Missing EDS and RDS become degraded active states after the timeout, sequentially across init phases; a route ahead of its cluster is a 503 window; the separate default-timeout rewarming correction is recorded in RF-028; no universal end-to-end bound |
+| Control-plane and proxy restart | Directly characterized through SnapshotCache in both ADS modes, including a restart during rewarming (RF-028); TLC counterexample and three passing configurations in `ReconnectWhileWarming.tla`; live XdsWarming restart-during-warming test passed once | Empty cache is harmless while the proxy keeps serving; reconnect carries versions without nonces; a restarted proxy is served from the warm cache; a reconnect while a cluster is warming re-requests EDS, LDS, RDS but not CDS until EDS completes the warming, so a withheld or equal-version-parked EDS can block CDS repairs until EDS completion or initial-fetch expiry (nominally 15s on generated EDS, where cached EDS can complete warming; no hard scheduling bound, and disabled timers permit indefinite waiting); the kgateway first-publish gate for a cache-less client is not exercised |
+| Initial fetch timeouts | Pinned source/rendering, fifteen timed TLC configurations, seven abstract Lean safety theorems and source-specific direct runtime histories (RF-032); historical synthetic 2s probe retained | Parent CDS/LDS timers are disabled; local EDS uses 1s; default EDS/RDS expiry can initialize degraded state or use cached EDS. Readiness is not completeness, cache is not fresh receipt, and nominal durations do not prove a global deadline; runtime replacement/error/rejection coverage and refinement remain open |
 | Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
-| Enterprise standard/FIPS runtime | Direct observations on both pinned v1.39.1-patch1 images, four scenarios each, arm64/one worker | Warming, references, ADS TLS secrets and restart; no controller/peering/enterprise extension integration, standalone SDS, or certification claim |
+| Enterprise standard/FIPS runtime | Direct observations on both pinned v1.39.1-patch1 images: legacy warming/references/secrets/restart plus live publication and source-specific timeout histories, including one and two workers | Finite arm64 Docker observations; no full downstream controller/peering/enterprise extension integration, standalone SDS, or certification claim |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; even sets of distinct contributions can share an XOR version; the toy collision remains a negative control |
 | KRT recovery | Open; temporal claim stated with explicit fairness (RF-005) | No deployed watchdog exists; progress rests on KRT delivery, which is unverified; a stale-replay watchdog would not help |
 | Historical coverage | Complete title/body inventory, seventy-two detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |

@@ -63,8 +63,13 @@ First-publication budget is 1.2 seconds and carry bound is 1.4 seconds in this
 test profile. Timers expire through `time.AfterFunc`; the cancellation case
 separately invokes a **stale** callback as a fault injection. These are measured
 test durations, not production deadline proofs. EDS/RDS initial fetch timeouts
-remain unset and `use_eds_cache_for_ads` is enabled, preserving the default-timeout
-bootstrap correction. A derived empty assignment remains valid truth.
+remain unset and `use_eds_cache_for_ads` is enabled. The October 19 harness
+also renders the actual subject chart and preserves explicit CDS/LDS `0s`, local
+EDS `1s`, the local-cluster dependency and runtime layers; fixture transport,
+identity, admin and upstream listener are adapted. Earlier captures used unset
+CDS/LDS and omitted the local cluster, so their claim of complete bootstrap
+fidelity is superseded. The [timeout suite](../timeouts/README.md) separately
+checks missing parent resources, degraded activation and cached rewarming. A derived empty assignment remains valid truth.
 
 ## Evidence checks
 
@@ -95,6 +100,8 @@ Every fresh real capture is subjected to checker mutations, including missing
 application/authentication/warm-history/transport evidence, wrong identity,
 nonce, response bytes, admin hash, HTTP result and terminal status. Changing
 active route content while also updating the artifact hash must still fail.
+The October 19 checker also rejects silently defaulting bootstrap CDS to 15s;
+the full 36-capture audit rejects 504 mutations.
 Generated captures stay outside Git; historical source fixtures/counterexamples
 remain intact.
 
@@ -106,6 +113,15 @@ capture (468 checks), including artificial EDS versions and changed assignment
 bytes at an unchanged contribution. Exact current fixture hashes, original
 production source hashes and module dependencies were verified. Exploratory
 runs using opaque input EDS versions are not the acceptance evidence.
+
+The October 19 rerun with the rendered local-cluster/parent-timeout graph again
+completed all 36 histories with race detection: 24 repaired passes and 12
+historical counterexamples, 156 admin/application observations and 2,318 HTTP
+samples. The final checker audit rejected 504 mutations. The full run used local
+Helm 4; separately rendering both frozen charts with repository-pinned Helm 3
+produced byte-identical bootstrap JSON. CI now supplies the pinned Helm tool.
+The original captures remain unchanged; public GitHub CI itself was not run by
+this session.
 
 `AdmissionPending.tla` adds a finite safety model of the reset/adopt/timer
 interleaving. Split cleanup/adoption violates `NoEarlierPendingResponse`;

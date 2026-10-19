@@ -11,3 +11,4 @@ import XdsSpec.OrderedADS
 import XdsSpec.ClientIdentity
 import XdsSpec.VersionDigest
 import XdsSpec.PartialRejection
+import XdsSpec.InitialFetchTimeouts

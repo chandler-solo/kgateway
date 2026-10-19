@@ -11,6 +11,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  initial-fetch-timeouts:
+    name: Source-specific initial fetch timeout histories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        with:
+          go-version-file: go.mod
+      - uses: ./.github/actions/formal-tools
+      - name: Check actual timeout defaults and deliberately disabled controls
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make formal-timeout-profiles FORMAL_TIMEOUT_ARGS="--profile upstream-current --artifacts $RUNNER_TEMP/formal-timeouts"
+      - name: Preserve captures outside the source tree
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: initial-fetch-timeouts
+          path: |
+            ${{ runner.temp }}/formal-timeouts/*.json
+            ${{ runner.temp }}/formal-timeouts/*.log
+            ${{ runner.temp }}/formal-timeouts/render
+            ${{ runner.temp }}/formal-timeouts/subject/source.tar.gz
+            ${{ runner.temp }}/formal-timeouts/upstream-current
+          if-no-files-found: error
   live-publication:
     name: Publication histories through control-plane setup and Envoy
     runs-on: ubuntu-24.04
@@ -22,6 +50,7 @@ jobs:
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: go.mod
+      - uses: ./.github/actions/formal-tools
       - name: Check repaired histories and historical negative controls on one and two workers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,6 +64,7 @@ jobs:
             ${{ runner.temp }}/formal-live/*.json
             ${{ runner.temp }}/formal-live/*.log
             ${{ runner.temp }}/formal-live/*/source.tar.gz
+            ${{ runner.temp }}/formal-live/*/rendered-*
             ${{ runner.temp }}/formal-live/*/pristine-build.*
             ${{ runner.temp }}/formal-live/*/upstream-current
           if-no-files-found: error

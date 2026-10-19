@@ -15,6 +15,22 @@ separate from product findings. Generated execution artifacts remain outside
 the repository. This update supersedes older statements that no current-tip
 gate-to-Envoy composition exists; other scoped limitations remain.
 
+October 19 timeout milestone: [source-specific formalization](timeouts/README.md)
+adds a pinned ConfigSource inventory, fifteen timed TLC configurations, seven
+abstract Lean safety theorems, a 64-history direct Envoy matrix and public CI
+subset. The live publication harness now renders each actual subject chart,
+including disabled parent timers and the local-cluster initialization dependency.
+Production defaults and prior counterexamples remain intact. The older global
+claim that Envoy bounds every missing dependency is superseded.
+
+Next extend real timer instrumentation to provider replacement, queued cancel/
+expiry, transport errors, rejection and cached RDS; then compose actual controller
+translation and downstream secret dependencies. Prove temporal progress only with
+stated fairness, and quantitative deadlines only with separate scheduler/network
+bounds. Neither current abstract proofs nor runtime observations establish a
+model-to-implementation refinement. See the timeout profile's remaining obligations
+for the concrete coverage gaps and evidence levels.
+
 Research branch: `chandler/kxdsformalmethods`, reviewed at `54007c4fe4`.
 Comparison baseline: `b50b0084fb`, immediately before the first formal-methods commit. The research series changes 110 files, with roughly 15,700 insertions. This is a research branch with experimental production changes, not just a collection of models.
 

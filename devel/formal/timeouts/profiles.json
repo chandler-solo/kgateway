@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "source": {
+    "repository": "kgateway-dev/kgateway",
+    "revision": "8e75468f4d0e055deb9b8f34e4254831f011e2a3",
+    "chart": "pkg/kgateway/helm/envoy",
+    "sha256": {
+      "pkg/kgateway/helm/envoy/templates/configmap.yaml": "31ee57fcc01b92132fa5fd0fdcf24b85763520deec91a9a272fddd3baf607130",
+      "pkg/kgateway/extensions2/plugins/kubernetes/k8s.go": "360e9ff22c29514a0348a417fd8f0967d6d0ed28bf971cadf892dd06f90982b8",
+      "pkg/kgateway/translator/irtranslator/fc.go": "e8b875f6507d16c7f41300b1fa166cbb5074c8f30fdc14819566ead0c69cbdaa"
+    }
+  },
+  "images": {
+    "upstream": {
+      "image": "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4"
+    },
+    "enterprise-standard": {
+      "image": "gcr.io/gloo-ee/envoy-gloo-ee-standard-release:v1.39.1-patch1@sha256:08bce7b318b781a976169b617119f725a79ca803a0b74455003f067b77bf5032"
+    },
+    "enterprise-fips": {
+      "image": "gcr.io/gloo-ee/envoy-gloo-ee-fips-release:v1.39.1-patch1@sha256:9cb6b2c756b752de210252eeab41bf489141fa136a04d39a629ce526cf1d3151"
+    },
+    "upstream-current": {
+      "image": "envoyproxy/envoy:v1.39.4@sha256:74bd4eb5629708d3fadca1a5e6b85d208f338d7bb54e06b69565905c5294cc01"
+    }
+  },
+  "cases": [
+    "missing-cds",
+    "missing-lds",
+    "missing-eds",
+    "missing-rds",
+    "explicit-empty",
+    "cached-rewarm",
+    "disabled-eds",
+    "local-cycle"
+  ],
+  "workers": [
+    1,
+    2
+  ],
+  "timeouts": {
+    "cds": {
+      "kind": "disabled",
+      "seconds": 0
+    },
+    "lds": {
+      "kind": "disabled",
+      "seconds": 0
+    },
+    "local_eds": {
+      "kind": "finite",
+      "seconds": 1
+    },
+    "generated_eds": {
+      "kind": "unset",
+      "effective_seconds": 15
+    },
+    "generated_rds": {
+      "kind": "unset",
+      "effective_seconds": 15
+    }
+  },
+  "controls": {
+    "disabled-eds": "only generated EDS becomes explicit zero",
+    "local-cycle": "only local EDS becomes explicit zero"
+  },
+  "envoy_sources": [
+    {
+      "version": "v1.39.1",
+      "path": "source/extensions/config_subscription/grpc/grpc_subscription_impl.cc",
+      "sha256": "13ca809068525d35104ec8e90dd0f27be34737b5a4c7d93b6207cf6ab6db6f1f"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "source/extensions/clusters/eds/eds.cc",
+      "sha256": "aaa7e28d229d3e713b4232da13b78d41370b061a54b23c6eb73ed50f4d23544f"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "source/common/router/rds_impl.cc",
+      "sha256": "af9186ae7e895e95e4a2518aeedf05346d74ceb57e5e27a2683d10bc66e00f11"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "source/common/router/rds_impl.h",
+      "sha256": "720f4a84efaae21ad9a40dd280547548640fbdc500d2ea4cc125fe3b423c5aae"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "api/envoy/config/core/v3/config_source.proto",
+      "sha256": "a7febf530579087616987afddb05fa0bf0ec8f32527d629f014c6f45c14f95a2"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/extensions/config_subscription/grpc/grpc_subscription_impl.cc",
+      "sha256": "13ca809068525d35104ec8e90dd0f27be34737b5a4c7d93b6207cf6ab6db6f1f"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/extensions/clusters/eds/eds.cc",
+      "sha256": "aaa7e28d229d3e713b4232da13b78d41370b061a54b23c6eb73ed50f4d23544f"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/common/router/rds_impl.cc",
+      "sha256": "af9186ae7e895e95e4a2518aeedf05346d74ceb57e5e27a2683d10bc66e00f11"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/common/router/rds_impl.h",
+      "sha256": "720f4a84efaae21ad9a40dd280547548640fbdc500d2ea4cc125fe3b423c5aae"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "api/envoy/config/core/v3/config_source.proto",
+      "sha256": "a7febf530579087616987afddb05fa0bf0ec8f32527d629f014c6f45c14f95a2"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "source/common/rds/rds_route_config_subscription.cc",
+      "sha256": "a3d67040ccdb8d5344cd80dd5c42e258c4bc7147a279ee386424209598d69ea0"
+    },
+    {
+      "version": "v1.39.1",
+      "path": "source/common/rds/rds_route_config_subscription.h",
+      "sha256": "53b18ef8e6e0adf5e6cc781e15d4a617d9299110c7de225b3242f584670eaf1a"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/common/rds/rds_route_config_subscription.cc",
+      "sha256": "a3d67040ccdb8d5344cd80dd5c42e258c4bc7147a279ee386424209598d69ea0"
+    },
+    {
+      "version": "v1.39.4",
+      "path": "source/common/rds/rds_route_config_subscription.h",
+      "sha256": "53b18ef8e6e0adf5e6cc781e15d4a617d9299110c7de225b3242f584670eaf1a"
+    }
+  ]
+}

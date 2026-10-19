@@ -1,8 +1,21 @@
 # XdsAdsSotw TLA+ model
 
+## October 19 initial-fetch timeout extension
+
+Fifteen `InitialFetchTimeouts*` configurations add a source-specific logical-time
+chain, disabled subscriptions, cached initialization, rejection, provider
+replacement and stale callbacks. Required negative cases preserve counterexamples
+to fabricated delivery, early/disabled/stale expiry, wrong cache identity,
+readiness implying complete configuration, cache implying freshness, and a global
+15-second bound. Three disabled-source profiles fail eventual initialization as
+expected. Positive temporal claims assume explicit weak fairness and finite
+representative bounds. [Timeout scope and source mapping](../timeouts/README.md)
+distinguishes these model results from runtime observations and Lean safety proofs.
+Older models and counterexamples are unchanged.
+
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 60 configurations, including
+`make formal-tlc` is the required runner. It checks 75 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.

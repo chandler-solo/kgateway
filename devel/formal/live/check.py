@@ -99,6 +99,13 @@ def validate(events, directory, subject, scenario, image, workers):
             and p["auth"] == "KubeJWTAuthenticator with fixture TokenReview authority", "unrecognized composition assumptions")
     require(p["budget_ns"] == 1200000000 and p["carry_bound_ns"] == 1400000000, "changed timer profile")
     bootstrap = json.loads((directory / "bootstrap.json").read_text())
+    for parent in ("cds_config", "lds_config"):
+        require(bootstrap["dynamic_resources"][parent].get("initial_fetch_timeout") == "0s",
+                "CDS/LDS timeout must be explicitly disabled")
+    local_name = bootstrap["cluster_manager"]["local_cluster_name"]
+    local = [c for c in bootstrap["static_resources"]["clusters"] if c["name"] == local_name]
+    require(len(local) == 1 and local[0]["eds_cluster_config"]["eds_config"].get("initial_fetch_timeout") == "1s",
+            "rendered local EDS timeout mismatch")
     require(bootstrap["node"]["metadata"]["role"] == "deliberately-untrusted", "authentication was not challenged by an untrusted role")
     services = bootstrap["dynamic_resources"]["ads_config"]["grpc_services"]
     require(len(services) == 1 and services[0]["initial_metadata"] ==
@@ -278,4 +285,16 @@ def mutation_checks(events, directory, subject, scenario, image, workers):
             passed.append("changed active route despite matching hash")
         else:
             raise ValueError("checker inferred application from version/HTTP alone")
+        # A semantically wrong bootstrap must fail even with intact observations.
+        shutil.copyfile(directory / "bootstrap.json", dest / "bootstrap.json")
+        bootstrap = json.loads((dest / "bootstrap.json").read_text())
+        bootstrap["dynamic_resources"]["cds_config"].pop("initial_fetch_timeout")
+        (dest / "bootstrap.json").write_text(json.dumps(bootstrap))
+        try:
+            validate(events, dest, subject, scenario, image, workers)
+        except ValueError as error:
+            require("CDS/LDS" in str(error), "bootstrap mutation failed for unrelated reason")
+            passed.append("unset CDS bootstrap timeout")
+        else:
+            raise ValueError("checker accepted a synthetic finite CDS bootstrap timeout")
     return passed

@@ -1,0 +1,48 @@
+//go:build formal_live
+
+package setup
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+)
+
+// Replace only probe transport, identity, admin address and the fixture listener.
+// Keep the rendered local EDS cluster, cluster manager and CDS/LDS ConfigSources.
+func formalLiveBootstrap(rendered string, fixture string, outputDir string) (string, error) {
+	raw, err := os.ReadFile(rendered)
+	if err != nil {
+		return "", err
+	}
+	if err = os.WriteFile(filepath.Join(outputDir, "rendered-bootstrap.json"), raw, 0o600); err != nil {
+		return "", err
+	}
+	var base, extra map[string]any
+	if err = json.Unmarshal(raw, &base); err != nil {
+		return "", err
+	}
+	if err = json.Unmarshal([]byte(fixture), &extra); err != nil {
+		return "", err
+	}
+	base["admin"], base["node"] = extra["admin"], extra["node"]
+	dynamic := base["dynamic_resources"].(map[string]any)
+	dynamic["ads_config"] = extra["dynamic_resources"].(map[string]any)["ads_config"]
+	statics, fixtureStatics := base["static_resources"].(map[string]any), extra["static_resources"].(map[string]any)
+	clusters := []any{}
+	for _, item := range statics["clusters"].([]any) {
+		cluster := item.(map[string]any)
+		if cluster["name"] == "xds_cluster" {
+			continue
+		}
+		if cluster["name"] == "admin_port_cluster" {
+			endpoint := cluster["load_assignment"].(map[string]any)["endpoints"].([]any)[0].(map[string]any)["lb_endpoints"].([]any)[0].(map[string]any)["endpoint"].(map[string]any)
+			endpoint["address"].(map[string]any)["socket_address"].(map[string]any)["port_value"] = 9901
+		}
+		clusters = append(clusters, cluster)
+	}
+	statics["clusters"] = append(clusters, fixtureStatics["clusters"].([]any)...)
+	statics["listeners"] = append(statics["listeners"].([]any), fixtureStatics["listeners"].([]any)...)
+	encoded, err := json.Marshal(base)
+	return string(encoded), err
+}

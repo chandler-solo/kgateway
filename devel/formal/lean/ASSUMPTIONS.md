@@ -162,3 +162,20 @@ fair candidate delivery, reconnect, logical expiry, Send, application, coherent
 recovery and callback execution. None is discharged by six finite observations
 or by invoking a callback manually. No production version algorithm or hash
 injectivity assumption is changed by test-side resource SHA-256 observations.
+
+## ENV-TIMEOUT Initial-fetch timer ownership and cache identity, October 19
+
+**Source-characterized and partially runtime-characterized; refinement open.**
+`XdsSpec.InitialFetchTimeouts` proves abstract guard/provenance safety over
+unbounded timestamps, generations and arbitrary names. Its deadline/provider
+checks are specified guards, not a proof that C++ cancellation and callback
+lifetimes implement them. Finite TLC histories cover the representative stale
+callback and disabled-source failures; the runtime suite checks source-specific
+defaults, explicit empty EDS, cached EDS rewarming and disabled controls.
+
+[The timeout profile](../timeouts/README.md) records source ownership and limits.
+Update rejection, transport failure, cached RDS, exact timer arm/cancel events,
+provider replacement and queued stale expiry still need direct runtime coverage.
+`WF(Tick)` is time progress in a model, not a real dispatcher latency guarantee.
+These proofs do not imply temporal liveness, a fifteen-second global deadline,
+resource delivery, fresh cached data, or complete forwarding configuration.

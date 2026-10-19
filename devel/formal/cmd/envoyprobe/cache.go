@@ -75,10 +75,15 @@ func installCacheServer(ctx context.Context, g *grpc.Server, p *probeServer, ord
 			p.record(map[string]any{"event": "response", "type": r.TypeUrl, "version": r.VersionInfo, "nonce": r.Nonce})
 		},
 	}
+	var implementation discovery.AggregatedDiscoveryServiceServer
 	if ordered {
-		discovery.RegisterAggregatedDiscoveryServiceServer(g, server.NewServer(ctx, c, callbacks, sotw.WithOrderedADS()))
+		implementation = server.NewServer(ctx, c, callbacks, sotw.WithOrderedADS())
 	} else {
-		discovery.RegisterAggregatedDiscoveryServiceServer(g, server.NewServer(ctx, c, callbacks))
+		implementation = server.NewServer(ctx, c, callbacks)
 	}
+	if p.scenario == "timeout-profile" {
+		implementation = timeoutADS{inner: implementation, probe: p}
+	}
+	discovery.RegisterAggregatedDiscoveryServiceServer(g, implementation)
 	return publish, nil
 }
