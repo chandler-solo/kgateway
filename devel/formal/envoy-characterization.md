@@ -342,3 +342,44 @@ not reproduce on v1.39.1. This also shows the ADS initialization order
 directly: listeners are not requested until every primary cluster has its
 endpoints or has timed out, which is why a single withheld assignment delays
 the whole proxy's readiness (RF-003, RF-014).
+
+### A rejected sibling strands EDS and RDS
+
+`-scenario stranded` (RF-035) runs through the actual pinned SnapshotCache and
+server in kgateway's bootstrap shape: `-snapshot-cache -eds-cache
+-resource-fetch-timeout -1s`, with and without `-ordered`. One response adds a
+valid cluster `b` and a cluster `x` with `CLUSTER_PROVIDED` load balancing on an
+EDS cluster, which Envoy rejects while building it. The same snapshot adds a
+valid listener `added` and a listener `rejected` whose HTTP filter config has
+no filter factory. The scenario then moves `a`'s endpoint from a refusing port
+to a working one, changes route `r1`, removes `x` and `rejected`, and finally
+adds cluster `c` and listener `later`.
+
+Observed on 2026-10-20 with v1.39.1 (`sha256:57e14a54…`), ordered ADS and one
+worker:
+
+| Step | Envoy behavior |
+|---|---|
+| `b`, `x`, `added`, `rejected` published | CDS and LDS NACKed; `b` and `added` warm; EDS is requested for `b` and `a` but not `x`, and RDS for `r2` and `r1` but not `r3`; no EDS or RDS response is sent |
+| `a` moves to the working port; `r1` changes | `a` keeps the refusing endpoint and `/a` returns 503; front keeps `r1-v1` |
+| Fetch timeouts expire (unset, 15 s) | `b` activates with no hosts (503); `added` activates with no routes (404) |
+| `x` and `rejected` removed | CDS and LDS `r3` ACKed on the wire; `a`, `/a` and front unchanged across a 5 s window; no EDS or RDS response |
+| `c` and `later` added | EDS and RDS requested under the new names and answered; `a` reaches the working port (200), front serves `r1-v3`, `later` serves `r4-v1` |
+
+The admin config dump reported CDS and LDS `version_info` `r1` after Envoy had
+ACKed `r3`: the accepted update changed no resource Envoy held, so the dump
+version does not record the ACK. Wait on the wire ACK, not the dump.
+
+An HTTP filter whose typed config has an unknown type is rejected the same way,
+but Envoy keeps the rejected listener in `error_state`, and `/config_dump` then
+fails to serialize. The scenario uses a known message type with no filter
+factory so the dump stays readable.
+
+Conclusions, limited to this binary and configuration: Envoy's partial CDS and
+LDS application (RF-026) leaves the rejected resource's assignment or route
+configuration unrequested, and the pinned cache's ADS name check then holds
+back every named response for the proxy. The request Envoy sends for the valid
+sibling is declined on the request path and leaves no watch, so removing the
+rejected resource does not release EDS or RDS. A later change to the requested
+names does. The windows are finite: they characterize the schedule, not every
+later event.

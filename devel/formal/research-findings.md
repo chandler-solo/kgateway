@@ -1769,3 +1769,62 @@ remain open.
   `$HOME/t/stack-current-closure-g4mqo074/`. Checked-in content consists of models,
   proofs, fixtures, profiles, checkers and documentation. Generated receipts and
   logs are not research source and are not added to this tree.
+
+## RF-035 A rejected CDS or LDS sibling strands EDS and RDS, October 20, 2026
+
+- **Classification:** dependency defect composed with Envoy's partial CDS/LDS
+  application (RF-026), reproduced on real Envoy. It is present on kgateway
+  main `93002e65c9fac06ebcedcae1b619d5362648ba58` and on stack #14817 at
+  `ab9865b83e63` and its local restack `ea84b7bbca`. The stack neither causes
+  nor repairs it. Upstream go-control-plane main on October 20 still has the
+  request-path drop.
+- **Source evidence:** on the pinned `1cd1226616f5`, `createResponse` checks
+  for snapshot names outside a named ADS subscription before it compares
+  versions. `CreateWatch` returns no watch on that error, under its
+  "likely unneeded now" TODO. `respondSOTWWatches` keeps a declined parked
+  watch (#1356, RF-007). kgateway keeps EDS within its own CDS and RDS within
+  its own LDS, but the check runs against what Envoy subscribed to.
+- **Runtime evidence:** `-scenario stranded` drives the actual cache and server
+  with kgateway's bootstrap shape (see envoy-characterization.md). On v1.39.1,
+  ordered ADS:
+  - Envoy NACKs a response adding a valid cluster and a cluster it rejects, and
+    requests EDS for the valid one but never the rejected one; the same holds
+    for listeners and RDS.
+  - No EDS or RDS response is sent while the rejected names are published, so
+    an endpoint fix for an existing cluster and a route change never apply.
+  - After removal, Envoy ACKs CDS and LDS, yet the existing cluster keeps its
+    refusing endpoint (503) and the route its first version through a 5 s
+    window.
+  - Adding a cluster and a listener, which changes the requested names,
+    recovers both.
+  A separate scratch probe, which parked NACKs the way kgateway's stack does,
+  reproduced the EDS and RDS freeze on upstream v1.39.4 (`sha256:74bd4eb5…`)
+  and enterprise standard v1.39.4-patch2 (`sha256:66612e48…`). It also
+  reproduced the EDS freeze with a bad TLS signature algorithm as the rejection.
+  These are finite windows on one proxy with supplied snapshots, not a
+  temporal proof, a kgateway translation history or a deployment observation.
+- **Implementation evidence:** kgateway commit `3f7312f834` on
+  `chandler/k-tests-that-expose-go-control-plane-bug` (base main `93002e65c9`)
+  adds three `TestADSCacheRejected*` tests. They replay Envoy's requests through
+  main's `newSnapshotCache` in both ADS modes.
+  - They pass on the pin, which means the defect is reproduced.
+  - go-control-plane fix-stack layer `c4d90e11f`, which keeps a declined
+    request's watch, fails the two stranding tests.
+  - Opt-in subscription-filtered responses (`f643f15f0`) fail all three.
+  - The tests pass through the stack's watch policy, so its NACK, reconnect and
+    re-warm rules do not change the outcome.
+- **Scope:** SDS is not affected on kgateway main. Since #14794,
+  `perRequestSecretsCache` serves secret watches from a non-ADS copy that
+  answers only requested names. Before that, ADS-delivered OAuth2 secrets had
+  the same exposure through a rejected listener. Delta, shared cache keys and
+  reconnect recovery were not exercised.
+- **Measurement note:** after the ACK of `r3`, Envoy's config dump still
+  reported CDS and LDS `version_info` `r1`, because the accepted update changed
+  no held resource. ACK and dump version are separate observations.
+- **Remedy candidates, not adopted:** go-control-plane layers `c4d90e11f` and
+  `f643f15f0` (kgateway must enable the latter), or kgateway-side per-request
+  EDS and RDS caches like #14794's secrets cache. Whichever lands should invert
+  the kgateway tests.
+- **Artifacts:** external under `$HOME/t/rf035-stranded-20261020/`: scratch-probe
+  source and runs, the envoyprobe capture, and kgateway test logs, including the
+  fix-layer controls. Generated captures are not added to this tree.

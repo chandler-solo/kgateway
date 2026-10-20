@@ -25,5 +25,9 @@ go build -tags e2e -o "$ARTIFACT_DIR/envoyprobe" ./devel/formal/cmd/envoyprobe
 "$ARTIFACT_DIR/envoyprobe" -scenario restart -snapshot-cache -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/restart-cache-kgateway-bootstrap"
 "$ARTIFACT_DIR/envoyprobe" -scenario timeouts -out "$ARTIFACT_DIR/timeouts"
 "$ARTIFACT_DIR/envoyprobe" -scenario init -out "$ARTIFACT_DIR/init"
+# RF-035: a rejected CDS/LDS sibling freezes EDS/RDS and strands it after removal.
+# kgateway's bootstrap shape; passing means the pinned cache defect reproduced.
+"$ARTIFACT_DIR/envoyprobe" -scenario stranded -snapshot-cache -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-cache"
+"$ARTIFACT_DIR/envoyprobe" -scenario stranded -snapshot-cache -ordered -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-ordered-cache"
 rm "$ARTIFACT_DIR/envoyprobe"
 echo "Direct Envoy receipts: $ARTIFACT_DIR"
