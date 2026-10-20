@@ -4,6 +4,16 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
+The October 20 update records the real downstream BackendConfigPolicy rewarming
+failure and the author's later stack fix, separately from this research tree.
+`make formal-stack-rewarming` requires four exact failures at `faaaaf68d552`
+and six passes at `ab9865b83e63`, including ordered/unordered ADS, optional
+NACK/reconnect rules disabled, unchanged-cluster controls and no replay loop.
+The new `RewarmingResponseOrder` TLC profiles distinguish a fair replay path
+from waiting for the EDS timeout. [RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
+records the independently checked live controller/Envoy results and their limits.
+The stack's production fix is not imported into the research implementation.
+
 The October 19 extension adds [source-specific initial-fetch timeouts](timeouts/README.md):
 a pinned ConfigSource inventory, timed TLC checks, abstract Lean safety proofs,
 actual bootstrap rendering and direct upstream/enterprise Envoy histories.

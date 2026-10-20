@@ -39,6 +39,8 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         ReachabilityIsNotLiveness) model=ReachabilityIsNotLiveness; expected=temporal ;;
         PublicationTransitions*) model=PublicationTransitions; expected=pass ;;
         AdmissionPending*) model=AdmissionPending; expected=pass ;;
+        RewarmingResponseOrderHistorical|RewarmingResponseOrderPrematureClear) model=RewarmingResponseOrder; expected=temporal ;;
+        RewarmingResponseOrder*) model=RewarmingResponseOrder; expected=pass ;;
         InitialFetchTimeoutsDisabledParents|InitialFetchTimeoutsDisabledEds|InitialFetchTimeoutsDisabledLocal) model=InitialFetchTimeouts; expected=temporal ;;
         InitialFetchTimeouts*) model=InitialFetchTimeouts; expected=pass ;;
         CarryEpisodes*) model=CarryEpisodes; expected=pass ;;

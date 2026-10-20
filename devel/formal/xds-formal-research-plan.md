@@ -2,6 +2,25 @@
 
 Review date: September 10, 2026
 
+October 20 rewarming update: the actual downstream setup/plugins/KRT pipeline
+reproduced the RF-014/017 EDS-before-CDS schedule at `faaaaf68d552`, and the
+author's later `5c5b456be396` fix was independently observed at `ab9865b83e63`.
+The durable `formal-stack-rewarming` gate requires the old failure and fixed
+response behavior without ACKing the changed CDS first. Four new temporal
+profiles separate replay progress under fairness from cached-EDS timeout
+fallback; all older controls remain. [RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
+narrows the earlier full-controller gap for this one fixture, without claiming
+full downstream deployment, authentication or enterprise-feature coverage.
+
+Next cover alias/shared-assignment mapping, rejected or failed sends before a
+replay mark is cleared, repeated overlapping redefinitions and shared-key
+streams. Add an unconditional concurrent-backend/DNS scenario: the historical
+500 is observed, but fixed-run conditional insertion did not execute. Correlate
+callback-before-Send bookkeeping with successful delivery and per-resource
+Envoy application; do not use an ACK, a hash comparison or a cache write as
+that evidence. Extend the bounded model only with explicit scheduler and
+environment assumptions, and retain the stable-input negative profiles.
+
 October 17 execution update: [live publication histories](live/README.md) now
 connect the pinned repaired 8e7546 publisher to actual control-plane setup,
 connection callbacks, watch policies, KRT, elapsed timers, gRPC and independent

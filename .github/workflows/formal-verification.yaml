@@ -129,6 +129,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: make formal-stack-8e7546 FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/stack-8e7546"
+      - name: Preserve the rewarming failure and require the October 20 held-version repair
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          make formal-stack-rewarming
+          FORMAL_REWARM_BASELINE_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-before"
+          FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-after"
       - name: Preserve regression receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

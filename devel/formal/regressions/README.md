@@ -1,5 +1,42 @@
 # Pinned xDS regression profiles
 
+## October 20 rewarming regression
+
+```sh
+make formal-stack-rewarming
+```
+
+The public regression CI job requires both profiles and uploads their receipts
+as artifacts. To choose fresh artifact directories locally, pass
+`FORMAL_REWARM_BASELINE_ARGS='--artifacts /tmp/rewarming-before'` and
+`FORMAL_REGRESSION_ARGS='--artifacts /tmp/rewarming-after'`. Neither directory
+may already contain files.
+
+This runs the same six injected setup/cache/server properties against two
+immutable stack revisions. `faaaaf68d552` must reproduce four failures at
+`same-version EDS must follow changed CDS after earlier EDS delivery`, while
+the two unchanged-cluster controls pass. At `ab9865b83e63`, all six must pass.
+Both pins must compile unchanged before injection; production Go digests must
+remain unchanged. No existing fixture or older profile is replaced.
+
+The fixture accepts the changed EDS version before changing same-name CDS,
+then requests EDS at that held version while deliberately leaving CDS
+unacknowledged. It requires identical assignment bytes in a fresh response,
+then ACKs both and checks that the ACK does not start a replay loop. The
+schedule runs in ordered and unordered ADS, both with optional NACK/reconnect
+rules enabled and with both disabled. Unchanged cluster encodings must not
+cause a replay. This checks the real cache/server with mock stream transport;
+it does not observe Envoy application or establish a two-second product bound.
+The timeout is a test failure guard.
+
+The author's fix is commit `5c5b456be396`, added October 20 at 05:49:49 UTC in
+PR #14703 and included in the repaired pin. [RF-033](../research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
+records separate live downstream controller/Envoy evidence. Those captures and
+logs stay outside Git. The fixed live rerun did not sample a warming interval,
+so its conditional DNS insertion did not execute; do not report it as a passing
+DNS regression. Alias/shared-assignment, rejection and blocked-send schedules
+remain coverage gaps.
+
 October 17: `make formal-stack-8e7546` requires all sixteen historical desired
 properties and the author's native reset/adoption exclusion property to pass at
 `8e75468f4d0e055deb9b8f34e4254831f011e2a3`. It preserves all older profiles and

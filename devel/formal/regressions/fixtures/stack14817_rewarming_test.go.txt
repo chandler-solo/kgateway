@@ -1,0 +1,111 @@
+package setup
+
+import (
+	"testing"
+	"time"
+
+	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	endpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
+)
+
+func reviewRewarmingSnapshot(cds, eds string, timeout time.Duration) *cache.Snapshot {
+	snap := snapshotFor(adsVersions{cluster: cds, endpoint: eds, listener: "1", route: "1"},
+		[]*clusterv3.Cluster{{
+			Name:                 adsTestCluster,
+			ClusterDiscoveryType: &clusterv3.Cluster_Type{Type: clusterv3.Cluster_EDS},
+			ConnectTimeout:       durationpb.New(timeout),
+			EdsClusterConfig:     &clusterv3.Cluster_EdsClusterConfig{ServiceName: adsTestCluster},
+		}}, nil)
+	snap.Resources[cachetypes.Endpoint] = cache.NewResources(eds, []cachetypes.Resource{
+		&endpointv3.ClusterLoadAssignment{ClusterName: adsTestCluster},
+	})
+	return snap
+}
+
+func reviewWarmStream(h *adsHarness) *discoveryv3.DiscoveryResponse {
+	h.t.Helper()
+	h.setSnapshot(reviewRewarmingSnapshot("c1", "e1", time.Second))
+	h.subscribeAndAck(resource.ClusterType, "c1", 1)
+	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: resource.EndpointType, ResourceNames: []string{adsTestCluster}})
+	eds := h.receiveType(resource.EndpointType, "e1")
+	h.ackNamed(eds, adsTestCluster)
+	h.waitForOpenWatches(2)
+	return eds
+}
+
+// EDS moves before CDS. The proxy cannot ACK the changed CDS until the new
+// cluster warms, so the held-version EDS request must work with CDS unacknowledged.
+func reviewEndpointsFirst(t *testing.T, ordered, optionalRules bool) {
+	t.Helper()
+	h := newPolicyHarness(t, ordered, optionalRules, optionalRules)
+	reviewWarmStream(h)
+	h.setSnapshot(reviewRewarmingSnapshot("c1", "e2", time.Second))
+	earlyEDS := h.receiveType(resource.EndpointType, "e2")
+	h.ackNamed(earlyEDS, adsTestCluster)
+	h.waitForOpenWatches(2)
+
+	h.setSnapshot(reviewRewarmingSnapshot("c2", "e2", 2*time.Second))
+	changedCDS := h.receiveType(resource.ClusterType, "c2")
+	h.ackNamed(earlyEDS, adsTestCluster)
+	var replay *discoveryv3.DiscoveryResponse
+	select {
+	case replay = <-h.stream.sent:
+	case <-time.After(2 * time.Second):
+		t.Fatal("same-version EDS must follow changed CDS after earlier EDS delivery")
+	}
+	require.Equal(t, resource.EndpointType, replay.GetTypeUrl())
+	require.Equal(t, earlyEDS.GetVersionInfo(), replay.GetVersionInfo())
+	require.NotEqual(t, earlyEDS.GetNonce(), replay.GetNonce())
+	require.Len(t, replay.GetResources(), 1)
+	require.True(t, proto.Equal(earlyEDS.GetResources()[0], replay.GetResources()[0]), "identical endpoint bytes must be replayed")
+
+	// Receiving EDS permits the proxy to finish warming and resume CDS discovery.
+	// This mock client does not itself establish Envoy application or traffic.
+	h.ack(changedCDS)
+	h.ackNamed(replay, adsTestCluster)
+	h.waitForOpenWatches(2)
+	h.expectSilence("ACK of the one rewarming replay must not create a resend loop")
+}
+
+func TestReviewRewarmingEndpointsFirstOrdered(t *testing.T) {
+	reviewEndpointsFirst(t, true, true)
+}
+
+func TestReviewRewarmingEndpointsFirstUnordered(t *testing.T) {
+	reviewEndpointsFirst(t, false, true)
+}
+
+func TestReviewRewarmingOptionalRulesOffOrdered(t *testing.T) {
+	reviewEndpointsFirst(t, true, false)
+}
+
+func TestReviewRewarmingOptionalRulesOffUnordered(t *testing.T) {
+	reviewEndpointsFirst(t, false, false)
+}
+
+func reviewUnchangedCluster(t *testing.T, ordered bool) {
+	t.Helper()
+	h := newPolicyHarness(t, ordered, true, true)
+	eds := reviewWarmStream(h)
+	h.setSnapshot(reviewRewarmingSnapshot("c2", "e1", time.Second))
+	cds := h.receiveType(resource.ClusterType, "c2")
+	h.ackNamed(eds, adsTestCluster)
+	h.expectSilence("unchanged cluster bytes must not trigger an EDS replay")
+	h.ack(cds)
+	h.waitForOpenWatches(2)
+}
+
+func TestReviewRewarmingUnchangedClusterOrdered(t *testing.T) {
+	reviewUnchangedCluster(t, true)
+}
+
+func TestReviewRewarmingUnchangedClusterUnordered(t *testing.T) {
+	reviewUnchangedCluster(t, false)
+}

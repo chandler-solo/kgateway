@@ -599,6 +599,11 @@ formal-stack-7d930: formal-regression-harness ## Check repaired properties and c
 formal-stack-8e7546: formal-regression-harness ## Check the repaired stack and atomic reset/adoption property at 8e75468f4d0e
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-8e75468f4d0e $(FORMAL_REGRESSION_ARGS)
 
+.PHONY: formal-stack-rewarming
+formal-stack-rewarming: formal-regression-harness ## Preserve the EDS-before-CDS failure and require the October 20 stack fix
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-faaa-rewarming $(FORMAL_REWARM_BASELINE_ARGS)
+	python3 -B devel/formal/regressions/check.py --profile stack-14817-ab9865-rewarming $(FORMAL_REGRESSION_ARGS)
+
 .PHONY: formal-downstream-adoption
 formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
 	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)

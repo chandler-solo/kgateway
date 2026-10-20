@@ -4,6 +4,40 @@ This is the current status of the research branch, superseding stronger claims
 in historical investigation notes. The program is **open**. Findings and next
 actions are tracked in [research-findings.md](research-findings.md).
 
+## October 20 downstream rewarming correction
+
+The latest rewarming comparison is proposed stack `faaaaf68d552` versus
+`ab9865b83e63`, using downstream `dcfc92b5c210` with its dependency replaced
+only in an isolated copy. These subjects supersede older stack identities for
+this finding; the October 19 profile below and its results remain historical.
+The research implementation has not adopted the stack's replay policy.
+
+| Conclusion | Evidence level and boundary |
+|---|---|
+| A BackendConfigPolicy update can leave the old cluster serving for about 15 seconds when EDS arrives before changed CDS | Live downstream setup/plugins/KRT, envtest Kubernetes and enterprise Envoy 1.39.4-patch2: five stalls in 32 add/remove transitions across ALL and REFERENCED; wire, admin state and traffic checked separately |
+| An RDS route to a new DNS backend can return 500 while its CDS waits behind that warming | Live historical REFERENCED run: route present, cluster absent, 500s during warming, recovery to 200 after CDS resumes |
+| The author's October 20 fix answers the held-version request and removes this measured stall | Source commit `5c5b456be396`; live repaired-tip rerun: 16 transitions applied in 215–229 ms, four EDS-before-CDS schedules received a fresh same-version EDS response 1–5 ms after CDS, no mid-run EDS timeout |
+| The failure and repaired server behavior are durable regression obligations | `make formal-stack-rewarming`: six properties per immutable pin; four designated historical failures and two controls, then six repaired passes, with mock stream transport and CDS deliberately unacknowledged |
+| The modeled replay path can progress without expiry | Four bounded TLC profiles with explicit weak fairness; not the Lean reachability claim and not a Go liveness or quantitative deadline proof |
+
+The live runs used ARM64 Docker Desktop, two Envoy workers, disabled xDS
+authentication, an isolated Kubernetes API and a fixture HTTP upstream. They
+execute downstream controller translation but not a deployed Kubernetes
+installation or every `main.go` option/controller. The fixed run did not
+execute its conditional new-DNS insertion because no warming interval was
+sampled. FIPS, alias/shared assignments, rejection, send failures, multiple
+streams and overlapping changes remain unvalidated for this repair.
+[RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
+records the exact subjects, remaining obligations and external capture locations.
+No new product policy or timeout default is introduced into this research tree.
+
+Validation of this update: full `CGO_ENABLED=0 make formal-lean` passes 50 model
+expectations and 603 Go test events, with 27 snapshot and four lifecycle traces.
+All 79 required TLC outcomes match. The new immutable before/after regression,
+nine harness tests, 18 repaired race-test passes and workflow lint pass. CI now
+requires both immutable rewarming profiles; no remote workflow was run by this
+session. Raw logs and receipts remain external artifacts.
+
 ## October 19 timeout extension
 
 [Source-specific timeout formalization](timeouts/README.md) supersedes older

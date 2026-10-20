@@ -451,7 +451,9 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-014 Same-version EDS can be required by cluster rewarming
 
-- Status: directly characterized lifecycle requirement; composition open.
+- Status: directly characterized lifecycle requirement. The October 20
+  proposed-stack replay fix has separate live and cache/server evidence in
+  RF-033; broader lifecycle refinement remains open.
 - Evidence: direct Envoy changes CDS connect timeout without changing cluster
   name or EDS content/version. Candidate remains warming and old traffic works;
   replaying the identical CLA/version completes warming. The trace records an
@@ -483,8 +485,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-017 Real cache/server can strand same-name cluster rewarming
 
-- Status: reproduced integration defect/limitation with v0.14.0 and Envoy
-  v1.39.1; mitigation remains open. Pin update 2026-09-12: the discard half
+- Status: historical integration defect/limitation, with the October 20
+  proposed-stack mitigation separately verified in RF-033. This research
+  tree retains the plain-cache counterexample; the product fix is not ported.
+  Original reproduction used v0.14.0 and Envoy v1.39.1.
+  Pin update 2026-09-12: the discard half
   of the strand (a declined parked watch deleted, GCP-A5) is repaired in the
   new go-control-plane pin, so a proxy parked behind a misaligned snapshot is
   delivered the next aligned one without re-requesting; the equal-version
@@ -857,6 +862,14 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   differently, which is a push on the hold-to-derived transition, not a
   churn loop. The CDS carry suffix is unchanged. `version-churn` in the
   trace checker still counts the input-only pushes.
+
+- Response-order correction (2026-10-20, RF-033): policy-coupled EDS input
+  hashes do not guarantee a response after CDS. Actual downstream KRT can
+  publish and deliver the changed EDS version before the cluster change; the
+  subsequent warming request then holds that same version. The author's
+  separate per-stream watch-policy fix answers that request without another
+  version bump. This does not replace October 14's zero-marshal version rule,
+  revive the earlier content-digest design, or change its churn claim.
 
 ## RF-030 Stack composition measured live
 
@@ -1536,3 +1549,97 @@ remain open.
   their implementation. Time-progress fairness is separate from a dispatcher
   or network latency bound. See the profile's executable commands and remaining
   work; production defaults and prior counterexamples are unchanged.
+
+## RF-033 Downstream policy rewarming and the October 20 stack fix
+
+- **Disposition:** the P2 same-name rewarming stall is reproduced on historical
+  upstream `faaaaf68d5522c239d613254249b0d9e1fa3fdef` and no longer reproduced
+  on proposed stack `ab9865b83e6325cddcefc2dffc4e6f9ce92b68a8` in the measured
+  schedules. The author added [5c5b456be396](https://github.com/kgateway-dev/kgateway/commit/5c5b456be39630c76b37755ab181106ea2a79851)
+  to PR #14703 at 05:49:49 UTC (01:49:49 EDT) on October 20. That is later than
+  the first historical live reproduction. Reporting the older pin's failure as
+  still present on the current stack was stale; the subjects must stay separate.
+- **Source evidence:** the fix records changed cluster encodings per stream when
+  a CDS response is about to be sent. A later EDS request treats their names as
+  not yet returned, permitting a response at the held version. A subsequent
+  endpoint response clears only the marks for assignments it carries. The
+  policy is installed even when optional NACK/reconnect rules are disabled.
+  This is a source description, not proof that the pre-Send callback implies
+  successful delivery or application. The research production code is unchanged.
+- **Historical live evidence:** downstream `dcfc92b5c2105eeba674983dfe18568cf34c6fe3`
+  uses its own setup, plugins and xdsclients against an isolated envtest API
+  server. BackendConfigPolicy attachment/removal changes a live Service's
+  same-name EDS cluster, with real endpoint translation and no synthetic snapshot
+  versions. Four runs cover 32 transitions: five take 15.046–15.219 seconds,
+  including ALL and REFERENCED mode. The independent checker verifies changed
+  EDS sent before changed CDS, a later request at the held EDS version, no
+  subsequent EDS response before activation, old active/new warming cluster
+  content and traffic. The old maxHeadersCount behavior returns 200 until the
+  new policy activates and produces 502. Envoy logs a mid-run initial-fetch
+  timeout for each slow transition. The other transitions are fast: the failure
+  is schedule-dependent, not an unconditional 15-second policy delay.
+- **Concurrent-backend evidence:** one historical REFERENCED run creates a DNS
+  Backend and route during warming. RDS is delivered while the new cluster is
+  absent from both active and warming admin state. The route specifies
+  INTERNAL_SERVER_ERROR for a missing cluster, and real traffic returns 500
+  from 11.615 through 24.115 seconds on the capture clock. CDS carrying the DNS
+  cluster arrives at 24.287 seconds after the timeout releases the old update;
+  traffic recovers to 200 by 24.323 seconds. This demonstrates the two-failure
+  mechanism in a controlled fixture, without proving every CI failure's cause.
+- **Repaired live evidence:** replace only the isolated downstream copy's
+  kgateway dependency with the immutable repaired stack. Sixteen transitions
+  across ALL (40 additional Services) and REFERENCED apply in 215–229 ms, with
+  200-ms polling. Four naturally occurring EDS-before-CDS schedules receive a
+  new response containing the same assignment/version 1–5 ms after CDS; active
+  admin content and header-limit traffic then confirm application. There are no
+  post-baseline EDS fetch timeouts. The fixed runs never sample warming, so
+  their conditional DNS insertion does not execute. They do not establish a
+  passing DNS regression or a universal latency bound.
+- **Runtime identity and limits:** enterprise standard Envoy 1.39.4-patch2,
+  digest `sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3`,
+  linux/arm64 and two workers on Docker Desktop; failed CI used amd64. Envtest
+  is Kubernetes 1.36.2. The copied CI bootstrap preserves CDS/LDS `0s`, local
+  EDS `1s`, generated EDS unset (`15s`) and runtime layers, adapting identity,
+  host transport, admin and a fixture HTTP upstream. xDS authentication is
+  disabled; not every main.go option/controller runs. No existing Kubernetes
+  installation, full e2e shard, FIPS image or deployed product was validated.
+- **Durable implementation regression:** `make formal-stack-rewarming` runs
+  six identical properties on fresh archives of both pins, with pristine
+  compilation and unchanged production-source digests. Four historical tests
+  fail at the designated missing-response assertion, and two unchanged-cluster
+  controls pass. All six pass on the repaired pin. The held-version request is
+  sent before ACKing changed CDS, in ordered and unordered ADS, with optional
+  rules both enabled and disabled. The required replay keeps assignment bytes
+  and version, uses a fresh nonce and does not loop after ACK. This uses the
+  real cache/server with mock stream transport; it does not itself observe
+  Envoy application. The earlier profiles and fixture bytes are preserved.
+- **Formal evidence:** `RewarmingResponseOrder.tla` adds four bounded profiles
+  for one stable stream/cluster/episode and a compatible assignment. Explicit
+  weak fairness yields eventual modeled application with the replay policy and
+  no timeout. Historical equality suppression and premature mark clearing have
+  temporal counterexamples. Cached-timeout fallback provides a separate
+  progress path without creating receipt evidence. Queue, Send, receive, ACK
+  and application remain distinct. This is neither a Lean reachability result
+  nor a Go/Envoy refinement or real-time liveness theorem.
+- **Validation of this research update:** `CGO_ENABLED=0 make formal-lean`
+  passes 50 executable model expectations, 329 top-level Go tests / 603 test
+  events across eleven packages, 27 snapshot traces and four lifecycle traces,
+  retaining the toy XOR-collision negative control. `make formal-tlc` matches
+  all 79 expected outcomes; original wide ADS bounds remain deferred. Both
+  immutable rewarming profiles and all nine regression-harness tests pass their
+  designated outcomes. The repaired six-test fixture passes three race-enabled
+  repetitions (18 passes). `make lint-actions`, fixture formatting/hash checks
+  and whitespace checks pass. CI is wired to require both new profiles; no
+  GitHub workflow was dispatched or observed running for this update.
+- **Remaining work:** unconditional concurrent DNS creation on the fixed stack;
+  EDS service-name aliases and shared assignments; partial CDS rejection and
+  EDS NACK; encoding/hash assumptions; failed or blocked sends after callbacks;
+  cancellation, reconnect, repeated overlapping redefinitions and multiple
+  streams sharing a cache key. Bound raw traffic evidence to the recorded
+  fixture and test each extension before strengthening the assurance claim.
+- **Artifacts:** original captures remain outside Git at
+  `$HOME/t/eds-rewarm-repro-35nrwu6q/` and
+  `$HOME/t/eds-rewarm-fixed-7dxxef0k/`; each has an independent checker and
+  receipt. Generated logs/receipts are not research source and are not added
+  to this work tree. The checked-in regression fixture and immutable profiles
+  make the cache/server obligation repeatable after those local captures expire.

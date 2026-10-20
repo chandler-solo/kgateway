@@ -1,5 +1,26 @@
 # XdsAdsSotw TLA+ model
 
+## October 20 EDS-before-CDS rewarming
+
+`RewarmingResponseOrder` models one established stream and one same-name EDS
+cluster whose present, subscription-compatible assignment was received before
+changed CDS. The held-version request, replay queue, send, receipt, ACK and
+application are separate actions. `Repaired` checks eventual application under
+explicit weak fairness of those actions without any timeout or external EDS
+revision. `Historical` and `PrematureClear` require temporal counterexamples:
+same-version republication alone cannot help, and clearing the per-stream replay
+mark at request entry loses the response obligation. `Fallback` checks eventual
+application using abstract cached-EDS expiry, without inventing a fresh receipt.
+
+The four configurations have one cluster, one stream and one rewarming episode.
+The version has already moved before the modeled CDS send; the new replay keeps
+that version. This is a finite mechanism model, not a Go refinement, a real
+timer model or a network/scheduling bound. It does not model shared assignments,
+aliases, cancellation, NACK or overlapping CDS responses. The independent
+[Go profiles](../regressions/README.md#october-20-rewarming-regression) exercise
+the actual pinned server while CDS remains unacknowledged. All older model
+configurations and counterexamples remain unchanged.
+
 ## October 19 initial-fetch timeout extension
 
 Fifteen `InitialFetchTimeouts*` configurations add a source-specific logical-time
@@ -15,7 +36,7 @@ Older models and counterexamples are unchanged.
 
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 75 configurations, including
+`make formal-tlc` is the required runner. It checks 79 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.

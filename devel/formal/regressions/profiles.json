@@ -337,6 +337,78 @@
           "reason": "Put the initial row in the authoritative collection before publishing it; assert the original initialized-cache premise."
         }
       ]
+    },
+    "stack-14817-faaa-rewarming": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "faaaaf68d5522c239d613254249b0d9e1fa3fdef",
+      "package": "pkg/kgateway/setup",
+      "review_date": "2026-10-20",
+      "expected": "fail",
+      "tests": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingEndpointsFirstUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingUnchangedClusterOrdered": "",
+        "TestReviewRewarmingUnchangedClusterUnordered": ""
+      },
+      "expected_by_test": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "fail",
+        "TestReviewRewarmingEndpointsFirstUnordered": "fail",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "fail",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "fail",
+        "TestReviewRewarmingUnchangedClusterOrdered": "pass",
+        "TestReviewRewarmingUnchangedClusterUnordered": "pass"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_rewarming_test.go.txt",
+          "target": "review_rewarming_test.go",
+          "sha256": "0560d5861cfba221e9f76ce41ac8315fa3127327172345b568b0b805b3fe0c68"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "Real pinned cache/server and stream callbacks with mock transport; CDS remains unacknowledged until held-version EDS is answered. No Envoy application or latency theorem."
+    },
+    "stack-14817-ab9865-rewarming": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "ab9865b83e6325cddcefc2dffc4e6f9ce92b68a8",
+      "package": "pkg/kgateway/setup",
+      "review_date": "2026-10-20",
+      "expected": "pass",
+      "tests": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingEndpointsFirstUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingUnchangedClusterOrdered": "",
+        "TestReviewRewarmingUnchangedClusterUnordered": ""
+      },
+      "expected_by_test": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "pass",
+        "TestReviewRewarmingEndpointsFirstUnordered": "pass",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "pass",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "pass",
+        "TestReviewRewarmingUnchangedClusterOrdered": "pass",
+        "TestReviewRewarmingUnchangedClusterUnordered": "pass"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_rewarming_test.go.txt",
+          "target": "review_rewarming_test.go",
+          "sha256": "0560d5861cfba221e9f76ce41ac8315fa3127327172345b568b0b805b3fe0c68"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "Real pinned cache/server and stream callbacks with mock transport; CDS remains unacknowledged until held-version EDS is answered. No Envoy application or latency theorem."
     }
   },
   "downstream": {
