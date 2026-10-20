@@ -1,0 +1,176 @@
+package setup
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	serverconfig "github.com/envoyproxy/go-control-plane/pkg/server/config"
+	sotw "github.com/envoyproxy/go-control-plane/pkg/server/sotw/v3"
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+)
+
+func reviewLoadSnapshot(t *testing.T, path string) *cache.Snapshot {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var captured map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(b, &captured))
+	snap := &cache.Snapshot{}
+	for rt, url := range map[cachetypes.ResponseType]string{cachetypes.Cluster: resource.ClusterType, cachetypes.Endpoint: resource.EndpointType, cachetypes.Listener: resource.ListenerType, cachetypes.Route: resource.RouteType, cachetypes.Secret: resource.SecretType} {
+		resp := &discovery.DiscoveryResponse{}
+		require.NoError(t, protojson.Unmarshal(captured[url], resp))
+		var items []cachetypes.Resource
+		for _, encoded := range resp.Resources {
+			decoded, err := anypb.UnmarshalNew(encoded, proto.UnmarshalOptions{})
+			require.NoError(t, err)
+			items = append(items, decoded)
+		}
+		snap.Resources[rt] = cache.NewResources(resp.VersionInfo, items)
+	}
+	return snap
+}
+
+func reviewLiveDocker(t *testing.T, args ...string) string {
+	t.Helper()
+	b, err := exec.Command("docker", args...).CombinedOutput()
+	require.NoError(t, err, "docker %v: %s", args, b)
+	return strings.TrimSpace(string(b))
+}
+
+func reviewLiveGet(url string) (int, []byte) {
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return 0, nil
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, b
+}
+
+func reviewLiveActive(b []byte, kind, name string) bool {
+	var dump struct {
+		Configs []map[string]any `json:"configs"`
+	}
+	if json.Unmarshal(b, &dump) != nil {
+		return false
+	}
+	for _, c := range dump.Configs {
+		if kind == "cluster" {
+			items, _ := c["dynamic_active_clusters"].([]any)
+			for _, x := range items {
+				row := x.(map[string]any)
+				cl, _ := row["cluster"].(map[string]any)
+				if cl["name"] == name {
+					return true
+				}
+			}
+		} else {
+			items, _ := c["dynamic_listeners"].([]any)
+			for _, x := range items {
+				row := x.(map[string]any)
+				state, _ := row["active_state"].(map[string]any)
+				l, _ := state["listener"].(map[string]any)
+				if l["name"] == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func reviewLiveReceived(log, typeURL, version string) bool {
+	for line := range strings.SplitSeq(log, "\n") {
+		if strings.Contains(line, "gRPC config for "+typeURL+" accepted with ") && strings.HasSuffix(line, " with version "+version) {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewBackendCarryLive(t *testing.T, mode string) {
+	root := os.Getenv("REVIEW_BACKEND_OUT")
+	source := filepath.Join(root, "TestReviewBackendCarryKeepsListener"+mode)
+	dir := filepath.Join(root, "live-"+mode)
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	lis, err := net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	defer lis.Close()
+	snapshots := cache.NewSnapshotCache(true, cache.IDHash{}, nil)
+	require.NoError(t, snapshots.SetSnapshot(ctx, "review-owned-backend", reviewLoadSnapshot(t, filepath.Join(source, "initial.json"))))
+	opts := []serverconfig.XDSOption{sotw.WithOrderedADS()}
+	xds := xdsserver.NewServer(ctx, snapshots, nil, opts...)
+	srv := grpc.NewServer()
+	defer srv.Stop()
+	discovery.RegisterAggregatedDiscoveryServiceServer(srv, xds)
+	go srv.Serve(lis)
+	bootstrap := fmt.Sprintf(`{"node":{"id":"review-owned-backend","cluster":"review"},"dynamic_resources":{"ads_config":{"api_type":"GRPC","transport_api_version":"V3","grpc_services":[{"envoy_grpc":{"cluster_name":"xds"}}]},"cds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"0s"},"lds_config":{"ads":{},"resource_api_version":"V3","initial_fetch_timeout":"0s"}},"static_resources":{"clusters":[{"name":"xds","type":"LOGICAL_DNS","connect_timeout":"1s","http2_protocol_options":{},"load_assignment":{"cluster_name":"xds","endpoints":[{"lb_endpoints":[{"endpoint":{"address":{"socket_address":{"address":"host.docker.internal","port_value":%d}}}}]}]}}],"listeners":[{"name":"fixture","address":{"socket_address":{"address":"0.0.0.0","port_value":10001}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"fixture","common_http_protocol_options":{"max_requests_per_connection":1},"route_config":{"name":"fixture","virtual_hosts":[{"name":"fixture","domains":["*"],"routes":[{"match":{"prefix":"/"},"direct_response":{"status":200,"body":{"inline_string":"owned-backend-fixture"}}}]}]},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}]},"admin":{"address":{"socket_address":{"address":"0.0.0.0","port_value":19000}}}}`, lis.Addr().(*net.TCPAddr).Port)
+	path := filepath.Join(dir, "bootstrap.json")
+	require.NoError(t, os.WriteFile(path, []byte(bootstrap), 0600))
+	image := "gcr.io/gloo-ee/envoy-gloo-ee-standard-release@sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3"
+	id := reviewLiveDocker(t, "run", "-d", "--rm", "-p", "127.0.0.1::19000", "-p", "127.0.0.1::8080", "-v", path+":/bootstrap.json:ro", image, "-c", "/bootstrap.json", "--concurrency", "2", "--drain-time-s", "0", "--disable-hot-restart", "--log-level", "debug")
+	defer func() {
+		b, _ := exec.Command("docker", "logs", id).CombinedOutput()
+		_ = os.WriteFile(filepath.Join(dir, "envoy.log"), b, 0600)
+		reviewLiveDocker(t, "rm", "-f", id)
+	}()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "container.json"), []byte(reviewLiveDocker(t, "inspect", id)), 0600))
+	front := "http://" + reviewLiveDocker(t, "port", id, "8080/tcp")
+	admin := "http://" + reviewLiveDocker(t, "port", id, "19000/tcp")
+	var oldDump []byte
+	require.Eventually(t, func() bool {
+		code, body := reviewLiveGet(front)
+		_, oldDump = reviewLiveGet(admin + "/config_dump")
+		return code == 200 && string(body) == "owned-backend-fixture" && reviewLiveActive(oldDump, "listener", "tunnel_tunneled")
+	}, 12*time.Second, 100*time.Millisecond, "baseline must actually forward through the owned listener")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "initial-admin.json"), oldDump, 0600))
+	carried := reviewLoadSnapshot(t, filepath.Join(source, "carried.json"))
+	require.NoError(t, snapshots.SetSnapshot(ctx, "review-owned-backend", carried))
+	var carriedDump []byte
+	var receivedLog []byte
+	require.Eventually(t, func() bool {
+		_, carriedDump = reviewLiveGet(admin + "/config_dump")
+		receivedLog, _ = exec.Command("docker", "logs", id).CombinedOutput()
+		return reviewLiveActive(carriedDump, "cluster", "tunneled") && reviewLiveReceived(string(receivedLog), resource.ClusterType, carried.GetVersion(resource.ClusterType)) && reviewLiveReceived(string(receivedLog), resource.ListenerType, carried.GetVersion(resource.ListenerType))
+	}, 5*time.Second, 100*time.Millisecond, "Envoy must receive the captured cluster and listener versions")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "received.log"), receivedLog, 0600))
+	time.Sleep(100 * time.Millisecond)
+	var codes []int
+	var body []byte
+	for range 3 {
+		code, b := reviewLiveGet(front)
+		codes = append(codes, code)
+		body = b
+	}
+	code := codes[len(codes)-1]
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "carried-admin.json"), carriedDump, 0600))
+	b, err := json.MarshalIndent(map[string]any{"mode": mode, "baseline_code": 200, "after_codes": codes, "after_code": code, "after_body": string(body), "carried_cluster_active": reviewLiveActive(carriedDump, "cluster", "tunneled"), "owned_listener_active": reviewLiveActive(carriedDump, "listener", "tunnel_tunneled")}, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "observation.json"), b, 0600))
+	require.Equal(t, 200, code, "carrying a live backend must preserve forwarding through its owned listener")
+}
+
+func TestReviewBackendCarryLiveALL(t *testing.T)        { reviewBackendCarryLive(t, "ALL") }
+func TestReviewBackendCarryLiveREFERENCED(t *testing.T) { reviewBackendCarryLive(t, "REFERENCED") }

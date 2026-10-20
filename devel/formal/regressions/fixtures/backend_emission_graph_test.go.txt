@@ -1,0 +1,97 @@
+package proxy_syncer
+
+import (
+	"fmt"
+	"testing"
+
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	sniv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/sni_cluster/v3"
+	tcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
+)
+
+// Exhaustively compare the real proto scanner/worklist with an independent
+// graph reachability specification. Three names include cycles, self edges,
+// disconnected components, dynamic selectors and every proper initial subset.
+func TestReviewBackendEmissionFiniteClosure(t *testing.T) {
+	names := []string{"a", "b", "c"}
+	translated, versions := clusterResourcesFor(names...)
+	cases := 0
+	for graph := 0; graph < 1<<9; graph++ {
+		for dynamic := 0; dynamic < 1<<3; dynamic++ {
+			listeners := map[string]baseResources[*listenerv3.Listener]{}
+			for from, name := range names {
+				var weights []*tcpv3.TcpProxy_WeightedCluster_ClusterWeight
+				for to, target := range names {
+					if graph&(1<<(from*3+to)) != 0 {
+						weights = append(weights, &tcpv3.TcpProxy_WeightedCluster_ClusterWeight{Name: target, Weight: 1})
+					}
+				}
+				var filters []*listenerv3.Filter
+				if dynamic&(1<<from) != 0 {
+					filters = append(filters, &listenerv3.Filter{Name: "envoy.filters.network.sni_cluster", ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: utils.MustMessageToAny(&sniv3.SniCluster{})}})
+				}
+				if len(weights) > 0 {
+					filters = append(filters, &listenerv3.Filter{Name: "envoy.filters.network.tcp_proxy", ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: utils.MustMessageToAny(&tcpv3.TcpProxy{StatPrefix: name, ClusterSpecifier: &tcpv3.TcpProxy_WeightedClusters{WeightedClusters: &tcpv3.TcpProxy_WeightedCluster{Clusters: weights}}})}})
+				}
+				if len(filters) > 0 {
+					listeners[name] = wrapBaseResources([]*listenerv3.Listener{{Name: "owned_" + name, FilterChains: []*listenerv3.FilterChain{{Filters: filters}}}})
+				}
+			}
+			for roots := 0; roots < 7; roots++ {
+				var seed []string
+				for i, name := range names {
+					if roots&(1<<i) != 0 {
+						seed = append(seed, name)
+					}
+				}
+				kept, keptVersions, filtered := filterClustersToEmitted(scopedClusters(), emissionSet(seed...), translated, versions)
+				require.True(t, filtered)
+				got, gotVersions, filtered := keepBackendListenerTargets(translated, versions, kept, keptVersions, listeners)
+				want := roots
+				for {
+					next := want
+					for from := range names {
+						if want&(1<<from) == 0 {
+							continue
+						}
+						if dynamic&(1<<from) != 0 {
+							next = 7
+							break
+						}
+						for to := range names {
+							if graph&(1<<(from*3+to)) != 0 {
+								next |= 1 << to
+							}
+						}
+					}
+					if next == want {
+						break
+					}
+					want = next
+				}
+				var expected []string
+				for i, name := range names {
+					if want&(1<<i) != 0 {
+						expected = append(expected, name)
+					}
+				}
+				message := fmt.Sprintf("graph=%d dynamic=%d roots=%d", graph, dynamic, roots)
+				require.ElementsMatch(t, expected, resourceNames(got), message)
+				require.Equal(t, want != 7, filtered, message)
+				require.Len(t, gotVersions, len(expected), message)
+				for _, name := range expected {
+					require.Equal(t, versions[name], gotVersions[name], message)
+				}
+				if !filtered {
+					require.Equal(t, translated.Version, got.Version, message)
+				}
+				cases++
+			}
+		}
+	}
+	require.Equal(t, 28672, cases)
+	t.Logf("checked %d graph/selector/root combinations", cases)
+}

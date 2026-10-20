@@ -1,5 +1,77 @@
 # Pinned xDS regression profiles
 
+## October 20 backend-owned resource regressions
+
+```sh
+make formal-stack-backend-closure \
+  FORMAL_BACKEND_CLOSURE_ARGS='--artifacts /tmp/backend-closure-new'
+# Public CI omits the private enterprise Envoy image explicitly:
+make formal-stack-backend-closure \
+  FORMAL_BACKEND_CLOSURE_ARGS='--no-live --artifacts /tmp/backend-closure-ci-new'
+# Require all current desired properties to pass on a proposed repair:
+make formal-stack-backend-closure \
+  FORMAL_BACKEND_CLOSURE_ARGS='--source /absolute/path/to/candidate --expect-fixed --artifacts /tmp/backend-closure-fixed-new'
+```
+
+Each artifact directory must be fresh and outside both the research repository
+and any candidate. The candidate is copied before injection and remains
+unchanged. This command runs five immutable profiles:
+
+| Profile | Subject | Required outcome |
+|---|---|---|
+| `stack-14817-before-backend-listeners` | `350554e6f3c3` | Initial ALL emission passes; REFERENCED loses the internal listener's proxy and fails its designated assertion |
+| `stack-14817-2fe5-backend-closure` | PR #14717, `2fe5bab3179d` | Two initial-emission tests and finite graph comparison pass; five carry-closure properties fail at designated assertions |
+| `stack-14817-e9436e-backend-closure` | Stack tip `e9436e00b3ca` | Same three passes and five failures; a sixth failure requires backend-listener fallback to report scoping disabled |
+| `stack-14817-e9436e-histories` | Same tip | All seventeen earlier carry/reconnect properties pass |
+| `stack-14817-e9436e-rewarming` | Same tip | All six held-version rewarming properties pass |
+
+The new fixture uses real KRT, `snapshotPerClient`, `NewProxyTranslator` and
+SnapshotCache. The gateway still routes to `tunneled` when its translated backend
+row disappears; it is neither errored nor carry-expired. The publisher carries
+the old cluster but loses its owned listener and header secret. REFERENCED also
+loses `proxy`, which only the owned listener names. Separate top-level tests
+identify each lost dependency. The metric test retains all translated clusters
+after a backend `sni_cluster` fallback and requires the disabled gauge to be one.
+Fixtures provide valid protos and row contributions; they do not execute actual
+Backend CONNECT translation or prove hashing collision-free.
+
+An independent graph oracle exhausts 512 directed graphs, eight dynamic-selector
+masks and seven proper starting subsets over three cluster names: 28,672 cases.
+It checks exact membership, contribution maps and restoration of the unfiltered
+version. This is finite implementation coverage, not a proof of arbitrary Go
+graphs, all extension encodings or publication composition.
+
+Before PR #14718, an exact-hash adapter removes the later constructor's
+zero-window scoping option. The history profile applies exact-hash adapters for
+the removed unused callback argument to `NewUniquelyConnectedClients`. These
+change only injected fixture API calls. Original production sources and old
+fixtures remain unchanged; all original assertions remain required.
+
+Unless `--no-live` is supplied, the runner replays the actual KRT/publisher
+snapshots through the pinned real cache/server and enterprise standard Envoy
+1.39.4-patch2, digest
+`sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3`.
+It uses two workers and zero drain time, with fresh upstream connections. Initial
+forwarding must return 200. After corroborating the captured response versions
+in Envoy logs and the resource content in active admin state, the counterexample
+requires the cluster to remain active,
+its owned listener to disappear and three fresh requests to return 503. A fixed
+candidate must instead retain listener/proxy and return 200 three times. Eleven
+mutations per capture must be rejected by the independent checker. `--no-live`
+records an explicit omission; it cannot stand in for Envoy validation. An
+unchanged CDS payload can retain its earlier admin version even after Envoy
+receives a new response version. The checker allows that case only when the
+whole captured CDS set is unchanged and the received version is present in
+Envoy logs; changed content still requires the new admin version.
+
+This runtime test replays captured snapshots; it does not run an uninterrupted
+Kubernetes controller or the complete CONNECT/auth-header path. Its backend uses
+the same pipe/listener/proxy dependency shape. xDS auth, TLS, FIPS, full downstream
+plugin coverage and deployment are outside its scope. HTTP plus active admin
+content corroborate this failure independently of ACK. The model's proposed
+closure rule is not installed in production. See
+[RF-034](../research-findings.md#rf-034-backend-owned-resource-closure-after-the-october-20-stack-update).
+
 ## October 20 rewarming regression
 
 ```sh

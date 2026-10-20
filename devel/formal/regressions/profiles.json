@@ -409,6 +409,287 @@
         }
       ],
       "evidence_scope": "Real pinned cache/server and stream callbacks with mock transport; CDS remains unacknowledged until held-version EDS is answered. No Envoy application or latency theorem."
+    },
+    "stack-14817-before-backend-listeners": {
+      "repository": "kgateway-dev/kgateway",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-20",
+      "expected": "fail",
+      "fixtures": [
+        {
+          "file": "fixtures/backend_resource_carry_test.go.txt",
+          "target": "review_backend_closure_test.go",
+          "sha256": "f07d3b07d3964b3dd51652eb3bc54fdf68732887a2621f8b2faf61abb39189f0"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        }
+      ],
+      "evidence_scope": "Actual per-client assembler, KRT snapshot join and publisher/cache with valid fixture protos. Graph test exhausts three-name inputs; separate runtime replay observes Envoy, not a full Kubernetes deployment.",
+      "revision": "350554e6f3c3e5be1da5a4f80377a9ae935916f0",
+      "tests": {
+        "TestReviewBackendInitialEmissionALL": "",
+        "TestReviewBackendInitialEmissionREFERENCED": "initial tunnel proxy must survive referenced filtering"
+      },
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_backend_closure_test.go",
+          "sha256": "f07d3b07d3964b3dd51652eb3bc54fdf68732887a2621f8b2faf61abb39189f0",
+          "before": "NewProxyTranslator(servedCache, nil, 0, true, scoping)",
+          "after": "NewProxyTranslator(servedCache, nil, 0, true)",
+          "reason": "The publication constructor gains scoping-window options in PR 14718. These fixtures configure both windows to zero, matching the earlier constructor."
+        }
+      ],
+      "expected_by_test": {
+        "TestReviewBackendInitialEmissionALL": "pass",
+        "TestReviewBackendInitialEmissionREFERENCED": "fail"
+      }
+    },
+    "stack-14817-2fe5-backend-closure": {
+      "repository": "kgateway-dev/kgateway",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-20",
+      "expected": "fail",
+      "fixtures": [
+        {
+          "file": "fixtures/backend_resource_carry_test.go.txt",
+          "target": "review_backend_closure_test.go",
+          "sha256": "f07d3b07d3964b3dd51652eb3bc54fdf68732887a2621f8b2faf61abb39189f0"
+        },
+        {
+          "file": "fixtures/backend_emission_graph_test.go.txt",
+          "target": "review_backend_graph_test.go",
+          "sha256": "2ae59d8e8025688f3b4b6347b9a38eb0a29bfd97c3fae7670d381ac229d90562"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        }
+      ],
+      "evidence_scope": "Actual per-client assembler, KRT snapshot join and publisher/cache with valid fixture protos. Graph test exhausts three-name inputs; separate runtime replay observes Envoy, not a full Kubernetes deployment.",
+      "revision": "2fe5bab3179dd1a3009baed8612aecde5a392941",
+      "tests": {
+        "TestReviewBackendInitialEmissionALL": "",
+        "TestReviewBackendInitialEmissionREFERENCED": "",
+        "TestReviewBackendEmissionFiniteClosure": "",
+        "TestReviewBackendCarryKeepsListenerALL": "carrying a backend cluster must retain its internal listener",
+        "TestReviewBackendCarryKeepsListenerREFERENCED": "carrying a backend cluster must retain its internal listener",
+        "TestReviewBackendCarryKeepsProxy": "carrying a tunnel must retain its listener's proxy cluster",
+        "TestReviewBackendCarryKeepsSecretALL": "carrying a backend cluster must retain its listener's SDS dependencies",
+        "TestReviewBackendCarryKeepsSecretREFERENCED": "carrying a backend cluster must retain its listener's SDS dependencies"
+      },
+      "expected_by_test": {
+        "TestReviewBackendInitialEmissionALL": "pass",
+        "TestReviewBackendInitialEmissionREFERENCED": "pass",
+        "TestReviewBackendEmissionFiniteClosure": "pass",
+        "TestReviewBackendCarryKeepsListenerALL": "fail",
+        "TestReviewBackendCarryKeepsListenerREFERENCED": "fail",
+        "TestReviewBackendCarryKeepsProxy": "fail",
+        "TestReviewBackendCarryKeepsSecretALL": "fail",
+        "TestReviewBackendCarryKeepsSecretREFERENCED": "fail"
+      },
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_backend_closure_test.go",
+          "sha256": "f07d3b07d3964b3dd51652eb3bc54fdf68732887a2621f8b2faf61abb39189f0",
+          "before": "NewProxyTranslator(servedCache, nil, 0, true, scoping)",
+          "after": "NewProxyTranslator(servedCache, nil, 0, true)",
+          "reason": "The publication constructor gains scoping-window options in PR 14718. These fixtures configure both windows to zero, matching the earlier constructor."
+        }
+      ]
+    },
+    "stack-14817-e9436e-backend-closure": {
+      "repository": "kgateway-dev/kgateway",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-20",
+      "expected": "fail",
+      "fixtures": [
+        {
+          "file": "fixtures/backend_resource_carry_test.go.txt",
+          "target": "review_backend_closure_test.go",
+          "sha256": "f07d3b07d3964b3dd51652eb3bc54fdf68732887a2621f8b2faf61abb39189f0"
+        },
+        {
+          "file": "fixtures/backend_emission_graph_test.go.txt",
+          "target": "review_backend_graph_test.go",
+          "sha256": "2ae59d8e8025688f3b4b6347b9a38eb0a29bfd97c3fae7670d381ac229d90562"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        }
+      ],
+      "evidence_scope": "Actual per-client assembler, KRT snapshot join and publisher/cache with valid fixture protos. Graph test exhausts three-name inputs; separate runtime replay observes Envoy, not a full Kubernetes deployment.",
+      "revision": "e9436e00b3ca13922a22d40d831345e28ce3ec22",
+      "tests": {
+        "TestReviewBackendInitialEmissionALL": "",
+        "TestReviewBackendInitialEmissionREFERENCED": "",
+        "TestReviewBackendEmissionFiniteClosure": "",
+        "TestReviewBackendCarryKeepsListenerALL": "carrying a backend cluster must retain its internal listener",
+        "TestReviewBackendCarryKeepsListenerREFERENCED": "carrying a backend cluster must retain its internal listener",
+        "TestReviewBackendCarryKeepsProxy": "carrying a tunnel must retain its listener's proxy cluster",
+        "TestReviewBackendCarryKeepsSecretALL": "carrying a backend cluster must retain its listener's SDS dependencies",
+        "TestReviewBackendCarryKeepsSecretREFERENCED": "carrying a backend cluster must retain its listener's SDS dependencies",
+        "TestReviewBackendDynamicFallbackReportsDisabled": "backend-listener fallback must report scoping disabled"
+      },
+      "expected_by_test": {
+        "TestReviewBackendInitialEmissionALL": "pass",
+        "TestReviewBackendInitialEmissionREFERENCED": "pass",
+        "TestReviewBackendEmissionFiniteClosure": "pass",
+        "TestReviewBackendCarryKeepsListenerALL": "fail",
+        "TestReviewBackendCarryKeepsListenerREFERENCED": "fail",
+        "TestReviewBackendCarryKeepsProxy": "fail",
+        "TestReviewBackendCarryKeepsSecretALL": "fail",
+        "TestReviewBackendCarryKeepsSecretREFERENCED": "fail",
+        "TestReviewBackendDynamicFallbackReportsDisabled": "fail"
+      }
+    },
+    "stack-14817-e9436e-histories": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "e9436e00b3ca13922a22d40d831345e28ce3ec22",
+      "base": "982e29797b5028ca22d5c4ce41d06f427a8cdcd3",
+      "package": "pkg/kgateway/proxy_syncer",
+      "review_date": "2026-10-20",
+      "expected": "pass",
+      "tests": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "an endpoint/route recomputation must not bypass the configured ahead interval",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "an old release timer must not overwrite a newer coherent publication",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "cluster removal expiry must not release the independent flip budget early",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "carrying a must not overwrite the current assignment also consumed by b",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "unused plugin claims must not re-admit destinations for every gateway",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "rejecting an invalid claim must preserve the emit-all fallback",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "an opaque cluster-bearing extension cannot prove the emission set complete",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "a weighted cluster header is an unbounded runtime selector too",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "a retained listener still depends on this cluster",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "KRT must not suppress error-only withdrawal of a retained cluster",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "",
+        "TestReviewPrunePreservesReferenceAheadHold": "dereference expiry must preserve an active reference-ahead hold",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "the carry bound needs a wakeup even when no new candidate arrives",
+        "TestReviewReconnectClearSerializesWithPublication": "publication must not refill the previous connection cache after admission clears it",
+        "TestReviewRecoveryStartsFreshCarryEpisode": "a recovered cluster must receive a fresh carry interval on its next disappearance",
+        "TestReviewQueuedCandidateCannotCrossReconnect": "a queued KRT candidate from before reconnect must not answer the new connection",
+        "TestNoBuildIsDecidedBetweenResetAndAdoption": ""
+      },
+      "expected_by_test": {
+        "TestReviewReferenceAheadSurvivesAnotherCandidate": "pass",
+        "TestReviewCoherentUpdateCancelsStaleFlipTimer": "pass",
+        "TestReviewDereferencePrunePreservesAnUnrelatedHold": "pass",
+        "TestReviewCarryPreservesCurrentSharedAssignment": "pass",
+        "TestReviewClaimsDoNotApplyToUnrelatedGateway": "pass",
+        "TestReviewInvalidClaimDoesNotDisableFallback": "pass",
+        "TestReviewOpaqueExtensionDoesNotSilentlyEnablePruning": "pass",
+        "TestReviewWeightedHeaderSelectorDisablesPruning": "pass",
+        "TestReviewHeldListenersKeepAncillaryDependencies": "pass",
+        "TestReviewErrorOnlyChangeInvalidatesRetainedCluster": "pass",
+        "TestReconnectIsNotServedThePreviousConnectionsEntry": "pass",
+        "TestReviewPrunePreservesReferenceAheadHold": "pass",
+        "TestReviewCarryExpiresWithoutAnotherCandidate": "pass",
+        "TestReviewReconnectClearSerializesWithPublication": "pass",
+        "TestReviewRecoveryStartsFreshCarryEpisode": "pass",
+        "TestReviewQueuedCandidateCannotCrossReconnect": "pass",
+        "TestNoBuildIsDecidedBetweenResetAndAdoption": "pass"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_1e417_test.go.txt",
+          "target": "review_stack14817_test.go",
+          "sha256": "cbec837208cfc7070ae4979c55224bbbc8d65adc93fddeb1102cd7294f5934d6"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_equality_test.go.txt",
+          "target": "review_updated_stack_test.go",
+          "sha256": "caff8a1d9acf57af226a17ae7ccce9253de1c5cbc5d6f04b312c7711d12b6065"
+        },
+        {
+          "file": "fixtures/stack14817_1e417_interactions_test.go.txt",
+          "target": "review_new_interactions_test.go",
+          "sha256": "834914ddd12c273e746e3499de0a16b006afb26f54cb0e5815cc334fdc28f99e"
+        },
+        {
+          "file": "fixtures/stack14817_7d930_histories_test.go.txt",
+          "target": "review_new_histories_test.go",
+          "sha256": "b8b56106615106860c024c6abd87da2ad8e8cc4a5c5bfe7340ec8942553ca2c0"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/proxy_syncer"
+        },
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "pristine compilation; historical Go/KRT/cache properties plus native reset/adoption barrier; separate live profile supplies Envoy evidence",
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_new_histories_test.go",
+          "sha256": "b8b56106615106860c024c6abd87da2ad8e8cc4a5c5bfe7340ec8942553ca2c0",
+          "before": "\trequire.True(t, p.registerConnectionStartHooks(ctx, state, rows.GetKey))",
+          "after": "\tp.gate.currentBuild = rows.GetKey // mirror the new ProxySyncer.Start wiring\n\trequire.True(t, p.registerConnectionStartHooks(ctx, state, rows.GetKey))",
+          "reason": "Mirror the author's new production currentBuild initialization; retain all history steps and assertions."
+        },
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_new_histories_test.go",
+          "sha256": "3a655f7eccaaed7018a38bf5d98c3879062bc7040d840b4d0593a93e1ee0438d",
+          "before": "\tp.syncXds(ctx, build(\"initial\", []string{\"a\"}, []string{\"a\"}))",
+          "after": "\tinitial := build(\"initial\", []string{\"a\"}, []string{\"a\"})\n\trows.UpdateObject(initial) // production publishes a row that already exists in KRT\n\tp.syncXds(ctx, initial)\n\tinstalled, installErr := c.GetSnapshot(key)\n\trequire.NoError(t, installErr)\n\trequire.Equal(t, \"initial\", installed.GetVersion(rsrc.RouteType))",
+          "reason": "Put the initial row in the authoritative collection before publishing it; assert the original initialized-cache premise."
+        },
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_new_histories_test.go",
+          "sha256": "41d3842602d57337fd91dab2725ce8e55361416829c4c374b8058aadf4af1d41",
+          "before": "krtcollections.NewUniquelyConnectedClients(nil, false)",
+          "after": "krtcollections.NewUniquelyConnectedClients(false)",
+          "reason": "The callback API removed the nil extra-callback parameter; this fixture supplied no extra callback."
+        },
+        {
+          "file": "pkg/kgateway/proxy_syncer/review_new_interactions_test.go",
+          "sha256": "834914ddd12c273e746e3499de0a16b006afb26f54cb0e5815cc334fdc28f99e",
+          "before": "krtcollections.NewUniquelyConnectedClients(nil, false)",
+          "after": "krtcollections.NewUniquelyConnectedClients(false)",
+          "reason": "The callback API removed the nil extra-callback parameter; this fixture supplied no extra callback."
+        }
+      ]
+    },
+    "stack-14817-e9436e-rewarming": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "e9436e00b3ca13922a22d40d831345e28ce3ec22",
+      "package": "pkg/kgateway/setup",
+      "review_date": "2026-10-20",
+      "expected": "pass",
+      "tests": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingEndpointsFirstUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "same-version EDS must follow changed CDS after earlier EDS delivery",
+        "TestReviewRewarmingUnchangedClusterOrdered": "",
+        "TestReviewRewarmingUnchangedClusterUnordered": ""
+      },
+      "expected_by_test": {
+        "TestReviewRewarmingEndpointsFirstOrdered": "pass",
+        "TestReviewRewarmingEndpointsFirstUnordered": "pass",
+        "TestReviewRewarmingOptionalRulesOffOrdered": "pass",
+        "TestReviewRewarmingOptionalRulesOffUnordered": "pass",
+        "TestReviewRewarmingUnchangedClusterOrdered": "pass",
+        "TestReviewRewarmingUnchangedClusterUnordered": "pass"
+      },
+      "fixtures": [
+        {
+          "file": "fixtures/stack14817_rewarming_test.go.txt",
+          "target": "review_rewarming_test.go",
+          "sha256": "0560d5861cfba221e9f76ce41ac8315fa3127327172345b568b0b805b3fe0c68"
+        }
+      ],
+      "build_checks": [
+        {
+          "package": "pkg/kgateway/setup"
+        }
+      ],
+      "evidence_scope": "Real pinned cache/server and stream callbacks with mock transport; CDS remains unacknowledged until held-version EDS is answered. No Envoy application or latency theorem."
     }
   },
   "downstream": {

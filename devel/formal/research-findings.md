@@ -1643,3 +1643,129 @@ remain open.
   receipt. Generated logs/receipts are not research source and are not added
   to this work tree. The checked-in regression fixture and immutable profiles
   make the cache/server obligation repeatable after those local captures expire.
+
+## RF-034 Backend-owned resource closure after the October 20 stack update
+
+- **Subjects:** PR #14717 at
+  `2fe5bab3179dd1a3009baed8612aecde5a392941`, its parent
+  `350554e6f3c3e5be1da5a4f80377a9ae935916f0`, and final stack PR #14721 at
+  `e9436e00b3ca13922a22d40d831345e28ce3ec22`. The later tip rebases onto upstream
+  CONNECT support, callback delivery and typed-nil equality repairs. The research
+  baseline is `88c10158cdddeba1b0f96faec11e1a56f52e82c0`; its production
+  implementation and deployed downstream code are not these source subjects.
+  Historical findings and their immutable profiles remain unchanged.
+- **P2, incomplete carry closure:** a gateway still routes to an already
+  published backend while that backend's translated row temporarily disappears.
+  Its cluster is eligible for carry: it is neither explicitly errored nor
+  expired. A CONNECT-shaped backend also owns an internal listener and may own
+  SDS header secrets; its listener names a proxy backend. The publication gate
+  carries the cluster while publishing current LDS/SDS without those owned
+  resources. REFERENCED also drops the proxy, because its dependency walk can no
+  longer see the absent owner's listener. ALL retains the proxy but still loses
+  the listener and secret. This breaks the carry policy's purpose of retaining
+  a working already-routed backend during a translation gap.
+- **Source evidence:** `emission_backend_listeners.go` correctly traverses
+  listeners belonging to retained, currently translated backends.
+  `perclient.go` merges owned LDS/SDS from those current rows. In
+  `kube_gw_translator_syncer.go:149`, `resolveDeferredPerCluster` skips a held
+  flip for an already referenced target; its carry loop restores only CDS and
+  a matching CLA. It never restores the carried backend's owned listener,
+  secret or transitive proxy dependency. The omission persists at the specific
+  PR revision and at the final tip. Source inspection alone is not a runtime
+  outage proof.
+- **Concrete implementation evidence:** new fixtures run actual KRT,
+  `snapshotPerClient`, `NewProxyTranslator` and SnapshotCache with valid protos.
+  Removing only the tunnel's translated row leaves the route unchanged and
+  records it as missing. Five desired properties fail at designated assertions
+  on both updated pins: owned listener in ALL/REFERENCED, proxy in REFERENCED,
+  and owned header secret in ALL/REFERENCED. These are translated-row fixtures,
+  not a complete Kubernetes/Backend translator history; hand-assigned fixture
+  contributions do not establish production hash correctness. SDS omission is
+  a publication-closure failure here; it is not evidence that Envoy revoked a
+  cached secret. RF-027's observed removal semantics still apply.
+- **Independent application evidence:** actual initial and carried snapshots
+  from that producer are replayed through the pinned real go-control-plane
+  cache/server and enterprise standard Envoy 1.39.4-patch2. The initial graph
+  forwards HTTP 200 with a fixture body. After CDS/LDS updates are observed,
+  admin state retains the same pipe-addressed cluster but removes its internal
+  listener; fresh connections return 503 with remote connection failure, in
+  both ALL and REFERENCED. This independently establishes application impact
+  for the emitted dependency shape. It does not infer application from ACK or
+  cache installation. The runtime fixture uses pipe/TCP forwarding, two workers,
+  zero drain and an upstream that closes connections; it is not a complete live
+  CONNECT/header-SDS, TLS, FIPS, authenticated xDS or downstream deployment test.
+  The pinned image is the RF-033 enterprise digest; execution is linux/arm64 on
+  Docker Desktop. No existing Kubernetes cluster is changed.
+- **P3, unreported fallback:** a dynamic selector in a kept backend's listener
+  forces the helper to return every translated cluster. The disabled-scoping
+  metric and warning logic in `perclient.go:139` examines only gateway selectors,
+  so this cause remains invisible. The final-tip desired-property test observes
+  emit-all and a gauge of zero where one is required. The warning omission is
+  source-supported; no log-capture or live performance-impact claim is made.
+  This is an extension-surface case, separate from the static CONNECT bug.
+- **Downstream scope:** source inspection of kgw-ent
+  `1bc4cde8b4edc780135c98d2268f43289978373c` shows its forked
+  `internal/setup/setup.go:424` calls upstream `controller.NewControllerBuilder`;
+  the reviewed upstream builder constructs `proxy_syncer.NewProxySyncer`.
+  Ordinary adaptation during the dependency bump therefore retains this shared
+  publisher unless downstream deliberately replaces it. The ownership/carry
+  obligation applies downstream too. This is a source-level integration
+  conclusion, not a newly executed full downstream/controller or deployed test.
+- **Positive evidence:** the initial REFERENCED proxy omission reproduces before
+  the cited commit and passes after it, with an ALL control on both subjects.
+  The actual helper and scanner match independent graph reachability on every
+  directed graph over three names (512), every dynamic-selector mask (8), and
+  every proper initial subset (7): 28,672 distinct inputs. Three race-enabled
+  repetitions pass, checking cycles, self edges, disconnected components,
+  exact membership/contributions and unfiltered-version restoration. This does
+  not cover arbitrary graphs, missing translated targets, all opaque extensions
+  or the later publication composition. The native five-package current-tip
+  race suite also passes all 1,961 test events despite the new counterexamples.
+- **Formal evidence:** `BackendResourceClosure.lean` proves seven structural
+  closure/necessity properties over arbitrary identity types, including that
+  cluster-only carry cannot close this ownership graph. `BackendResourceCarry`
+  separates current candidates from published snapshots. ALL and REFERENCED
+  cluster-only carry violate `PublishedDependencyClosure`; two proposed closure
+  modes satisfy it and `NoRevokedCarry`. Four finite configurations represent
+  one owned bundle, disappearance and revocation. These are specification
+  results, not a Go refinement, wire protocol proof or temporal liveness result.
+  No product repair has been applied by this review.
+- **Durable acceptance:** `make formal-stack-backend-closure` requires the
+  before/after initial-emission outcomes, all designated new failures and the
+  graph comparison, then reruns all seventeen earlier carry/reconnect and six
+  rewarming properties on the current tip. Exact-hash fixture-only adapters
+  handle constructor/callback API drift without changing assertions or original
+  production sources. Live replay is on by default; public CI explicitly uses
+  `--no-live` because the image is private. Candidate mode copies a read-only
+  source and requires all current desired properties and successful forwarding
+  to pass. A green baseline means known defects reproduced. Existing profiles
+  and counterexamples are not replaced.
+- **Validation of this update:** the final five-profile acceptance matrix
+  matches all 42 required Go test executions and both live counterexamples;
+  each live case returns three fresh 503s, and all 22 capture mutations are
+  rejected. All seventeen earlier history properties and six rewarming
+  properties pass on the current tip. The final nine-property fixture matches
+  all designated outcomes in three race-enabled repetitions (27 executions),
+  with no race report or production-source change. Full
+  `CGO_ENABLED=0 make formal-lean` passes 50 executable model expectations,
+  329 top-level Go tests / 603 test events in eleven research packages,
+  27 snapshot traces and four lifecycle traces. `make formal-tlc` matches all
+  83 required outcomes; original wide ADS remains deferred. All fifteen
+  regression-harness tests, workflow lint, fixture hashes/formatting and
+  whitespace checks pass. The CI subset is configured but was not dispatched
+  or observed running on GitHub by this session.
+- **Required repair and coverage:** carry the root's complete owned/transitive
+  resource bundle with valid per-type versions and contribution bookkeeping,
+  while respecting current shared dependencies and explicit errored, expired or
+  revoked exclusions. Do not blindly retain revoked secrets to satisfy closure.
+  Test actual CONNECT translation and authenticated header SDS through a real
+  controller, nested/shared proxy chains, grace and expiry, unrelated held flips,
+  collisions, rotation/revocation, cross-type delivery order, partial NACK,
+  reconnect and failed sends. Ordinary downstream API adaptation is assumed;
+  re-run downstream plugins on the adapted candidate rather than reporting the
+  dependency bump itself as a defect. A runtime full-controller schedule and
+  ownership-preserving Go refinement remain open.
+- **Artifacts:** captures and receipts are external under
+  `$HOME/t/stack-current-closure-g4mqo074/`. Checked-in content consists of models,
+  proofs, fixtures, profiles, checkers and documentation. Generated receipts and
+  logs are not research source and are not added to this tree.

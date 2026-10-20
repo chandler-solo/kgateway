@@ -13,6 +13,7 @@ import XdsSpec.CheckerTests
 import XdsSpec.GcpWatch
 import XdsSpec.EnvoyAvailability
 import XdsSpec.RewarmingComposition
+import XdsSpec.BackendResourceClosure
 import XdsSpec.GcpSubscription
 
 open XdsSpec XdsSpec.Convergence

@@ -1,5 +1,23 @@
 # XdsAdsSotw TLA+ model
 
+## October 20 backend-owned dependency closure
+
+`BackendResourceCarry` separates a translated candidate from the published
+snapshot. A routed root cluster owns an internal listener; that listener needs
+a proxy cluster and a secret. `AllBug` and `ScopedBug` require a counterexample
+to `PublishedDependencyClosure`: carrying only the missing cluster leaves its
+owned resources absent, and scoping also removes the proxy. `AllClosure` and
+`ScopedClosure` retain the dependency bundle and satisfy closure and
+`NoRevokedCarry`. The latter explicitly prevents retaining a revoked root.
+
+These four finite selection models have one resource bundle, a disappearance
+and a revocation. They do not model wire order, Envoy application, time or
+arbitrary revisions. The closure modes are proposed specification remedies,
+not product fixes. The [implementation acceptance matrix](../regressions/README.md#october-20-backend-owned-resource-regressions)
+separately checks the actual stack and captured snapshots in Envoy. The Lean
+`BackendResourceClosure` proofs state the corresponding structural obligation
+over arbitrary identities without proving a Go refinement.
+
 ## October 20 EDS-before-CDS rewarming
 
 `RewarmingResponseOrder` models one established stream and one same-name EDS
@@ -36,7 +54,7 @@ Older models and counterexamples are unchanged.
 
 ## October 16 composed boundary models
 
-`make formal-tlc` is the required runner. It checks 79 configurations, including
+`make formal-tlc` is the required runner. It checks 83 configurations, including
 expected counterexamples, with an exact TLC artifact checksum and exact expected
 error class/invariant. Parser failures and deadlocks cannot count as reproduced
 properties. Original wide ADS bounds remain explicitly deferred under RF-015.

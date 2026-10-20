@@ -4,6 +4,19 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
+The later October 20 review pins PR #14717 at `2fe5bab3179d` and stack tip
+`e9436e00b3ca`. Its new backend-listener traversal fixes initial proxy-cluster
+selection, but the publisher still carries a missing backend's cluster without
+its owned listener/secret and, under REFERENCED, its proxy. Actual KRT/publisher
+snapshots replayed in Envoy change successful HTTP 200 forwarding to 503.
+`make formal-stack-backend-closure` preserves that counterexample, the
+before/after traversal comparison and the earlier seventeen history and six
+rewarming properties. Seven abstract Lean closure proofs and four bounded TLC
+configurations specify the missing obligation; neither proves Go correctness.
+See [RF-034](research-findings.md#rf-034-backend-owned-resource-closure-after-the-october-20-stack-update)
+and the [acceptance commands and limits](regressions/README.md#october-20-backend-owned-resource-regressions).
+Production code and deployed installations are separate subjects.
+
 The October 20 update records the real downstream BackendConfigPolicy rewarming
 failure and the author's later stack fix, separately from this research tree.
 `make formal-stack-rewarming` requires four exact failures at `faaaaf68d552`

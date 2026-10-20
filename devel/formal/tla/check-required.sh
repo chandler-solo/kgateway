@@ -41,6 +41,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         AdmissionPending*) model=AdmissionPending; expected=pass ;;
         RewarmingResponseOrderHistorical|RewarmingResponseOrderPrematureClear) model=RewarmingResponseOrder; expected=temporal ;;
         RewarmingResponseOrder*) model=RewarmingResponseOrder; expected=pass ;;
+        BackendResourceCarry*) model=BackendResourceCarry; expected=pass ;;
         InitialFetchTimeoutsDisabledParents|InitialFetchTimeoutsDisabledEds|InitialFetchTimeoutsDisabledLocal) model=InitialFetchTimeouts; expected=temporal ;;
         InitialFetchTimeouts*) model=InitialFetchTimeouts; expected=pass ;;
         CarryEpisodes*) model=CarryEpisodes; expected=pass ;;
@@ -68,6 +69,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         CarryEpisodesRecoveryBug) invariant=FreshEpisodeGetsFullCarryInterval ;;
         QueuedPublicationLateStampBug) invariant=NoObsoleteCandidateResponse ;;
         AdmissionPendingSplitBug) invariant=NoEarlierPendingResponse ;;
+        BackendResourceCarry*Bug) invariant=PublishedDependencyClosure ;;
         InitialFetchTimeoutsStaleBug) invariant=NoStaleTimerEffect ;;
         InitialFetchTimeoutsEarlyBug) invariant=NoEarlyExpiry ;;
         InitialFetchTimeoutsDisabledBug) invariant=NoDisabledExpiry ;;

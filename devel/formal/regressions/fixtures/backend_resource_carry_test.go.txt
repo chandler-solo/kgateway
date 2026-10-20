@@ -1,0 +1,205 @@
+package proxy_syncer
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	clusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
+	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	endpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	listenerv3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
+	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	tcpv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
+	secretformatter "github.com/envoyproxy/go-control-plane/envoy/extensions/formatter/generic_secret/v3"
+	tlsv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	cache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"istio.io/istio/pkg/kube/controllers"
+	"istio.io/istio/pkg/kube/krt"
+	"k8s.io/apimachinery/pkg/types"
+
+	sniv3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/sni_cluster/v3"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/proxy_syncer/sharedproto"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/utils"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+	"github.com/kgateway-dev/kgateway/v2/pkg/metrics"
+	"github.com/kgateway-dev/kgateway/v2/pkg/metrics/metricstest"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/ir"
+	"github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk/krtutil"
+	krtpkg "github.com/kgateway-dev/kgateway/v2/pkg/utils/krtutil"
+)
+
+func reviewStaticCluster(t *testing.T, name string, address *corev3.Address) *clusterv3.Cluster {
+	t.Helper()
+	c := &clusterv3.Cluster{Name: name, ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &clusterv3.Cluster_Type{Type: clusterv3.Cluster_STATIC}, LoadAssignment: &endpointv3.ClusterLoadAssignment{ClusterName: name}}
+	if address != nil {
+		c.LoadAssignment.Endpoints = []*endpointv3.LocalityLbEndpoints{{LbEndpoints: []*endpointv3.LbEndpoint{{HostIdentifier: &endpointv3.LbEndpoint_Endpoint{Endpoint: &endpointv3.Endpoint{Address: address}}}}}}
+	}
+	require.NoError(t, c.ValidateAll())
+	return c
+}
+
+func reviewSaveSnapshot(t *testing.T, name string, snap *cache.Snapshot) {
+	t.Helper()
+	root := os.Getenv("REVIEW_BACKEND_OUT")
+	if root == "" {
+		return
+	}
+	dir := filepath.Join(root, strings.ReplaceAll(t.Name(), "/", "_"))
+	require.NoError(t, os.MkdirAll(dir, 0700))
+	out := map[string]json.RawMessage{}
+	for rt, typeURL := range map[cachetypes.ResponseType]string{cachetypes.Cluster: resourcev3.ClusterType, cachetypes.Endpoint: resourcev3.EndpointType, cachetypes.Listener: resourcev3.ListenerType, cachetypes.Route: resourcev3.RouteType, cachetypes.Secret: resourcev3.SecretType} {
+		resp := &discoveryv3.DiscoveryResponse{TypeUrl: typeURL, VersionInfo: snap.Resources[rt].Version}
+		for _, item := range snap.Resources[rt].Items {
+			resp.Resources = append(resp.Resources, utils.MustMessageToAny(item.Resource))
+		}
+		encoded, err := protojson.Marshal(resp)
+		require.NoError(t, err)
+		out[typeURL] = encoded
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name+".json"), b, 0600))
+}
+
+func reviewBackendCarry(t *testing.T, scoped, headers, disappear, dynamic bool) (*cache.Snapshot, *cache.Snapshot) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	opts := krtutil.NewKrtOptions(ctx.Done(), nil)
+	ucc := ir.NewUniquelyConnectedClient(xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", "gw"), "", nil, ir.PodLocality{})
+	clients := krt.NewStaticCollection(nil, []ir.UniquelyConnectedClient{ucc}, opts.ToOptions("ReviewClients")...)
+	route := &routev3.RouteConfiguration{Name: "route-config", VirtualHosts: []*routev3.VirtualHost{{Name: "vhost", Domains: []string{"*"}, Routes: []*routev3.Route{{Match: &routev3.RouteMatch{PathSpecifier: &routev3.RouteMatch_Prefix{Prefix: "/"}}, Action: &routev3.Route_Route{Route: &routev3.RouteAction{ClusterSpecifier: &routev3.RouteAction_Cluster{Cluster: "tunneled"}}}}}}}}
+	require.NoError(t, route.ValidateAll())
+	routes := sliceToResources([]*routev3.RouteConfiguration{route})
+	listener := &listenerv3.Listener{}
+	require.NoError(t, protojson.Unmarshal([]byte(`{"name":"listener","address":{"socket_address":{"address":"0.0.0.0","port_value":8080}},"filter_chains":[{"filters":[{"name":"envoy.filters.network.http_connection_manager","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager","stat_prefix":"front","rds":{"route_config_name":"route-config","config_source":{"ads":{},"resource_api_version":"V3"}},"http_filters":[{"name":"envoy.filters.http.router","typed_config":{"@type":"type.googleapis.com/envoy.extensions.filters.http.router.v3.Router"}}]}}]}]}`), listener))
+	require.NoError(t, listener.ValidateAll())
+	front := sliceToResources([]*listenerv3.Listener{listener})
+	gateways := krt.NewStaticCollection(nil, []GatewayXdsResources{{
+		NamespacedName: types.NamespacedName{Namespace: "ns", Name: "gw"},
+		Routes:         routes, Listeners: front,
+		ReferencedClusters: collectReferencedClusters(routes, front),
+		EmittedClusters:    collectReferencedClustersForEmission(routes, front),
+	}}, opts.ToOptions("ReviewGateways")...)
+
+	tcp := &tcpv3.TcpProxy{StatPrefix: "tunnel_tunneled", ClusterSpecifier: &tcpv3.TcpProxy_Cluster{Cluster: "proxy"}}
+	var secrets []*tlsv3.Secret
+	if headers {
+		tcp.TunnelingConfig = &tcpv3.TcpProxy_TunnelingConfig{
+			Hostname:     "destination.example:443",
+			HeadersToAdd: []*corev3.HeaderValueOption{{Header: &corev3.HeaderValue{Key: "proxy-authorization", Value: "%SECRET(tunnel_tunneled/header)%"}}},
+			Formatters: []*corev3.TypedExtensionConfig{{Name: "envoy.formatter.generic_secret", TypedConfig: utils.MustMessageToAny(&secretformatter.GenericSecret{SecretConfigs: map[string]*tlsv3.SdsSecretConfig{
+				"tunnel_tunneled/header": {Name: "tunnel_tunneled/header", SdsConfig: &corev3.ConfigSource{ResourceApiVersion: corev3.ApiVersion_V3, ConfigSourceSpecifier: &corev3.ConfigSource_Ads{Ads: &corev3.AggregatedConfigSource{}}}},
+			}})}},
+		}
+		secrets = []*tlsv3.Secret{{Name: "tunnel_tunneled/header", Type: &tlsv3.Secret_GenericSecret{GenericSecret: &tlsv3.GenericSecret{Secret: &corev3.DataSource{Specifier: &corev3.DataSource_InlineString{InlineString: "fixture-credential"}}}}}}
+	}
+	internal := &listenerv3.Listener{Name: "tunnel_tunneled", Address: &corev3.Address{Address: &corev3.Address_Pipe{Pipe: &corev3.Pipe{Path: "@review_tunneled"}}}, FilterChains: []*listenerv3.FilterChain{{Filters: []*listenerv3.Filter{{Name: "envoy.filters.network.tcp_proxy", ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: utils.MustMessageToAny(tcp)}}}}}}
+	if dynamic {
+		internal.FilterChains[0].Filters = append([]*listenerv3.Filter{{Name: "envoy.filters.network.sni_cluster", ConfigType: &listenerv3.Filter_TypedConfig{TypedConfig: utils.MustMessageToAny(&sniv3.SniCluster{})}}}, internal.FilterChains[0].Filters...)
+	}
+	require.NoError(t, internal.ValidateAll())
+	tunnel := uccWithCluster{Client: ucc, Name: "tunneled", ClusterVersion: 11, Cluster: sharedproto.Wrap(reviewStaticCluster(t, "tunneled", internal.GetAddress())), Listeners: wrapBaseResources([]*listenerv3.Listener{internal}), Secrets: wrapBaseResources(secrets)}
+	proxy := uccWithCluster{Client: ucc, Name: "proxy", ClusterVersion: 22, Cluster: sharedproto.Wrap(reviewStaticCluster(t, "proxy", &corev3.Address{Address: &corev3.Address_SocketAddress{SocketAddress: &corev3.SocketAddress{Address: "127.0.0.1", PortSpecifier: &corev3.SocketAddress_PortValue{PortValue: 10001}}}}))}
+	spare := uccWithCluster{Client: ucc, Name: "spare", ClusterVersion: 44, Cluster: sharedproto.Wrap(reviewStaticCluster(t, "spare", nil))}
+	rows := krt.NewStaticCollection(nil, []uccWithCluster{tunnel, proxy, spare}, opts.ToOptions("ReviewClusterRows")...)
+	eps := krt.NewStaticCollection[UccWithEndpoints](nil, nil, opts.ToOptions("ReviewEndpoints")...)
+	scoping := clusterScoping{}
+	if scoped {
+		scoping = scopedClusters()
+	}
+	snapshots := snapshotPerClient(opts, clients, gateways, PerClientEnvoyEndpoints{endpoints: eps, index: krtpkg.UnnamedIndex(eps, func(ep UccWithEndpoints) []string { return []string{ep.Client.ResourceName()} })}, newTestPerClientClustersFromCol(rows, clients), scoping)
+	servedCache := newTestSnapshotCache(t)
+	translator := NewProxyTranslator(servedCache, nil, 0, true, scoping)
+	handledGap := make(chan struct{}, 1)
+	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
+		for _, event := range events {
+			if event.Event == controllers.EventDelete {
+				continue
+			}
+			wrap := event.Latest()
+			translator.syncXds(ctx, wrap)
+			if len(wrap.missingReferenced) == 1 && wrap.missingReferenced[0] == "tunneled" {
+				select {
+				case handledGap <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}, true)
+	initial := eventuallyCacheSnapshot(t, servedCache, ucc.ResourceName())
+	require.Contains(t, initial.Resources[cachetypes.Cluster].Items, "tunneled")
+	require.Contains(t, initial.Resources[cachetypes.Cluster].Items, "proxy", "initial tunnel proxy must survive referenced filtering")
+	require.Contains(t, initial.Resources[cachetypes.Listener].Items, "tunnel_tunneled")
+	if headers {
+		require.Contains(t, initial.Resources[cachetypes.Secret].Items, "tunnel_tunneled/header")
+	}
+
+	if !disappear {
+		return initial, initial
+	}
+	// Only translation disappears; the gateway still names the same live backend.
+	rows.DeleteObject(tunnel.ResourceName())
+	// Observe completion of the actual subscriber call. A repair may retain an
+	// identical snapshot/version, which is not evidence that the event was lost.
+	select {
+	case <-handledGap:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the new missing-row candidate must reach the production carry path")
+	}
+	resource, err := servedCache.GetSnapshot(ucc.ResourceName())
+	require.NoError(t, err)
+	carried := resource.(*cache.Snapshot)
+	require.Contains(t, carried.Resources[cachetypes.Cluster].Items, "tunneled", "the route's cluster must actually be carried")
+	reviewSaveSnapshot(t, "initial", initial)
+	reviewSaveSnapshot(t, "carried", carried)
+	return initial, carried
+}
+
+func TestReviewBackendCarryKeepsListenerALL(t *testing.T) {
+	_, carried := reviewBackendCarry(t, false, false, true, false)
+	require.Contains(t, carried.Resources[cachetypes.Listener].Items, "tunnel_tunneled", "carrying a backend cluster must retain its internal listener")
+}
+func TestReviewBackendCarryKeepsListenerREFERENCED(t *testing.T) {
+	_, carried := reviewBackendCarry(t, true, false, true, false)
+	require.Contains(t, carried.Resources[cachetypes.Listener].Items, "tunnel_tunneled", "carrying a backend cluster must retain its internal listener")
+}
+func TestReviewBackendCarryKeepsProxy(t *testing.T) {
+	_, carried := reviewBackendCarry(t, true, false, true, false)
+	require.Contains(t, carried.Resources[cachetypes.Cluster].Items, "proxy", "carrying a tunnel must retain its listener's proxy cluster")
+}
+func TestReviewBackendCarryKeepsSecretALL(t *testing.T) {
+	_, carried := reviewBackendCarry(t, false, true, true, false)
+	require.Contains(t, carried.Resources[cachetypes.Secret].Items, "tunnel_tunneled/header", "carrying a backend cluster must retain its listener's SDS dependencies")
+}
+func TestReviewBackendCarryKeepsSecretREFERENCED(t *testing.T) {
+	_, carried := reviewBackendCarry(t, true, true, true, false)
+	require.Contains(t, carried.Resources[cachetypes.Secret].Items, "tunnel_tunneled/header", "carrying a backend cluster must retain its listener's SDS dependencies")
+}
+func TestReviewBackendInitialEmissionALL(t *testing.T) {
+	reviewBackendCarry(t, false, false, false, false)
+}
+func TestReviewBackendInitialEmissionREFERENCED(t *testing.T) {
+	reviewBackendCarry(t, true, false, false, false)
+}
+
+func TestReviewBackendDynamicFallbackReportsDisabled(t *testing.T) {
+	metrics.SetRegistry(false, nil)
+	metrics.SetActive(true)
+	initial, _ := reviewBackendCarry(t, true, false, false, true)
+	require.Contains(t, initial.Resources[cachetypes.Cluster].Items, "spare", "the backend selector must actually force emit-all")
+	got := metricstest.MustGatherMetrics(t).MustGetMetricValueByLabels("kgateway_xds_cluster_scoping_disabled_gateways", []metrics.Label{{Name: gatewayLabel, Value: "gw"}, {Name: namespaceLabel, Value: "ns"}})
+	require.Equal(t, float64(1), got, "backend-listener fallback must report scoping disabled")
+}

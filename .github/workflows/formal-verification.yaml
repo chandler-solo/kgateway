@@ -133,9 +133,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          make formal-stack-rewarming
-          FORMAL_REWARM_BASELINE_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-before"
-          FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-after"
+          make formal-stack-rewarming FORMAL_REWARM_BASELINE_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-before" FORMAL_REGRESSION_ARGS="--artifacts $RUNNER_TEMP/formal-regressions/rewarming-after"
+      - name: Check backend-owned dependency closure on the updated stack
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          make formal-stack-backend-closure FORMAL_BACKEND_CLOSURE_ARGS="--no-live --artifacts $RUNNER_TEMP/formal-regressions/backend-closure"
       - name: Preserve regression receipts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -145,6 +148,11 @@ jobs:
             ${{ runner.temp }}/formal-regressions/*/*.json
             ${{ runner.temp }}/formal-regressions/*/*.jsonl
             ${{ runner.temp }}/formal-regressions/*/*.log
+            ${{ runner.temp }}/formal-regressions/backend-closure/*/*.json
+            ${{ runner.temp }}/formal-regressions/backend-closure/*/*.jsonl
+            ${{ runner.temp }}/formal-regressions/backend-closure/*/*.log
+            ${{ runner.temp }}/formal-regressions/backend-closure/captures/*/*.json
+            ${{ runner.temp }}/formal-regressions/backend-closure/captures/*/*.log
           if-no-files-found: error
   lean:
     name: Lean xDS spec

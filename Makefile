@@ -604,6 +604,10 @@ formal-stack-rewarming: formal-regression-harness ## Preserve the EDS-before-CDS
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-faaa-rewarming $(FORMAL_REWARM_BASELINE_ARGS)
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-ab9865-rewarming $(FORMAL_REGRESSION_ARGS)
 
+.PHONY: formal-stack-backend-closure
+formal-stack-backend-closure: formal-regression-harness ## Check backend-listener emission and carry closure on the October 20 stack
+	python3 -B devel/formal/regressions/backend_closure.py $(FORMAL_BACKEND_CLOSURE_ARGS)
+
 .PHONY: formal-downstream-adoption
 formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
 	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)

@@ -4,6 +4,42 @@ This is the current status of the research branch, superseding stronger claims
 in historical investigation notes. The program is **open**. Findings and next
 actions are tracked in [research-findings.md](research-findings.md).
 
+## Later October 20 updated-stack closure review
+
+The reviewed PR #14717 revision is `2fe5bab3179dd1a3009baed8612aecde5a392941`;
+the final stack tip is `e9436e00b3ca13922a22d40d831345e28ce3ec22`. These are
+immutable source subjects, separate from the research production code and any
+deployed downstream. Publication correctness is **disproved by a P2
+counterexample** at these pins; this does not mean every update fails.
+
+| Conclusion | Evidence level and boundary |
+|---|---|
+| PR #14717 fixes initial selection of proxy clusters named only by a kept backend's own listener | Before/after actual KRT/publisher fixture: REFERENCED fails at parent `350554e6f3c3` and passes at `2fe5bab3179d` and final tip; ALL controls pass |
+| The new helper computes the intended finite closure | Actual helper/scanner versus an independent graph oracle on all 28,672 three-name inputs; three race-enabled repetitions at the final tip; no unbounded Go proof |
+| Carrying an old backend can drop its owned listener and secret; REFERENCED also drops its proxy | Five designated desired-property failures in actual KRT/publisher/cache at both PR revision and final tip; temporary missing translated row, route still present, no explicit error or expiry |
+| Dropping that owned listener can break forwarding | Actual emitted snapshots replayed through the real cache/server and enterprise standard Envoy 1.39.4-patch2: baseline 200, active carried cluster without its listener, then fresh 503 requests in both modes; no full CONNECT/Kubernetes deployment claim |
+| A backend-listener dynamic fallback is hidden from the disabled-scoping gauge | Final-tip implementation test: emit-all fallback, gauge expected one but actually zero; source also omits the transition warning for this cause (P3) |
+| Closure must include the root's reachable owned dependencies | Seven abstract Lean structural proofs and four bounded TLC profiles; current selection counterexamples and proposed closure controls; no Go refinement, delivery or liveness theorem |
+
+The earlier rewarming repair remains a separate finding and obligation. Its
+historical live observations below are not new live executions of this tip.
+[RF-034](research-findings.md#rf-034-backend-owned-resource-closure-after-the-october-20-stack-update)
+and the [acceptance matrix](regressions/README.md#october-20-backend-owned-resource-regressions)
+record exact tests, scope and remaining work. The backend carry remedy exists
+only in the specification; production source is unchanged. Raw captures,
+receipts and logs remain outside Git.
+
+Validation: the final five-profile matrix matches 42 required Go executions
+and two live counterexamples, rejecting 22 capture mutations. All seventeen
+earlier history and six rewarming properties pass at the new tip. The final
+nine-property fixture matches its designated outcomes in three race-enabled
+repetitions. Full `CGO_ENABLED=0 make formal-lean` passes 50 model expectations,
+603 research Go test events, 27 snapshot traces and four lifecycle traces;
+all 83 required TLC outcomes match. The native five-package updated-stack race
+suite passes 1,961 test events. Fifteen harness tests, fixture checks, workflow
+lint and whitespace checks pass. Public CI explicitly omits the private-image
+live replay; no remote workflow was run by this session.
+
 ## October 20 downstream rewarming correction
 
 The latest rewarming comparison is proposed stack `faaaaf68d552` versus

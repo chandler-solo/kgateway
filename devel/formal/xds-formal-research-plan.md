@@ -2,6 +2,37 @@
 
 Review date: September 10, 2026
 
+Later October 20 stack update: [RF-034](research-findings.md#rf-034-backend-owned-resource-closure-after-the-october-20-stack-update)
+disproves complete publication closure at `e9436e00b3ca`, including the new
+backend-listener walk in PR #14717 (`2fe5bab3179d`). Fresh emission traversal
+passes exhaustive comparison on 28,672 three-cluster inputs, but actual
+KRT/publisher carry drops backend-owned listeners/secrets and a scoped proxy.
+Captured-snapshot replay changes Envoy forwarding from 200 to 503. New abstract
+Lean proofs and four TLC configurations distinguish the desired closure from
+the current carry rule; this is not a Go refinement or a deployed outage claim.
+
+The next implementation obligation is resource ownership through composition:
+
+1. Record cluster-to-listener/secret ownership and listener-to-cluster edges in
+   the publication inputs. Carry the full required bundle, retaining each
+   payload with its version contribution, and prefer current derived truth for
+   shared dependencies. Reject name collisions or give them explicit semantics.
+2. Preserve errored/expired/revoked exclusions while closing dependencies. Do
+   not resurrect a revoked credential merely to make the old graph closed.
+   Specify whether such an exclusion removes the dependent root or produces an
+   explicit failed result; test that policy independently from temporary gaps.
+3. Run the same desired properties on a candidate, then exercise real Backend
+   CONNECT translation, header SDS, deletion/recreation, nested/shared proxies,
+   dereference grace, carry expiry and unrelated held flips. Include downstream
+   plugins after ordinary API adaptation. The current live case replays actual
+   emitted snapshots with a pipe/TCP shape; it does not run a complete CONNECT
+   or authenticated-header scenario through Kubernetes.
+4. Connect ownership/selection traces to per-type sends and independent Envoy
+   admin/traffic evidence. Explore cross-type arrival orders, partial rejection,
+   failed sends, reconnect and multiple streams before claiming application
+   closure. Conditional liveness needs separate fairness and stable-input
+   premises; structural closure alone cannot establish progress.
+
 October 20 rewarming update: the actual downstream setup/plugins/KRT pipeline
 reproduced the RF-014/017 EDS-before-CDS schedule at `faaaaf68d552`, and the
 author's later `5c5b456be396` fix was independently observed at `ab9865b83e63`.

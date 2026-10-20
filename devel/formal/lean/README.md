@@ -72,6 +72,15 @@ and [program plan](../xds-formal-research-plan.md).
   are specified premises, not verified C++ behavior or temporal liveness. The
   [source-specific timeout suite](../timeouts/README.md) records implementation
   evidence and open cancellation/replacement/error obligations.
+- `BackendResourceClosure.lean` proves seven structural properties over an
+  arbitrary resource identity type: roots and reachable dependencies are kept,
+  reachability is the least dependency-closed superset, and a retained backend
+  requires its listener, proxy and secret. A cluster-only set cannot satisfy
+  that ownership graph. The graph edges are specification inputs; this does
+  not prove that Go discovers every edge or preserves it during publication,
+  nor does it establish delivery, application or temporal progress. The
+  [updated-stack regressions](../regressions/README.md#october-20-backend-owned-resource-regressions)
+  expose the implementation's carry-path violation separately.
 
 The [assumption ledger](ASSUMPTIONS.md) distinguishes characterization from
 open obligations. Its Go test checks declarations and anchors, not execution
