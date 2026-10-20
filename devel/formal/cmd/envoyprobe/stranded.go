@@ -215,7 +215,7 @@ func strandedListeners(body string) (active, warming []string) {
 }
 
 // strandedResponsesSince counts responses of typ recorded in the wire log after
-// the marker event named marker.
+// the marker event named marker, or in the whole log when marker is empty.
 func strandedResponsesSince(dir, marker, typ string) (int, error) {
 	f, err := os.Open(filepath.Join(dir, "wire.jsonl"))
 	if err != nil {
@@ -224,7 +224,7 @@ func strandedResponsesSince(dir, marker, typ string) (int, error) {
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	seen, count := false, 0
+	seen, count := marker == "", 0
 	for scanner.Scan() {
 		var event struct {
 			Event string `json:"event"`
@@ -482,4 +482,169 @@ func acceptedVersion(body, section string) string {
 		}
 	}
 	return ""
+}
+
+// Scenario "stranded-fresh" (RF-035): a new proxy connects while a cluster it
+// rejects is already published. Requires -snapshot-cache.
+//
+//	phase 0  clusters a (endpoint 10001, serving) and x (CLUSTER_PROVIDED on an
+//	         EDS cluster, rejected); listener front on 10000 with routes r1:
+//	         /a -> a, / -> "r1-v1"
+//	phase 1  removes x
+//	phase 2  adds cluster c, which changes the EDS names Envoy requests
+//
+// Passing means the defect reproduced: Envoy's first EDS request is declined
+// with no watch left, a initializes empty at its fetch timeout, readiness
+// passes, /a returns 503, and removing x changes nothing until phase 2.
+func strandedFreshResources(phase int) map[string][]*anypb.Any {
+	base := strandedResources(0)
+	edsCluster := func(name string) *envoyclusterv3.Cluster {
+		return &envoyclusterv3.Cluster{Name: name, ConnectTimeout: durationpb.New(time.Second), ClusterDiscoveryType: &envoyclusterv3.Cluster_Type{Type: envoyclusterv3.Cluster_EDS}, EdsClusterConfig: &envoyclusterv3.Cluster_EdsClusterConfig{EdsConfig: ads()}}
+	}
+	cla := func(name string, port uint32) *envoyendpointv3.ClusterLoadAssignment {
+		return &envoyendpointv3.ClusterLoadAssignment{ClusterName: name, Endpoints: []*envoyendpointv3.LocalityLbEndpoints{{LbEndpoints: []*envoyendpointv3.LbEndpoint{{HostIdentifier: &envoyendpointv3.LbEndpoint_Endpoint{Endpoint: &envoyendpointv3.Endpoint{Address: address(port)}}}}}}}
+	}
+	clusters := []*anypb.Any{packed(edsCluster("a"))}
+	endpoints := []*anypb.Any{packed(cla("a", 10001))}
+	if phase == 0 {
+		x := edsCluster("x")
+		x.LbPolicy = envoyclusterv3.Cluster_CLUSTER_PROVIDED
+		clusters = append(clusters, packed(x))
+		endpoints = append(endpoints, packed(cla("x", 10001)))
+	}
+	if phase >= 2 {
+		clusters = append(clusters, packed(edsCluster("c")))
+		endpoints = append(endpoints, packed(cla("c", 10001)))
+	}
+	return map[string][]*anypb.Any{
+		resource.ClusterType:  clusters,
+		resource.EndpointType: endpoints,
+		resource.ListenerType: base[resource.ListenerType],
+		resource.RouteType:    base[resource.RouteType],
+	}
+}
+
+func runStrandedFresh(ctx context.Context, dir, admin, front string, p *probeServer, advance func(int) error) error {
+	save := func(name, path string) error {
+		_, body, err := get(admin + path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600)
+	}
+	mark := func(name string) { p.record(map[string]any{"event": "marker", "name": name}) }
+	status := func(url string) int { code, _, _ := get(url); return code }
+	portsOf := func(cluster string) []uint32 {
+		_, body, _ := get(admin + "/config_dump?include_eds")
+		return strandedEndpointPorts(body)[cluster]
+	}
+	start := time.Now()
+
+	// Envoy requests a's endpoints but never x's.
+	if err := await(ctx, func() bool {
+		for _, r := range p.requestsSince(0) {
+			if r.typeURL == resource.EndpointType && slices.Contains(r.names, "a") {
+				return true
+			}
+		}
+		return false
+	}); err != nil {
+		return fmt.Errorf("Envoy never requested a's endpoints: %w", err)
+	}
+	for _, r := range p.requestsSince(0) {
+		if r.typeURL == resource.EndpointType && slices.Contains(r.names, "x") {
+			return fmt.Errorf("Envoy requested endpoints for the rejected cluster x (%v); reassess RF-035", r.names)
+		}
+	}
+
+	// a initializes empty at its fetch timeout and the proxy reports ready.
+	if err := await(ctx, func() bool {
+		_, d, _ := get(admin + "/config_dump?include_eds")
+		active, _ := strandedClusters(d)
+		return slices.Contains(active, "a") && status(admin+"/ready") == 200
+	}); err != nil {
+		return fmt.Errorf("a did not initialize and the proxy did not become ready: %w", err)
+	}
+	initialized := time.Since(start)
+	if got := portsOf("a"); len(got) != 0 {
+		return fmt.Errorf("a has endpoints %v; the first EDS request was answered (reassess RF-035)", got)
+	}
+	aStatus := status(front + "/a")
+	if aStatus != 503 {
+		return fmt.Errorf("/a returned %d on the new proxy, want 503 from the empty cluster", aStatus)
+	}
+	if body := func() string { _, b, _ := get(front + "/"); return b }(); body != "r1-v1" {
+		return fmt.Errorf("front served %q, want r1-v1: routes should arrive normally", body)
+	}
+	if err := noFreshEDS(dir, ""); err != nil {
+		return err
+	}
+	if err := save("fresh-ready-config.json", "/config_dump?include_eds"); err != nil {
+		return err
+	}
+	p.record(map[string]any{"event": "observation", "phase": "ready-empty", "ready": 200, "a_status": aStatus, "a_ports": []uint32{}, "front": "r1-v1", "initialized_after_ms": initialized.Milliseconds(), "fetch_timeout": fetchTimeoutLabel()})
+
+	// Phase 1: remove x. Envoy ACKs CDS, but no EDS watch remains.
+	requests1 := p.requestCount()
+	mark("removed")
+	if err := advance(1); err != nil {
+		return err
+	}
+	if err := await(ctx, func() bool {
+		for _, r := range p.requestsSince(requests1) {
+			if r.typeURL == resource.ClusterType && r.version == "r1" {
+				return true
+			}
+		}
+		return false
+	}); err != nil {
+		return fmt.Errorf("Envoy did not ACK CDS without x: %w", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := portsOf("a"); len(got) != 0 {
+			return fmt.Errorf("a received endpoints %v after x was removed; reassess RF-035", got)
+		}
+		if code := status(front + "/a"); code != 503 {
+			return fmt.Errorf("/a returned %d after x was removed, want the stranded 503", code)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if err := noFreshEDS(dir, "removed"); err != nil {
+		return err
+	}
+	if err := save("fresh-removed-config.json", "/config_dump?include_eds"); err != nil {
+		return err
+	}
+	p.record(map[string]any{"event": "observation", "phase": "removed", "a_status": 503, "a_ports": []uint32{}, "window_ms": 5000, "ready": status(admin + "/ready")})
+
+	// Phase 2: a new cluster changes the requested names.
+	mark("names-changed")
+	if err := advance(2); err != nil {
+		return err
+	}
+	if err := await(ctx, func() bool {
+		code, upstream, _ := get(front + "/a")
+		return slices.Equal(portsOf("a"), []uint32{10001}) && code == 200 && upstream == "probe-upstream"
+	}); err != nil {
+		return fmt.Errorf("changing the requested names did not recover EDS: %w", err)
+	}
+	p.record(map[string]any{"event": "observation", "phase": "names-changed", "a_status": 200, "a_ports": []uint32{10001}})
+	fmt.Println("PASS Envoy stranded-fresh characterization: a new proxy with a rejected cluster published initialized every EDS cluster empty, reported ready and served 503, and removing the cluster did not recover it")
+	return nil
+}
+
+func noFreshEDS(dir, marker string) error {
+	n, err := strandedResponsesSince(dir, marker, resource.EndpointType)
+	if err != nil {
+		return err
+	}
+	if n != 0 {
+		return fmt.Errorf("%s: %d EDS response(s) sent; the stranded schedule expects none (reassess RF-035)", marker, n)
+	}
+	return nil
 }

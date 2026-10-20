@@ -1801,8 +1801,24 @@ remain open.
   reproduced the EDS and RDS freeze on upstream v1.39.4 (`sha256:74bd4eb5…`)
   and enterprise standard v1.39.4-patch2 (`sha256:66612e48…`). It also
   reproduced the EDS freeze with a bad TLS signature algorithm as the rejection.
+  `-scenario stranded-fresh` starts a new proxy while a rejected EDS cluster is
+  already published. Envoy's first EDS request is declined with no watch left.
+  The serving cluster initializes with no hosts at its fetch timeout
+  (14.97–15.03 s), `/ready` returns 200 and its route returns 503. Removing the
+  rejected cluster is ACKed and changes nothing; only a change to the requested
+  names recovers it. Both scenarios held in all eight runs each, covering:
+  upstream v1.39.1 and v1.39.4 (`sha256:74bd4eb5…`) in both ADS modes, v1.39.4
+  with two workers, enterprise standard v1.39.4-patch2 (`sha256:66612e48…`) in
+  both modes, and enterprise FIPS v1.39.1-patch1, ordered.
   These are finite windows on one proxy with supplied snapshots, not a
   temporal proof, a kgateway translation history or a deployment observation.
+- **Impact:** a new, restarted or reconnecting gateway pod that receives any
+  cluster it rejects comes up ready and returns 503 on every route to an EDS
+  cluster. Running pods stop receiving endpoint and route updates. In ALL
+  discovery mode every gateway receives every backend in scope, so one rejected
+  backend reaches all of them. The NACK is visible in `envoy_xds_rejects_total`;
+  the frozen updates are not reported. How often Envoy rejects a resource that
+  STANDARD validation accepts is not measured.
 - **Implementation evidence:** kgateway commit `3f7312f834` on
   `chandler/k-tests-that-expose-go-control-plane-bug` (base main `93002e65c9`)
   adds three `TestADSCacheRejected*` tests. They replay Envoy's requests through

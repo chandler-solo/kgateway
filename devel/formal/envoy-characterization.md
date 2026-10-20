@@ -370,6 +370,21 @@ The admin config dump reported CDS and LDS `version_info` `r1` after Envoy had
 ACKed `r3`: the accepted update changed no resource Envoy held, so the dump
 version does not record the ACK. Wait on the wire ACK, not the dump.
 
+The same observations held on October 20 in seven further runs: upstream
+v1.39.1 without ordered ADS; upstream v1.39.4 (`sha256:74bd4eb5…`) in both modes
+and with two workers; enterprise standard v1.39.4-patch2 (`sha256:66612e48…`)
+in both modes; and enterprise FIPS v1.39.1-patch1, ordered.
+
+`-scenario stranded-fresh` starts a new proxy while a rejected EDS cluster `x` is
+already published beside a serving cluster `a`. In all eight runs (the same
+images, modes and workers), Envoy requested EDS for `a` only and no EDS response
+was sent. `a` initialized with no hosts at its fetch timeout after 14.97–15.03 s,
+`/ready` returned 200 and `/a` returned 503 while routes arrived normally.
+Removing `x` was ACKed and changed nothing across a 5 s window. Adding cluster
+`c` recovered `a`. So a gateway pod that starts, restarts or reconnects while any
+EDS cluster it rejects is published reports ready and serves 503 on every route
+to an EDS cluster, and stays that way after the bad cluster is removed.
+
 An HTTP filter whose typed config has an unknown type is rejected the same way,
 but Envoy keeps the rejected listener in `error_state`, and `/config_dump` then
 fails to serialize. The scenario uses a known message type with no filter

@@ -153,6 +153,8 @@ func (s *probeServer) resourcesFor(phase int) map[string][]*anypb.Any {
 		return initResources(phase)
 	case "stranded":
 		return strandedResources(phase)
+	case "stranded-fresh":
+		return strandedFreshResources(phase)
 	default:
 		return resources(phase, s.disablePanic)
 	}
@@ -381,7 +383,7 @@ func run() (runErr error) {
 	disablePanic := flag.Bool("disable-panic", false, "set healthy panic threshold to zero")
 	image := flag.String("image", "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4", "local Envoy image (pull explicitly first)")
 	out := flag.String("out", "", "required artifact directory")
-	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart or stranded (both require -snapshot-cache), timeouts, or init")
+	scenario := flag.String("scenario", "warming", "resource schedule: warming (default), references, rejection, secrets, restart, stranded or stranded-fresh (all require -snapshot-cache), timeouts, or init")
 	flag.BoolVar(&edsCacheEnabled, "eds-cache", false, "set envoy.restart_features.use_eds_cache_for_ads in the bootstrap runtime layer, as kgateway's Envoy bootstrap does")
 	flag.DurationVar(&resourceFetchTimeout, "resource-fetch-timeout", 0, "initial_fetch_timeout on EDS and RDS config sources: 0 writes 0s (disabled), negative leaves it unset (Envoy default 15 s, kgateway's shape), positive sets it")
 	flag.Parse()
@@ -391,7 +393,7 @@ func run() (runErr error) {
 	if *out == "" {
 		return errors.New("-out is required")
 	}
-	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" && *scenario != "init" && *scenario != "timeout-profile" && *scenario != "stranded" {
+	if *scenario != "warming" && *scenario != "references" && *scenario != "rejection" && *scenario != "secrets" && *scenario != "restart" && *scenario != "timeouts" && *scenario != "init" && *scenario != "timeout-profile" && *scenario != "stranded" && *scenario != "stranded-fresh" {
 		return fmt.Errorf("unknown -scenario %q", *scenario)
 	}
 	if *scenario != "warming" && *disablePanic {
@@ -400,8 +402,8 @@ func run() (runErr error) {
 	if *scenario == "restart" && !*useCache {
 		return errors.New("-scenario restart requires -snapshot-cache")
 	}
-	if *scenario == "stranded" && (!*useCache || resourceFetchTimeout == 0) {
-		return errors.New("-scenario stranded requires -snapshot-cache and an enabled EDS/RDS fetch timeout (-resource-fetch-timeout -1s for kgateway's unset 15s)")
+	if (*scenario == "stranded" || *scenario == "stranded-fresh") && (!*useCache || resourceFetchTimeout == 0) {
+		return errors.New("-scenario stranded and stranded-fresh require -snapshot-cache and an enabled EDS/RDS fetch timeout (-resource-fetch-timeout -1s for kgateway's unset 15s)")
 	}
 	dir, err := filepath.Abs(*out)
 	if err != nil {
@@ -576,7 +578,7 @@ func run() (runErr error) {
 	if *scenario == "timeout-profile" {
 		budget = 100 * time.Second
 	}
-	if *scenario == "stranded" {
+	if *scenario == "stranded" || *scenario == "stranded-fresh" {
 		budget = 60*time.Second + 2*effectiveResourceFetchTimeout()
 	}
 	if *scenario == "restart" {
@@ -622,6 +624,9 @@ func run() (runErr error) {
 	}
 	if *scenario == "stranded" {
 		return runStranded(ctx, dir, admin, front, inline, orphanPublished, p, advance)
+	}
+	if *scenario == "stranded-fresh" {
+		return runStrandedFresh(ctx, dir, admin, front, p, advance)
 	}
 	if *scenario == "restart" {
 		return runRestart(ctx, dir, admin, front, p, restart, func() (string, string, error) {

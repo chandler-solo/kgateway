@@ -29,5 +29,7 @@ go build -tags e2e -o "$ARTIFACT_DIR/envoyprobe" ./devel/formal/cmd/envoyprobe
 # kgateway's bootstrap shape; passing means the pinned cache defect reproduced.
 "$ARTIFACT_DIR/envoyprobe" -scenario stranded -snapshot-cache -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-cache"
 "$ARTIFACT_DIR/envoyprobe" -scenario stranded -snapshot-cache -ordered -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-ordered-cache"
+"$ARTIFACT_DIR/envoyprobe" -scenario stranded-fresh -snapshot-cache -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-fresh-cache"
+"$ARTIFACT_DIR/envoyprobe" -scenario stranded-fresh -snapshot-cache -ordered -eds-cache -resource-fetch-timeout -1s -out "$ARTIFACT_DIR/stranded-fresh-ordered-cache"
 rm "$ARTIFACT_DIR/envoyprobe"
 echo "Direct Envoy receipts: $ARTIFACT_DIR"
