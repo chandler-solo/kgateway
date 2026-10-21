@@ -41,6 +41,16 @@ jobs:
     outputs:
       branches: ${{ steps.determine.outputs.branches }}
     steps:
+      - name: Test command substitution in heredocs with default shell
+        run: |
+          cat <<'EOF'
+          $(printf "command substitution ran")
+          EOF
+
+          cat <<EOF
+          $(printf "command substitution ran")
+          EOF
+
       - name: Determine branch matrix
         id: determine
         shell: bash
