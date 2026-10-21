@@ -38,7 +38,7 @@
       "title_body_keyword_candidates": 1082,
       "keyword_matching": "case-insensitive word boundaries",
       "visibility": "public",
-      "review_status": "partially reviewed: discovery records plus a classified keyword-candidate batch in bug-corpus.json; remaining candidates unreviewed"
+      "review_status": "all 1,082 keyword candidates dispositioned; 473 no-hit records remain unreviewed; linked-source audit remains scoped to mechanism-bearing records"
     },
     {
       "repository": "kgateway-dev/kgateway",

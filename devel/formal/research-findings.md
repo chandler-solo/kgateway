@@ -299,6 +299,11 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   pins the superset decline that produced kgateway #14471 during a rolling
   upgrade: one CLA a proxy generation never requests withholds that proxy's
   whole EDS response across revisions until the snapshot is filtered.
+- Evidence added: `TestUnrequestedSecretDeclinesSDSResponse` reproduces
+  go-control-plane #249 on the pin: an extra Secret declines a named SDS
+  response, while filtering the snapshot to the requested Secret answers it.
+  This is the shared SotW superset-check mechanism, in addition to the EDS
+  rolling-upgrade case.
 - Deployment reachability: no production code in this repository calls
   ClearSnapshot; the per-client Delete callback retains the cache entry
   (GCP-A2). The orphaned-watch path is therefore unreachable in the deployed
@@ -566,25 +571,34 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
 
 ## RF-016 Historical inventory is not completed bug coverage
 
-- Status: all seven title/body inventories captured; a first classified batch
-  of eleven go-control-plane keyword candidates is recorded; detailed
-  classification of the remaining candidates and the linked-source audit
-  are open.
+- Status: all 1,082 go-control-plane keyword candidates now have individual
+  dispositions. Linked-source audits and the other repositories' remaining
+  candidates are still open.
 - Evidence: the exporter records every retrieved issue/PR page and cursor,
   cutoff, repository identity, payload checksum, keyword hits, and unreviewed
   dispositions. GitHub rejected page-number pagination at Envoy page 100;
   following server-supplied cursors is necessary for large repositories.
-- Evidence added: `corpus-inventory.json` records completed enumeration;
-  `bug-corpus.json` records seventy-two dispositions: eleven from discovery, twenty-one from go-control-plane, sixteen from kgateway, six from Envoy Gateway, eleven from Envoy, three from Gloo, and four from solo-kit, with two current hold-outs (EG #9519 and kgateway #14429), with their detail pages
-  captured privately. Gloo/kgateway repository IDs prevent lineage loss.
-- Evidence added: the two held-out go-control-plane mechanisms were probed on
-  the pin without new model state. #431 is repaired in v0.14.0 (a
-  resubscription at the unchanged version is answered); #505 reproduces
-  (ClearSnapshot orphans the parked watch).
-- Action: review comments/reviews and linked fixes across the candidate set,
-  audit relevant source history and release ancestry, classify every candidate,
-  and review non-keyword sources and held-out mechanisms. Search or title/body
-  inventory counts are not a claim to have reviewed all historical xDS bugs.
+- Evidence added: the go-control-plane inventory contains 1,555 records, 1,082
+  keyword candidates, and 473 no-hit records. All candidates, including those
+  nominated by the stable-hash holdout rule, were read as discovery; no
+  go-control-plane holdout remains. The disposition file records the inventory
+  checksum, Dependabot predicate and ten-record spot check, per-record
+  classification/family/read level, ledger links, and obligations. The ledger
+  now contains 341 entries: the original 72 plus 269 go-control-plane records.
+  The 473 no-hit go-control-plane records remain unreviewed. Full human title/body
+  review and source-history review of every candidate are still open; the
+  per-record read level records the scope actually examined.
+- Evidence added: go-control-plane #370 and #429 describe SotW request-receiver
+  goroutine leaks. Fixes #372 and #430 landed in commits c5a0f1d94 and
+  63b5d3c53, both ancestors of v0.14.0. Other cache/server reports map to
+  existing findings, including RF-007, RF-010, RF-011, RF-012, RF-017, RF-018,
+  RF-019, and RF-022. The new `TestUnrequestedSecretDeclinesSDSResponse` probe
+  applies RF-007 to the SDS resource type; it finds the same reachable superset
+  decline already characterized for EDS, so it adds no new RF obligation.
+- Action: audit linked issues, fixes, reverts and release ancestry for every
+  mechanism-bearing record, then review non-keyword source changes and no-hit
+  records. Inventory counts and keyword dispositions do not mean all historical
+  xDS bugs have been reviewed.
 
 ## RF-019 Registered control-plane paths exceed the modeled ADS path
 

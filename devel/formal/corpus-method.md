@@ -4,7 +4,7 @@ The [scope manifest](corpus-scope.json) covers all six requested repositories
 plus solo-kit, with creation cutoff **before 2026-09-10 00:00:00 UTC**. All seven
 issue/PR inventories were enumerated to cutoff or the final server-provided
 cursor. [Inventory counts](corpus-inventory.json) report retrieval, not review.
-[Discovery records](bug-corpus.json) contain seventy-two dispositions: the first eleven discovery mechanisms plus classified batches from go-control-plane, kgateway, Envoy Gateway, Envoy, Gloo, and solo-kit.
+[Discovery records](bug-corpus.json) contain 341 dispositions: the original 72 discovery records plus 269 mechanism-bearing go-control-plane candidates. All 1,082 go-control-plane keyword candidates now have individual dispositions; the other repositories retain their prior classified batches.
 RF-016 tracks the unfinished historical program.
 
 ## Reproduce and resume
@@ -68,6 +68,19 @@ This is only a candidate partition. All already-read seed cases are discovery
 cases and cannot become held-out evidence retroactively. Freeze a mechanism
 holdout set before reading its details, then report what new model state it
 requires. No holdout validation has yet been claimed.
+
+## Bulk rules
+
+The go-control-plane disposition file records each deterministic bulk rule, its
+predicate, a ten-record seeded spot check, and per-classification totals. The
+Dependabot rule matches pull requests authored by `dependabot[bot]` whose title
+starts with `build(deps): Bump`; spot checks confirmed version-only updates.
+Every candidate still has an individual JSONL line. `nonapplicable-mechanical`
+means the deterministic rule identifies an automated dependency-only update;
+it does not classify the remaining candidates. The `read_level` field records
+whether title, body, or details were actually examined. Exporting details alone
+does not count as reading them; full human review and linked-source audit remain
+open.
 
 ## Remaining accounting
 
