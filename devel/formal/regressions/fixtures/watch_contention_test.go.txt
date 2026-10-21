@@ -1,0 +1,128 @@
+package setup
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	envoyendpointv3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
+	envoyroutev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	cachetypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/status"
+
+	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+)
+
+// Pause a different key's publication before the inner cache lock. The outer
+// policy publication lock is held, while this client's cache remains readable.
+type formalBusyPublication struct {
+	envoycache.SnapshotCache
+	mu           sync.Mutex
+	armed        bool
+	entered      chan struct{}
+	resume       chan struct{}
+	admitted     chan struct{}
+	releaseOnce  sync.Once
+	admittedOnce sync.Once
+}
+
+func (b *formalBusyPublication) release() { b.releaseOnce.Do(func() { close(b.resume) }) }
+
+func (b *formalBusyPublication) SetSnapshot(ctx context.Context, key string, snapshot envoycache.ResourceSnapshot) error {
+	b.mu.Lock()
+	pause := b.armed
+	b.armed = false
+	b.mu.Unlock()
+	if pause {
+		close(b.entered)
+		<-b.resume
+	}
+	return b.SnapshotCache.SetSnapshot(ctx, key, snapshot)
+}
+
+func (b *formalBusyPublication) CreateWatch(req *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response) (func(), error) {
+	cancel, err := b.SnapshotCache.CreateWatch(req, sub, ch)
+	if req.GetErrorDetail() != nil {
+		b.admittedOnce.Do(func() { close(b.admitted) })
+	}
+	return cancel, err
+}
+
+func formalNamedSnapshot(t *testing.T, typ, version string, names []string) *envoycache.Snapshot {
+	t.Helper()
+	resources := make([]cachetypes.Resource, 0, len(names))
+	for _, name := range names {
+		if typ == envoyresource.EndpointType {
+			resources = append(resources, &envoyendpointv3.ClusterLoadAssignment{ClusterName: name})
+		} else {
+			resources = append(resources, &envoyroutev3.RouteConfiguration{Name: name})
+		}
+	}
+	snapshot, err := envoycache.NewSnapshot(version, map[envoyresource.Type][]cachetypes.Resource{typ: resources})
+	require.NoError(t, err)
+	return snapshot
+}
+
+func formalContendedNamedRequest(t *testing.T, typ string, incompatible bool) {
+	t.Helper()
+	for _, ordered := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "ordered"}[ordered], func(t *testing.T) {
+			shortenNackRetry(t, time.Second, time.Second)
+			busy := &formalBusyPublication{SnapshotCache: envoycache.NewSnapshotCache(true, kgwxds.NewNodeRoleHasher(), nil), entered: make(chan struct{}), resume: make(chan struct{}), admitted: make(chan struct{})}
+			h, _ := formalWatchHarness(t, ordered, busy)
+			names := []string{"A"}
+			if incompatible {
+				names = append(names, "B")
+			}
+			seed := formalNamedSnapshot(t, typ, "1", names)
+			h.setSnapshot(seed)
+			h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: typ, ResourceNames: names})
+			first := h.receiveType(typ, "1")
+			busy.mu.Lock()
+			busy.armed = true
+			busy.mu.Unlock()
+			done := make(chan error, 1)
+			go func() { done <- h.cache.SetSnapshot(h.ctx, "another-key", seed) }()
+			t.Cleanup(func() {
+				busy.release()
+				select {
+				case err := <-done:
+					require.NoError(t, err)
+				case <-time.After(2 * time.Second):
+					t.Error("HARNESS: contended publisher did not finish")
+				}
+			})
+			formalWatchAwait(t, busy.entered, "other-key publication lock")
+			// This is an API/scripted-server subscription contraction, not a claim
+			// that the exact sequence has been observed from live Envoy.
+			h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: typ, ResourceNames: []string{"A"}, ResponseNonce: first.GetNonce(), ErrorDetail: &status.Status{Message: "reject then narrow interest"}})
+			formalWatchAwait(t, busy.admitted, "contended NACK admission")
+			if !incompatible {
+				h.receiveType(typ, "1")
+				return
+			}
+			require.Equal(t, 1, busy.GetStatusInfo(adsTestNodeID).GetNumWatches(), "WATCH-CONTENDED-ACCOUNTING: incompatible fallback erased the request")
+		})
+	}
+}
+
+func TestFormalWatchContendedEDSCompatible(t *testing.T) {
+	formalContendedNamedRequest(t, envoyresource.EndpointType, false)
+}
+
+func TestFormalWatchContendedRDSCompatible(t *testing.T) {
+	formalContendedNamedRequest(t, envoyresource.RouteType, false)
+}
+
+func TestFormalWatchContendedEDSIncompatible(t *testing.T) {
+	formalContendedNamedRequest(t, envoyresource.EndpointType, true)
+}
+
+func TestFormalWatchContendedRDSIncompatible(t *testing.T) {
+	formalContendedNamedRequest(t, envoyresource.RouteType, true)
+}

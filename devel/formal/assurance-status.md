@@ -4,6 +4,31 @@ This is the current status of the research branch, superseding stronger claims
 in historical investigation notes. The program is **open**. Findings and next
 actions are tracked in [research-findings.md](research-findings.md).
 
+## October 21 watch lifecycle extension
+
+The new [watch profile](watch/README.md) keeps the research harness separate
+from immutable production subjects `b4d3a09afa`, `ceaf17029d`, `2103c02b8e` and
+observability-layer head `84ea7c6669`. It implements the first bounded slice of the
+[watch-lifecycle plan](watch-lifecycle-plan.md); the full milestone remains open.
+
+| Conclusion | Evidence level and boundary |
+| --- | --- |
+| The initial-parking, retry-replacement and version-return failures are preserved, and their fixes discriminate correctly | Real pinned cache, real Go timers, mock ADS transport; both ADS modes under race detection, retries disabled; exact assertion outcomes required |
+| The fixed setup packages pass | 126 and 162 test/subtest events at the lower parking fix and observability-layer subjects, including injected fixtures; these counts include parents |
+| The contended plain-cache fallback can erase a named EDS/RDS request | Scripted-server subscription contraction while another key holds the publication mutex; incompatible cases have zero watches in both ADS modes; compatible controls respond; no new live Envoy reachability claim |
+| An installed, stable, answerable correction eventually yields a response in the repaired bounded model | TLA+ under explicitly named operation, timer and transport fairness; one key/type/stream, two names, three opaque versions, capacity-one response slots |
+| Weak fairness does not guarantee publication lock acquisition | A separate lock-starvation temporal counterexample; not evidence of production scheduler starvation |
+| The two model descriptions agree on shared histories | Eleven complete Lean-to-TLA projected histories, with a deliberately corrupt projection rejected; fixture agreement, not model equivalence or Go refinement |
+| Old-owner cancellation preserves a newer watch and does not retract queued work in the model | Two kernel-checked Lean local theorems; no claim that all Go cancellation schedules have been exercised |
+
+Thirteen new classified TLC configurations, nineteen Lean scenarios, nine
+malformed/illegal-history controls and the projection mutation are required.
+The earlier formal models and counterexamples remain intact. Per-type
+composition of these newer subjects, simultaneous streams/keys, unbuffered
+channels, generated Go histories, internal lifecycle conformance and live Envoy
+validation remain open. The model's per-type option is not a newly validated
+implementation composition. ACK and applied configuration remain distinct.
+
 ## October 20 per-type snapshot cache composition (PR #14865)
 
 The subjects are PR #14865 at `4635e171b116` (main `86f5499cea01` merged in)

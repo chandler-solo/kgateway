@@ -1758,6 +1758,36 @@ remain open.
   source and runs, the envoyprobe capture, and kgateway test logs, including the
   fix-layer controls. Generated captures are not added to this tree.
 
+### RF-035 October 21: contended NACK admission remains subject to the ADS guard
+
+The new watch work characterizes an additional wrapper entry path on
+`2103c02b8e975dedc372187768d4b9de0e64b6da` and observability-layer head
+`84ea7c6669dffe3642a8613b0dd7049a06f08d16`. It does not introduce a new finding
+identifier: this is the existing incompatible-new-admission mechanism.
+
+A scripted stream receives named EDS or RDS version 1 for A/B, then NACKs it
+while narrowing its subscription to A. Another key's publication holds the
+wrapper publication mutex before entering the cache. `TryLock` therefore fails,
+and the policy delegates the request to the pinned ADS cache. B remains in the
+snapshot: the cache returns no response and registers no watch. Compatible
+A-only controls return version 1. Both default and ordered ADS reproduce the
+same outcomes under the race detector, without test retries.
+
+The required negative profiles are `watch-parking-contention` and
+`watch-stack-contention` in `regressions/profiles.json`; the fixture is
+`regressions/fixtures/watch_contention_test.go.txt`. A run is accepted only
+when the exact `WATCH-CONTENDED-ACCOUNTING` assertion fails in both incompatible
+EDS/RDS cases and compatible cases pass. Returned cancellation callbacks are
+not treated as proof of registration.
+
+**Evidence:** actual cache and server with scripted requests; source-confirmed
+fallback branch; bounded Lean/TLA characterization. This does not establish
+that live Envoy makes this exact NACK/subscription-contraction sequence, nor
+that the repaired publication/parking race has returned. RF-035's earlier live
+Envoy parent-rejection evidence is a separate schedule. The new per-type model
+answers the requested subset, but the newer stack/per-type implementation
+composition has not been rerun here.
+
 ## RF-036 PR #14865's per-type snapshot cache composed with stack #14817
 
 - **Subjects:** PR #14865 at `4635e171b1162672a7c0f55d1dc5d31c162e40e1`, which

@@ -159,3 +159,23 @@ timer ownership; add partial-order Go trace replay and generated Go histories;
 exercise cancellation, backpressure, clear/reinstall and production mutations;
 integrate CI selection; and run pinned live Envoy scenarios. The existing
 counterexamples and older assurance profiles remain unchanged.
+
+## Named requests while publication is busy
+
+`watch-parking-contention` and `watch-stack-contention` add a separate fixture
+for EDS and RDS under both server modes. Another key holds the wrapper's
+publication mutex before entering the underlying cache. The stream NACKs its
+last response while contracting its interest from A/B to A. Compatible A-only
+controls respond immediately; the incompatible ADS cases register zero watches
+and fail the named request-accounting assertion. The runner requires those
+negative outcomes and rejects unrelated failures.
+
+```sh
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-stack-contention --repository /path/to/kgateway-object-store'
+```
+
+This extends RF-035's known immediate-admission limitation through the actual
+`TryLock` fallback. It is scripted-server evidence; the exact NACK/subscription
+contraction has not been demonstrated with live Envoy. It does not undo the
+three repaired races, and it does not claim the per-type composition retains
+the plain ADS limitation.

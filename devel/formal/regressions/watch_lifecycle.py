@@ -24,6 +24,9 @@ MARKERS = {
     "TestFormalWatchRetryReplacement": "WATCH-RETRY-ACCOUNTING:",
     "TestFormalWatchVersionReturn": "WATCH-RETRY-PERSISTENCE:",
 }
+for _typ in ("EDS", "RDS"):
+    for _suffix in ("Compatible", "Incompatible"):
+        MARKERS[f"TestFormalWatchContended{_typ}{_suffix}"] = "WATCH-CONTENDED-ACCOUNTING:"
 
 
 def materialize(repository, revision, destination):
@@ -85,6 +88,12 @@ def run(profile_id, repository, artifacts, full_setup=False):
     if target.exists():
         raise ValueError("fixture would overwrite subject source")
     target.write_bytes(fixture.read_bytes())
+    for extra in profile.get("extra_fixtures", []):
+        extra_source = HERE / extra["file"]
+        extra_target = source / profile["package"] / extra["target"]
+        if extra_target.exists() or regression.digest(extra_source) != extra["sha256"]:
+            raise ValueError("extra fixture collision or hash mismatch")
+        extra_target.write_bytes(extra_source.read_bytes())
     regression.apply_test_adapters(source, profile["fixture_adapters"])
     outcomes = dict(profile["expected_by_test"])
     outcomes[profile["node_copy_test"]] = "pass"

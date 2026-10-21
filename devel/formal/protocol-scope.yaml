@@ -48,7 +48,7 @@ entries:
     status: partially-modeled
     constructionFile: pkg/kgateway/setup/controlplane.go
     constructionAnchor: NewSnapshotCache
-    evidence: GcpWatch, GcpSubscription, RewarmingComposition, and gcpprobe
+    evidence: GcpWatch, GcpSubscription, RewarmingComposition, gcpprobe, and the October 21 bounded WatchLifecycle profile with immutable upstream timer/parking regressions
     action: RF-007 still needs cancellation, clear, partial-send, queued-response, and shared-key composition
   - id: CP-ADS-RESOURCE-FAMILIES
     surface: Cluster, Endpoint, Route, Listener, and Secret resources in the main ADS snapshot

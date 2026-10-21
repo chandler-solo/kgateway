@@ -902,7 +902,7 @@
         "pkg/kgateway/setup/nack_resend.go": "8e4b2519b4248dc200c0576de78fa414d31ba6eb248a64bdccb5b222afa39b2e"
       },
       "fixture": "fixtures/watch_lifecycle_test.go.txt",
-      "fixture_sha256": "725807a4d94103d4aecf1e406cedb90550ec4e7c206dea6b4b21857a5fa412a1",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
       "expected_by_test": {
         "TestFormalWatchInitialParking": "fail",
         "TestFormalWatchRetryReplacement": "fail",
@@ -923,7 +923,7 @@
         "pkg/kgateway/setup/nack_resend.go": "c6de4d668034cb32d6a1223a75357e7043b4ad79ccfae3fa63b82ff3e1c3a92c"
       },
       "fixture": "fixtures/watch_lifecycle_test.go.txt",
-      "fixture_sha256": "725807a4d94103d4aecf1e406cedb90550ec4e7c206dea6b4b21857a5fa412a1",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
       "expected_by_test": {
         "TestFormalWatchInitialParking": "fail",
         "TestFormalWatchRetryReplacement": "pass",
@@ -944,7 +944,7 @@
         "pkg/kgateway/setup/nack_resend.go": "166e36891ee7b15911ab008ed77d3a36a801f0c3ebe014570d9c0c94d3953d22"
       },
       "fixture": "fixtures/watch_lifecycle_test.go.txt",
-      "fixture_sha256": "725807a4d94103d4aecf1e406cedb90550ec4e7c206dea6b4b21857a5fa412a1",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
       "expected_by_test": {
         "TestFormalWatchInitialParking": "pass",
         "TestFormalWatchRetryReplacement": "pass",
@@ -965,7 +965,7 @@
         "pkg/kgateway/setup/cache_watch_policy.go": "43a13d9e18a010337e8dac3ee12609241b95f9dc945add3afb1a8bee305eebe1"
       },
       "fixture": "fixtures/watch_lifecycle_test.go.txt",
-      "fixture_sha256": "725807a4d94103d4aecf1e406cedb90550ec4e7c206dea6b4b21857a5fa412a1",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
       "expected_by_test": {
         "TestFormalWatchInitialParking": "pass",
         "TestFormalWatchRetryReplacement": "pass",
@@ -975,9 +975,74 @@
       "fixture_adapters": [
         {
           "file": "pkg/kgateway/setup/formal_watch_lifecycle_test.go",
-          "sha256": "725807a4d94103d4aecf1e406cedb90550ec4e7c206dea6b4b21857a5fa412a1",
+          "sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
           "before": "newNackResendSuppressor(gate, hasher)",
           "after": "newWatchPolicy(gate, hasher, true, false)"
+        }
+      ]
+    },
+    "watch-parking-contention": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "2103c02b8e975dedc372187768d4b9de0e64b6da",
+      "package": "pkg/kgateway/setup",
+      "cache_profile": "pinned-ads",
+      "dependency": "v0.14.1-0.20260702184136-1cd1226616f5",
+      "source_hashes": {
+        "go.mod": "13a743128baf14f7644a65da84a12eaaa6f6b275ddae2125645ad16db1b4c430",
+        "go.sum": "76e1adbd192f3a642a686901322e275ea382a99a20034167a2c1c0e37f14a306",
+        "pkg/kgateway/setup/nack_resend.go": "166e36891ee7b15911ab008ed77d3a36a801f0c3ebe014570d9c0c94d3953d22"
+      },
+      "fixture": "fixtures/watch_lifecycle_test.go.txt",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
+      "expected_by_test": {
+        "TestFormalWatchContendedEDSCompatible": "pass",
+        "TestFormalWatchContendedEDSIncompatible": "fail",
+        "TestFormalWatchContendedRDSCompatible": "pass",
+        "TestFormalWatchContendedRDSIncompatible": "fail"
+      },
+      "node_copy_test": "TestParkedNackRetryReadsItsOwnNode",
+      "fixture_adapters": [],
+      "extra_fixtures": [
+        {
+          "file": "fixtures/watch_contention_test.go.txt",
+          "target": "formal_watch_contention_test.go",
+          "sha256": "fe31fe9c98942d2068289308832651e829fcf5d9404d59e36fb29feaa6a9b6a4"
+        }
+      ]
+    },
+    "watch-stack-contention": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "84ea7c6669dffe3642a8613b0dd7049a06f08d16",
+      "package": "pkg/kgateway/setup",
+      "cache_profile": "pinned-ads",
+      "dependency": "v0.14.1-0.20260702184136-1cd1226616f5",
+      "source_hashes": {
+        "go.mod": "13a743128baf14f7644a65da84a12eaaa6f6b275ddae2125645ad16db1b4c430",
+        "go.sum": "76e1adbd192f3a642a686901322e275ea382a99a20034167a2c1c0e37f14a306",
+        "pkg/kgateway/setup/cache_watch_policy.go": "43a13d9e18a010337e8dac3ee12609241b95f9dc945add3afb1a8bee305eebe1"
+      },
+      "fixture": "fixtures/watch_lifecycle_test.go.txt",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
+      "expected_by_test": {
+        "TestFormalWatchContendedEDSCompatible": "pass",
+        "TestFormalWatchContendedEDSIncompatible": "fail",
+        "TestFormalWatchContendedRDSCompatible": "pass",
+        "TestFormalWatchContendedRDSIncompatible": "fail"
+      },
+      "node_copy_test": "TestParkedNackRetryReadsItsOwnNode",
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/setup/formal_watch_lifecycle_test.go",
+          "sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
+          "before": "newNackResendSuppressor(gate, hasher)",
+          "after": "newWatchPolicy(gate, hasher, true, false)"
+        }
+      ],
+      "extra_fixtures": [
+        {
+          "file": "fixtures/watch_contention_test.go.txt",
+          "target": "formal_watch_contention_test.go",
+          "sha256": "fe31fe9c98942d2068289308832651e829fcf5d9404d59e36fb29feaa6a9b6a4"
         }
       ]
     }

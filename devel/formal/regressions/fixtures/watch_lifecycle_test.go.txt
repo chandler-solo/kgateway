@@ -65,12 +65,15 @@ func (g *formalWatchGate) CreateWatch(req *envoycache.Request, sub envoycache.Su
 	return cancel, err
 }
 
-func formalWatchHarness(t *testing.T, ordered bool) (*adsHarness, *formalWatchGate) {
+func formalWatchHarness(t *testing.T, ordered bool, caches ...envoycache.SnapshotCache) (*adsHarness, *formalWatchGate) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	stream := &mockAdsStream{ctx: ctx, sent: make(chan *discoveryv3.DiscoveryResponse, 16), recv: make(chan *discoveryv3.DiscoveryRequest, 16)}
 	hasher := kgwxds.NewNodeRoleHasher()
 	gate := &formalWatchGate{SnapshotCache: envoycache.NewSnapshotCache(true, hasher, nil), read: make(chan string, 1), resume: make(chan struct{}), parked: make(chan struct{}), replaced: make(chan struct{})}
+	if len(caches) == 1 {
+		gate.SnapshotCache = caches[0]
+	}
 	policy := newNackResendSuppressor(gate, hasher)
 	var opts []serverconfig.XDSOption
 	if ordered {
