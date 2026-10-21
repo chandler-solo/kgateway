@@ -16,3 +16,7 @@ root = "OracleMain"
 [[lean_exe]]
 name = "xdscacheoracle"
 root = "CacheOracleMain"
+
+[[lean_exe]]
+name = "xdswatchoracle"
+root = "WatchOracleMain"

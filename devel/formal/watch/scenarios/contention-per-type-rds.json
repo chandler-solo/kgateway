@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "scenarioId": "contention-per-type-rds",
+  "subjectId": "watch-stack",
+  "cacheProfile": "per-type",
+  "adsMode": "default",
+  "bounds": {
+    "keys": 1,
+    "streams": 1,
+    "generations": 2,
+    "resources": 2,
+    "queueCapacity": 1,
+    "events": 128
+  },
+  "initialState": {
+    "key": "key",
+    "typ": "rds",
+    "generation": 1,
+    "phase": "initial-read"
+  },
+  "events": [
+    {
+      "id": "e1",
+      "actor": "publication",
+      "kind": "publish-begin",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": []
+    },
+    {
+      "id": "e2",
+      "actor": "publication",
+      "kind": "install",
+      "arguments": {
+        "version": "2",
+        "names": [
+          "A",
+          "B"
+        ],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e1"
+      ]
+    },
+    {
+      "id": "e3",
+      "actor": "publication",
+      "kind": "fanout",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e2"
+      ]
+    },
+    {
+      "id": "e4",
+      "actor": "publication",
+      "kind": "publish-begin",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e3"
+      ]
+    },
+    {
+      "id": "e5",
+      "actor": "client",
+      "kind": "initial-read",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e4"
+      ]
+    },
+    {
+      "id": "e6",
+      "actor": "client",
+      "kind": "initial-park",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e5"
+      ]
+    }
+  ],
+  "expectations": [
+    {
+      "property": "request-accounting",
+      "outcome": "holds",
+      "witnessOperationIds": [
+        "e6"
+      ]
+    }
+  ]
+}

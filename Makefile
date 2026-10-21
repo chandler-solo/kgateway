@@ -614,6 +614,18 @@ formal-stack-c38563: formal-regression-harness ## Require the backend-closure, h
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-c38563-histories $(if $(FORMAL_C38563_DIR),--artifacts $(FORMAL_C38563_DIR)/c38563-histories)
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-c38563-rewarming $(if $(FORMAL_C38563_DIR),--artifacts $(FORMAL_C38563_DIR)/c38563-rewarming)
 
+.PHONY: formal-watch-contract formal-watch-models formal-watch-oracle formal-watch
+formal-watch-contract: ## Reject malformed watch histories and incorrect oracle receipts
+	python3 -B -m unittest discover -s devel/formal/watch -p '*_test.py'
+
+formal-watch-models: formal-watch-contract ## Check bounded watch safety, conditional progress, and cross-model replay
+	python3 -B devel/formal/watch/check.py --stage all $(FORMAL_WATCH_MODEL_ARGS)
+
+formal-watch-oracle: formal-watch-contract ## Replay the watch corpus through the executable Lean reference
+	python3 -B devel/formal/watch/check.py --stage oracle $(FORMAL_WATCH_MODEL_ARGS)
+
+formal-watch: formal-watch-models formal-watch-regressions ## Run model/oracle and pinned Go checks once each
+
 .PHONY: formal-watch-regressions
 formal-watch-regressions: formal-regression-harness ## Replay a pinned watch policy in both ADS modes under the race detector
 	python3 -B devel/formal/regressions/watch_lifecycle.py $(FORMAL_WATCH_ARGS)

@@ -1,0 +1,275 @@
+{
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "subjectId": {
+      "type": "string",
+      "enum": [
+        "watch-early",
+        "watch-retry",
+        "watch-parking",
+        "watch-stack"
+      ]
+    },
+    "cacheProfile": {
+      "type": "string",
+      "enum": [
+        "pinned-ads",
+        "per-type"
+      ]
+    },
+    "adsMode": {
+      "type": "string",
+      "enum": [
+        "default",
+        "ordered"
+      ]
+    },
+    "bounds": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "integer",
+          "const": 1
+        },
+        "streams": {
+          "type": "integer",
+          "const": 1
+        },
+        "generations": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        },
+        "resources": {
+          "type": "integer",
+          "const": 2
+        },
+        "queueCapacity": {
+          "type": "integer",
+          "const": 1
+        },
+        "events": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        }
+      },
+      "required": [
+        "keys",
+        "streams",
+        "generations",
+        "resources",
+        "queueCapacity",
+        "events"
+      ],
+      "additionalProperties": false
+    },
+    "initialState": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "typ": {
+          "type": "string",
+          "enum": [
+            "eds",
+            "rds"
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "initial-read",
+            "waiting"
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "typ",
+        "generation",
+        "phase"
+      ],
+      "additionalProperties": false
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      },
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true
+    },
+    "expectations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/expectation"
+      },
+      "minItems": 1,
+      "maxItems": 128,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema",
+    "scenarioId",
+    "subjectId",
+    "cacheProfile",
+    "adsMode",
+    "bounds",
+    "initialState",
+    "events",
+    "expectations"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kgateway:watch-scenario:1",
+  "$defs": {
+    "arguments": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "version",
+        "names",
+        "generation"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actor": {
+          "type": "string",
+          "enum": [
+            "client",
+            "observer",
+            "publication",
+            "retry",
+            "transport"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "initial-read",
+            "initial-park",
+            "cancel",
+            "reconnect",
+            "publish-begin",
+            "install",
+            "fanout",
+            "publication-fail",
+            "expire",
+            "retry-begin",
+            "retry-read",
+            "retry-cancel",
+            "retry-replace",
+            "forward",
+            "send",
+            "ack",
+            "apply",
+            "drop-old-response",
+            "observe"
+          ]
+        },
+        "arguments": {
+          "$ref": "#/$defs/arguments"
+        },
+        "happensAfter": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "actor",
+        "kind",
+        "arguments",
+        "happensAfter"
+      ],
+      "additionalProperties": false
+    },
+    "expectation": {
+      "type": "object",
+      "properties": {
+        "property": {
+          "type": "string",
+          "enum": [
+            "request-accounting",
+            "parked-watch-retained",
+            "retry-persistence",
+            "generation-ownership",
+            "installation-means-send",
+            "ack-means-application"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "holds",
+            "violated"
+          ]
+        },
+        "witnessOperationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "property",
+        "outcome",
+        "witnessOperationIds"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

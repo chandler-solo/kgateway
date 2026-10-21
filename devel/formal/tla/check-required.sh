@@ -16,13 +16,19 @@ if test "$actual" != 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e0
     exit 1
 fi
 JAR=$(CDPATH= cd -- "$(dirname -- "$JAR")" && pwd)/$(basename -- "$JAR")
+checked=0
 for cfg in "$SCRIPT_DIR"/*.cfg; do
     name=$(basename -- "$cfg" .cfg)
+    if test -n "${TLC_MODEL_PREFIX:-}"; then
+        case "$name" in "$TLC_MODEL_PREFIX"*) ;; *) continue ;; esac
+    fi
     if test "$name" = XdsAdsSotw && test "${TLC_INCLUDE_WIDE:-0}" != 1; then
         echo "DEFERRED XdsAdsSotw original bounds; required run uses XdsAdsSotwCI (RF-015)" | tee "$ARTIFACT_DIR/deferred-wide-model.txt"
         continue
     fi
     case "$name" in
+        NackWatchLifecycleEarly*|NackWatchLifecycleRetryInitial|NackWatchLifecycleContendedFallback|NackWatchLifecycleLockStarvation|NackWatchLifecycleUnfair*) model=NackWatchLifecycle; expected=temporal ;;
+        NackWatchLifecycle*) model=NackWatchLifecycle; expected=pass ;;
         KrtRecoveryDroppedFanout) model=KrtRecovery; expected=temporal ;;
         KrtRecoveryWatchdogStaleReplay) model=KrtRecovery; expected=temporal ;;
         KrtRecoveryCoherentInput) model=KrtRecovery; expected=pass ;;
@@ -104,6 +110,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         XdsPerClientPublication*Bug) invariant=CacheSnapshotCoherent ;;
         XdsReconnectRace13868Bug) invariant=ServedSnapshotReferencesResolved ;;
     esac
+    checked=$((checked + 1))
     log="$ARTIFACT_DIR/$name.log"
 
     result=0
@@ -117,4 +124,5 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
     esac || { cat "$log"; echo "Unexpected TLC outcome: $name expected $expected (exit $result)" >&2; exit 1; }
     echo "PASS $name expected=$expected exit=$result"
 done
+test "$checked" -gt 0 || { echo "No TLC configurations selected" >&2; exit 1; }
 echo "TLC receipts: $ARTIFACT_DIR"

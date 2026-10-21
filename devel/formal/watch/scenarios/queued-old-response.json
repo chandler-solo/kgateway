@@ -1,0 +1,147 @@
+{
+  "schema": 1,
+  "scenarioId": "queued-old-response",
+  "subjectId": "watch-parking",
+  "cacheProfile": "pinned-ads",
+  "adsMode": "default",
+  "bounds": {
+    "keys": 1,
+    "streams": 1,
+    "generations": 2,
+    "resources": 2,
+    "queueCapacity": 1,
+    "events": 128
+  },
+  "initialState": {
+    "key": "key",
+    "typ": "eds",
+    "generation": 1,
+    "phase": "waiting"
+  },
+  "events": [
+    {
+      "id": "e1",
+      "actor": "retry",
+      "kind": "expire",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": []
+    },
+    {
+      "id": "e2",
+      "actor": "retry",
+      "kind": "retry-begin",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e1"
+      ]
+    },
+    {
+      "id": "e3",
+      "actor": "retry",
+      "kind": "retry-read",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e2"
+      ]
+    },
+    {
+      "id": "e4",
+      "actor": "retry",
+      "kind": "retry-replace",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e3"
+      ]
+    },
+    {
+      "id": "e5",
+      "actor": "retry",
+      "kind": "forward",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e4"
+      ]
+    },
+    {
+      "id": "e6",
+      "actor": "client",
+      "kind": "reconnect",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 2
+      },
+      "happensAfter": [
+        "e5"
+      ]
+    },
+    {
+      "id": "e7",
+      "actor": "transport",
+      "kind": "drop-old-response",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e6"
+      ]
+    },
+    {
+      "id": "e8",
+      "actor": "client",
+      "kind": "initial-read",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e7"
+      ]
+    },
+    {
+      "id": "e9",
+      "actor": "client",
+      "kind": "initial-park",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e8"
+      ]
+    }
+  ],
+  "expectations": [
+    {
+      "property": "generation-ownership",
+      "outcome": "holds",
+      "witnessOperationIds": [
+        "e9"
+      ]
+    }
+  ]
+}

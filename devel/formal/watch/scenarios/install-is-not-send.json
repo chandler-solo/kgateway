@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "scenarioId": "install-is-not-send",
+  "subjectId": "watch-parking",
+  "cacheProfile": "pinned-ads",
+  "adsMode": "default",
+  "bounds": {
+    "keys": 1,
+    "streams": 1,
+    "generations": 2,
+    "resources": 2,
+    "queueCapacity": 1,
+    "events": 128
+  },
+  "initialState": {
+    "key": "key",
+    "typ": "eds",
+    "generation": 1,
+    "phase": "waiting"
+  },
+  "events": [
+    {
+      "id": "e1",
+      "actor": "publication",
+      "kind": "publish-begin",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": []
+    },
+    {
+      "id": "e2",
+      "actor": "publication",
+      "kind": "install",
+      "arguments": {
+        "version": "3",
+        "names": [
+          "A"
+        ],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e1"
+      ]
+    },
+    {
+      "id": "e3",
+      "actor": "publication",
+      "kind": "publication-fail",
+      "arguments": {
+        "version": "",
+        "names": [],
+        "generation": 0
+      },
+      "happensAfter": [
+        "e2"
+      ]
+    }
+  ],
+  "expectations": [
+    {
+      "property": "installation-means-send",
+      "outcome": "violated",
+      "witnessOperationIds": [
+        "e3"
+      ]
+    }
+  ]
+}
