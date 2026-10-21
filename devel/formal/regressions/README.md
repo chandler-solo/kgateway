@@ -1,5 +1,38 @@
 # Pinned xDS regression profiles
 
+## October 20 per-type cache composition (PR #14865)
+
+```sh
+make formal-stack-pertype \
+  FORMAL_PERTYPE_ARGS='--kgateway /path/to/kgateway-clone --artifacts /tmp/pertype-new'
+# The three pinned profiles at the stack tip alone (also run in CI):
+make formal-stack-c38563 FORMAL_C38563_DIR=/tmp/c38563-new
+```
+
+The clone must contain PR #14865's head `4635e171b116`, the stack's base
+`93002e65c9fa` and its tip `c38563730069`; it is only read. The runner exports
+the PR's tree and overlays every file the stack changed with `diff3 -m` against
+the stack's base, refusing any conflict. It applies one exact-hash test adapter
+to the stack's `openWatches` helper, injects the PR's six rejected-resource
+scenarios driven through `newPolicyHarness`
+(`fixtures/pertype_policy_composed_test.go.txt`) and runs the five-package race
+suite. Every package must pass with no failing test, and the PR's scenarios,
+its two between-installs tests and the policy-composed scenarios must each pass
+in both ADS modes. It then runs the three profiles below on the composed
+subject with `--expect-fixed`, and checks that production sources and harness
+files are unchanged.
+
+| Profile | Subject | Required outcome |
+|---|---|---|
+| `stack-14817-c38563-backend-closure` | Stack tip `c38563730069` | All nine backend-closure properties pass; one fixture adapter for the traversal's added return value |
+| `stack-14817-c38563-histories` | Same tip | All seventeen earlier carry/reconnect properties pass |
+| `stack-14817-c38563-rewarming` | Same tip | All six held-version rewarming properties pass |
+
+CI runs `formal-stack-c38563`; the composition needs a clone holding the PR and
+stack commits and runs locally. The composed subject is not a published
+revision, and its Go tests use a mock ADS stream rather than Envoy. See
+[RF-035](../research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
+
 ## October 20 backend-owned resource regressions
 
 ```sh

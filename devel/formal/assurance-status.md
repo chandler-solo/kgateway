@@ -4,6 +4,29 @@ This is the current status of the research branch, superseding stronger claims
 in historical investigation notes. The program is **open**. Findings and next
 actions are tracked in [research-findings.md](research-findings.md).
 
+## October 20 per-type snapshot cache composition (PR #14865)
+
+The subjects are PR #14865 at `4635e171b116` (main `86f5499cea01` merged in)
+and stack tip `c38563730069`, composed as a rebase of the stack onto the PR
+would produce. The composition is not a published revision. The program stays
+open.
+
+| Conclusion | Evidence level and boundary |
+|---|---|
+| Under go-control-plane's ADS rule, one rejected cluster or listener freezes its children's updates, also after its removal | `PerTypeCacheRejection`: required temporal counterexample to `ChildrenConverge`; bounded, one parent type |
+| The PR's per-type caches deliver the accepted parents' children | Same model, per-type rule: `ChildrenConverge` and `NoFutureChildren` hold on all reachable states; bounded, no Go refinement |
+| Per-type installs need the PR's per-node lock for the stack's connection-start clear | `PerTypeInstallClear`: `NoStaleAfterClear` fails without the lock and holds with it; bounded, abstract install/clear steps |
+| The stack works over the per-type caches | `make formal-stack-pertype`: five-package race suite (1,699 test events) on the composed subject; the PR's six scenarios through the stack's watch policy in both ADS modes; mock ADS stream, no Envoy |
+| The stack's recorded properties survive the composition | The nine backend-closure, seventeen history and six rewarming properties pass on the composed subject and on the pinned tip alone; RF-034's live replay was not re-run |
+
+All 87 required TLC outcomes match, including the four new configurations.
+The stack's watch-count test helper needs one edit when it rebases onto the
+PR; production sources are not adapted.
+[RF-035](research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817)
+records the subjects, evidence and limits; the
+[acceptance commands](regressions/README.md#october-20-per-type-cache-composition-pr-14865)
+reproduce them.
+
 ## Later October 20 updated-stack closure review
 
 The reviewed PR #14717 revision is `2fe5bab3179dd1a3009baed8612aecde5a392941`;

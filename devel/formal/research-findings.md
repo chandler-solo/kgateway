@@ -1844,3 +1844,59 @@ remain open.
 - **Artifacts:** external under `$HOME/t/rf035-stranded-20261020/`: scratch-probe
   source and runs, the envoyprobe capture, and kgateway test logs, including the
   fix-layer controls. Generated captures are not added to this tree.
+
+## RF-035 PR #14865's per-type snapshot cache composed with stack #14817
+
+- **Subjects:** PR #14865 at `4635e171b1162672a7c0f55d1dc5d31c162e40e1`, which
+  merges main `86f5499cea01dc8060b6c3f8689180b90055f04e`, and stack PR #14721 at
+  `c38563730069be9340f067467d712f64c846ff13` on base
+  `93002e65c9fac06ebcedcae1b619d5362648ba58`. The composed subject is the PR's
+  head with every file the stack changed since its base overlaid by a three-way
+  merge: what rebasing the stack onto the PR would produce. It is not a
+  published revision. Two files merge (`controlplane.go`,
+  `ads_delivery_order_test.go`); none conflicts.
+- **What the PR changes:** go-control-plane's ADS rule answers a named EDS or RDS
+  request only when the snapshot holds nothing outside it, and keeps no watch
+  for a version-new request it declines. Envoy never requests the children of
+  a cluster or listener it rejected, so one rejected parent freezes that child
+  type for the proxy, including after the parent is removed and for a proxy
+  that connects meanwhile. The PR serves EDS, RDS, SDS and LDS from per-type
+  non-ADS caches, installs a snapshot one type at a time in publish order, and
+  serializes installs and clears per node.
+- **Model evidence:** `PerTypeCacheRejection` abstracts one parent type and its
+  children, so it covers clusters/endpoints and listeners/routes alike. Under
+  the ADS rule TLC finds a counterexample to `ChildrenConverge`: the proxy
+  subscribes, a rejected parent is published, the cache declines the
+  version-new request without a watch, the parent is removed, the accepted set
+  is unchanged so nothing re-requests, and the children stay at their old
+  version. The per-type rule satisfies `ChildrenConverge` and
+  `NoFutureChildren` on all 148 reachable states. `PerTypeInstallClear` checks
+  `NoStaleAfterClear`: once a clear completes, no type holds content from an
+  install begun before it. Without the node lock an install begun for the
+  previous connection writes a type after the clear has passed it; with the
+  lock the invariant holds on all 151 states. Stack #14817's connection-start
+  hook clears the entry outside the gate's lock and relies on an in-flight
+  build either finishing before the clear or being whole after it; with
+  per-type installs that needs the lock.
+- **Implementation evidence:** `make formal-stack-pertype` composes the subject
+  from Git objects without changing any ref, then runs the five-package race
+  suite on it: 1,699 test events from 461 top-level tests pass, none skipped.
+  The PR's rejected-resource tests (27 cases) and the same six scenarios driven
+  through the stack's watch policy with NACK suppression and reconnect answering
+  (18 cases) pass in both ADS modes. The stack's NACK, reconnect and
+  re-defined-cluster tests, EDS service names included, run over the per-type
+  caches because their harness builds `newSnapshotCache`. The three
+  `stack-14817-c38563-*` profiles pass on the subject: nine backend-closure,
+  seventeen history and six rewarming properties. They also pass on the pinned
+  stack tip alone, where all nine RF-034 backend-closure properties now pass.
+- **Adaptations:** one exact-hash test adapter removes the stack helper's case
+  for the secrets cache the PR replaces; the PR's combined `GetStatusInfo`
+  already sums every per-type cache. The stack needs the same edit when it
+  rebases onto the PR. The `c38563` backend-closure profile adapts one fixture
+  call to the traversal's added return value. No production source is adapted.
+- **Limits:** the models are bounded (two parents of one type and three or four
+  versions; five types, three builds and two clears) and are not refined from
+  Go. The Go evidence drives the real cache and server through a mock ADS
+  stream, not Envoy. The RF-034 live replay and the pinned live and composed
+  Envoy profiles were not re-run for these subjects. The Lean proofs take no
+  source and were not re-run.

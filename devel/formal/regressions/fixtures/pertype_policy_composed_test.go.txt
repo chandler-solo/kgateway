@@ -1,0 +1,163 @@
+package setup
+
+import (
+	"testing"
+
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/stretchr/testify/require"
+)
+
+// The six rejected-resource scenarios of PR #14865 (ads_rejected_resource_test.go,
+// whose helpers this file reuses) driven through stack #14817's watch policy, as
+// NewControlPlane wires it: NACK suppression and reconnect answering enabled over
+// newSnapshotCache's per-type caches. Each scenario runs in both ADS modes.
+
+// A cluster the proxy rejected must not hold back the endpoints of the
+// clusters it accepted.
+func TestReviewPerTypePolicyDeliversEndpointsWhileAClusterIsRejected(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			startWithBackend(t, p)
+			addRejectedCluster(p)
+
+			p.h.setSnapshot(clusterEndpointSnapshot("2", "3",
+				[]string{"backend", "added", "rejected"},
+				map[string]string{"backend": "10.0.0.11", "added": "10.0.0.2", "rejected": "10.0.0.3"}))
+			want := map[string]string{"backend": "10.0.0.11", "added": "10.0.0.2"}
+			require.Truef(t, p.await(envoyresource.EndpointType, want),
+				"the proxy has endpoints %v, want %v: go-control-plane withholds every EDS response that carries "+
+					"the rejected cluster's endpoints, which the proxy never requested", p.received[envoyresource.EndpointType], want)
+		})
+	}
+}
+
+// Once the rejected cluster is gone, the proxy must get the current endpoints
+// without having to change its subscription or reconnect.
+func TestReviewPerTypePolicyDeliversEndpointsAfterARejectedClusterIsRemoved(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			startWithBackend(t, p)
+			rejected := addRejectedCluster(p)
+
+			// kgateway drops the rejected cluster and moves backend; Envoy then
+			// NACKs the CDS response that carried it and accepts the next one.
+			p.h.setSnapshot(clusterEndpointSnapshot("3", "4",
+				[]string{"backend", "added"},
+				map[string]string{"backend": "10.0.0.11", "added": "10.0.0.2"}))
+			p.reject(rejected)
+			p.accept(p.next(envoyresource.ClusterType))
+			want := map[string]string{"backend": "10.0.0.11", "added": "10.0.0.2"}
+			require.Truef(t, p.await(envoyresource.EndpointType, want),
+				"the proxy has endpoints %v, want %v: go-control-plane declined the EDS request for the accepted "+
+					"clusters without keeping its watch, so nothing answers once the rejected cluster is gone",
+				p.received[envoyresource.EndpointType], want)
+		})
+	}
+}
+
+// A listener the proxy rejected must not hold back the routes of the listeners
+// it accepted.
+func TestReviewPerTypePolicyDeliversRoutesWhileAListenerIsRejected(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			startWithFront(t, p)
+			addRejectedListener(p)
+
+			p.h.setSnapshot(listenerRouteSnapshot("2", "3",
+				[]string{"front", "added", "rejected"},
+				map[string]string{"front-routes": "backend-v2", "added-routes": "backend-v1", "rejected-routes": "backend-v1"}))
+			want := map[string]string{"front-routes": "backend-v2", "added-routes": "backend-v1"}
+			require.Truef(t, p.await(envoyresource.RouteType, want),
+				"the proxy has routes %v, want %v: go-control-plane withholds every RDS response that carries "+
+					"the rejected listener's routes, which the proxy never requested", p.received[envoyresource.RouteType], want)
+		})
+	}
+}
+
+// Once the rejected listener is gone, the proxy must get the current routes
+// without having to change its subscription or reconnect.
+func TestReviewPerTypePolicyDeliversRoutesAfterARejectedListenerIsRemoved(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			startWithFront(t, p)
+			rejected := addRejectedListener(p)
+
+			// kgateway drops the rejected listener and changes front's routes;
+			// Envoy NACKs the LDS response that carried it and accepts the next.
+			p.h.setSnapshot(listenerRouteSnapshot("3", "4",
+				[]string{"front", "added"},
+				map[string]string{"front-routes": "backend-v2", "added-routes": "backend-v1"}))
+			p.reject(rejected)
+			p.accept(p.next(envoyresource.ListenerType))
+			want := map[string]string{"front-routes": "backend-v2", "added-routes": "backend-v1"}
+			require.Truef(t, p.await(envoyresource.RouteType, want),
+				"the proxy has routes %v, want %v: go-control-plane declined the RDS request for the accepted "+
+					"listeners without keeping its watch, so nothing answers once the rejected listener is gone",
+				p.received[envoyresource.RouteType], want)
+		})
+	}
+}
+
+// A proxy that connects while a cluster it will reject is already published
+// must get the endpoints of the clusters it accepts, and their later changes.
+func TestReviewPerTypePolicyDeliversEndpointsToANewProxyWhileAClusterIsRejected(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			p.h.setSnapshot(clusterEndpointSnapshot("1", "1",
+				[]string{"backend", "rejected"},
+				map[string]string{"backend": "10.0.0.1", "rejected": "10.0.0.3"}))
+			// Envoy applies backend, rejects the other cluster, and requests
+			// endpoints for backend. It answers CDS only once backend warms.
+			p.subscribe(envoyresource.ClusterType)
+			rejected := p.next(envoyresource.ClusterType)
+			p.subscribeHandled(envoyresource.EndpointType, "backend")
+			want := map[string]string{"backend": "10.0.0.1"}
+			require.Truef(t, p.await(envoyresource.EndpointType, want),
+				"the new proxy has endpoints %v, want %v: go-control-plane declined its first EDS request without "+
+					"keeping a watch, so backend initializes empty and its routes fail", p.received[envoyresource.EndpointType], want)
+
+			p.h.setSnapshot(clusterEndpointSnapshot("2", "2",
+				[]string{"backend"},
+				map[string]string{"backend": "10.0.0.11"}))
+			p.reject(rejected)
+			p.accept(p.next(envoyresource.ClusterType))
+			want = map[string]string{"backend": "10.0.0.11"}
+			require.Truef(t, p.await(envoyresource.EndpointType, want),
+				"the new proxy has endpoints %v, want %v after the rejected cluster was removed", p.received[envoyresource.EndpointType], want)
+		})
+	}
+}
+
+// A proxy that connects while a listener it will reject is already published
+// must get the routes of the listeners it accepts, and their later changes.
+func TestReviewPerTypePolicyDeliversRoutesToANewProxyWhileAListenerIsRejected(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(adsModeName(ordered), func(t *testing.T) {
+			p := newADSProxy(newPolicyHarness(t, ordered, true, true))
+			p.h.setSnapshot(listenerRouteSnapshot("1", "1",
+				[]string{"front", "rejected"},
+				map[string]string{"front-routes": "backend-v1", "rejected-routes": "backend-v1"}))
+			p.subscribe(envoyresource.ListenerType)
+			rejected := p.next(envoyresource.ListenerType)
+			p.subscribeHandled(envoyresource.RouteType, "front-routes")
+			want := map[string]string{"front-routes": "backend-v1"}
+			require.Truef(t, p.await(envoyresource.RouteType, want),
+				"the new proxy has routes %v, want %v: go-control-plane declined its first RDS request without "+
+					"keeping a watch, so front initializes with no routes", p.received[envoyresource.RouteType], want)
+
+			p.h.setSnapshot(listenerRouteSnapshot("2", "2",
+				[]string{"front"},
+				map[string]string{"front-routes": "backend-v2"}))
+			p.reject(rejected)
+			p.accept(p.next(envoyresource.ListenerType))
+			want = map[string]string{"front-routes": "backend-v2"}
+			require.Truef(t, p.await(envoyresource.RouteType, want),
+				"the new proxy has routes %v, want %v after the rejected listener was removed", p.received[envoyresource.RouteType], want)
+		})
+	}
+}

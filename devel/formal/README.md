@@ -4,6 +4,16 @@ Current claims and limitations are recorded in [assurance-status.md](assurance-s
 The [research plan](xds-formal-research-plan.md) and [findings ledger](research-findings.md)
 track the unfinished program. Historical notes below do not override that status.
 
+PR #14865 replaces the ADS answer rule for EDS, RDS, SDS and LDS with per-type
+caches, so one cluster or listener Envoy rejects no longer freezes its
+children's updates. Two new bounded TLC models reproduce the freeze under the ADS
+rule and check the per-type rule, and show that per-type installs need the PR's
+per-node lock for the stack's connection-start clear. `make formal-stack-pertype`
+composes the PR with stack tip `c38563730069` and requires the five-package race
+suite, the PR's scenarios through the stack's watch policy, and the stack's 32
+recorded properties to pass. See
+[RF-035](research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
+
 The later October 20 review pins PR #14717 at `2fe5bab3179d` and stack tip
 `e9436e00b3ca`. Its new backend-listener traversal fixes initial proxy-cluster
 selection, but the publisher still carries a missing backend's cluster without

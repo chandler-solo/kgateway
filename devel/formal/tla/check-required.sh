@@ -57,6 +57,9 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         XdsReconnectRace13868*) model=XdsReconnectRace13868; expected=pass ;;
         XdsEdsSubset*) model=XdsEdsSubset; expected=pass ;;
         XdsAdsSotw*) model=XdsAdsSotw; expected=pass ;;
+        PerTypeCacheRejectionAds) model=PerTypeCacheRejection; expected=temporal ;;
+        PerTypeCacheRejection*) model=PerTypeCacheRejection; expected=pass ;;
+        PerTypeInstallClear*) model=PerTypeInstallClear; expected=pass ;;
         *) echo "Unclassified TLC configuration $name" >&2; exit 1 ;;
     esac
     case "$name" in
@@ -86,6 +89,7 @@ for cfg in "$SCRIPT_DIR"/*.cfg; do
         HeldReconnectOldCacheBug) invariant=NoHeldRollback ;;
         HeldReconnectStaleTimerBug) invariant=NoTimerRollback ;;
         XdsEdsSubsetBug) invariant=NoOrphanEndpointResources ;;
+        PerTypeInstallClearUnlockedBug) invariant=NoStaleAfterClear ;;
         XdsEnvoyWarmingAckImpliesActiveBug) invariant=ActiveClustersHaveCDSAndEDS ;;
         XdsEnvoyWarmingEmptyCLAFlipBug) invariant=WarmRouteFlipHasReadyCLA ;;
         XdsEnvoyWarmingListenerBeforeRouteBug) invariant=ActiveListenerHasRouteConfig ;;

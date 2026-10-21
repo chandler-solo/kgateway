@@ -1,5 +1,29 @@
 # XdsAdsSotw TLA+ model
 
+## October 20 per-type snapshot cache (PR #14865)
+
+`PerTypeCacheRejection` abstracts a parent type (clusters or listeners) and its
+children (endpoints or routes). Envoy applies the valid parents of a response,
+rejects `bad`, and requests only the accepted parents' children. `Ads` uses
+go-control-plane's ADS rule: a named request is answered only when the snapshot
+holds no child outside it, and a declined version-new request leaves no watch.
+It must violate `ChildrenConverge`; the counterexample is the freeze after the
+rejected parent is removed. `PerType` answers the requested names and must
+satisfy `ChildrenConverge` and `NoFutureChildren`. A state with no enabled step
+is where delivery stopped, so deadlock checking is off and liveness is checked
+over the stuttering.
+
+`PerTypeInstallClear` installs a snapshot one type at a time in publish order
+while a connection-start clear may run. `UnlockedBug` must violate
+`NoStaleAfterClear`: an install begun before the clear writes a type after the
+clear has passed it. `Locked` models the PR's per-node lock and must satisfy it.
+
+Both models are bounded and abstract: two parents of one type, three or four
+versions; five types, three builds and two clears. They do not model the wire,
+Envoy application, the stack's watch policy or KRT. The
+[composition profile](../regressions/README.md#october-20-per-type-cache-composition-pr-14865)
+runs the actual code.
+
 ## October 20 backend-owned dependency closure
 
 `BackendResourceCarry` separates a translated candidate from the published
