@@ -1,0 +1,252 @@
+package setup
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/server/stream/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/protobuf/proto"
+
+	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+)
+
+// These are private-policy API schedules, not ADS or live Envoy histories.
+// The timer and all non-injected cache operations use the actual subject code.
+type formalRetryBoundaryCache struct {
+	envoycache.SnapshotCache
+	mu       sync.Mutex
+	pause    bool
+	failNext bool
+	read     chan error
+	resume   chan struct{}
+	released sync.Once
+	failed   chan struct{}
+}
+
+func (c *formalRetryBoundaryCache) release() { c.released.Do(func() { close(c.resume) }) }
+
+func (c *formalRetryBoundaryCache) GetSnapshot(key string) (envoycache.ResourceSnapshot, error) {
+	snapshot, err := c.SnapshotCache.GetSnapshot(key)
+	c.mu.Lock()
+	pause := c.pause
+	c.pause = false
+	c.mu.Unlock()
+	c.read <- err
+	if pause {
+		<-c.resume
+	}
+	return snapshot, err
+}
+
+func (c *formalRetryBoundaryCache) CreateWatch(req *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response) (func(), error) {
+	c.mu.Lock()
+	fail := c.failNext && req.GetVersionInfo() == ""
+	if fail {
+		c.failNext = false
+	}
+	c.mu.Unlock()
+	if fail {
+		close(c.failed)
+		return func() {}, errors.New("injected replacement admission failure")
+	}
+	return c.SnapshotCache.CreateWatch(req, sub, ch)
+}
+
+func formalRetryBoundaryHarness(t *testing.T) (*watchPolicy, *formalRetryBoundaryCache, *discoveryv3.DiscoveryRequest, *stream.Subscription) {
+	t.Helper()
+	hasher := kgwxds.NewNodeRoleHasher()
+	inner := envoycache.NewSnapshotCache(true, hasher, nil)
+	cache := &formalRetryBoundaryCache{SnapshotCache: inner, read: make(chan error, 256), resume: make(chan struct{}), failed: make(chan struct{})}
+	policy := newWatchPolicy(cache, hasher, true, false)
+	t.Cleanup(cache.release)
+	require.NoError(t, policy.SetSnapshot(t.Context(), adsTestNodeID, edsOnlySnapshot(t, "1", adsTestCluster)))
+	req := &discoveryv3.DiscoveryRequest{Node: adsTestNode(t), TypeUrl: envoyresource.EndpointType, ResourceNames: []string{adsTestCluster}, ErrorDetail: &status.Status{Message: "rejected"}}
+	sub := stream.NewSotwSubscription(req.GetResourceNames(), false)
+	sub.SetReturnedResources(map[string]string{adsTestCluster: "1"})
+	return policy, cache, req, &sub
+}
+
+func formalBoundaryReceive(t *testing.T, ch <-chan envoycache.Response, version string) {
+	t.Helper()
+	select {
+	case response := <-ch:
+		got := response.GetResponseVersion()
+		require.Equal(t, version, got, "WATCH-BOUNDARY-PROVENANCE: response version")
+	case <-time.After(2 * time.Second):
+		t.Fatal("WATCH-BOUNDARY-DELIVERY: no response")
+	}
+}
+
+func formalBoundaryPark(t *testing.T, cache envoycache.SnapshotCache, req *discoveryv3.DiscoveryRequest, sub envoycache.Subscription, ch chan envoycache.Response) func() {
+	t.Helper()
+	parked := proto.Clone(req).(*discoveryv3.DiscoveryRequest)
+	parked.VersionInfo = "1"
+	before := 0
+	if info := cache.GetStatusInfo(adsTestNodeID); info != nil {
+		before = info.GetNumWatches()
+	}
+	cancel, err := cache.CreateWatch(parked, sub, ch)
+	require.NoError(t, err)
+	require.NotNil(t, cancel)
+	require.Equal(t, before+1, cache.GetStatusInfo(adsTestNodeID).GetNumWatches(), "HARNESS: initial watch was not parked")
+	return cancel
+}
+
+func formalBoundaryRead(t *testing.T, cache *formalRetryBoundaryCache, wantError bool) {
+	t.Helper()
+	select {
+	case err := <-cache.read:
+		if wantError {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("HARNESS: real retry timer did not read the cache")
+	}
+}
+
+func formalBoundaryCancel(t *testing.T, cache *formalRetryBoundaryCache, cancel func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { cancel(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		cache.release()
+		t.Fatal("WATCH-BOUNDARY-CANCEL: cancellation blocked")
+	}
+}
+
+func formalBoundarySuccessor(t *testing.T, policy *watchPolicy, req *discoveryv3.DiscoveryRequest, sub envoycache.Subscription, oldCancel func()) {
+	t.Helper()
+	fresh := make(chan envoycache.Response, 1)
+	cancel := formalBoundaryPark(t, policy.SnapshotCache, req, sub, fresh)
+	t.Cleanup(cancel)
+	oldCancel() // Reusing an old capability must not cancel its successor.
+	require.Equal(t, 1, policy.GetStatusInfo(adsTestNodeID).GetNumWatches(), "WATCH-BOUNDARY-OWNERSHIP: obsolete watch retained or successor lost")
+	require.NoError(t, policy.SetSnapshot(t.Context(), adsTestNodeID, edsOnlySnapshot(t, "2", adsTestCluster)))
+	formalBoundaryReceive(t, fresh, "2")
+}
+
+func TestFormalRetryCancelBeforeExpiry(t *testing.T) {
+	policy, cache, req, sub := formalRetryBoundaryHarness(t)
+	output := make(chan envoycache.Response, 1)
+	parked := formalBoundaryPark(t, cache, req, sub, output)
+	cancel := policy.retryLater(parked, adsTestNodeID, "1", req, sub, output, time.Hour)
+	t.Cleanup(cancel)
+	formalBoundaryCancel(t, cache, cancel)
+	formalBoundarySuccessor(t, policy, req, sub, cancel)
+	require.Empty(t, output, "cancelled watch must not receive successor publication")
+}
+
+func TestFormalRetryCancelDuringRead(t *testing.T) {
+	policy, cache, req, sub := formalRetryBoundaryHarness(t)
+	cache.pause = true // Set before the timer is created.
+	output := make(chan envoycache.Response, 1)
+	parked := formalBoundaryPark(t, cache, req, sub, output)
+	cancel := policy.retryLater(parked, adsTestNodeID, "1", req, sub, output, 20*time.Millisecond)
+	t.Cleanup(func() { cache.release(); cancel() })
+	formalBoundaryRead(t, cache, false)
+	done := make(chan struct{})
+	started := make(chan struct{})
+	go func() { close(started); cancel(); close(done) }()
+	formalWatchAwait(t, started, "cancellation invocation")
+	cache.release()
+	formalWatchAwait(t, done, "cancellation after timer read")
+	formalBoundarySuccessor(t, policy, req, sub, cancel)
+	// A response queued before cancellation is permitted. It must still carry
+	// the old snapshot, not the successor's response.
+	select {
+	case response := <-output:
+		version := response.GetResponseVersion()
+		require.Equal(t, "1", version)
+	default:
+	}
+}
+
+func formalRetryBackpressure(t *testing.T, capacity int) {
+	t.Helper()
+	policy, cache, req, sub := formalRetryBoundaryHarness(t)
+	output := make(chan envoycache.Response, capacity)
+	if capacity == 1 {
+		// Fill the channel with an actual cache response before parking.
+		cancel, err := cache.CreateWatch(req, sub, output)
+		require.NoError(t, err)
+		cancel()
+	}
+	parked := formalBoundaryPark(t, cache, req, sub, output)
+	replaced := make(chan struct{})
+	cancel := policy.retryLater(func() { parked(); close(replaced) }, adsTestNodeID, "1", req, sub, output, 20*time.Millisecond)
+	t.Cleanup(cancel)
+	formalWatchAwait(t, replaced, "replacement answer and old watch cancellation")
+	// No receiver exists for the retry response. Another key must nevertheless
+	// acquire the publication lock, and cancellation must acquire the watch lock.
+	published := make(chan error, 1)
+	other := edsOnlySnapshot(t, "2", adsTestCluster)
+	ctx, stop := context.WithCancel(t.Context())
+	t.Cleanup(stop)
+	go func() { published <- policy.SetSnapshot(ctx, "another-key", other) }()
+	select {
+	case err := <-published:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		stop()
+		t.Fatal("WATCH-BOUNDARY-LOCKS: blocked forwarder held publication lock")
+	}
+	formalBoundaryCancel(t, cache, cancel)
+	formalBoundarySuccessor(t, policy, req, sub, cancel)
+}
+
+func TestFormalRetryBackpressureUnbuffered(t *testing.T) { formalRetryBackpressure(t, 0) }
+func TestFormalRetryBackpressureFull(t *testing.T)       { formalRetryBackpressure(t, 1) }
+
+func TestFormalRetryClearReinstall(t *testing.T) {
+	policy, cache, req, sub := formalRetryBoundaryHarness(t)
+	output := make(chan envoycache.Response, 1)
+	parked := formalBoundaryPark(t, cache, req, sub, output)
+	policy.ClearSnapshot(adsTestNodeID)
+	cancel := policy.retryLater(parked, adsTestNodeID, "1", req, sub, output, 50*time.Millisecond)
+	t.Cleanup(cancel)
+	formalBoundaryRead(t, cache, true)
+	require.NoError(t, policy.SetSnapshot(t.Context(), adsTestNodeID, edsOnlySnapshot(t, "1", adsTestCluster)))
+	formalBoundaryReceive(t, output, "1")
+}
+
+func TestFormalRetryReplacementError(t *testing.T) {
+	policy, cache, req, sub := formalRetryBoundaryHarness(t)
+	cache.failNext = true // Inject one error, then resume real cache admission.
+	output := make(chan envoycache.Response, 1)
+	parked := formalBoundaryPark(t, cache, req, sub, output)
+	cancel := policy.retryLater(parked, adsTestNodeID, "1", req, sub, output, 50*time.Millisecond)
+	t.Cleanup(cancel)
+	formalWatchAwait(t, cache.failed, "injected replacement error")
+	formalBoundaryReceive(t, output, "1")
+}
+
+func TestFormalRetryTwoOwners(t *testing.T) {
+	policy, cache, req, firstSub := formalRetryBoundaryHarness(t)
+	secondSub := stream.NewSotwSubscription(req.GetResourceNames(), false)
+	secondSub.SetReturnedResources(map[string]string{adsTestCluster: "1"})
+	first := make(chan envoycache.Response, 1)
+	second := make(chan envoycache.Response, 1)
+	firstParked := formalBoundaryPark(t, cache, req, firstSub, first)
+	secondParked := formalBoundaryPark(t, cache, req, &secondSub, second)
+	cancel := policy.retryLater(firstParked, adsTestNodeID, "1", req, firstSub, first, time.Hour)
+	t.Cleanup(cancel)
+	t.Cleanup(secondParked)
+	require.Equal(t, 2, cache.GetStatusInfo(adsTestNodeID).GetNumWatches())
+	formalBoundaryCancel(t, cache, cancel)
+	require.Equal(t, 1, cache.GetStatusInfo(adsTestNodeID).GetNumWatches(), "WATCH-BOUNDARY-OWNERSHIP: cancelled another owner's watch")
+	require.NoError(t, policy.SetSnapshot(t.Context(), adsTestNodeID, edsOnlySnapshot(t, "2", adsTestCluster)))
+	formalBoundaryReceive(t, second, "2")
+	require.Empty(t, first)
+}

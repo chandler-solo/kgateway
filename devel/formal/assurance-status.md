@@ -32,9 +32,18 @@ contention cases answer the subscribed resource, unlike the plain ADS negative
 profile. Two historical retry tests retain their plain-ADS cache precondition
 through exact-hash test adapters; production Go is unchanged.
 
-Simultaneous streams/keys, unbuffered channels, generated Go histories, internal
-lifecycle conformance, CI source availability and live Envoy validation of the
-new watch profiles remain open. ACK and application remain separate.
+Seven additional private-policy API schedules pass on both the claims head
+and the per-type composition, covering cancellation, old/successor ownership,
+full/unbuffered forwarding, clear/reinstall, one injected admission error and
+two owners sharing a key. Independent source mutations must lose retry delivery
+or retain the obsolete watch and fail their exact assertions. This is bounded
+Go/cache evidence; the tests neither model simultaneous ADS streams nor observe
+all internal forwarding goroutine exits.
+
+Simultaneous streams/keys and unbuffered channels in the models, the remaining
+ADS lifecycle/mutation matrix, generated Go histories, internal lifecycle
+conformance, CI source availability and live Envoy validation of the new watch
+profiles remain open. ACK and application remain separate.
 
 ## October 20 per-type snapshot cache composition (PR #14865)
 

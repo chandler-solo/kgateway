@@ -21,10 +21,12 @@ Immutable historical subjects, the observability and claims heads, and a per-typ
 composition now have strict executable profiles. The first bounded model slice, local Lean ownership lemmas and
 cross-model projection checks are implemented. Three historical race mechanisms
 and named EDS/RDS contention have real cache/server coverage in both ADS modes.
+Seven private-policy API schedules add cancellation, ownership, blocked forwarding
+and retry error coverage, with two independent production mutation controls.
 
 This does not close the phases below. The models still lack simultaneous
 streams/keys and unbuffered-channel schedules; the Go harness still needs the
-full cancellation/replacement/error matrix and production mutations. Internal
+full ADS cancellation/replacement/error matrix and remaining production mutations. Internal
 watch/timer event replay, generated Go histories, CI source distribution and
 new pinned live Envoy validation remain pending. See `watch/README.md` for exact
 subjects, validation and limits.

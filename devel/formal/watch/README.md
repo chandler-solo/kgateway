@@ -53,7 +53,9 @@ commands, logs and JSON execution records there. None are versioned receipts.
 
 The test-only constructor adapter for the later stack layers is exact-hash guarded.
 The runner hashes production Go files before and after replay. No production
-algorithm is copied into the harness or changed to make a subject pass.
+algorithm is copied into the harness or changed to make a subject pass. Explicit
+negative mutation profiles below are separate subjects and must fail their
+designated property.
 
 A successful characterization run means every expected outcome occurred. It
 can include intentionally failing historical tests. Both ADS descendants must
@@ -161,7 +163,8 @@ schedules. It does not complete the plan's first milestone. Remaining work is
 explicit: add internal watch conformance to the cache/server composition; expand to
 simultaneous streams/keys and unbuffered channels; instrument actual watch and
 timer ownership; add partial-order Go trace replay and generated Go histories;
-exercise cancellation, backpressure, clear/reinstall and production mutations;
+extend the API cancellation, backpressure, clear/reinstall and mutation probes
+to the full ADS lifecycle matrix;
 integrate CI selection; and run pinned live Envoy scenarios. The existing
 counterexamples and older assurance profiles remain unchanged.
 
@@ -212,3 +215,51 @@ these test adaptations do not change production code or hide a product failure.
 ```sh
 make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-pertype --repository /path/to/kgateway-object-store --full-setup --artifacts /tmp/watch-pertype-fresh'
 ```
+
+## Retry cancellation, ownership and blocked forwarding
+
+`watch-claims-boundaries` and `watch-pertype-boundaries` run seven additional
+private-policy API schedules on the same claims source, respectively with the
+plain ADS cache and the composed production per-type cache. The runner also
+requires the source's Node-copy regression. These profiles call the real
+`retryLater` entry point, allow its real timer to expire, and use the actual
+cache for admission and publication. They do not simulate the timer callback.
+
+| Schedule | Required observation |
+| --- | --- |
+| Cancel before expiry | The original watch is removed; an old cancellation capability cannot remove a subsequently registered watch; the successor receives version 2 |
+| Cancel while a timer's cache read is paused | Cancellation completes after releasing the read; the successor remains registered and receives version 2; an already queued version 1 is permitted |
+| Retry forwarding to an unbuffered or full channel | After the replacement answers, another key can publish and cancellation can return without draining the retry's output channel |
+| Clear and reinstall the same rejected version | The timer observes the actual missing-snapshot error, then later delivers version 1 without another client request |
+| Replacement admission errors once | An explicitly injected `CreateWatch` error is followed by real cache admission and delivery from a later timer expiry |
+| Two owners share a cache key | Cancelling one owner's retry leaves the other owner's watch registered and able to receive a correction |
+
+These are **Go private-policy/cache API observations under race detection**.
+The single injected admission error is a fault profile, not a claim that this
+error occurred in production. Two owners are not two fully modeled ADS
+streams, and these cases do not cover stream nonce correlation or prove that
+Envoy can create every tested schedule. They check bounded completion of
+publication/cancellation and response ownership; they do not instrument and
+join every internal forwarding goroutine. Cancellation does not promise to
+retract a response already queued, or to win a `select` when send and cancel
+are both ready.
+
+Two independent production mutations run only in fresh isolated trees:
+`watch-boundaries-one-shot-read` removes retry rearming after a missing/changed
+snapshot and must fail `WATCH-BOUNDARY-DELIVERY`; `watch-boundaries-leaked-owner`
+omits cancellation of the old watch after a replacement answers and must fail
+`WATCH-BOUNDARY-OWNERSHIP`. A hash mismatch, wrong assertion, race, panic,
+timeout or tool failure rejects the run. Each execution records both the
+original and mutated production hashes. Mutation results are not attributed
+to the unmodified source revision.
+
+```sh
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-claims-boundaries --repository /path/to/kgateway-object-store'
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-pertype-boundaries --repository /path/to/kgateway-object-store'
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-boundaries-one-shot-read --repository /path/to/kgateway-object-store'
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-boundaries-leaked-owner --repository /path/to/kgateway-object-store'
+```
+
+These cases extend the phase 3 matrix. Model coverage of unbuffered forwarding,
+concurrent stream/key ownership, full internal event replay and the remaining
+production mutations is still open; API observations alone do not close it.

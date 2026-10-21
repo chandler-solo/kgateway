@@ -81,10 +81,26 @@ def compose(repository, subjects, destination, artifacts):
         raise ValueError("composition requires review of conflicts: " + str(conflicts))
 
 
-def check_receipts(events, outcomes, exit_code, log):
+def apply_mutation(source, mutation):
+    """One declared production mutation, only in a newly materialized subject."""
+    path = source / mutation["file"]
+    if source.resolve() not in path.resolve().parents or path.suffix != ".go" or path.name.endswith("_test.go"):
+        raise ValueError("mutation must address production Go inside the scratch tree")
+    if regression.digest(path) != mutation["sha256"]:
+        raise ValueError("mutation source hash mismatch")
+    contents = path.read_text()
+    if not mutation["before"] or contents.count(mutation["before"]) != 1 or mutation["before"] == mutation["after"]:
+        raise ValueError("mutation must change exactly one declared site")
+    path.write_text(contents.replace(mutation["before"], mutation["after"]))
+
+
+def check_receipts(events, outcomes, exit_code, log, failure_markers=None):
     markers, expected = {}, {}
+    failure_markers = failure_markers or {}
+    if any(outcomes.get(name) != "fail" or not marker for name, marker in failure_markers.items()):
+        raise ValueError("failure marker must name a required negative property")
     for test, outcome in outcomes.items():
-        markers[test], expected[test] = "--- FAIL: " + test, outcome
+        markers[test], expected[test] = failure_markers.get(test, "--- FAIL: " + test), outcome
         if test in MARKERS or test.startswith("TestReviewPerTypePolicy"):
             for mode in ("default", "ordered"):
                 name = test + "/" + mode
@@ -108,6 +124,11 @@ def run(profile_id, repository, artifacts, full_setup=False):
             raise ValueError(f"subject hash mismatch: {path}")
     if profile["dependency"] not in (source / "go.mod").read_text():
         raise ValueError("wrong go-control-plane dependency")
+    baseline = regression.production_digest(source)
+    if "mutation" in profile:
+        if not profile.get("failure_markers") or "fail" not in profile["expected_by_test"].values():
+            raise ValueError("production mutation requires a designated negative property")
+        apply_mutation(source, profile["mutation"])
     before = regression.production_digest(source)
     regression.apply_test_adapters(source, profile.get("test_adapters", []))
     fixture = HERE / profile["fixture"]
@@ -135,14 +156,16 @@ def run(profile_id, repository, artifacts, full_setup=False):
                "GOTESTSUM_ARGS=--format=short --jsonfile=" + regression.make_shell_arg(str(receipt))]
     evidence = {"profile": profile_id, "subject": profile, "command": command,
                 "go_version": subprocess.check_output(["go", "version"], text=True).strip(),
+                "baseline_production_digest": hashlib.sha256(json.dumps(baseline, sort_keys=True).encode()).hexdigest(),
+                "subject_kind": "declared production mutation" if "mutation" in profile else "unmodified production source",
                 "production_digest": hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
-                "evidence": "real pinned cache and mock ADS transport under race detector; bounded timer observations, no live Envoy or refinement proof"}
+                "evidence": profile.get("evidence_scope", "real pinned cache and mock ADS transport under race detector; bounded timer observations, no live Envoy or refinement proof")}
     (artifacts / "subject.json").write_text(json.dumps(evidence, indent=2) + "\n")
     with log.open("w") as stream:
         result = subprocess.run(command, cwd=source, env=dict(os.environ, CGO_ENABLED="1"),
                                 stdout=stream, stderr=subprocess.STDOUT, timeout=600)
     events = [json.loads(line) for line in receipt.read_text().splitlines()]
-    check_receipts(events, outcomes, result.returncode, log.read_text())
+    check_receipts(events, outcomes, result.returncode, log.read_text(), profile.get("failure_markers"))
     if full_setup:
         if "fail" in outcomes.values():
             raise ValueError("full acceptance run requires a fixed subject")

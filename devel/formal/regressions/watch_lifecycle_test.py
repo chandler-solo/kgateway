@@ -38,3 +38,39 @@ class WatchReceipts(unittest.TestCase):
                 self.check(self.events(), log=log)
         with self.assertRaises(ValueError):
             self.check(self.events(), code=0)
+
+
+class WatchMutations(unittest.TestCase):
+    def test_exact_site_and_source_are_required(self):
+        import hashlib
+        from pathlib import Path
+        import tempfile
+        from watch_lifecycle import apply_mutation
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "policy.go"
+            initial = "package setup\n// reset timer\n"
+            mutation = {"file": "policy.go", "sha256": hashlib.sha256(initial.encode()).hexdigest(),
+                        "before": "// reset timer", "after": "// omit reset"}
+            path.write_text(initial)
+            apply_mutation(root, mutation)
+            self.assertIn("// omit reset", path.read_text())
+            for wrong in (mutation, dict(mutation, file="../policy.go"),
+                          dict(mutation, file="policy_test.go")):
+                with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                    apply_mutation(root, wrong)
+            path.write_text(initial)
+            for wrong in (dict(mutation, before="absent"), dict(mutation, after=mutation["before"])):
+                with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                    apply_mutation(root, wrong)
+
+    def test_mutation_requires_exact_failure_marker(self):
+        name = "TestFormalRetryClearReinstall"
+        events = [{"Package": PACKAGE, "Test": name, "Action": "run"},
+                  {"Package": PACKAGE, "Test": name, "Action": "output", "Output": "WATCH-BOUNDARY-DELIVERY: no response"},
+                  {"Package": PACKAGE, "Test": name, "Action": "fail"},
+                  {"Package": PACKAGE, "Action": "fail"}]
+        check_receipts(events, {name: "fail"}, 2, "", {name: "WATCH-BOUNDARY-DELIVERY:"})
+        for markers in ({name: "unrelated"}, {"other": "WATCH-BOUNDARY-DELIVERY:"}, {name: ""}):
+            with self.subTest(markers=markers), self.assertRaises(ValueError):
+                check_receipts(events, {name: "fail"}, 2, "", markers)
