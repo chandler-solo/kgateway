@@ -7,7 +7,7 @@ disproves complete publication closure at `e9436e00b3ca`, including the new
 backend-listener walk in PR #14717 (`2fe5bab3179d`). Fresh emission traversal
 passes exhaustive comparison on 28,672 three-cluster inputs, but actual
 KRT/publisher carry drops backend-owned listeners/secrets and a scoped proxy.
-Captured-snapshot replay changes Envoy forwarding from 200 to 503. New abstract
+New abstract
 Lean proofs and four TLC configurations distinguish the desired closure from
 the current carry rule; this is not a Go refinement or a deployed outage claim.
 
@@ -33,20 +33,16 @@ The next implementation obligation is resource ownership through composition:
    closure. Conditional liveness needs separate fairness and stable-input
    premises; structural closure alone cannot establish progress.
 
-October 20 rewarming update: the actual downstream setup/plugins/KRT pipeline
-reproduced the RF-014/017 EDS-before-CDS schedule at `faaaaf68d552`, and the
-author's later `5c5b456be396` fix was independently observed at `ab9865b83e63`.
-The durable `formal-stack-rewarming` gate requires the old failure and fixed
-response behavior without ACKing the changed CDS first. Four new temporal
-profiles separate replay progress under fairness from cached-EDS timeout
-fallback; all older controls remain. [RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
-narrows the earlier full-controller gap for this one fixture, without claiming
-full downstream deployment, authentication or enterprise-feature coverage.
+October 20 rewarming update: the durable `formal-stack-rewarming` gate checks
+historical `faaaaf68d552` and repaired `ab9865b83e63`, preserving the held-version
+response failure and the author's `5c5b456be396` repair without ACKing changed
+CDS first. Four temporal profiles separate replay progress under fairness from
+cached-EDS timeout fallback. The public evidence is source inspection, bounded
+models and real cache/server tests with mock transport; all older controls remain.
 
 Next cover alias/shared-assignment mapping, rejected or failed sends before a
 replay mark is cleared, repeated overlapping redefinitions and shared-key
-streams. Add an unconditional concurrent-backend/DNS scenario: the historical
-500 is observed, but fixed-run conditional insertion did not execute. Correlate
+streams. Add an unconditional concurrent-backend/DNS scenario. Correlate
 callback-before-Send bookkeeping with successful delivery and per-resource
 Envoy application; do not use an ACK, a hash comparison or a cache write as
 that evidence. Extend the bounded model only with explicit scheduler and
@@ -60,14 +56,13 @@ The new AdmissionPending model isolates split versus atomic reset/adoption;
 it is a bounded safety check rather than a Go refinement or deadline proof.
 Next, execute the actual controller/Kubernetes suites and extend coverage to
 shared-key streams, authenticated replica skew, transport cancellation, NACK
-backoff and enterprise extensions. Keep ordinary downstream upgrade adaptation
-separate from product findings. Generated execution artifacts remain outside
+backoff and extension dependencies. Generated execution artifacts remain outside
 the repository. This update supersedes older statements that no current-tip
 gate-to-Envoy composition exists; other scoped limitations remain.
 
 October 19 timeout milestone: [source-specific formalization](timeouts/README.md)
 adds a pinned ConfigSource inventory, fifteen timed TLC configurations, seven
-abstract Lean safety theorems, a 64-history direct Envoy matrix and public CI
+abstract Lean safety theorems, a 32-history upstream Envoy matrix and public CI
 subset. The live publication harness now renders each actual subject chart,
 including disabled parent timers and the local-cluster initialization dependency.
 Production defaults and prior counterexamples remain intact. The older global
@@ -588,7 +583,6 @@ the reviewed 13-PR stack. Profiles are frozen in `regressions/profiles.json`.
 | Cache/server/application composition | Separate install, admission/decline/retention, queue, send, receive, per-resource accept/reject, warming and worker application; include partial installation and subscription history | Exact-pin probes and partial-rejection models exist; their composed refinement remains open |
 | Temporal guarantees | Prove eventual progress only under stated stable-input, scheduler/network fairness and retained-request/retry assumptions; wall-clock bounds require bounded delays | Derived-empty guard proof and bounded recoverability; timer TLC fairness is abstract, not implementation liveness |
 | Lifecycle trace conformance | Full per-type versions, resource provenance, stream/timer generations and terminal receipts; corrupted/missing/duplicate events rejected; no secret bodies | Current schema covers decisions/installations only. Instrument watch/send/ACK/NACK and independently observed application, then audit instrumentation completeness |
-| Downstream runtime validation | Actual authenticated callbacks, shared warm/cold keys and reclaim races; peering CDS/EDS coupling; enterprise filters/claims; standard/FIPS immutable binaries; standalone SDS | Downstream source findings and selected unit results are recorded; adoption and live profiles not executed by this research update |
 | Live composition scenarios | Rapid retargets, delayed/NACKed CDS/RDS, underived versus derived empty, carry aliases, budget release, rotation and reference-removal revocation; correlate traffic and active/warming state with lifecycle traces | Reconciled warming suite uses direct Gateway-IP requests; fresh runtime execution remains required |
 
 Retain the historical three-state reachability/liveness counterexample and both
@@ -610,14 +604,12 @@ reachability-versus-liveness controls remain required.
 | Selection/projection contracts | Lean proofs of current/retained pair provenance, omission/exclusion and conditional equality adequacy; mapped research Go tests | Derive eligibility and versioned dependency closure for arbitrary extensions; establish actual Go projection/refinement obligations |
 | Cache/server temporal composition | 13-state fixed watch/retry model; 16-state fixed connection-generation model; six new expected counterexamples | Compose with timers and subscriptions across multiple authenticated streams/keys; prove or expose retry and scheduling assumptions rather than adding implicit fairness |
 | Lifecycle observation | Four required strict traces from real cache/server probes; request/nonce/stream correlation, cancellation/readback and absence of immediate watch | Join publication schema-2 decisions with lifecycle records; instrument internal queue/cancel/send boundaries and independent Envoy application; audit missing instrumentation |
-| Downstream adoption | Scratch dependency replacement; expected constructor and three missing-method compile failures; all 64 selected top-level tests execute (137 test events) | Integrate client state in a separate product candidate while preserving authenticated roles, identity drift and Delta rejection; exercise shared cold/warm streams and atomic reclaim under races |
-| Runtime profiles | Twelve direct scenarios pass across upstream and enterprise standard/FIPS immutable digests, one worker on arm64 | Run full kgw-ent controller with fixed adoption; add peering, actual enterprise extension and ancillary dependencies, standalone SDS and multi-worker observation |
+| Runtime profiles | Four upstream direct scenarios pass on an immutable digest, one worker on arm64 | Run the full controller; add ancillary dependencies, standalone SDS and multi-worker observation |
 
 The next implementation experiment should require the updated stack candidate
 to compile unchanged and pass all eleven injected properties. An interface or
 timer-clock change may require a documented fixture adapter, never a weakened
-property. Complete downstream state wiring is a separate prerequisite to a live
-adoption test. A constructor-only adapter must not produce an adoption pass.
+property.
 
 For the next composed model, carry `(client key, connection generation, timer
 episode, candidate revision, subscription generation, type, response nonce)`
@@ -642,7 +634,7 @@ implementation-linked milestone is complete for one controlled schedule:
 overlapping withheld candidates, controller handoff, delayed real Send, actual
 old-route application, logical latest-candidate expiry, coherent recovery and
 stale first-budget callback rejection. Independent admin/HTTP evidence exists
-on the three pinned upstream/enterprise images. See
+on the pinned upstream image. See
 [`composed/README.md`](composed/README.md) for the contract, full scope and receipts.
 
 The same TLA transition relation checks the observed milestone projection and
@@ -661,17 +653,14 @@ Next work should proceed in this order:
    deletion versus per-connection admission/version fencing.
 2. Replace the warm-state stub and raw server with actual setup callbacks and
    watch decorators. Test authenticated role resolution, simultaneous warm/cold
-   streams, last-stream departure/reclaim races, and controller skew. Then port
-   the downstream state methods and constructor wiring in a separate candidate.
+   streams, last-stream departure/reclaim races, and controller skew.
 3. Extend the composed trace to failed partial publication, no retry, queued
    supersession, partial NACK application, multiple keys and workers. Separate
    fairness of KRT, timers, cache admission, transport and Envoy application;
    require a counterexample when any necessary assumption is removed.
-4. Run the actual downstream controller with peering, enterprise plugins,
-   ancillary dependencies, secret rotation/removal and standalone SDS. The
-   successful direct enterprise binary observations are a prerequisite, not a
-   substitute. Exercise natural timer deadlines and existing same-name
-   rewarming/EDS-cache timeout profiles independently.
+4. Run the actual upstream controller with ancillary dependencies, secret
+   rotation/removal and standalone SDS. Exercise natural timer deadlines and
+   same-name rewarming/EDS-cache timeout profiles independently.
 
 Do not expand the model's bounds until these concrete adapters and missing
 transitions can be observed and checked. No additional Lean theorem is needed
@@ -701,10 +690,7 @@ quiescent input and fair timer execution, then check a corrected abstraction and
 its concrete implementation independently. Existing callback identity/epoch
 checks do not establish completeness of the transitions they guard.
 
-Port four downstream state contracts, including `SetConnectionStartHooks`, and
-both constructor settings before controller-level experiments. The current
-137-case downstream suite succeeds without that integration. Keep the next
-live profile on actual setup/auth/watch-policy paths, with independent readiness,
+Keep the next live profile on actual setup/auth/watch-policy paths, with independent readiness,
 admin and traffic evidence. Bounded NACK retry and EDS/RDS/SDS reconnect behavior
 now have Go/server tests but still need composed runtime schedules. The
 research's raw-cache proofs and the previous stack's observed rollback cannot
@@ -717,7 +703,7 @@ The [latest review](reviews/2026-10-16-stack-14817-7d930.md) supersedes the
 remaining-finding list for 1e417. All fourteen earlier properties now pass.
 The new immutable profile keeps those passes and two longer-history failures;
 all historical profiles remain runnable. Full required research validation was
-executed, with scope and the initial enterprise-runtime failure preserved in
+executed, with scope recorded in
 [the receipt](receipts/2026-10-16-stack-7d930.json).
 
 The next implementation milestone is candidate provenance across the KRT and
@@ -748,10 +734,7 @@ queued/sent responses and per-resource application. Preserve cancellation,
 partial fan-out, partial CDS/LDS application on NACK and bootstrap-specific EDS
 fallback; do not flatten these to one atomic publish/ACK transition.
 
-Before controller-level experiments, complete downstream constructor/settings
-and all four state contracts, wire SetupOpts.XDSClientState, and preserve the
-enterprise authentication/identity/Delta semantics. The unchanged five-package
-137-case suite is insufficient integration coverage. Then run the new schedules
+Run the new schedules
 through actual setup/auth/watch decorators and independent Envoy admin/traffic
 observation on the target binary, including v1.39.4 if that is the upstream
 adoption image. The existing direct and historical composed profiles use other

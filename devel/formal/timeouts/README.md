@@ -8,10 +8,9 @@ timeout defaults. The assurance case remains open.
 
 [profiles.json](profiles.json) pins the proposed upstream stack at
 `8e75468f4d0e055deb9b8f34e4254831f011e2a3`, the Helm template, two translation
-sites, relevant Envoy source files, four image digests and both worker counts.
-The research branch does not adopt that stack's production policy. The downstream
-standard and FIPS binaries are runtime subjects; this is not a deployed kgw-ent
-controller test. Ordinary downstream upgrade adaptation remains assumed.
+sites, relevant Envoy source files, two upstream image digests and both worker counts.
+The research branch does not adopt that stack's production policy.
+This is not a deployed controller test.
 
 | Subscription | ConfigSource setting | Effective policy | Source evidence |
 |---|---|---|---|
@@ -26,7 +25,7 @@ The bootstrap enables `envoy.restart_features.use_eds_cache_for_ads`. A parent's
 the same duration in this profile but remain distinct configuration values.
 The runner verifies the three upstream source hashes before and after execution;
 the Envoy C++ hashes are a reviewed source inventory, not an automated binary
-provenance or C++ refinement check. Enterprise behavior is measured separately.
+provenance or C++ refinement check.
 
 The pinned Envoy `GrpcSubscriptionImpl` arms a finite timer when the subscription
 starts, before registering its watch. A connection failure does not take the
@@ -121,7 +120,7 @@ not a hard end-to-end deadline under arbitrary dispatcher or network delay.
 make formal-timeout-harness
 make formal-timeout-lean
 make formal-tlc
-# Full matrix: four digests, two worker counts, eight histories (64 runs).
+# Full matrix: two digests, two worker counts, eight histories (32 runs).
 make formal-timeout-profiles FORMAL_TIMEOUT_ARGS='--artifacts /tmp/xds-timeouts-new'
 # Public CI subset: sixteen histories.
 make formal-timeout-profiles FORMAL_TIMEOUT_ARGS='--profile upstream-current --artifacts /tmp/xds-timeouts-public-new'
@@ -129,18 +128,18 @@ make formal-timeout-profiles FORMAL_TIMEOUT_ARGS='--profile upstream-current --a
 make formal-timeout-profiles FORMAL_TIMEOUT_ARGS='--profile upstream-current --workers 2 --case cached-rewarm --jobs 1'
 ```
 
-Artifacts must be fresh and outside the repository. Registry access is needed
-for the enterprise images. Receipts, logs, source archives and generated captures
+Artifacts must be fresh and outside the repository.
+Receipts, logs, source archives and generated captures
 are execution artifacts, not source fixtures to stage or commit.
 
 ## October 19 execution
 
-The final acceptance run completed all 64 histories on arm64 Docker Desktop,
-with 176 independent admin/counter/HTTP observations and 624 rejected mutations
+The upstream acceptance histories completed on arm64 Docker Desktop,
+with independent admin/counter/HTTP observations and rejected mutations
 of the fresh real captures. It used repository-pinned Helm 3 (`v3.21` reported by
-the tool) and Go 1.26.8. All four digests and both worker counts were exercised.
-The separate corrected live setup matrix completed 36 histories: 24 repaired
-passes and 12 required historical counterexamples, with 504 rejected mutations.
+the tool) and Go 1.26.8. Both upstream digests and both worker counts were exercised.
+The separate corrected upstream live setup histories passed their required
+repaired and historical-counterexample outcomes.
 Public GitHub CI was configured locally; it was not executed in GitHub by this
 session.
 
@@ -150,7 +149,7 @@ Lean/Go/snapshot/lifecycle validation passed after adding the probe package to
 its required test-receipt inventory. Four race-enabled probe tests, ten Python
 timeout harness tests, five live harness tests, the assumption-ledger checks,
 scoped Go lint (including the injected live helpers) and workflow lint passed.
-The sixteen legacy direct Envoy profiles and twelve legacy runtime/image
+The sixteen legacy direct Envoy profiles and four upstream runtime/image
 profiles were also rerun successfully. This is evidence for the named profiles,
 not universal implementation correctness or temporal liveness.
 

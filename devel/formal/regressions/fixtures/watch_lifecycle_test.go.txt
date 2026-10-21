@@ -1,0 +1,233 @@
+package setup
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	serverconfig "github.com/envoyproxy/go-control-plane/pkg/server/config"
+	sotwv3 "github.com/envoyproxy/go-control-plane/pkg/server/sotw/v3"
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/status"
+
+	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+)
+
+// The gate pauses after a real cache read. It does not change cache decisions.
+// Every observed watch result comes from the pinned cache, not the schedule.
+type formalWatchGate struct {
+	envoycache.SnapshotCache
+	mu           sync.Mutex
+	armed        bool
+	read         chan string
+	resume       chan struct{}
+	releaseOnce  sync.Once
+	parked       chan struct{}
+	replaced     chan struct{}
+	parkedOnce   sync.Once
+	replacedOnce sync.Once
+}
+
+func (g *formalWatchGate) arm()     { g.mu.Lock(); defer g.mu.Unlock(); g.armed = true }
+func (g *formalWatchGate) release() { g.releaseOnce.Do(func() { close(g.resume) }) }
+func (g *formalWatchGate) GetSnapshot(node string) (envoycache.ResourceSnapshot, error) {
+	snapshot, err := g.SnapshotCache.GetSnapshot(node)
+	g.mu.Lock()
+	pause := g.armed
+	g.armed = false
+	g.mu.Unlock()
+	if pause {
+		if err == nil {
+			g.read <- snapshot.GetVersion(envoyresource.EndpointType)
+		} else {
+			g.read <- "read-error"
+		}
+		<-g.resume
+	}
+	return snapshot, err
+}
+
+func (g *formalWatchGate) CreateWatch(req *envoycache.Request, sub envoycache.Subscription, ch chan envoycache.Response) (func(), error) {
+	cancel, err := g.SnapshotCache.CreateWatch(req, sub, ch)
+	if req.GetTypeUrl() == envoyresource.EndpointType && req.GetErrorDetail() != nil {
+		if req.GetVersionInfo() == "1" {
+			g.parkedOnce.Do(func() { close(g.parked) })
+		}
+		if req.GetVersionInfo() == "" {
+			g.replacedOnce.Do(func() { close(g.replaced) })
+		}
+	}
+	return cancel, err
+}
+
+func formalWatchHarness(t *testing.T, ordered bool) (*adsHarness, *formalWatchGate) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	stream := &mockAdsStream{ctx: ctx, sent: make(chan *discoveryv3.DiscoveryResponse, 16), recv: make(chan *discoveryv3.DiscoveryRequest, 16)}
+	hasher := kgwxds.NewNodeRoleHasher()
+	gate := &formalWatchGate{SnapshotCache: envoycache.NewSnapshotCache(true, hasher, nil), read: make(chan string, 1), resume: make(chan struct{}), parked: make(chan struct{}), replaced: make(chan struct{})}
+	policy := newNackResendSuppressor(gate, hasher)
+	var opts []serverconfig.XDSOption
+	if ordered {
+		opts = append(opts, sotwv3.WithOrderedADS())
+	}
+	srv := xdsserver.NewServer(ctx, policy, policy.callbacks(), opts...)
+	h := &adsHarness{t: t, ctx: ctx, cancel: cancel, cache: policy, stream: stream, done: make(chan error, 1), node: adsTestNode(t)}
+	go func() { h.done <- srv.StreamAggregatedResources(stream) }()
+	t.Cleanup(func() {
+		gate.release()
+		cancel()
+		select {
+		case <-h.done:
+		case <-time.After(2 * time.Second):
+			t.Error("HARNESS: stream did not stop")
+		}
+	})
+	return h, gate
+}
+
+func formalWatchAwait(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("HARNESS: %s did not finish", what)
+	}
+}
+
+func formalWatchRead(t *testing.T, g *formalWatchGate, want string) {
+	t.Helper()
+	select {
+	case got := <-g.read:
+		require.Equal(t, want, got, "HARNESS: captured version")
+	case <-time.After(2 * time.Second):
+		t.Fatal("HARNESS: snapshot read did not occur")
+	}
+}
+
+func formalWatchNack(h *adsHarness, first *discoveryv3.DiscoveryResponse) {
+	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: envoyresource.EndpointType, ResourceNames: []string{adsTestCluster}, ResponseNonce: first.GetNonce(), ErrorDetail: &status.Status{Message: "rejected"}})
+}
+
+func formalWatchFirst(t *testing.T, h *adsHarness) *discoveryv3.DiscoveryResponse {
+	t.Helper()
+	h.setSnapshot(edsOnlySnapshot(t, "1", adsTestCluster))
+	h.send(&discoveryv3.DiscoveryRequest{Node: h.node, TypeUrl: envoyresource.EndpointType, ResourceNames: []string{adsTestCluster}})
+	return h.receiveType(envoyresource.EndpointType, "1")
+}
+
+// Try the formerly losing interleaving. A serialized implementation may hold
+// publication until the read finishes; the 100ms window selects a schedule,
+// and is not evidence of lock ownership. Watch/response assertions decide it.
+func formalWatchInterleave(t *testing.T, h *adsHarness, g *formalWatchGate) {
+	t.Helper()
+	blocked := edsOnlySnapshot(t, "2", adsTestCluster, "unrequested")
+	published := make(chan error, 1)
+	go func() { published <- h.cache.SetSnapshot(h.ctx, adsTestNodeID, blocked) }()
+	joined := false
+	t.Cleanup(func() {
+		g.release()
+		if !joined {
+			select {
+			case <-published:
+			case <-time.After(2 * time.Second):
+				t.Error("HARNESS: publication producer did not stop")
+			}
+		}
+	})
+	select {
+	case err := <-published:
+		joined = true
+		require.NoError(t, err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	g.release()
+	if !joined {
+		select {
+		case err := <-published:
+			joined = true
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("HARNESS: publication did not complete")
+		}
+	}
+}
+
+func TestFormalWatchInitialParking(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "ordered"}[ordered], func(t *testing.T) {
+			shortenNackRetry(t, time.Second, time.Second)
+			h, g := formalWatchHarness(t, ordered)
+			first := formalWatchFirst(t, h)
+			g.arm()
+			formalWatchNack(h, first)
+			formalWatchRead(t, g, "1")
+			formalWatchInterleave(t, h, g)
+			formalWatchAwait(t, g.parked, "parked admission")
+			require.Equal(t, 1, g.GetStatusInfo(adsTestNodeID).GetNumWatches(), "WATCH-INITIAL-ACCOUNTING: initial parking lost the watch")
+			h.setSnapshot(edsOnlySnapshot(t, "3", adsTestCluster))
+			h.receiveType(envoyresource.EndpointType, "3")
+		})
+	}
+}
+
+func TestFormalWatchRetryReplacement(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "ordered"}[ordered], func(t *testing.T) {
+			shortenNackRetry(t, 200*time.Millisecond, 200*time.Millisecond)
+			h, g := formalWatchHarness(t, ordered)
+			first := formalWatchFirst(t, h)
+			formalWatchNack(h, first)
+			formalWatchAwait(t, g.parked, "parked admission")
+			g.arm()
+			formalWatchRead(t, g, "1")
+			formalWatchInterleave(t, h, g)
+			formalWatchAwait(t, g.replaced, "replacement admission")
+			// The serialized retry can already have answered version 1. Otherwise the
+			// old watch must still deliver the later compatible correction.
+			if g.GetStatusInfo(adsTestNodeID).GetNumWatches() == 0 {
+				select {
+				case response := <-h.stream.sent:
+					require.Equal(t, "1", response.GetVersionInfo())
+				case <-time.After(time.Second):
+					t.Fatal("WATCH-RETRY-ACCOUNTING: replacement lost the watch without a response")
+				}
+			} else {
+				h.setSnapshot(edsOnlySnapshot(t, "3", adsTestCluster))
+				h.receiveType(envoyresource.EndpointType, "3")
+			}
+		})
+	}
+}
+
+func TestFormalWatchVersionReturn(t *testing.T) {
+	for _, ordered := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "ordered"}[ordered], func(t *testing.T) {
+			shortenNackRetry(t, 200*time.Millisecond, 200*time.Millisecond)
+			h, g := formalWatchHarness(t, ordered)
+			first := formalWatchFirst(t, h)
+			formalWatchNack(h, first)
+			formalWatchAwait(t, g.parked, "parked admission")
+			h.setSnapshot(edsOnlySnapshot(t, "2", adsTestCluster, "unrequested"))
+			g.arm()
+			formalWatchRead(t, g, "2")
+			g.release()
+			h.setSnapshot(edsOnlySnapshot(t, "1", adsTestCluster))
+			select {
+			case response := <-h.stream.sent:
+				require.Equal(t, "1", response.GetVersionInfo())
+			case <-time.After(2 * time.Second):
+				require.Equal(t, 1, g.GetStatusInfo(adsTestNodeID).GetNumWatches(), "HARNESS: retained watch missing")
+				// Demonstrate that the server/cache still work; isolate retry loss.
+				h.setSnapshot(edsOnlySnapshot(t, "3", adsTestCluster))
+				h.receiveType(envoyresource.EndpointType, "3")
+				t.Error("WATCH-RETRY-PERSISTENCE: no retry after the rejected version returned")
+			}
+		})
+	}
+}

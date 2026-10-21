@@ -40,7 +40,6 @@ counterexample** at these pins; this does not mean every update fails.
 | PR #14717 fixes initial selection of proxy clusters named only by a kept backend's own listener | Before/after actual KRT/publisher fixture: REFERENCED fails at parent `350554e6f3c3` and passes at `2fe5bab3179d` and final tip; ALL controls pass |
 | The new helper computes the intended finite closure | Actual helper/scanner versus an independent graph oracle on all 28,672 three-name inputs; three race-enabled repetitions at the final tip; no unbounded Go proof |
 | Carrying an old backend can drop its owned listener and secret; REFERENCED also drops its proxy | Five designated desired-property failures in actual KRT/publisher/cache at both PR revision and final tip; temporary missing translated row, route still present, no explicit error or expiry |
-| Dropping that owned listener can break forwarding | Actual emitted snapshots replayed through the real cache/server and enterprise standard Envoy 1.39.4-patch2: baseline 200, active carried cluster without its listener, then fresh 503 requests in both modes; no full CONNECT/Kubernetes deployment claim |
 | A backend-listener dynamic fallback is hidden from the disabled-scoping gauge | Final-tip implementation test: emit-all fallback, gauge expected one but actually zero; source also omits the transition warning for this cause (P3) |
 | Closure must include the root's reachable owned dependencies | Seven abstract Lean structural proofs and four bounded TLC profiles; current selection counterexamples and proposed closure controls; no Go refinement, delivery or liveness theorem |
 
@@ -52,50 +51,30 @@ record exact tests, scope and remaining work. The backend carry remedy exists
 only in the specification; production source is unchanged. Raw captures,
 receipts and logs remain outside Git.
 
-Validation: the final five-profile matrix matches 42 required Go executions
-and two live counterexamples, rejecting 22 capture mutations. All seventeen
+Validation: the final five-profile matrix matches 42 required Go executions. All seventeen
 earlier history and six rewarming properties pass at the new tip. The final
 nine-property fixture matches its designated outcomes in three race-enabled
 repetitions. Full `CGO_ENABLED=0 make formal-lean` passes 50 model expectations,
 603 research Go test events, 27 snapshot traces and four lifecycle traces;
 all 83 required TLC outcomes match. The native five-package updated-stack race
 suite passes 1,961 test events. Fifteen harness tests, fixture checks, workflow
-lint and whitespace checks pass. Public CI explicitly omits the private-image
-live replay; no remote workflow was run by this session.
+lint and whitespace checks pass. The public runner checks the Go/KRT boundary;
+no remote workflow was run by this session.
 
-## October 20 downstream rewarming correction
+## October 20 rewarming correction
 
-The latest rewarming comparison is proposed stack `faaaaf68d552` versus
-`ab9865b83e63`, using downstream `dcfc92b5c210` with its dependency replaced
-only in an isolated copy. These subjects supersede older stack identities for
-this finding; the October 19 profile below and its results remain historical.
-The research implementation has not adopted the stack's replay policy.
+The immutable upstream subjects are historical `faaaaf68d552` and repaired
+`ab9865b83e63`. Source commit `5c5b456be396` makes changed-CDS dependencies
+eligible for a same-version EDS response. The research production code has not
+adopted that policy.
 
-| Conclusion | Evidence level and boundary |
-|---|---|
-| A BackendConfigPolicy update can leave the old cluster serving for about 15 seconds when EDS arrives before changed CDS | Live downstream setup/plugins/KRT, envtest Kubernetes and enterprise Envoy 1.39.4-patch2: five stalls in 32 add/remove transitions across ALL and REFERENCED; wire, admin state and traffic checked separately |
-| An RDS route to a new DNS backend can return 500 while its CDS waits behind that warming | Live historical REFERENCED run: route present, cluster absent, 500s during warming, recovery to 200 after CDS resumes |
-| The author's October 20 fix answers the held-version request and removes this measured stall | Source commit `5c5b456be396`; live repaired-tip rerun: 16 transitions applied in 215–229 ms, four EDS-before-CDS schedules received a fresh same-version EDS response 1–5 ms after CDS, no mid-run EDS timeout |
-| The failure and repaired server behavior are durable regression obligations | `make formal-stack-rewarming`: six properties per immutable pin; four designated historical failures and two controls, then six repaired passes, with mock stream transport and CDS deliberately unacknowledged |
-| The modeled replay path can progress without expiry | Four bounded TLC profiles with explicit weak fairness; not the Lean reachability claim and not a Go liveness or quantitative deadline proof |
-
-The live runs used ARM64 Docker Desktop, two Envoy workers, disabled xDS
-authentication, an isolated Kubernetes API and a fixture HTTP upstream. They
-execute downstream controller translation but not a deployed Kubernetes
-installation or every `main.go` option/controller. The fixed run did not
-execute its conditional new-DNS insertion because no warming interval was
-sampled. FIPS, alias/shared assignments, rejection, send failures, multiple
-streams and overlapping changes remain unvalidated for this repair.
-[RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
-records the exact subjects, remaining obligations and external capture locations.
-No new product policy or timeout default is introduced into this research tree.
-
-Validation of this update: full `CGO_ENABLED=0 make formal-lean` passes 50 model
-expectations and 603 Go test events, with 27 snapshot and four lifecycle traces.
-All 79 required TLC outcomes match. The new immutable before/after regression,
-nine harness tests, 18 repaired race-test passes and workflow lint pass. CI now
-requires both immutable rewarming profiles; no remote workflow was run by this
-session. Raw logs and receipts remain external artifacts.
+`make formal-stack-rewarming` preserves four designated historical failures and
+two controls, then requires all six properties to pass at the repaired pin.
+These tests use the real cache/server and mock transport with changed CDS
+unacknowledged. Four bounded TLC profiles distinguish replay progress under
+explicit fairness from cached-timeout fallback. Neither is a general Go
+liveness proof or a runtime latency guarantee. See
+[RF-033](research-findings.md#rf-033-policy-rewarming-and-the-october-20-stack-fix).
 
 ## October 19 timeout extension
 
@@ -115,24 +94,16 @@ The fifteen added TLC configurations bring the required suite to 75, all matchin
 their designated outcomes; the original wide ADS model remains explicitly
 deferred. Full `make formal-lean`, four race-enabled probe tests, ten timeout
 harness tests, five live harness tests, scoped Go lint and workflow lint pass.
-The existing sixteen direct Envoy profiles and twelve legacy runtime/image
+The existing sixteen direct Envoy profiles and four upstream runtime/image
 profiles were rerun successfully.
 
-The corrected live setup/bootstrap matrix completed all 36 histories: 24 repaired
-passes and 12 historical counterexamples. Its final independent audit checked
-156 admin/application observations, 2,318 HTTP samples and 504 capture mutations
-without changing original captures or fixture hashes. These are new October 19
-observations; older run counts below remain historical. Pinned Helm 3 rendering
-was byte-identical to the Helm 4 bootstraps used for this complete live run.
-
-The direct timeout acceptance matrix passed all 64 histories across four image
-digests and both worker counts: 176 independent observations and 624 rejected
-mutations, using repository-pinned Helm 3. Details and limits are recorded in the
-[timeout profile](timeouts/README.md). Its supplied translations are separate
-from live setup/KRT publication coverage. Enterprise standard/FIPS binaries
-remain in scope, without a claim of full downstream controller execution or
-validated deployment. Generated artifacts stay outside Git. No production
-timeout default or publication policy is changed.
+The corrected upstream live setup/bootstrap histories completed their repaired
+and historical-counterexample outcomes. The upstream timeout histories also
+passed on both public image digests and both worker counts. Independent admin,
+application and HTTP observations remain separate from installation and ACK;
+checker mutations rejected corrupted captures. See the [live](live/README.md)
+and [timeout](timeouts/README.md) profiles for their bounds. Generated artifacts
+stay outside Git. No production timeout default or publication policy changed.
 
 ## Profile
 
@@ -148,11 +119,9 @@ and historical `7d930bb2183b`.
 |---|---|
 | Research | Lifecycle/composed-runtime work, live setup/KRT/timer histories, timed bounded models and new abstract timeout Lean proofs; production publication code unchanged |
 | Updated proposed stack | `kgateway-dev/kgateway` stack 14817, pinned at `8e75468f4d0e055deb9b8f34e4254831f011e2a3`; **not ported into this tree**; earlier immutable profiles and counterexamples preserved |
-| Downstream source | kgw-ent `1bc4cde8b4edc780135c98d2268f43289978373c`, kgateway dependency `acd13c6f53d1`; ordinary upgrade adaptation is assumed; no downstream controller deployment validated |
 | Deployment | No live deployment identified by this review |
 | Cache/server | `v0.14.1-0.20260702184136-1cd1226616f5`; parked-watch retention and unsubscribe fixes present, immediate-decline loss remains |
 | Research/upstream default Envoy | v1.39.4; the new live profile pins digest `sha256:74bd4eb5629708d3fadca1a5e6b85d208f338d7bb54e06b69565905c5294cc01` separately from the older v1.39.1 direct probes |
-| Downstream defaults | enterprise standard/FIPS `v1.39.1-patch1`; four direct runtime scenarios now measured on each digest in `runtime/profiles.json`; downstream controller integration remains unvalidated |
 | Recorded direct Envoy evidence | v1.39.1 digest `sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4`; bootstrap/runtime-specific |
 | Lean | `leanprover/lean4:v4.30.0` |
 
@@ -196,9 +165,7 @@ The October 16 validation recorded a complete
 required research run: 50 Lean expectations, 598 Go cases, 27 snapshot/four
 lifecycle traces, the then-required 57 TLC configurations, sixteen direct Envoy
 scenarios and all historical controls. The original wide ADS bounds remain
-deferred. Four upstream runtime scenarios passed initially; an enterprise
-warming attempt failed before ADS traffic, then all eight standard/FIPS
-scenarios passed on a fresh rerun. Both outcomes are retained. The new stack's
+deferred. Four upstream runtime scenarios passed. The new stack's
 four-package race suite separately passed 1,105 cases. These runs are not
 whole-repository/e2e/image/deployment validation.
 
@@ -222,7 +189,7 @@ whole-repository/e2e/image/deployment validation.
 | Cold permanent-missing CDS publication | Cache-boundary probe, TLC temporal counterexample (RF-003) | Whole first publication withheld indefinitely; classification policy proposed, not implemented; nil-translation drop RF-024 reproduced with a synthetic plugin, fix open |
 | Snapshot trace validity | Per-event structural checks plus per-client EDS version relation (schema 2) | No lifecycle, acceptance, or activation replay; churn is counted, not failed |
 | Controlled lifecycle observations | Four real cache/server traces, strict Go replay and negative mutation tests | Records readback, watch disposition, response callbacks, mock transport and nonce-correlated ACK/NACK; separate from snapshot traces and live Envoy observations; no internal enqueue or application inference |
-| Held reconnect rollback and recovery | Actual pinned stack gate, GCP cache/server, real gRPC and independent Envoy admin/HTTP observations on upstream and enterprise standard/FIPS | One key/proxy, two controlled controller instances, warm-state stub, delayed Send and direct timer invocation; raw unordered ADS excludes setup decorators/authentication; six observations per image; no downstream controller or natural timer scheduling evidence |
+| Held reconnect rollback and recovery | Actual pinned stack gate, GCP cache/server, real gRPC and independent Envoy admin/HTTP observations on upstream Envoy | One key/proxy, two controlled controller instances, warm-state stub, delayed Send and direct timer invocation; raw unordered ADS excludes setup decorators/authentication; six observations per image; no downstream controller or natural timer scheduling evidence |
 | Held reconnect model projection | Same TLA Step relation checks three observed 13-state projections; fenced bounded model checks 20 states plus conditional temporal recovery | Existential interval adapter is not verified refinement; malformed projection must fail ReplayOK; old-cache/stale-timer negative controls required; fairness of input, transport, application and timer execution remains assumed |
 | Repaired publication histories through setup and Envoy | Live profile at 8e7546 checks queued reconnect, fresh carry episodes, reset/adoption exclusion and undrained cancellation; historical 7d930 supplies two required application-level counterexamples | Supplied translated snapshots and fixture TokenReview; Start wiring mirrored by a tagged test bridge; finite observations on one key/proxy; no full controller, shared-key, TLS or deployment proof |
 | Admission/pending timer boundary | AdmissionPending checks atomic reset/adoption in 12 states and a separate captured-origin proposal in 22; split mode reproduces NoEarlierPendingResponse failure | Bounded safety model; no Go refinement map, general revision-freshness theorem or temporal liveness claim |
@@ -235,7 +202,6 @@ whole-repository/e2e/image/deployment validation.
 | Control-plane and proxy restart | Directly characterized through SnapshotCache in both ADS modes, including a restart during rewarming (RF-028); TLC counterexample and three passing configurations in `ReconnectWhileWarming.tla`; live XdsWarming restart-during-warming test passed once | Empty cache is harmless while the proxy keeps serving; reconnect carries versions without nonces; a restarted proxy is served from the warm cache; a reconnect while a cluster is warming re-requests EDS, LDS, RDS but not CDS until EDS completes the warming, so a withheld or equal-version-parked EDS can block CDS repairs until EDS completion or initial-fetch expiry (nominally 15s on generated EDS, where cached EDS can complete warming; no hard scheduling bound, and disabled timers permit indefinite waiting); the kgateway first-publish gate for a cache-less client is not exercised |
 | Initial fetch timeouts | Pinned source/rendering, fifteen timed TLC configurations, seven abstract Lean safety theorems and source-specific direct runtime histories (RF-032); historical synthetic 2s probe retained | Parent CDS/LDS timers are disabled; local EDS uses 1s; default EDS/RDS expiry can initialize degraded state or use cached EDS. Readiness is not completeness, cache is not fresh receipt, and nominal durations do not prove a global deadline; runtime replacement/error/rejection coverage and refinement remain open |
 | Envoy initialization/traffic | Directly characterized for two pinned profiles plus the references scenario | Empty EDS initializes; panic changes selection; dangling RDS is per-route 503; NACK applies valid siblings (RF-026); broader ENV-A1 remains open |
-| Enterprise standard/FIPS runtime | Direct observations on both pinned v1.39.1-patch1 images: legacy warming/references/secrets/restart plus live publication and source-specific timeout histories, including one and two workers | Finite arm64 Docker observations; no full downstream controller/peering/enterprise extension integration, standalone SDS, or certification claim |
 | Hash injectivity | Open abstraction assumption; contract stated in Lean, version reuse detected per run | Finite-width digest cannot be unboundedly injective; even sets of distinct contributions can share an XOR version; the toy collision remains a negative control |
 | KRT recovery | Open; temporal claim stated with explicit fairness (RF-005) | No deployed watchdog exists; progress rests on KRT delivery, which is unverified; a stale-replay watchdog would not help |
 | Historical coverage | Complete title/body inventory, seventy-two detailed dispositions | Candidate classification, linked-source audit, and non-keyword review remain open |
@@ -280,7 +246,7 @@ as `12ec187d6042`. It is preserved separately from the lifecycle extension below
 
 The Lean runner records HEAD, the tracked working diff, added-file digests,
 dependency digests, tool versions, and execution receipts. New live warming,
-downstream adoption, enterprise/FIPS, cancellation-race, and composed
+cancellation-race and composed
 cache-to-application evidence remain open in the research plan. No dependency
 bump, downstream source change, commit, or deployment was part of that update.
 
@@ -295,13 +261,10 @@ bump, downstream source change, commit, or deployment was part of that update.
   temporal failures. Original broad ADS bounds remain deferred.
 - **Implementation evidence:** the updated stack runner reproduced eleven exact
   assertion failures after independently recording its two pristine compilation
-  failures; production Go digests remained unchanged. The downstream copy
-  reproduced the constructor mismatch and all three missing client-state
-  methods, with 64 top-level tests / 137 test events passing in selected packages.
-- **Runtime evidence:** all twelve digest-pinned combinations passed (four
-  scenarios each on upstream, enterprise standard and enterprise FIPS Envoy).
+  failures; production Go digests remained unchanged.
+- **Runtime evidence:** all four upstream digest-pinned scenarios passed.
   Required phase receipts, admin dumps, HTTP/TLS observations, image architecture
-  and hashes are retained. These run the direct probe, not a kgw-ent controller.
+  and hashes are retained. These run the direct probe, not a full controller.
 - **Trace evidence:** `make formal-lean` requires four fresh cache/server traces
   in addition to the 27 existing snapshot scenarios; the checker rejects
   incomplete or uncorrelated observations. Snapshot-to-lifecycle joining and
@@ -312,9 +275,7 @@ bump, downstream source change, commit, or deployment was part of that update.
   passed 25 test events without a reported race. Eight regression-harness tests,
   one runtime-receipt mutation test, Go analysis and workflow lint also passed.
 
-Commands, exact identities and receipt hashes for this extension are summarized
-in [the extension receipt](receipts/2026-10-16-lifecycle-extension.json). Public CI requires the updated
-stack baseline, lifecycle receipts and upstream runtime profile. Private
-downstream/enterprise profiles run explicitly; they are not silently skipped or
-claimed covered by public CI. No product dependency, deployment or Git state was
+Commands and exact identities are recorded in the source profiles; execution
+records remain outside Git. Public CI requires the updated
+stack baseline, lifecycle receipts and upstream runtime profile. No product dependency, deployment or Git state was
 changed by this extension.

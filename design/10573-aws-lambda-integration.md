@@ -69,7 +69,7 @@ The API is designed with the following key considerations:
    - Including examples in documentation
    - Making defaults and behaviors explicit
 
-This approach ensures that while the core OSS functionality remains focused and maintainable, the architecture can support advanced features like API Gateway compatibility that many enterprise customers require.
+This approach ensures that while the core OSS functionality remains focused and maintainable, the architecture can support advanced features like API Gateway compatibility that many users require.
 
 ### API Changes
 

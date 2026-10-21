@@ -40,7 +40,7 @@ def main():
     for name in args.profile or list(profiles["images"]):
         image = profiles["images"][name]["image"]
         # Pulling is explicit and fails closed. Public CI need only select the
-        # upstream profile; enterprise images require an authorized registry.
+        # upstream profile.
         with (out / f"{name}-pull.log").open("w") as log:
             subprocess.run(["docker", "pull", image], stdout=log, stderr=subprocess.STDOUT, check=True, timeout=240)
         inspected = json.loads(subprocess.check_output(["docker", "image", "inspect", image]))[0]

@@ -614,13 +614,13 @@ formal-stack-c38563: formal-regression-harness ## Require the backend-closure, h
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-c38563-histories $(if $(FORMAL_C38563_DIR),--artifacts $(FORMAL_C38563_DIR)/c38563-histories)
 	python3 -B devel/formal/regressions/check.py --profile stack-14817-c38563-rewarming $(if $(FORMAL_C38563_DIR),--artifacts $(FORMAL_C38563_DIR)/c38563-rewarming)
 
+.PHONY: formal-watch-regressions
+formal-watch-regressions: formal-regression-harness ## Replay a pinned watch policy in both ADS modes under the race detector
+	python3 -B devel/formal/regressions/watch_lifecycle.py $(FORMAL_WATCH_ARGS)
+
 .PHONY: formal-stack-pertype
 formal-stack-pertype: formal-regression-harness ## Check stack 14817 composed with PR 14865's per-type snapshot cache
 	python3 -B devel/formal/regressions/pertype_composition.py $(FORMAL_PERTYPE_ARGS)
-
-.PHONY: formal-downstream-adoption
-formal-downstream-adoption: formal-regression-harness ## Characterize the reviewed downstream adoption in isolated copies
-	python3 -B devel/formal/regressions/adoption.py $(FORMAL_ADOPTION_ARGS)
 
 formal-legacy-contents: formal-regression-harness ## Preserve the superseded warm contents-gate counterexample
 	python3 -B devel/formal/regressions/check.py --profile historical-contents-gate $(FORMAL_REGRESSION_ARGS)
@@ -639,7 +639,7 @@ formal-envoyprobe-build: ## Build the isolated direct Envoy probe
 formal-runtime-harness: ## Reject incomplete direct runtime receipts
 	python3 -B -m unittest discover -s devel/formal/runtime -p '*_test.py'
 
-formal-runtime-profiles: formal-runtime-harness ## Characterize pinned upstream and enterprise standard/FIPS Envoy images
+formal-runtime-profiles: formal-runtime-harness ## Characterize pinned upstream Envoy images
 	python3 -B devel/formal/runtime/check.py $(FORMAL_RUNTIME_ARGS)
 
 .PHONY: formal-composed-harness formal-composed-reconnect

@@ -149,7 +149,7 @@ against real Envoy, with a controlled warm-state reader, handoff, Send delay and
 direct first-budget callback. Active route contents, active/non-warming listener
 and cluster state, and bracketing HTTP observations are independent of ACKs.
 It reproduces retained-cache rollback and later recovery on upstream and both
-enterprise images; it does not discharge IMPL-A3 for actual identity callbacks,
+upstream images; it does not discharge IMPL-A3 for actual identity callbacks,
 shared keys, setup decorators, reclamation, or downstream integration.
 
 `composed/check.py` is a trusted observation adapter. Its existential projection

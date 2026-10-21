@@ -2,7 +2,7 @@ These are proposed upstream fixes for the two remaining bugs reviewed at
 `kgateway-dev/kgateway` revision `7d930bb2183b90343f9613f03dcd345973fc9f38`
 (stack #14817, ending in PR #14721). Apply them in numeric order. Both include
 upstream-native regression tests. No Git or GitHub state was changed, and no
-production source in the research or downstream checkout was edited.
+production source in the research checkout was edited.
 
 | Patch | Behavior fixed | Implementation evidence |
 | --- | --- | --- |
@@ -27,7 +27,6 @@ limitations; `evidence/` retains the logs and machine-readable results.
 | All 16 pinned review histories | Passed in three independent `-race -count=1` runs. | Go/KRT/admission/real SnapshotCache, ending at the response channel. |
 | Scoped repository lint/format checks | Zero issues in `pkg/kgateway/proxy_syncer`. Run through a Make target using repository lint configuration. | Static checks. |
 | Required TLA+ suite | All 57 configurations produced their expected success or designated counterexample; wide ADS remains deferred. | Bounded model checking, including temporal properties under each model's explicit fairness assumptions. |
-| Downstream proposed dependency adoption in scratch | 64 existing top-level tests / 137 cases passed. The existing constructor mismatch and four missing client-state methods still reproduced. | Downstream Go compilation/unit evidence; adoption remains incomplete. |
 
 The unchanged `CarryEpisodesReset` model checks the recovery-reset policy (82
 states). The unchanged `QueuedPublicationCapturedOrigin` model checks a different
@@ -76,8 +75,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -B \
 These checks do not constitute full-repository unit/e2e/image validation or
 proof of xDS correctness. No live Envoy was run against these patches; cache
 installation and response-channel receipt do not establish wire delivery, ACK,
-or applied configuration. The downstream constructor/state-contract adoption
-work remains separate. Lean was not rerun for this patch-only change; its prior
+or applied configuration. Lean was not rerun for this patch-only change; its prior
 research receipt is not relabeled as evidence about the proposed upstream code.
 
 During patch development, broad tests found shared metric-counter contamination

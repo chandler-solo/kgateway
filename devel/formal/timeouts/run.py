@@ -71,7 +71,7 @@ def main():
                'runner_sources': {p.name: digest(p) for p in HERE.glob('*.py')},
                'images': {}, 'runs': [],
                'limits': ['finite observation windows', 'no exact internal timer-arm instrumentation',
-                          'no model-to-Go/Envoy refinement proof', 'no full Kubernetes or kgw-ent controller execution']}
+                          'no model-to-Go/Envoy refinement proof', 'no full Kubernetes controller execution']}
     jobs = []
     for profile in args.profile or profiles['images']:
         image = profiles['images'][profile]['image']

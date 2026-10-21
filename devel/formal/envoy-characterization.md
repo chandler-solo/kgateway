@@ -1,35 +1,5 @@
 # Direct Envoy characterization
 
-## October 20 downstream-controller comparison
-
-The separate RF-033 repro now drives a real downstream controller against an
-isolated Kubernetes API, rather than supplying translated snapshots directly.
-Downstream `dcfc92b5c210` with upstream `faaaaf68d552` and enterprise Envoy
-1.39.4-patch2 reproduced five 15-second policy-update stalls in 32 transitions.
-EDS arrived before changed CDS; the later held-version request received no
-response, the old cluster kept serving, and generated EDS's unset timeout
-eventually released warming. In one REFERENCED run a new DNS route returned 500
-while its cluster's CDS was paused, then 200 after delivery resumed.
-
-Replacing only that isolated dependency with current stack `ab9865b83e63`
-verified the author's `5c5b456be396` repair: all 16 transitions had measured
-activation latencies of 215–229 ms, with 200-ms polling. Four EDS-before-CDS schedules
-received the missing same-version EDS response 1–5 ms after CDS. Admin state and
-traffic independently confirmed activation; no mid-run fetch timeout occurred.
-DNS insertion was conditional on observing warming and did not execute in the
-fixed run, so it is not a passing fixed-DNS result.
-
-The binary was digest-pinned enterprise standard release
-`sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3`,
-linux/arm64 with two workers; the failed CI job used amd64. The copied CI
-bootstrap retained CDS/LDS `0s`, local EDS `1s` and generated EDS's unset `15s`
-default. xDS authentication was disabled and the HTTP upstream was a fixture.
-This is live implementation evidence for the named combination, not a complete
-deployment or model-refinement proof. The earlier direct profiles below remain
-unchanged and continue to reproduce the plain-cache behavior. See
-[the finding](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
-and the durable [cache/server regression](regressions/README.md#october-20-rewarming-regression).
-
 This harness runs a scripted SotW ADS service and a real Envoy, without
 kgateway translation/readiness gates or go-control-plane SnapshotCache. It
 records discovery requests/responses, admin configuration/cluster state,
@@ -293,7 +263,7 @@ are unset (`15s`), independently of their parents. A timeout does not prove
 resource receipt, complete configuration, forwarding or a hard global deadline.
 The [source-specific profile](timeouts/README.md) adds actual chart rendering,
 explicit disabled controls, default-15s observations and cached rewarming across
-pinned upstream and enterprise images. The two-second experiment below remains
+pinned upstream images. The two-second experiment below remains
 historical evidence for its own synthetic configuration.
 
 
@@ -370,13 +340,12 @@ The admin config dump reported CDS and LDS `version_info` `r1` after Envoy had
 ACKed `r3`: the accepted update changed no resource Envoy held, so the dump
 version does not record the ACK. Wait on the wire ACK, not the dump.
 
-The same observations held on October 20 in seven further runs: upstream
-v1.39.1 without ordered ADS; upstream v1.39.4 (`sha256:74bd4eb5…`) in both modes
-and with two workers; enterprise standard v1.39.4-patch2 (`sha256:66612e48…`)
-in both modes; and enterprise FIPS v1.39.1-patch1, ordered.
+The same observations held on October 20 on upstream v1.39.1 without
+ordered ADS and upstream v1.39.4 (`sha256:74bd4eb5…`) in both modes and with
+two workers.
 
 `-scenario stranded-fresh` starts a new proxy while a rejected EDS cluster `x` is
-already published beside a serving cluster `a`. In all eight runs (the same
+already published beside a serving cluster `a`. In the public upstream runs (the same
 images, modes and workers), Envoy requested EDS for `a` only and no EDS response
 was sent. `a` initialized with no hosts at its fetch timeout after 14.97–15.03 s,
 `/ready` returned 200 and `/a` returned 503 while routes arrived normally.

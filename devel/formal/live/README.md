@@ -1,13 +1,13 @@
 # Publication histories through control-plane setup and real Envoy
 
 `make formal-live-publication` checks historical `7d930bb2183b` counterexamples
-and the repaired `8e75468f4d0e` stack against digest-pinned upstream v1.39.4 and
-enterprise standard/FIPS v1.39.1-patch1 Envoy. Each runs with one and two workers.
+and the repaired `8e75468f4d0e` stack against digest-pinned upstream v1.39.4
+Envoy. It runs with one and two workers.
 Original production Go files and module dependencies remain unchanged in fresh
 archive copies. This does not deploy or port the stack into the research tree.
 
 ```sh
-# All three images, both revisions, one and two workers.
+# Public upstream image, both revisions, one and two workers.
 make formal-live-publication
 # Public CI profile; outputs belong outside the repository.
 make formal-live-publication FORMAL_LIVE_ARGS='--profile upstream-current --artifacts /tmp/xds-live-new-run'
@@ -101,23 +101,22 @@ application/authentication/warm-history/transport evidence, wrong identity,
 nonce, response bytes, admin hash, HTTP result and terminal status. Changing
 active route content while also updating the artifact hash must still fail.
 The October 19 checker also rejects silently defaulting bootstrap CDS to 15s;
-the full 36-capture audit rejects 504 mutations.
+the recorded audit rejects bootstrap and application mutations.
 Generated captures stay outside Git; historical source fixtures/counterexamples
 remain intact.
 
-The October 17 corrected-version run completed all 36 histories: 24 repaired
-passes and 12 required historical counterexamples, with race detection. It
-ran on arm64 Docker Desktop and recorded 156 independent application observations
-and 2,390 continuous HTTP samples. The final checker audit rejected 13 mutations on each fresh real
-capture (468 checks), including artificial EDS versions and changed assignment
+The October 17 corrected-version run completed the upstream histories, including repaired passes
+and required historical counterexamples, with race detection on arm64 Docker
+Desktop. The final checker audit rejected 13 mutations on each fresh real
+capture, including artificial EDS versions and changed assignment
 bytes at an unchanged contribution. Exact current fixture hashes, original
 production source hashes and module dependencies were verified. Exploratory
 runs using opaque input EDS versions are not the acceptance evidence.
 
 The October 19 rerun with the rendered local-cluster/parent-timeout graph again
-completed all 36 histories with race detection: 24 repaired passes and 12
-historical counterexamples, 156 admin/application observations and 2,318 HTTP
-samples. The final checker audit rejected 504 mutations. The full run used local
+completed the upstream histories with race detection, independent
+admin/application observations and HTTP samples. The final checker audit
+rejected the required capture mutations. The full run used local
 Helm 4; separately rendering both frozen charts with repository-pinned Helm 3
 produced byte-identical bootstrap JSON. CI now supplies the pinned Helm tool.
 The original captures remain unchanged; public GitHub CI itself was not run by
@@ -136,7 +135,4 @@ Run the actual Kubernetes controller's XdsWarming, XdsStarvation and
 XdsIdentityRace suites on the selected product image. Add real token review/TLS,
 pod-locality drift, multiple simultaneous cold/warm streams, HA replica skew,
 blocked/cancelled transport, NACK retry/backoff, reference-ahead/dereference
-windows, SDS rotation and revocation, and downstream enterprise extensions.
-The enterprise binary runs exercise this same upstream control-plane profile;
-they do not execute the kgw-ent controller or certify FIPS behavior. Routine
-downstream adaptation is upgrade work, not a product finding in this profile.
+windows, SDS rotation and revocation.

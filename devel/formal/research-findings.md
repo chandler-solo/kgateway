@@ -878,7 +878,7 @@ it does not mark that defect fixed. See [the program plan](xds-formal-research-p
   trace checker still counts the input-only pushes.
 
 - Response-order correction (2026-10-20, RF-033): policy-coupled EDS input
-  hashes do not guarantee a response after CDS. Actual downstream KRT can
+  hashes do not guarantee a response after CDS. The KRT publication path can
   publish and deliver the changed EDS version before the cluster change; the
   subsequent warming request then holds that same version. The author's
   separate per-stream watch-policy fix answers that request without another
@@ -1261,12 +1261,6 @@ The dated entries below preserve historical outcomes for their exact pins.
   error cannot substitute for execution of the nine property tests.
 - Source-only metric finding: reconnect_responses_total counts rewriting before
   CreateWatch can park or decline; it does not prove a response was delivered.
-- Downstream review source `1bc4cde8b4ed` fails a literal dependency-only build
-  at NewControlPlane's new arguments. A signature-only update compiles but omits
-  XDSClientState: warm reconnect classification and departed snapshot reclamation
-  are not integrated. Port the state while retaining downstream authentication,
-  Gateway role resolution, identity-drift handling, and Delta rejection. These
-  downstream fixes are outside this research worktree.
 - Research changes: preserve current shared assignments when carrying clusters;
   use a separate retained-dependency closure, including transitive clusters and
   conservative opaque/dynamic fallback, with errored clusters excluded. EDS
@@ -1305,14 +1299,6 @@ All eleven tests must execute and fail at the designated assertion, with no
 production Go changes, skips or panics. Candidate mode requires pristine builds
 and all properties to pass; it never applies the baseline adapters.
 
-**Downstream implementation evidence:** the new isolated adoption harness
-reproduces the NewControlPlane constructor mismatch and compile-time absence of
-HasPriorXDSVersion, HasColdStreamSince and RunIfDisconnected on downstream
-callbacks. The five selected existing packages pass 64 top-level / 137 total
-test cases against the updated dependency. Those tests do not exercise the
-missing shared warm/cold state or prove controller wiring. The actual checkout
-and dependency remain unchanged.
-
 **Abstract/temporal evidence:** new Lean proofs express payload/contribution
 selection and equality adequacy; new TLC models separate lost admission,
 canceled partial fan-out, retry, send, ACK/application and connection cache/queue
@@ -1321,11 +1307,11 @@ preserved negative controls. None establishes Go refinement or hash injectivity.
 
 **Observed trace/runtime evidence:** four strict cache/server traces now run in
 the Lean gate. Separate direct Envoy runs pass warming, references, ADS secrets
-and restart on upstream and enterprise standard/FIPS digests (twelve scenarios).
+and restart on the upstream digest (four scenarios).
 The kgateway-shaped restart profile retains the unset-timeout/EDS-cache
 correction; this is not a universal 15-second recovery bound. Full controller
 traces, held flips/carry under real timer schedules, authenticated HA, peering,
-enterprise extension semantics and standalone SDS remain open. ACK is never
+extension semantics and standalone SDS remain open. ACK is never
 promoted to application evidence.
 
 ### RF-031 held reconnect composition, subsequent October 16 extension
@@ -1338,8 +1324,7 @@ A test controller handoff cancels B's server context; the same Envoy reconnects
 to A while A holds a rebuilt candidate. An intercepted old RDS Send lets the
 driver replace C with D in the same timer episode before releasing that Send.
 Both active route contents and traffic then regress from `accepted-b` to
-`old-a`, despite D still being withheld. This reproduced on upstream and
-enterprise standard/FIPS pinned images, arm64/one worker, six observations each.
+`old-a`, despite D still being withheld. This reproduced on the upstream pinned image, arm64/one worker, with six observations.
 
 Direct invocation of the stopped first-budget timer callback publishes D and
 omits its underived CLA; coherent recovery publishes derived empty truth.
@@ -1372,8 +1357,7 @@ shared-key/authenticated downstream integration, not a claim of xDS correctness.
 The latest reviewed proposed tip is
 `1e417af796a241a6aa286a240fe7855d1fab56da`, still thirteen PRs on base
 `982e29797b5028ca22d5c4ce41d06f427a8cdcd3`. Research HEAD is now
-`c80355675bea099274a8b14a6584023d4179b044`; downstream remains `1bc4cde8b4ed`
-with the old dependency. See the [full revised review](reviews/2026-10-16-stack-14817-1e417.md).
+`c80355675bea099274a8b14a6584023d4179b044`. See the [full revised review](reviews/2026-10-16-stack-14817-1e417.md).
 
 **Executed Go evidence:** pristine test-package compilation is repaired and nine
 of the previous eleven desired properties pass. The claim leak remains. The
@@ -1392,13 +1376,10 @@ promoted to a temporal proof. Together with global claim leakage, these are the
 four failures required by `make formal-stack-1e417`; ten other properties must
 pass. Old source profiles, test fixtures and runtime counterexamples remain.
 
-**Downstream implementation evidence:** the dependency-only constructor failure
-persists, as do the original three missing state methods; the new hook adds a
-fourth missing contract. The selected five existing suites still pass 64
-top-level / 137 total tests. Upstream existing suites pass 569 top-level / 1,813
+**Existing upstream suite evidence:** the suites pass 569 top-level / 1,813
 total cases, and the three core packages pass 373 top-level / 1,062 total cases
 with the race detector. These successes do not cover the demonstrated logical
-interleavings or complete downstream adoption.
+interleavings.
 
 **Formal/runtime boundary:** no theorem, model or live Envoy scenario was rerun
 as evidence for this tip. The earlier composed rollback remains an observation
@@ -1441,18 +1422,8 @@ Fresh validation completed the required research Lean/Go gate (50 executable
 expectations, 598 Go cases, 44 required unit receipts, 27 snapshot and four
 lifecycle traces), all 57 required TLC configurations, sixteen direct Envoy
 scenarios, historical regression profiles and the historical composed replay
-on three binaries. Original wide ADS bounds remain deferred. The new stack's
-existing race suite passed 1,105 cases. The first enterprise-standard warming
-probe timed out with no ADS request recorded and status 16 in Envoy's log; all
-eight standard/FIPS scenarios passed on a fresh rerun. Retain both results and
-do not attribute the unexplained first failure to this stack.
-
-Downstream remains at `1bc4cde8b4ed`, with actual kgateway dependency
-`acd13c6f53d1`. A fresh scratch adoption of 7d930 still fails the seven-versus-nine
-argument constructor check and all four client-state contracts, including
-SetConnectionStartHooks. All 137 selected existing downstream cases pass.
-SetupOpts still lacks XDSClientState wiring. No product implementation,
-dependency, Git/GitHub state or deployment was changed by this review.
+on the upstream binary. Original wide ADS bounds remain deferred. The new stack's
+existing race suite passed 1,105 cases.
 
 ### RF-031 October 17: repaired pin and live publication histories
 
@@ -1476,8 +1447,7 @@ The separate [live publication profile](live/README.md) extends assurance to
 actual NewControlPlane, KubeJWTAuthenticator, unique-client callbacks, watch
 decorators, KRT delivery, elapsed timers, gRPC and independently observed Envoy
 configuration and HTTP forwarding. Its defaults cover both 7d930 counterexamples
-and four repaired histories on upstream v1.39.4 and enterprise standard/FIPS
-v1.39.1-patch1, each with one and two workers. Historical queued rollback and
+and four repaired histories on upstream v1.39.4 with one and two workers. Historical queued rollback and
 premature carry removal must become observable in Envoy and traffic; the
 repaired profile must reject stale publication, restart the carry interval,
 exclude publication inside reset/adoption, and cancel an undrained timer before
@@ -1486,9 +1456,8 @@ coherent recovery. Fresh captures are mutated to test the checker itself.
 The actual Kubernetes token-review service is replaced by a fixture authority;
 translated snapshots are supplied and Start wiring is mirrored by an additional
 tagged test bridge. Original production source files and dependencies remain
-unchanged. These runs are neither the full Kubernetes controller pipeline nor a
-deployed kgw-ent validation. Enterprise binaries exercise the same upstream
-setup profile; ordinary downstream upgrade adaptation is not a new bug finding.
+unchanged. These runs do not execute the full Kubernetes controller pipeline
+or validate a deployed system.
 
 AdmissionPending adds the missing split reset/adopt boundary to the finite
 models. The split variant violates NoEarlierPendingResponse; atomic reset/adopt
@@ -1502,15 +1471,13 @@ Final live execution uses the production EDS version constructor for the
 fixture inputs. An independent checker requires the single ready/carried
 assignment to retain version 17 and its baseline bytes, and an omitted set to
 use version 0. This supersedes exploratory captures whose opaque fixture EDS
-versions could introduce an artificial push. All 24 repaired histories pass
-with race detection across the three pinned images and both worker counts;
-the two historical bugs reproduce in all six runtime profiles (12 runs).
-This execution used arm64 Docker Desktop; the configured public CI profile is
-separate and was not executed in GitHub by this session.
-There are 156 independently corroborated application observations and 2,390
-continuous HTTP samples. Rechecking every fresh capture with the final checker
-rejects all 468 deliberate mutations and verifies original source, fixture and
-dependency hashes. No additional medium-or-higher defect is established by these
+versions could introduce an artificial push. The repaired histories pass with
+race detection on the upstream image and both worker counts, and the two
+historical bugs reproduce. This execution used arm64 Docker Desktop; the
+configured public CI profile was not executed in GitHub by this session.
+Independent application observations, HTTP samples and rejected capture
+mutations remain separate from source, fixture and dependency identity checks.
+No additional medium-or-higher defect is established by these
 histories at 8e7546. The remaining full-controller and proof boundaries above
 remain open.
 
@@ -1539,8 +1506,8 @@ remain open.
   and provenance safety over unbounded timestamps, generations and names, with
   no verified Envoy/Go correspondence or temporal theorem.
 - **Runtime evidence:** [the timeout profile](timeouts/README.md) completed all
-  eight histories across four pinned binaries and two worker counts (64 runs),
-  with 176 independent observations and 624 rejected capture mutations. It corroborates
+  eight histories across two pinned upstream binaries and two worker counts,
+  with independent observations and rejected capture mutations. It corroborates
   Send and nonce evidence using independent active/warming admin state, timeout/
   cache counters, readiness and HTTP. The cached-rewarm case keeps the EDS
   version/content unchanged and requires no fresh EDS response. Its direct proto
@@ -1549,12 +1516,10 @@ remain open.
   stall before CDS on the unrepaired immediate named-watch decline. Installing
   another snapshot cannot answer an already-lost watch. This is a nonproduction
   control; the parked-watch retention and unsubscribe repairs remain separate.
-- **Composition evidence:** the corrected full live setup matrix has 24 repaired
-  passes and 12 expected historical counterexamples across the three pinned
-  upstream-current/enterprise binaries and both worker counts, with 156 admin
-  observations and 2,318 HTTP samples. A final audit rejects 504 capture mutations
-  and preserves original fixture/source identities. Earlier historical metrics
-  are not rewritten. Actual controller translation and Kubernetes execution
+- **Composition evidence:** the corrected upstream live setup histories pass
+  their repaired and historical-counterexample outcomes with both worker counts.
+  Independent admin/HTTP observations and capture mutations preserve the
+  application boundary. Actual controller translation and Kubernetes execution
   remain outside that fixture boundary.
 - **Open obligations:** runtime timer-arm/cancel/expiry/provider instrumentation,
   replacement and queued callback races, reconnect/errors/rejection, cached RDS,
@@ -1564,14 +1529,14 @@ remain open.
   or network latency bound. See the profile's executable commands and remaining
   work; production defaults and prior counterexamples are unchanged.
 
-## RF-033 Downstream policy rewarming and the October 20 stack fix
+## RF-033 Policy rewarming and the October 20 stack fix
 
 - **Disposition:** the P2 same-name rewarming stall is reproduced on historical
   upstream `faaaaf68d5522c239d613254249b0d9e1fa3fdef` and no longer reproduced
   on proposed stack `ab9865b83e6325cddcefc2dffc4e6f9ce92b68a8` in the measured
   schedules. The author added [5c5b456be396](https://github.com/kgateway-dev/kgateway/commit/5c5b456be39630c76b37755ab181106ea2a79851)
   to PR #14703 at 05:49:49 UTC (01:49:49 EDT) on October 20. That is later than
-  the first historical live reproduction. Reporting the older pin's failure as
+  the historical source revision. Reporting the older pin's failure as
   still present on the current stack was stale; the subjects must stay separate.
 - **Source evidence:** the fix records changed cluster encodings per stream when
   a CDS response is about to be sent. A later EDS request treats their names as
@@ -1580,43 +1545,6 @@ remain open.
   policy is installed even when optional NACK/reconnect rules are disabled.
   This is a source description, not proof that the pre-Send callback implies
   successful delivery or application. The research production code is unchanged.
-- **Historical live evidence:** downstream `dcfc92b5c2105eeba674983dfe18568cf34c6fe3`
-  uses its own setup, plugins and xdsclients against an isolated envtest API
-  server. BackendConfigPolicy attachment/removal changes a live Service's
-  same-name EDS cluster, with real endpoint translation and no synthetic snapshot
-  versions. Four runs cover 32 transitions: five take 15.046–15.219 seconds,
-  including ALL and REFERENCED mode. The independent checker verifies changed
-  EDS sent before changed CDS, a later request at the held EDS version, no
-  subsequent EDS response before activation, old active/new warming cluster
-  content and traffic. The old maxHeadersCount behavior returns 200 until the
-  new policy activates and produces 502. Envoy logs a mid-run initial-fetch
-  timeout for each slow transition. The other transitions are fast: the failure
-  is schedule-dependent, not an unconditional 15-second policy delay.
-- **Concurrent-backend evidence:** one historical REFERENCED run creates a DNS
-  Backend and route during warming. RDS is delivered while the new cluster is
-  absent from both active and warming admin state. The route specifies
-  INTERNAL_SERVER_ERROR for a missing cluster, and real traffic returns 500
-  from 11.615 through 24.115 seconds on the capture clock. CDS carrying the DNS
-  cluster arrives at 24.287 seconds after the timeout releases the old update;
-  traffic recovers to 200 by 24.323 seconds. This demonstrates the two-failure
-  mechanism in a controlled fixture, without proving every CI failure's cause.
-- **Repaired live evidence:** replace only the isolated downstream copy's
-  kgateway dependency with the immutable repaired stack. Sixteen transitions
-  across ALL (40 additional Services) and REFERENCED apply in 215–229 ms, with
-  200-ms polling. Four naturally occurring EDS-before-CDS schedules receive a
-  new response containing the same assignment/version 1–5 ms after CDS; active
-  admin content and header-limit traffic then confirm application. There are no
-  post-baseline EDS fetch timeouts. The fixed runs never sample warming, so
-  their conditional DNS insertion does not execute. They do not establish a
-  passing DNS regression or a universal latency bound.
-- **Runtime identity and limits:** enterprise standard Envoy 1.39.4-patch2,
-  digest `sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3`,
-  linux/arm64 and two workers on Docker Desktop; failed CI used amd64. Envtest
-  is Kubernetes 1.36.2. The copied CI bootstrap preserves CDS/LDS `0s`, local
-  EDS `1s`, generated EDS unset (`15s`) and runtime layers, adapting identity,
-  host transport, admin and a fixture HTTP upstream. xDS authentication is
-  disabled; not every main.go option/controller runs. No existing Kubernetes
-  installation, full e2e shard, FIPS image or deployed product was validated.
 - **Durable implementation regression:** `make formal-stack-rewarming` runs
   six identical properties on fresh archives of both pins, with pristine
   compilation and unchanged production-source digests. Four historical tests
@@ -1651,12 +1579,7 @@ remain open.
   cancellation, reconnect, repeated overlapping redefinitions and multiple
   streams sharing a cache key. Bound raw traffic evidence to the recorded
   fixture and test each extension before strengthening the assurance claim.
-- **Artifacts:** original captures remain outside Git at
-  `$HOME/t/eds-rewarm-repro-35nrwu6q/` and
-  `$HOME/t/eds-rewarm-fixed-7dxxef0k/`; each has an independent checker and
-  receipt. Generated logs/receipts are not research source and are not added
-  to this work tree. The checked-in regression fixture and immutable profiles
-  make the cache/server obligation repeatable after those local captures expire.
+
 
 ## RF-034 Backend-owned resource closure after the October 20 stack update
 
@@ -1697,19 +1620,9 @@ remain open.
   contributions do not establish production hash correctness. SDS omission is
   a publication-closure failure here; it is not evidence that Envoy revoked a
   cached secret. RF-027's observed removal semantics still apply.
-- **Independent application evidence:** actual initial and carried snapshots
-  from that producer are replayed through the pinned real go-control-plane
-  cache/server and enterprise standard Envoy 1.39.4-patch2. The initial graph
-  forwards HTTP 200 with a fixture body. After CDS/LDS updates are observed,
-  admin state retains the same pipe-addressed cluster but removes its internal
-  listener; fresh connections return 503 with remote connection failure, in
-  both ALL and REFERENCED. This independently establishes application impact
-  for the emitted dependency shape. It does not infer application from ACK or
-  cache installation. The runtime fixture uses pipe/TCP forwarding, two workers,
-  zero drain and an upstream that closes connections; it is not a complete live
-  CONNECT/header-SDS, TLS, FIPS, authenticated xDS or downstream deployment test.
-  The pinned image is the RF-033 enterprise digest; execution is linux/arm64 on
-  Docker Desktop. No existing Kubernetes cluster is changed.
+- **Application boundary:** the public regression establishes the emitted dependency
+  omission. A live replay on a public runtime remains a separate obligation;
+  cache installation and ACK do not establish application or traffic impact.
 - **P3, unreported fallback:** a dynamic selector in a kept backend's listener
   forces the helper to return every translated cluster. The disabled-scoping
   metric and warning logic in `perclient.go:139` examines only gateway selectors,
@@ -1717,14 +1630,6 @@ remain open.
   emit-all and a gauge of zero where one is required. The warning omission is
   source-supported; no log-capture or live performance-impact claim is made.
   This is an extension-surface case, separate from the static CONNECT bug.
-- **Downstream scope:** source inspection of kgw-ent
-  `1bc4cde8b4edc780135c98d2268f43289978373c` shows its forked
-  `internal/setup/setup.go:424` calls upstream `controller.NewControllerBuilder`;
-  the reviewed upstream builder constructs `proxy_syncer.NewProxySyncer`.
-  Ordinary adaptation during the dependency bump therefore retains this shared
-  publisher unless downstream deliberately replaces it. The ownership/carry
-  obligation applies downstream too. This is a source-level integration
-  conclusion, not a newly executed full downstream/controller or deployed test.
 - **Positive evidence:** the initial REFERENCED proxy omission reproduces before
   the cited commit and passes after it, with an ALL control on both subjects.
   The actual helper and scanner match independent graph reachability on every
@@ -1749,15 +1654,12 @@ remain open.
   graph comparison, then reruns all seventeen earlier carry/reconnect and six
   rewarming properties on the current tip. Exact-hash fixture-only adapters
   handle constructor/callback API drift without changing assertions or original
-  production sources. Live replay is on by default; public CI explicitly uses
-  `--no-live` because the image is private. Candidate mode copies a read-only
-  source and requires all current desired properties and successful forwarding
-  to pass. A green baseline means known defects reproduced. Existing profiles
+  production sources. This public runner checks Go/KRT publication only. Candidate
+  mode copies a read-only source and requires all current desired publication
+  properties to pass. A green baseline means known defects reproduced. Existing profiles
   and counterexamples are not replaced.
 - **Validation of this update:** the final five-profile acceptance matrix
-  matches all 42 required Go test executions and both live counterexamples;
-  each live case returns three fresh 503s, and all 22 capture mutations are
-  rejected. All seventeen earlier history properties and six rewarming
+  matches all 42 required Go test executions. All seventeen earlier history properties and six rewarming
   properties pass on the current tip. The final nine-property fixture matches
   all designated outcomes in three race-enabled repetitions (27 executions),
   with no race report or production-source change. Full
@@ -1812,18 +1714,15 @@ remain open.
   - Adding a cluster and a listener, which changes the requested names,
     recovers both.
   A separate scratch probe, which parked NACKs the way kgateway's stack does,
-  reproduced the EDS and RDS freeze on upstream v1.39.4 (`sha256:74bd4eb5…`)
-  and enterprise standard v1.39.4-patch2 (`sha256:66612e48…`). It also
+  reproduced the EDS and RDS freeze on upstream v1.39.4 (`sha256:74bd4eb5…`). It also
   reproduced the EDS freeze with a bad TLS signature algorithm as the rejection.
   `-scenario stranded-fresh` starts a new proxy while a rejected EDS cluster is
   already published. Envoy's first EDS request is declined with no watch left.
   The serving cluster initializes with no hosts at its fetch timeout
   (14.97–15.03 s), `/ready` returns 200 and its route returns 503. Removing the
   rejected cluster is ACKed and changes nothing; only a change to the requested
-  names recovers it. Both scenarios held in all eight runs each, covering:
-  upstream v1.39.1 and v1.39.4 (`sha256:74bd4eb5…`) in both ADS modes, v1.39.4
-  with two workers, enterprise standard v1.39.4-patch2 (`sha256:66612e48…`) in
-  both modes, and enterprise FIPS v1.39.1-patch1, ordered.
+  names recovers it. Both scenarios held in the public upstream runs: v1.39.1 and v1.39.4
+  (`sha256:74bd4eb5…`) in both ADS modes, plus v1.39.4 with two workers.
   These are finite windows on one proxy with supplied snapshots, not a
   temporal proof, a kgateway translation history or a deployment observation.
 - **Impact:** a new, restarted or reconnecting gateway pod that receives any

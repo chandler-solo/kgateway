@@ -11,8 +11,7 @@ the observed milestone projection. It does not mark the stack correct.
 The production subject is stack 14817 at
 `215ebe8e645080748dbe37727ab2f6f2faa33de6`, copied from a fresh immutable GitHub
 archive. It is separate from research base
-`16b4907989e359c38a0c876a65beceb515876cdc` and downstream source
-`1bc4cde8b4edc780135c98d2268f43289978373c` with dependency `acd13c6f53d1`.
+`16b4907989e359c38a0c876a65beceb515876cdc`.
 No deployed controller is identified or changed. The runner checks the two
 known pristine test-build failures, records the existing exact-hash test-only
 adapters, and injects `held_reconnect_test.go.txt`. It verifies that the subject's
@@ -58,14 +57,11 @@ cluster state, and both HTTP bodies. The traffic marker is a direct-response
 route; `/backend` references the EDS cluster, whose endpoints are empty. This
 does not test successful upstream traffic or promise absence of 503s.
 
-The October 16 run reproduced the schedule on all three immutable images in
-[`runtime/profiles.json`](../runtime/profiles.json): upstream, enterprise
-standard, and enterprise FIPS, all on arm64 with one worker. Each produced 120
-events, six admin/traffic observations and a 13-state model projection. See the
-[receipt index](../receipts/2026-10-16-held-reconnect.json). This extends the
+The October 16 run reproduced the schedule on the immutable upstream image in
+[`runtime/profiles.json`](../runtime/profiles.json), on arm64 with one worker.
+It produced 120 events, six admin/traffic observations and a 13-state model projection. Execution records remain outside Git. This extends the
 earlier cache-boundary finding to observed application for the controlled
-composition. Enterprise binaries do **not** turn this into downstream controller
-or FIPS certification evidence.
+composition.
 
 ## Trace and model boundary
 
@@ -115,7 +111,7 @@ supersede the stack's distinct failing flip-release timer regression.
 ```sh
 make formal-composed-harness
 make formal-composed-reconnect
-# Public CI runs only the upstream image; local default includes both enterprise images.
+# Select the public upstream image explicitly.
 make formal-composed-reconnect FORMAL_COMPOSED_ARGS='--profile upstream'
 make formal-tlc
 ```
@@ -124,7 +120,7 @@ Every run uses a fresh artifact directory and preserves source/build identities,
 exact test adapters, Docker image/platform metadata, Go receipts, JSONL trace,
 bootstrap, full admin dumps, Envoy logs, projections and TLC logs. A skip,
 unexpected failure, parser error, missing observation or wrong invariant fails
-the runner. Required tools and enterprise registry access cannot silently skip.
+the runner. Missing required tools or images fail the run.
 
 Open obligations, in priority order:
 
@@ -148,7 +144,3 @@ Open obligations, in priority order:
    is not a wall-clock bound. This scenario uses an existing active cluster and
    the unset fetch timeout; it makes no claim about the distinct same-name
    rewarming/EDS-cache 15-second observation.
-5. Complete downstream state wiring in a product candidate, then run the actual
-   kgw-ent controller, peering, enterprise filters, ancillary dependencies and
-   standalone SDS. Repeat with real data traffic and secret revocation. Models
-   and direct enterprise binaries cannot discharge these obligations.

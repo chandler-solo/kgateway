@@ -7,7 +7,7 @@
 
 ## Background
 External authorization is a key [security](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/security/ext_authz_filter) and extensibility mechanism in Envoy and kgateway should support configuration for it. In this document we will focus purely on the http level extauth as it has more granular control and information than the network level filter.
-The previous project (gloo) had 2 main configuration paths the first which was a bring your own [customauth](https://docs.solo.io/gloo-edge/latest/guides/security/auth/custom_auth/) and the other was a more integrated variant that was purely enterprise.
+The previous project (gloo) had 2 main configuration paths the first which was a bring your own [customauth](https://docs.solo.io/gloo-edge/latest/guides/security/auth/custom_auth/) and the other was a more integrated variant.
 
 While we know that applying route configuration and pointing at an Extauth server is table stakes such as is seen in [Istio](https://istio.io/latest/docs/tasks/security/authorization/authz-custom/) it makes sense that we also keep in mind whether we want to support extensible setups which could have more or less tight control plane control of the external servers. In particular a question we will try to solve here is how we want to integrate with the deployer and how to handle the opt in or out aspect.
 
@@ -178,7 +178,7 @@ For now this will be purely based on envoy metrics for the extauth server.
 ## Alternatives
 This proposal attempts to set the ground work for auth policy APIs and how they will be broken out.
 Several auth implementations provide for both authn and authz so while we could split them out like [how Istio does](https://istio.io/latest/docs/tasks/security/authentication/jwt-route/) there are an increasing number of filters such as [ApiKeys](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/api_key_auth_filter) which comingle the concepts.
-Another alternative is a more monolithic approach like how [authconfig for the previous project ](https://docs.solo.io/gloo-edge/main/reference/api/github.com/solo-io/gloo/projects/gloo/api/v1/enterprise/options/extauth/v1/extauth-internal.proto.sk/#config)(gloo) contained all info for every auth* type of policy that may be handled by the extauth server.
+Another alternative is a more monolithic approach like how the previous project’s AuthConfig contained all info for every auth* type of policy that may be handled by the extauth server.
 
 An example of an alternative API could be setting it on the listenerOption
 ```yaml

@@ -139,7 +139,7 @@ Let's step through an example of retrofitting an example changelog file to the n
 ```yaml
 changelog:
   - type: FIX
-    issueLink: https://github.com/solo-io/gloo-mesh-enterprise/issues/18468
+    issueLink: https://github.com/kgateway-dev/kgateway/issues/10381
     description: Fixes an admission-time validation bug that prevented the LoadBalancerPolicy's `spec.config.consistentHash.httpCookie.ttl` field from being set to a zero value such as "0s".
     resolvesIssue: false
 ```

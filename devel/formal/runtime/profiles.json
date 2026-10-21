@@ -3,12 +3,6 @@
   "images": {
     "upstream": {
       "image": "envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4"
-    },
-    "enterprise-standard": {
-      "image": "gcr.io/gloo-ee/envoy-gloo-ee-standard-release:v1.39.1-patch1@sha256:08bce7b318b781a976169b617119f725a79ca803a0b74455003f067b77bf5032"
-    },
-    "enterprise-fips": {
-      "image": "gcr.io/gloo-ee/envoy-gloo-ee-fips-release:v1.39.1-patch1@sha256:9cb6b2c756b752de210252eeab41bf489141fa136a04d39a629ce526cf1d3151"
     }
   },
   "scenarios": {

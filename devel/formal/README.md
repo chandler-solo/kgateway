@@ -33,13 +33,13 @@ failure and the author's later stack fix, separately from this research tree.
 and six passes at `ab9865b83e63`, including ordered/unordered ADS, optional
 NACK/reconnect rules disabled, unchanged-cluster controls and no replay loop.
 The new `RewarmingResponseOrder` TLC profiles distinguish a fair replay path
-from waiting for the EDS timeout. [RF-033](research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
+from waiting for the EDS timeout. [RF-033](research-findings.md#rf-033-policy-rewarming-and-the-october-20-stack-fix)
 records the independently checked live controller/Envoy results and their limits.
 The stack's production fix is not imported into the research implementation.
 
 The October 19 extension adds [source-specific initial-fetch timeouts](timeouts/README.md):
 a pinned ConfigSource inventory, timed TLC checks, abstract Lean safety proofs,
-actual bootstrap rendering and direct upstream/enterprise Envoy histories.
+actual bootstrap rendering and direct upstream Envoy histories.
 `make formal-timeout-profiles` runs the runtime matrix; the required Lean/TLC
 runners include the new specification. [Live publication histories](live/README.md)
 also preserve the rendered parent/local-cluster initialization graph. These are
@@ -52,7 +52,7 @@ an executable bounded model projection. `make formal-composed-reconnect`
 requires the rollback counterexample and later recovery on the selected images.
 It retains the [immutable updated-stack/adoption profiles](regressions/README.md),
 [cache/server lifecycle observations](lifecycle/README.md), selection proofs and
-bounded retry/generation models, plus [upstream/enterprise runtime profiles](runtime/README.md).
+bounded retry/generation models, plus [upstream runtime profiles](runtime/README.md).
 `make formal-lean`, `make formal-tlc`, `make formal-stack-current` and
 `make formal-runtime-profiles` reproduce the separate evidence levels. Green
 negative-control profiles mean defects reproduced. No model result proves Go

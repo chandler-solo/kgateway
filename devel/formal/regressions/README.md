@@ -38,7 +38,7 @@ revision, and its Go tests use a mock ADS stream rather than Envoy. See
 ```sh
 make formal-stack-backend-closure \
   FORMAL_BACKEND_CLOSURE_ARGS='--artifacts /tmp/backend-closure-new'
-# Public CI omits the private enterprise Envoy image explicitly:
+# The compatibility flag keeps existing CI commands valid:
 make formal-stack-backend-closure \
   FORMAL_BACKEND_CLOSURE_ARGS='--no-live --artifacts /tmp/backend-closure-ci-new'
 # Require all current desired properties to pass on a proposed repair:
@@ -80,30 +80,9 @@ the removed unused callback argument to `NewUniquelyConnectedClients`. These
 change only injected fixture API calls. Original production sources and old
 fixtures remain unchanged; all original assertions remain required.
 
-Unless `--no-live` is supplied, the runner replays the actual KRT/publisher
-snapshots through the pinned real cache/server and enterprise standard Envoy
-1.39.4-patch2, digest
-`sha256:66612e482b84c51de5d64c1f530c42e1ab458082b53a56a0303803d1b6a112d3`.
-It uses two workers and zero drain time, with fresh upstream connections. Initial
-forwarding must return 200. After corroborating the captured response versions
-in Envoy logs and the resource content in active admin state, the counterexample
-requires the cluster to remain active,
-its owned listener to disappear and three fresh requests to return 503. A fixed
-candidate must instead retain listener/proxy and return 200 three times. Eleven
-mutations per capture must be rejected by the independent checker. `--no-live`
-records an explicit omission; it cannot stand in for Envoy validation. An
-unchanged CDS payload can retain its earlier admin version even after Envoy
-receives a new response version. The checker allows that case only when the
-whole captured CDS set is unchanged and the received version is present in
-Envoy logs; changed content still requires the new admin version.
-
-This runtime test replays captured snapshots; it does not run an uninterrupted
-Kubernetes controller or the complete CONNECT/auth-header path. Its backend uses
-the same pipe/listener/proxy dependency shape. xDS auth, TLS, FIPS, full downstream
-plugin coverage and deployment are outside its scope. HTTP plus active admin
-content corroborate this failure independently of ACK. The model's proposed
-closure rule is not installed in production. See
-[RF-034](../research-findings.md#rf-034-backend-owned-resource-closure-after-the-october-20-stack-update).
+This public runner validates the Go/KRT/publisher boundary. It does not replay
+these captures through a live proxy. Existing source and model counterexamples
+remain required; runtime application is a separate validation obligation.
 
 ## October 20 rewarming regression
 
@@ -135,12 +114,8 @@ it does not observe Envoy application or establish a two-second product bound.
 The timeout is a test failure guard.
 
 The author's fix is commit `5c5b456be396`, added October 20 at 05:49:49 UTC in
-PR #14703 and included in the repaired pin. [RF-033](../research-findings.md#rf-033-downstream-policy-rewarming-and-the-october-20-stack-fix)
-records separate live downstream controller/Envoy evidence. Those captures and
-logs stay outside Git. The fixed live rerun did not sample a warming interval,
-so its conditional DNS insertion did not execute; do not report it as a passing
-DNS regression. Alias/shared-assignment, rejection and blocked-send schedules
-remain coverage gaps.
+PR #14703 and included in the repaired pin. [RF-033](../research-findings.md#rf-033-policy-rewarming-and-the-october-20-stack-fix)
+records the upstream source, cache/server regressions and bounded models.
 
 October 17: `make formal-stack-8e7546` requires all sixteen historical desired
 properties and the author's native reset/adoption exclusion property to pass at
@@ -214,8 +189,6 @@ does not silently follow the moving PR head.
 make formal-stack-1e417
 make formal-stack-1e417 \
   FORMAL_REGRESSION_ARGS='--expect-fixed --source /absolute/path/to/candidate'
-make formal-downstream-adoption \
-  FORMAL_ADOPTION_ARGS='--downstream /absolute/path/to/reviewed/kgw-ent --stack-profile stack-14817-1e417af796a2'
 ```
 
 The immutable run requires pristine proxy-syncer/setup compilation, ten specific
@@ -234,11 +207,6 @@ carry expiry without a subsequent candidate. The admission probe releases its
 suspended publisher even if a corrected candidate serializes admission behind
 it; success does not require observing an erroneous early clear.
 
-The new downstream profile preserves the constructor failure and adds the
-`SetConnectionStartHooks` contract to the three existing missing methods. It
-retains the same five-package suite, source digest checks and scratch-only
-replacement. No interface assertion establishes correct callback wiring.
-
 ## Subsequent October 16 revision: 7d930bb2183b
 
 The [current review](../reviews/2026-10-16-stack-14817-7d930.md) preserves another
@@ -248,8 +216,6 @@ immutable profile:
 make formal-stack-7d930
 make formal-stack-7d930 \
   FORMAL_REGRESSION_ARGS='--expect-fixed --source /absolute/path/to/candidate'
-make formal-downstream-adoption \
-  FORMAL_ADOPTION_ARGS='--downstream /absolute/path/to/reviewed/kgw-ent --stack-profile stack-14817-7d930bb2183b'
 ```
 
 All fourteen previous properties must pass on this pin. Two new histories must
@@ -280,25 +246,7 @@ claims, reconnect wrapper, or reclaimer. Passing `make formal-lean` here cannot
 certify those implementations. PublicationTransitions.tla separately models the
 three timer schedules and a proposed fixed policy at bounded cache scope.
 
-Downstream constructor/state integration has a separate executable negative
-profile, with no writes to the supplied checkout:
-
-```sh
-make formal-downstream-adoption \
-  FORMAL_ADOPTION_ARGS='--downstream /absolute/path/to/reviewed/kgw-ent'
-```
-
-It checks downstream HEAD `1bc4cde8b4ed`, records working-state/source hashes,
-copies it, and appends a local dependency replacement pointing at the immutable
-updated stack archive. It requires the constructor compile failure, runs every
-top-level test in the five selected xDS/authentication, peering, selector,
-gateway-parameter and SDS packages, then injects three compile-time contracts
-for the missing client-state methods. The image Make target is used for the
-constructor check with Docker/Rust outputs explicitly omitted; this is Go
-compilation evidence, not an image build. Existing suite success does not
-exercise the absent shared warm/cold stream semantics or prove state wiring.
-
-Selected standard/FIPS direct runtime scenarios now have their own
+Selected upstream direct runtime scenarios now have their own
 [`runtime` profiles](../runtime/README.md); they do not validate downstream
 controller adoption. Exact-pin dependency
 probes remain in `devel/formal/gcpprobe`, including the repaired parked-watch

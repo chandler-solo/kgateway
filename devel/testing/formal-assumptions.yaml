@@ -26,7 +26,7 @@ assumptions:
   - id: ENV-A1
     summary: the abstract convergence activation guard requires dependency closure; a general Envoy usable-endpoint activation guarantee is unproven and must not constrain first publication
     status: open
-    plannedDischarge: October 16 direct runtime profiles now cover pinned upstream v1.39.1 and enterprise standard/FIPS v1.39.1-patch1 for warming, references, ADS secrets and restart. Controller integration, multi-worker behavior, peering, enterprise extension semantics and standalone SDS still require live evidence; these runs do not establish a general activation guarantee.
+    plannedDischarge: October 16 direct runtime profiles now cover pinned upstream v1.39.1 for warming, references, ADS secrets and restart. Controller integration, multi-worker behavior, extension semantics and standalone SDS still require live evidence; these runs do not establish a general activation guarantee.
     specFile: devel/formal/lean/XdsSpec/Spec.lean
     specAnchors:
       - activateNew
@@ -134,7 +134,7 @@ assumptions:
   - id: ENV-TIMEOUT
     status: open
     summary: source-specific subscription timers preserve provider ownership and cache identity; timeout initialization does not imply receipt, freshness, application or successful traffic
-    plannedDischarge: RF-032 adds pinned source inspection, actual bootstrap rendering, abstract Lean guards, fifteen timed TLC configurations and direct runtime histories on upstream and enterprise binaries. Runtime timer arm/cancel/expiry and provider-replacement races, rejection, transport failure and cached RDS still need coverage. Establish implementation correspondence separately; logical-time fairness is not a real deadline bound.
+    plannedDischarge: RF-032 adds pinned source inspection, actual bootstrap rendering, abstract Lean guards, fifteen timed TLC configurations and direct runtime histories on upstream binaries. Runtime timer arm/cancel/expiry and provider-replacement races, rejection, transport failure and cached RDS still need coverage. Establish implementation correspondence separately; logical-time fairness is not a real deadline bound.
     specFile: devel/formal/lean/XdsSpec/InitialFetchTimeouts.lean
     specAnchors:
       - expiryMatchesProvider
