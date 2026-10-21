@@ -12,7 +12,7 @@ per-node lock for the stack's connection-start clear. `make formal-stack-pertype
 composes the PR with stack tip `c38563730069` and requires the five-package race
 suite, the PR's scenarios through the stack's watch policy, and the stack's 32
 recorded properties to pass. See
-[RF-035](research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
+[RF-036](research-findings.md#rf-036-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
 
 The later October 20 review pins PR #14717 at `2fe5bab3179d` and stack tip
 `e9436e00b3ca`. Its new backend-listener traversal fixes initial proxy-cluster

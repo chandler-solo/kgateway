@@ -3,11 +3,45 @@ package develtesting
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"sigs.k8s.io/yaml"
 )
+
+var findingHeading = regexp.MustCompile(`(?m)^## (RF-[0-9]+)\b`)
+
+// duplicateFindingIDs returns each finding ID that more than one ledger
+// heading uses, in order of its second use.
+func duplicateFindingIDs(ledger string) []string {
+	uses := map[string]int{}
+	var duplicates []string
+	for _, match := range findingHeading.FindAllStringSubmatch(ledger, -1) {
+		uses[match[1]]++
+		if uses[match[1]] == 2 {
+			duplicates = append(duplicates, match[1])
+		}
+	}
+	return duplicates
+}
+
+func TestResearchFindingIDsAreUnique(t *testing.T) {
+	if got := duplicateFindingIDs("## RF-001 One\n## RF-002 Two\n## RF-001 Three\n"); !slices.Equal(got, []string{"RF-001"}) {
+		t.Fatalf("duplicate detection returned %v, want [RF-001]", got)
+	}
+	ledger, err := os.ReadFile(filepath.Join(repoRootFromPackageDir(t), "devel/formal/research-findings.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !findingHeading.Match(ledger) {
+		t.Fatal("research-findings.md has no finding headings")
+	}
+	if duplicates := duplicateFindingIDs(string(ledger)); len(duplicates) > 0 {
+		t.Fatalf("research-findings.md gives more than one finding the ID %v; renumber the later finding and its links", duplicates)
+	}
+}
 
 type protocolScope struct {
 	Profile string               `json:"profile"`

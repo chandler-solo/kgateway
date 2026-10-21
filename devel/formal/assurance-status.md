@@ -22,7 +22,7 @@ open.
 All 87 required TLC outcomes match, including the four new configurations.
 The stack's watch-count test helper needs one edit when it rebases onto the
 PR; production sources are not adapted.
-[RF-035](research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817)
+[RF-036](research-findings.md#rf-036-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817)
 records the subjects, evidence and limits; the
 [acceptance commands](regressions/README.md#october-20-per-type-cache-composition-pr-14865)
 reproduce them.

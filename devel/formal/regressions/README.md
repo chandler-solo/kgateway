@@ -31,7 +31,7 @@ files are unchanged.
 CI runs `formal-stack-c38563`; the composition needs a clone holding the PR and
 stack commits and runs locally. The composed subject is not a published
 revision, and its Go tests use a mock ADS stream rather than Envoy. See
-[RF-035](../research-findings.md#rf-035-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
+[RF-036](../research-findings.md#rf-036-pr-14865s-per-type-snapshot-cache-composed-with-stack-14817).
 
 ## October 20 backend-owned resource regressions
 

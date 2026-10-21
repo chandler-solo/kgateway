@@ -1845,7 +1845,7 @@ remain open.
   source and runs, the envoyprobe capture, and kgateway test logs, including the
   fix-layer controls. Generated captures are not added to this tree.
 
-## RF-035 PR #14865's per-type snapshot cache composed with stack #14817
+## RF-036 PR #14865's per-type snapshot cache composed with stack #14817
 
 - **Subjects:** PR #14865 at `4635e171b1162672a7c0f55d1dc5d31c162e40e1`, which
   merges main `86f5499cea01dc8060b6c3f8689180b90055f04e`, and stack PR #14721 at
@@ -1860,9 +1860,10 @@ remain open.
   for a version-new request it declines. Envoy never requests the children of
   a cluster or listener it rejected, so one rejected parent freezes that child
   type for the proxy, including after the parent is removed and for a proxy
-  that connects meanwhile. The PR serves EDS, RDS, SDS and LDS from per-type
-  non-ADS caches, installs a snapshot one type at a time in publish order, and
-  serializes installs and clears per node.
+  that connects meanwhile; RF-035 records this on real Envoy. The PR serves
+  EDS, RDS, SDS and LDS from per-type non-ADS caches, installs a snapshot one
+  type at a time in publish order, and serializes installs and clears per
+  node.
 - **Model evidence:** `PerTypeCacheRejection` abstracts one parent type and its
   children, so it covers clusters/endpoints and listeners/routes alike. Under
   the ADS rule TLC finds a counterexample to `ChildrenConverge`: the proxy
