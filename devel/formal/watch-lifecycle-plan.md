@@ -14,6 +14,21 @@ must name the source revision, dependency, configuration, bounds and progress
 assumptions. Completing it does not establish correctness of all xDS protocols
 or all Go executions.
 
+## Execution status, October 21
+
+The initial implementation is in `watch/` and `regressions/watch_lifecycle.py`.
+Immutable historical subjects, the observability and claims heads, and a per-type
+composition now have strict executable profiles. The first bounded model slice, local Lean ownership lemmas and
+cross-model projection checks are implemented. Three historical race mechanisms
+and named EDS/RDS contention have real cache/server coverage in both ADS modes.
+
+This does not close the phases below. The models still lack simultaneous
+streams/keys and unbuffered-channel schedules; the Go harness still needs the
+full cancellation/replacement/error matrix and production mutations. Internal
+watch/timer event replay, generated Go histories, CI source distribution and
+new pinned live Envoy validation remain pending. See `watch/README.md` for exact
+subjects, validation and limits.
+
 ## Existing foundations
 
 The research baseline inspected for this plan is

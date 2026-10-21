@@ -10,7 +10,11 @@ No source checkout, index or ref is changed by the runner.
 The source and fixture hashes are in
 [`regressions/profiles.json`](../regressions/profiles.json). The observability-layer
 subject is `84ea7c6669dffe3642a8613b0dd7049a06f08d16`, containing the accepted
-initial-parking fix; it is distinct from that fix's lower-PR subject.
+initial-parking fix; it is distinct from that fix's lower-PR subject. The later
+claims-layer head is `54bcfda3f89403401daa4903afea8794cb2589df`. An earlier
+October 21 description called `84ea7c6669` the complete stack tip; that label
+was wrong. Its exact-source results remain valid. The claims-layer source is
+used for the newer composition validation below.
 
 | Profile | Initial parking | Retry replacement | Rejected version returns |
 | --- | --- | --- | --- |
@@ -18,6 +22,7 @@ initial-parking fix; it is distinct from that fix's lower-PR subject.
 | `watch-retry` (`ceaf17029d`) | Violation | Pass | Pass |
 | `watch-parking` (`2103c02b8e`) | Pass | Pass | Pass |
 | `watch-stack` (`84ea7c6669`) | Pass | Pass | Pass |
+| `watch-claims` (`54bcfda3f8`) | Pass | Pass | Pass |
 
 These are **Go/cache/server observations**, reproduced October 21, 2026 in
 both default and ordered ADS, under the race detector with automatic retries
@@ -29,8 +34,8 @@ parent tests; they are not counts of independent scenarios.
 All subjects use go-control-plane
 `v0.14.1-0.20260702184136-1cd1226616f5`. Its new incompatible named ADS admission
 registers no watch, whereas an incompatible parked watch survives publication.
-The suite preserves that distinction. These results do not cover a per-type
-cache composition, actual Envoy or all concurrent schedules.
+The suite preserves that distinction. Per-type composition has separate results
+below; none establish actual Envoy behavior or coverage of all concurrent schedules.
 
 ## Running the frozen regressions
 
@@ -46,7 +51,7 @@ runner reads committed objects, ignoring its working tree and branch position.
 the runner creates one. It records source/dependency hashes, tool version,
 commands, logs and JSON execution records there. None are versioned receipts.
 
-The test-only constructor adapter for the complete stack is exact-hash guarded.
+The test-only constructor adapter for the later stack layers is exact-hash guarded.
 The runner hashes production Go files before and after replay. No production
 algorithm is copied into the harness or changed to make a subject pass.
 
@@ -102,8 +107,8 @@ The Lean oracle reuses `CacheOracle.admit`, including returned-resource history
 and the incompatible-new-request rule. Named RDS is normalized to EDS because
 these admission rules coincide; full-state CDS/LDS, TTLs, glob subscriptions and
 arbitrary subscription evolution are outside this slice. The `per-type` option
-is a model of projecting named resources before admission. It is **not** an
-implementation validation of the PR #14865 composition.
+is a model of projecting named resources before admission. Its separate implementation evidence comes from `watch-pertype` below;
+finite model agreement does not validate every implementation execution.
 
 `NackWatchLifecycle` explores one key/type/stream, names A/B, three opaque
 versions, and one slot each for the retry response and downstream channel.
@@ -137,7 +142,7 @@ Terminal unanswered executions are checked as temporal failures with TLC's
 raw deadlock check disabled; there is no always-enabled idle action that hides
 pending work.
 
-`WatchTraceReplay` applies the TLA+ actions to eleven shared Lean histories and
+`WatchTraceReplay` applies the TLA+ actions to fourteen shared Lean histories and
 compares every projected state. It requires complete replay, so a blocked
 operation cannot silently truncate a history. A corrupted projection must fail
 `OracleProjection`, not a parser/tool check. Fixture agreement is not a proof
@@ -153,7 +158,7 @@ as shown above. The aggregate does not rerun the Go suite for each model stage.
 
 This is the first bounded slice of phases 0–2, plus the historical real-cache
 schedules. It does not complete the plan's first milestone. Remaining work is
-explicit: freeze and execute per-type composition; expand to
+explicit: add internal watch conformance to the cache/server composition; expand to
 simultaneous streams/keys and unbuffered channels; instrument actual watch and
 timer ownership; add partial-order Go trace replay and generated Go histories;
 exercise cancellation, backpressure, clear/reinstall and production mutations;
@@ -179,3 +184,31 @@ This extends RF-035's known immediate-admission limitation through the actual
 contraction has not been demonstrated with live Envoy. It does not undo the
 three repaired races, and it does not claim the per-type composition retains
 the plain ADS limitation.
+
+
+## Claims-layer composition
+
+`watch-pertype` composes PR #14865 at
+`4635e171b1162672a7c0f55d1dc5d31c162e40e1` with claims-layer head
+`54bcfda3f89403401daa4903afea8794cb2589df`, against stack base
+`93002e65c9fac06ebcedcae1b619d5362648ba58`. The three-way file overlay uses
+committed objects and refuses unresolved conflicts. It is an unpublished
+composed tree, not a claim that either component revision alone contains both.
+
+The four contended EDS/RDS cases now pass in both server modes: an incompatible
+snapshot is answered with just the requested resource. Six rejected-parent
+scenarios also pass through the real watch policy and per-type cache. The
+focused gate has 31 test/subtest events; the five-package race acceptance gate
+has 1,725 (proxy_syncer 1,287; setup 211; krtcollections 195; settings 15;
+controller 17). No automatic retries or skipped required cases are accepted.
+
+Three exact-hash source-test adapters are required: remove the obsolete
+`perRequestSecretsCache` watch-count case, and preserve a plain ADS cache in
+the two historical retry tests whose precondition is an incompatible snapshot
+that cannot answer. Their stronger original assertions remain intact. The new
+contention and rejected-parent tests exercise production's per-type cache;
+these test adaptations do not change production code or hide a product failure.
+
+```sh
+make formal-watch-regressions FORMAL_WATCH_ARGS='--profile watch-pertype --repository /path/to/kgateway-object-store --full-setup --artifacts /tmp/watch-pertype-fresh'
+```

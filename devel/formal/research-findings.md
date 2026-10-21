@@ -1784,9 +1784,8 @@ not treated as proof of registration.
 fallback branch; bounded Lean/TLA characterization. This does not establish
 that live Envoy makes this exact NACK/subscription-contraction sequence, nor
 that the repaired publication/parking race has returned. RF-035's earlier live
-Envoy parent-rejection evidence is a separate schedule. The new per-type model
-answers the requested subset, but the newer stack/per-type implementation
-composition has not been rerun here.
+Envoy parent-rejection evidence is a separate schedule. The per-type model answers the requested subset. The subsequent claims-layer
+composition validation below supplies separate implementation evidence.
 
 ## RF-036 PR #14865's per-type snapshot cache composed with stack #14817
 
@@ -1844,3 +1843,24 @@ composition has not been rerun here.
   stream, not Envoy. The RF-034 live replay and the pinned live and composed
   Envoy profiles were not re-run for these subjects. The Lean proofs take no
   source and were not re-run.
+
+
+### RF-036 October 21: claims-layer watch composition
+
+The current watch composition uses claims-layer head
+`54bcfda3f89403401daa4903afea8794cb2589df` with the same per-type PR head and
+stack base recorded above. The initially selected `84ea7c6669` was the
+observability-layer head, not the complete claims-layer tip. Earlier results
+on that exact source are retained with the corrected label.
+
+The named EDS/RDS contention probes pass with per-type caches, as do the six
+rejected-parent scenarios through the real policy. The five-package race suite
+passes 1,725 test/subtest events. In addition to the watch-count helper adapter,
+two historical retry tests explicitly use a plain ADS cache: their required
+blocked-snapshot precondition is absent with per-type caches, which correctly
+answer version 2. No production behavior is adapted.
+
+**Evidence:** Go/cache/mock-stream tests,
+with the race detector and no automatic retries. The expanded Lean corpus and
+TLA+ checks are separate bounded evidence. There is no new live Envoy,
+all-execution conformance, scheduler deadline or general refinement result.

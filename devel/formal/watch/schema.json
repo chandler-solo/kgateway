@@ -15,7 +15,9 @@
         "watch-early",
         "watch-retry",
         "watch-parking",
-        "watch-stack"
+        "watch-stack",
+        "watch-pertype",
+        "watch-claims"
       ]
     },
     "cacheProfile": {

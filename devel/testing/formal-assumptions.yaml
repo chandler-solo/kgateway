@@ -115,7 +115,7 @@ assumptions:
   - id: GCP-A6
     status: open
     summary: a failed publication is eventually followed by a coherent publication while its request remains admitted and the stream can send
-    plannedDischarge: WatchDeliveryComposition checks progress under explicit weak fairness of CorrectAgain and Send. NoRetry is a temporal counterexample; the partial-installation trace proves only the finite Go boundary. The October 21 NackWatchLifecycle extension preserves historical timer/parking losses and checks conditional progress after a stable answerable installation; LockStarvation shows weak fairness does not force publication lock acquisition. Frozen Go timer/cache/server probes support three specific repairs, not general implementation liveness. Establish cancellation/queue correspondence and per-type composition before closing this assumption.
+    plannedDischarge: WatchDeliveryComposition checks progress under explicit weak fairness of CorrectAgain and Send. NoRetry is a temporal counterexample; the partial-installation trace proves only the finite Go boundary. The October 21 NackWatchLifecycle extension preserves historical timer/parking losses and checks conditional progress after a stable answerable installation; LockStarvation shows weak fairness does not force publication lock acquisition. Frozen Go timer/cache/server probes support three specific repairs, not general implementation liveness. The claims-layer/per-type composition passes its focused race suites. Establish cancellation/queue correspondence through the real policy before closing this assumption.
     specFile: devel/formal/tla/WatchDeliveryComposition.tla
     specAnchors:
       - CorrectAgain

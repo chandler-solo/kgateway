@@ -56,14 +56,39 @@ def materialize(repository, revision, destination):
             target.chmod(int(mode, 8) & 0o777)
 
 
+def compose(repository, subjects, destination, artifacts):
+    # Reuse the tested three-way file overlay, with only allowed read-only Git
+    # commands. The three immutable trees, not the source worktree, are inputs.
+    from pertype_composition import overlay, diff3
+    materialize(repository, subjects["pr"], destination)
+    def show(subject, path):
+        result = subprocess.run(["git", "-C", str(repository), "show", subjects[subject] + ":" + path], capture_output=True)
+        if result.returncode == 0:
+            return result.stdout
+        if result.returncode == 128 and (b"does not exist in" in result.stderr or b"exists on disk, but not in" in result.stderr):
+            return None
+        raise ValueError("cannot read composition object: " + result.stderr.decode())
+    def write(path, data):
+        target = destination / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    changes = [tuple(line.split("\t", 1)) for line in subprocess.check_output(
+        ["git", "-C", str(repository), "diff", "--name-status", "--no-renames", subjects["stack_base"], subjects["stack_tip"]], text=True).splitlines()]
+    taken, merged, conflicts = overlay(changes, show, write, lambda path: (destination / path).unlink(), diff3)
+    (artifacts / "composition.json").write_text(json.dumps({"subjects": subjects, "taken": taken,
+        "merged": merged, "conflicts": conflicts}, indent=2) + "\n")
+    if conflicts:
+        raise ValueError("composition requires review of conflicts: " + str(conflicts))
+
+
 def check_receipts(events, outcomes, exit_code, log):
     markers, expected = {}, {}
     for test, outcome in outcomes.items():
         markers[test], expected[test] = "--- FAIL: " + test, outcome
-        if test in MARKERS:
+        if test in MARKERS or test.startswith("TestReviewPerTypePolicy"):
             for mode in ("default", "ordered"):
                 name = test + "/" + mode
-                markers[name], expected[name] = MARKERS[test], outcome
+                markers[name], expected[name] = MARKERS.get(test, ""), outcome
     if any(text in log for text in ("HARNESS:", "panic:", "test timed out", "DATA RACE", "[build failed]")):
         raise ValueError("harness/build/race failure is not the expected watch counterexample")
     regression.check_receipts(events, PACKAGE, markers, expected)
@@ -74,13 +99,17 @@ def check_receipts(events, outcomes, exit_code, log):
 def run(profile_id, repository, artifacts, full_setup=False):
     profile = json.loads((HERE / "profiles.json").read_text())["profiles"][profile_id]
     source = artifacts / "source"
-    materialize(repository, profile["revision"], source)
+    if "composition" in profile:
+        compose(repository, profile["composition"], source, artifacts)
+    else:
+        materialize(repository, profile["revision"], source)
     for path, expected in profile["source_hashes"].items():
         if regression.digest(source / path) != expected:
             raise ValueError(f"subject hash mismatch: {path}")
     if profile["dependency"] not in (source / "go.mod").read_text():
         raise ValueError("wrong go-control-plane dependency")
     before = regression.production_digest(source)
+    regression.apply_test_adapters(source, profile.get("test_adapters", []))
     fixture = HERE / profile["fixture"]
     if regression.digest(fixture) != profile["fixture_sha256"]:
         raise ValueError("fixture hash mismatch")
@@ -118,17 +147,26 @@ def run(profile_id, repository, artifacts, full_setup=False):
         if "fail" in outcomes.values():
             raise ValueError("full acceptance run requires a fixed subject")
         full_command = [arg for arg in command if not arg.startswith(("GO_TEST_USER_ARGS=", "GOTESTSUM_ARGS="))]
+        packages = profile.get("acceptance_packages", [profile["package"]])
+        full_command = [arg for arg in full_command if not arg.startswith("TEST_PKG=")]
+        full_command.append("TEST_PKG=" + " ".join("./" + package for package in packages))
         full_receipt = artifacts / "setup.jsonl"
         full_command.append("GOTESTSUM_ARGS=--format=short --jsonfile=" + regression.make_shell_arg(str(full_receipt)))
         with (artifacts / "setup.log").open("w") as stream:
             subprocess.run(full_command, cwd=source, env=dict(os.environ, CGO_ENABLED="1"), stdout=stream,
                            stderr=subprocess.STDOUT, timeout=600, check=True)
         full = [json.loads(line) for line in full_receipt.read_text().splitlines()]
-        names = {e["Test"] for e in full if e.get("Action") == "run" and e.get("Test")}
+        names = {e["Test"] for e in full if e.get("Action") == "run" and e.get("Test") and e.get("Package") == PACKAGE}
         if not set(outcomes) <= names:
             raise ValueError("full setup run omitted watch tests")
-        regression.check_receipts(full, PACKAGE, dict.fromkeys(names, ""), "pass")
-        evidence["full_setup_test_events"] = len(names)
+        evidence["acceptance_test_events"] = {}
+        for package in packages:
+            module = "github.com/kgateway-dev/kgateway/v2/" + package
+            required = {e["Test"] for e in full if e.get("Action") == "run" and e.get("Test") and e.get("Package") == module}
+            if not required:
+                raise ValueError("empty acceptance package: " + package)
+            regression.check_receipts(full, module, dict.fromkeys(required, ""), "pass")
+            evidence["acceptance_test_events"][package] = len(required)
     if before != regression.production_digest(source):
         raise ValueError("production sources changed during replay")
     evidence["outcome"] = "required characterization outcomes reproduced"

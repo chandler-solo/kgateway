@@ -8,7 +8,9 @@ actions are tracked in [research-findings.md](research-findings.md).
 
 The new [watch profile](watch/README.md) keeps the research harness separate
 from immutable production subjects `b4d3a09afa`, `ceaf17029d`, `2103c02b8e` and
-observability-layer head `84ea7c6669`. It implements the first bounded slice of the
+observability-layer head `84ea7c6669`, and claims-layer head `54bcfda3f8`. The
+earlier description of `84ea7c6669` as the complete tip was a labeling error;
+its exact-source observations remain valid. This work implements the first bounded slice of the
 [watch-lifecycle plan](watch-lifecycle-plan.md); the full milestone remains open.
 
 | Conclusion | Evidence level and boundary |
@@ -18,16 +20,21 @@ observability-layer head `84ea7c6669`. It implements the first bounded slice of 
 | The contended plain-cache fallback can erase a named EDS/RDS request | Scripted-server subscription contraction while another key holds the publication mutex; incompatible cases have zero watches in both ADS modes; compatible controls respond; no new live Envoy reachability claim |
 | An installed, stable, answerable correction eventually yields a response in the repaired bounded model | TLA+ under explicitly named operation, timer and transport fairness; one key/type/stream, two names, three opaque versions, capacity-one response slots |
 | Weak fairness does not guarantee publication lock acquisition | A separate lock-starvation temporal counterexample; not evidence of production scheduler starvation |
-| The two model descriptions agree on shared histories | Eleven complete Lean-to-TLA projected histories, with a deliberately corrupt projection rejected; fixture agreement, not model equivalence or Go refinement |
+| The two model descriptions agree on shared histories | Fourteen complete Lean-to-TLA projected histories, with a deliberately corrupt projection rejected; fixture agreement, not model equivalence or Go refinement |
 | Old-owner cancellation preserves a newer watch and does not retract queued work in the model | Two kernel-checked Lean local theorems; no claim that all Go cancellation schedules have been exercised |
 
-Thirteen new classified TLC configurations, nineteen Lean scenarios, nine
+Thirteen new classified TLC configurations, twenty-two Lean scenarios, ten
 malformed/illegal-history controls and the projection mutation are required.
-The earlier formal models and counterexamples remain intact. Per-type
-composition of these newer subjects, simultaneous streams/keys, unbuffered
-channels, generated Go histories, internal lifecycle conformance and live Envoy
-validation remain open. The model's per-type option is not a newly validated
-implementation composition. ACK and applied configuration remain distinct.
+The full required TLC gate passed all 100 classified outcomes, preserving the
+earlier counterexamples. The claims-layer source composed with PR #14865 passed
+1,725 test/subtest events across five packages under race detection. Its named
+contention cases answer the subscribed resource, unlike the plain ADS negative
+profile. Two historical retry tests retain their plain-ADS cache precondition
+through exact-hash test adapters; production Go is unchanged.
+
+Simultaneous streams/keys, unbuffered channels, generated Go histories, internal
+lifecycle conformance, CI source availability and live Envoy validation of the
+new watch profiles remain open. ACK and application remain separate.
 
 ## October 20 per-type snapshot cache composition (PR #14865)
 

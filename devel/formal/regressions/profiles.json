@@ -979,7 +979,8 @@
           "before": "newNackResendSuppressor(gate, hasher)",
           "after": "newWatchPolicy(gate, hasher, true, false)"
         }
-      ]
+      ],
+      "source_label": "observability-layer head; superseded for full-stack claims coverage"
     },
     "watch-parking-contention": {
       "repository": "kgateway-dev/kgateway",
@@ -1006,7 +1007,7 @@
         {
           "file": "fixtures/watch_contention_test.go.txt",
           "target": "formal_watch_contention_test.go",
-          "sha256": "fe31fe9c98942d2068289308832651e829fcf5d9404d59e36fb29feaa6a9b6a4"
+          "sha256": "92259f9f4fd8bc739d5f8e5f7914514d65f9bd6752e9d19812980161e3a92706"
         }
       ]
     },
@@ -1042,8 +1043,140 @@
         {
           "file": "fixtures/watch_contention_test.go.txt",
           "target": "formal_watch_contention_test.go",
-          "sha256": "fe31fe9c98942d2068289308832651e829fcf5d9404d59e36fb29feaa6a9b6a4"
+          "sha256": "92259f9f4fd8bc739d5f8e5f7914514d65f9bd6752e9d19812980161e3a92706"
         }
+      ]
+    },
+    "watch-pertype": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "54bcfda3f89403401daa4903afea8794cb2589df",
+      "package": "pkg/kgateway/setup",
+      "cache_profile": "per-type",
+      "dependency": "v0.14.1-0.20260702184136-1cd1226616f5",
+      "source_hashes": {
+        "go.mod": "13a743128baf14f7644a65da84a12eaaa6f6b275ddae2125645ad16db1b4c430",
+        "go.sum": "76e1adbd192f3a642a686901322e275ea382a99a20034167a2c1c0e37f14a306",
+        "pkg/kgateway/setup/cache_watch_policy.go": "43a13d9e18a010337e8dac3ee12609241b95f9dc945add3afb1a8bee305eebe1",
+        "pkg/kgateway/setup/controlplane.go": "49effa8e9ebcbba718400c5a9db3a900d42b9a6d53cd3d8479bdc07d4f61a125"
+      },
+      "fixture": "fixtures/watch_harness_test.go.txt",
+      "fixture_sha256": "b3e1d236f09de65803bb9f545740ea3b8d3b388b3431dcb48ab1099a24b5d5c3",
+      "expected_by_test": {
+        "TestFormalWatchContendedEDSCompatible": "pass",
+        "TestFormalWatchContendedEDSIncompatible": "pass",
+        "TestFormalWatchContendedRDSCompatible": "pass",
+        "TestFormalWatchContendedRDSIncompatible": "pass",
+        "TestReviewPerTypePolicyDeliversEndpointsWhileAClusterIsRejected": "pass",
+        "TestReviewPerTypePolicyDeliversEndpointsAfterARejectedClusterIsRemoved": "pass",
+        "TestReviewPerTypePolicyDeliversRoutesWhileAListenerIsRejected": "pass",
+        "TestReviewPerTypePolicyDeliversRoutesAfterARejectedListenerIsRemoved": "pass",
+        "TestReviewPerTypePolicyDeliversEndpointsToANewProxyWhileAClusterIsRejected": "pass",
+        "TestReviewPerTypePolicyDeliversRoutesToANewProxyWhileAListenerIsRejected": "pass"
+      },
+      "node_copy_test": "TestParkedNackRetryReadsItsOwnNode",
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/setup/formal_watch_lifecycle_test.go",
+          "sha256": "b3e1d236f09de65803bb9f545740ea3b8d3b388b3431dcb48ab1099a24b5d5c3",
+          "before": "newNackResendSuppressor(gate, hasher)",
+          "after": "newWatchPolicy(gate, hasher, true, false)"
+        },
+        {
+          "file": "pkg/kgateway/setup/formal_watch_lifecycle_test.go",
+          "sha256": "5488fcd125b625f7d344c4e7cd15c340b7545063096ec2616d56d6ca0c6fac17",
+          "before": "envoycache.NewSnapshotCache(true, hasher, nil)",
+          "after": "newSnapshotCache(hasher, nil)"
+        },
+        {
+          "file": "pkg/kgateway/setup/formal_watch_contention_test.go",
+          "sha256": "92259f9f4fd8bc739d5f8e5f7914514d65f9bd6752e9d19812980161e3a92706",
+          "before": "envoycache.NewSnapshotCache(true, kgwxds.NewNodeRoleHasher(), nil)",
+          "after": "newSnapshotCache(kgwxds.NewNodeRoleHasher(), nil)"
+        }
+      ],
+      "extra_fixtures": [
+        {
+          "file": "fixtures/watch_contention_test.go.txt",
+          "target": "formal_watch_contention_test.go",
+          "sha256": "92259f9f4fd8bc739d5f8e5f7914514d65f9bd6752e9d19812980161e3a92706"
+        },
+        {
+          "file": "fixtures/pertype_policy_composed_test.go.txt",
+          "target": "formal_watch_pertype_test.go",
+          "sha256": "2f093ee790e4347237062863b33b402cbfb2125fc09506f84a5e87f535a4b3dd"
+        }
+      ],
+      "composition": {
+        "pr": "4635e171b1162672a7c0f55d1dc5d31c162e40e1",
+        "stack_base": "93002e65c9fac06ebcedcae1b619d5362648ba58",
+        "stack_tip": "54bcfda3f89403401daa4903afea8794cb2589df"
+      },
+      "test_adapters": [
+        {
+          "file": "pkg/kgateway/setup/cache_watch_policy_test.go",
+          "sha256": "ec8926942dc51bab15009e10f2dadd6d434d101691457d473c25699bfc79fdfc",
+          "before": "\tcase *perRequestSecretsCache:\n\t\tads, adsOK := openWatches(c.SnapshotCache, node)\n\t\tsecrets, secretsOK := openWatches(c.secrets, node)\n\t\treturn ads + secrets, adsOK || secretsOK\n",
+          "after": "",
+          "reason": "The PR replaces perRequestSecretsCache; its GetStatusInfo already sums every per-type cache."
+        },
+        {
+          "file": "pkg/kgateway/setup/nack_resend_retry_test.go",
+          "sha256": "94c42b55d6a4a9fdc9ce18cd7c401c59deb51f8eb46f290ac8a1b1a33602369b",
+          "before": "shortenNackRetry(t, 100*time.Millisecond, time.Second)\n\t\t\th := newPolicyHarness(t, ordered, true, true)",
+          "after": "shortenNackRetry(t, 100*time.Millisecond, time.Second)\n\t\t\th := formalPlainNackHarness(t, ordered)",
+          "reason": "This historical retry test requires an incompatible ADS snapshot; retain that cache precondition while production per-type behavior has its own positive probes."
+        },
+        {
+          "file": "pkg/kgateway/setup/nack_resend_retry_test.go",
+          "sha256": "60a72507424f54c640ada0586192746ffd729dc6e04b1c8a03142f1a85b90872",
+          "before": "shortenNackRetry(t, 50*time.Millisecond, 50*time.Millisecond)\n\t\t\th := newPolicyHarness(t, ordered, true, true)",
+          "after": "shortenNackRetry(t, 50*time.Millisecond, 50*time.Millisecond)\n\t\t\th := formalPlainNackHarness(t, ordered)",
+          "reason": "This historical retry test requires an incompatible ADS snapshot; retain that cache precondition while production per-type behavior has its own positive probes."
+        }
+      ],
+      "acceptance_packages": [
+        "pkg/kgateway/proxy_syncer",
+        "pkg/kgateway/setup",
+        "pkg/krtcollections",
+        "api/settings",
+        "pkg/kgateway/controller"
+      ],
+      "source_label": "claims-layer head composed with PR 14865"
+    },
+    "watch-claims": {
+      "repository": "kgateway-dev/kgateway",
+      "revision": "54bcfda3f89403401daa4903afea8794cb2589df",
+      "package": "pkg/kgateway/setup",
+      "cache_profile": "pinned-ads",
+      "dependency": "v0.14.1-0.20260702184136-1cd1226616f5",
+      "source_hashes": {
+        "go.mod": "13a743128baf14f7644a65da84a12eaaa6f6b275ddae2125645ad16db1b4c430",
+        "go.sum": "76e1adbd192f3a642a686901322e275ea382a99a20034167a2c1c0e37f14a306",
+        "pkg/kgateway/setup/cache_watch_policy.go": "43a13d9e18a010337e8dac3ee12609241b95f9dc945add3afb1a8bee305eebe1"
+      },
+      "fixture": "fixtures/watch_lifecycle_test.go.txt",
+      "fixture_sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
+      "expected_by_test": {
+        "TestFormalWatchInitialParking": "pass",
+        "TestFormalWatchRetryReplacement": "pass",
+        "TestFormalWatchVersionReturn": "pass"
+      },
+      "node_copy_test": "TestParkedNackRetryReadsItsOwnNode",
+      "fixture_adapters": [
+        {
+          "file": "pkg/kgateway/setup/formal_watch_lifecycle_test.go",
+          "sha256": "894b4376345d0649aaf06a60edcbf153106336aee1a8f8b4113b15266f0815df",
+          "before": "newNackResendSuppressor(gate, hasher)",
+          "after": "newWatchPolicy(gate, hasher, true, false)"
+        }
+      ],
+      "source_label": "claims-layer stack head",
+      "acceptance_packages": [
+        "pkg/kgateway/proxy_syncer",
+        "pkg/kgateway/setup",
+        "pkg/krtcollections",
+        "api/settings",
+        "pkg/kgateway/controller"
       ]
     }
   }

@@ -90,13 +90,13 @@ def admission (profile : String) (s : State) (requestVersion : String) : Bool ×
     {snap with endpoints := snap.endpoints.filter (fun e => s.channel.wildcard || s.channel.names.contains e.name)}
     else snap
   let (channel, response) := CacheOracle.admit (some snap) {s.channel with requestVersion}
-  return (channel.watch, response.map (fun r => ⟨r.version, r.names, s.generation⟩))
+  return (channel.watch, response.map (fun r => ⟨r.version, r.names, r.stream⟩))
 
 def policy (subject : String) : Except String String :=
   match subject with
   | "watch-early" => .ok "early"
   | "watch-retry" => .ok "retry"
-  | "watch-parking" | "watch-stack" => .ok "parking"
+  | "watch-parking" | "watch-stack" | "watch-claims" | "watch-pertype" => .ok "parking"
   | _ => .error "unknown immutable subject"
 
 def cancelOwned (s : State) (owner : Nat) : State :=
@@ -176,7 +176,7 @@ def step (p profile : String) (s : State) (e : Event) : Except String State := d
     return {cancelOwned s a.generation with interested := s.interested && a.generation != s.generation}
   | "reconnect" =>
     require (s.phase == "waiting" && s.lock == "none" && a.generation > 0 && !s.generations.contains a.generation) "invalid reconnect generation"
-    return {cancelOwned s s.generation with generation := a.generation, generations := a.generation :: s.generations, phase := "initial-read", interested := true, sent := none, accepted := "", nonce := "first-response", applied := ""}
+    return {cancelOwned s s.generation with generation := a.generation, generations := a.generation :: s.generations, channel := {s.channel with stream := a.generation}, phase := "initial-read", interested := true, sent := none, accepted := "", nonce := "first-response", applied := ""}
   | "drop-old-response" =>
     require ((s.queued.map (·.generation != s.generation)).getD false) "no retired response to discard"
     return {s with queued := none}
@@ -197,15 +197,16 @@ def property (name : String) (s : State) : Except String Bool := do
 def run (r : Request) : Except String (List Observation × List Expectation) := do
   require (r.schema == 1 && !r.scenarioId.isEmpty) "unsupported watch schema"
   let p ← policy r.subjectId
-  require (["pinned-ads", "per-type"].contains r.cacheProfile) "unknown cache profile"
+  require (r.cacheProfile == (if r.subjectId == "watch-pertype" then "per-type" else "pinned-ads")) "cache profile does not match subject"
   require (["default", "ordered"].contains r.adsMode) "unknown ADS mode"
   require (r.bounds.keys == 1 && r.bounds.streams == 1 && r.bounds.generations > 0 && r.bounds.generations ≤ 2 && r.bounds.events > 0 && r.bounds.events ≤ 128 && !r.events.isEmpty &&
     r.bounds.resources == 2 && r.bounds.queueCapacity == 1 && r.events.length ≤ r.bounds.events) "unsupported bounds"
   require (["eds", "rds"].contains r.initialState.typ) "unsupported type"
   require (!r.initialState.key.isEmpty && r.initialState.generation > 0 &&
     ["initial-read", "waiting"].contains r.initialState.phase) "invalid initial state"
+  let channel : CacheOracle.Channel := {stream := r.initialState.generation, client := r.initialState.key, typ := "eds", names := ["A"], wildcard := false, legacy := false, returned := [⟨"A", "1"⟩]}
   let waiting := r.initialState.phase == "waiting"
-  let mut s : State := {phase := r.initialState.phase, generation := r.initialState.generation, generations := [r.initialState.generation], watchOwner := r.initialState.generation, timerOwner := r.initialState.generation, watch := waiting, timer := if waiting then "armed" else "off"}
+  let mut s : State := {channel, phase := r.initialState.phase, generation := r.initialState.generation, generations := [r.initialState.generation], watchOwner := r.initialState.generation, timerOwner := r.initialState.generation, watch := waiting, timer := if waiting then "armed" else "off"}
   let mut ids : List String := []
   let mut observations : List Observation := []
   for e in r.events do

@@ -45,6 +45,8 @@ def schema_check(value, schema, root, path="$"):
 def validate(request):
     schema = json.loads((HERE / "schema.json").read_text())
     schema_check(request, schema, schema)
+    if request["cacheProfile"] != ("per-type" if request["subjectId"] == "watch-pertype" else "pinned-ads"):
+        raise ValueError("cache profile does not match subject")
     ids = set()
     if len(request["events"]) > request["bounds"]["events"]:
         raise ValueError("event bound exceeded")

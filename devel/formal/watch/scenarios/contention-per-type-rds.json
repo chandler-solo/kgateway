@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "scenarioId": "contention-per-type-rds",
-  "subjectId": "watch-stack",
+  "subjectId": "watch-pertype",
   "cacheProfile": "per-type",
   "adsMode": "default",
   "bounds": {

@@ -77,7 +77,7 @@ def projection_check(requests, results, artifacts):
                 "phase": state["phase"], "captured": int(state["captured"] or 0),
                 "lock": state["lock"], "pubPC": state["publication"], "watch": state["watch"],
                 "timer": state["timer"], "own": packet("own"), "queued": packet("queued"), "sent": packet("sent")})
-        policy = {"watch-early": "early", "watch-retry": "retry", "watch-parking": "parking"}[request["subjectId"]]
+        policy = {"watch-early": "early", "watch-retry": "retry", "watch-parking": "parking", "watch-claims": "parking"}[request["subjectId"]]
         scenario = "initial" if name.endswith("initial") else "return" if "return" in name else "replacement"
         module = "Replay" + "".join(part.capitalize() for part in name.split("-"))
         (artifacts / (module + ".tla")).write_text("---- MODULE " + module + " ----\nEXTENDS WatchTraceReplay\nInputTrace == " +
@@ -123,7 +123,7 @@ def oracle_run(artifacts, cross_models=False):
         validate(request)
     invalid = []
     base = requests[0]
-    for mutation in ("unknown", "missing", "duplicate", "edge", "actor", "unused", "bound", "witness", "send"):
+    for mutation in ("unknown", "missing", "duplicate", "edge", "actor", "unused", "bound", "witness", "send", "profile"):
         r = copy.deepcopy(base)
         if mutation == "unknown": r["surprise"] = True
         elif mutation == "missing": del r["events"][0]["arguments"]["names"]
@@ -133,6 +133,7 @@ def oracle_run(artifacts, cross_models=False):
         elif mutation == "unused": r["events"][0]["arguments"]["generation"] = 99
         elif mutation == "bound": r["bounds"]["streams"] = 2
         elif mutation == "witness": r["expectations"][0]["witnessOperationIds"] = ["absent"]
+        elif mutation == "profile": r["cacheProfile"] = "per-type"
         elif mutation == "send": r["events"][0]["kind"], r["events"][0]["actor"] = "send", "transport"
         invalid.append(r)
     payload = "".join(json.dumps(r) + "\n" for r in requests + invalid)

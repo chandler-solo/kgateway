@@ -1,0 +1,61 @@
+package setup
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	discoveryv3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
+	serverconfig "github.com/envoyproxy/go-control-plane/pkg/server/config"
+	sotwv3 "github.com/envoyproxy/go-control-plane/pkg/server/sotw/v3"
+	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
+
+	kgwxds "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/xds"
+)
+
+// This constructor is adapted to the subject's real policy and production
+// cache. A supplied cache adds the publication barrier used by contention tests.
+func formalWatchHarness(t *testing.T, ordered bool, caches ...envoycache.SnapshotCache) (*adsHarness, envoycache.SnapshotCache) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	stream := &mockAdsStream{ctx: ctx, sent: make(chan *discoveryv3.DiscoveryResponse, 16), recv: make(chan *discoveryv3.DiscoveryRequest, 16)}
+	hasher := kgwxds.NewNodeRoleHasher()
+	gate := envoycache.NewSnapshotCache(true, hasher, nil)
+	if len(caches) == 1 {
+		gate = caches[0]
+	}
+	policy := newNackResendSuppressor(gate, hasher)
+	var opts []serverconfig.XDSOption
+	if ordered {
+		opts = append(opts, sotwv3.WithOrderedADS())
+	}
+	srv := xdsserver.NewServer(ctx, policy, policy.callbacks(), opts...)
+	h := &adsHarness{t: t, ctx: ctx, cancel: cancel, cache: policy, stream: stream, done: make(chan error, 1), node: adsTestNode(t)}
+	go func() { h.done <- srv.StreamAggregatedResources(stream) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-h.done:
+		case <-time.After(2 * time.Second):
+			t.Error("HARNESS: stream did not stop")
+		}
+	})
+	return h, gate
+}
+
+func formalWatchAwait(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("HARNESS: %s did not finish", what)
+	}
+}
+
+// Preserve the plain ADS precondition and original policy options for the two
+// historical retry tests; the new tests use production's per-type cache.
+func formalPlainNackHarness(t *testing.T, ordered bool) *adsHarness {
+	t.Helper()
+	return newGatedNackHarness(t, ordered, &snapshotReadGate{SnapshotCache: envoycache.NewSnapshotCache(true, kgwxds.NewNodeRoleHasher(), nil)})
+}
