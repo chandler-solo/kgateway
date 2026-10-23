@@ -109,10 +109,17 @@ of the last cluster response, the assignments of the last endpoint response,
 and the version of every type. The gate asks it whether every connected stream
 of the client has the new cluster and its assignment (reference-ahead), or has
 ACKed route and listener versions installed since the window opened
-(de-reference grace; versions are hashes, so the gate numbers its installs
-rather than comparing versions). An ACK reaches the gate only for a client with
-a window an ACK could end, through a lock-free set, so ACKs from every other
-client never take the gate's lock.
+(de-reference grace). Versions are hashes, so the gate numbers its installs,
+and the ACKed versions must come from an install made since the window opened;
+otherwise, after a cluster's removal and re-add, ACKs from before the removal
+could release its routes. Only windows whose readiness ACKs show end early: a
+new cluster that Envoy also warms on DNS, health checks, SDS secrets or an
+internal listener keeps its window, and so does a de-referenced cluster a
+listener named, since an LDS ACK comes before the new listener warms. An ACK
+reaches the gate only for a client with a window an ACK could end, through a
+lock-free set, so ACKs from every other client never take the gate's lock; the
+gate also checks once when a window opens, since ACKs can arrive before it is
+registered. See design/NNNN-ack-aware-cluster-transition-windows.md.
 
 ## When scoping turns itself off
 

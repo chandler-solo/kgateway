@@ -537,10 +537,14 @@ type Settings struct {
 	// connected stream of the proxy has ACKed a cluster response carrying the
 	// new cluster and, for an EDS cluster, an endpoint response carrying its
 	// assignment. A de-referenced cluster is removed once every connected stream
-	// has ACKed the route and listener versions that stopped naming it. The two
-	// durations still bound each window, so a proxy that is slow, stuck or
-	// rejecting the update is released, or has the cluster removed, when its
-	// window closes, as with this off. Off by default.
+	// has ACKed the route and listener versions that stopped naming it. Either
+	// way the ACKs must answer responses sent since the window opened. Only a
+	// window whose readiness ACKs show ends early: a new cluster Envoy also warms
+	// on DNS, health checks, SDS secrets or an internal listener, and a cluster
+	// a listener named, keep their windows. The two durations still bound each
+	// window, so a proxy that is slow, stuck or rejecting the update is
+	// released, or has the cluster removed, when its window closes, as with
+	// this off. Off by default.
 	ClusterTransitionAcks bool `split_words:"true" default:"false"`
 
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.

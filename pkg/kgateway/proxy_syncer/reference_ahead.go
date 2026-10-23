@@ -84,6 +84,7 @@ func (g *publishGate) referenceAheadLocked(
 				g.aheadSent[proxyKey] = sent
 			}
 			sent[name] = since
+			g.noteAheadOpenedLocked(proxyKey, name)
 			opened++
 		}
 		ahead = append(ahead, name)

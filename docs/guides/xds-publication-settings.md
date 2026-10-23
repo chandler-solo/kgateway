@@ -409,12 +409,20 @@ update, and its duration becomes the longest it waits:
 
 - **Reference-ahead** ends once every connected stream of the proxy has ACKed a
   cluster response carrying the new cluster and, for an EDS cluster, an
-  endpoint response carrying its assignment.
+  endpoint response carrying its assignment, sent since the window opened.
+  Only EDS clusters, and STATIC clusters with socket-address endpoints, end
+  early, and only without health checks or secrets from SDS. Envoy warms other
+  clusters on DNS resolution, health checks, SDS or an internal listener,
+  which no ACK shows, so they keep their window.
 - **De-reference grace** ends once every connected stream has ACKed route and
-  listener versions that no longer name the cluster.
+  listener versions installed since the window opened. Only clusters named in
+  route configurations end early. A cluster a listener named, such as a TCP
+  route's, keeps its grace: an LDS ACK comes before the new listener finishes
+  warming.
 
-A proxy that is slow, stuck or rejecting the update gets the same treatment as
-with `false` when the window's duration runs out. A proxy whose route update is
+This is experimental and has not been validated against live Envoy. A proxy
+that is slow, stuck or rejecting the update gets the same treatment as with
+`false` when the window's duration runs out. A proxy whose route update is
 rejected keeps routing to the old cluster, so the grace keeps it until then
 rather than removing it under the old route. Since healthy proxies end the
 windows early, both durations can be raised to cover the slowest proxy without

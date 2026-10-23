@@ -29,6 +29,12 @@ type dereferenceState struct {
 	opened   map[string]uint64
 	acked    map[string]struct{}
 	pruneNow func()
+	// viaListener holds the open windows whose cluster the earlier
+	// configuration named from a listener (a TCP route, or an inline route
+	// configuration). An LDS ACK comes before the new listener finishes
+	// warming, and the old one keeps accepting connections until then, so
+	// those windows close only at their grace.
+	viaListener map[string]struct{}
 }
 
 // graceDereferencedClustersLocked returns the published clusters this build
@@ -84,6 +90,9 @@ func (g *publishGate) graceDereferencedClustersLocked(
 	}
 
 	var pruned int
+	// listenerRefs are the clusters the published listeners route to, computed
+	// when a window first needs it.
+	var listenerRefs map[string]struct{}
 	for name := range publishedClusters {
 		if _, stillEmitted := building.Items[name]; stillEmitted {
 			// Still emitted: drop any record, so a later de-reference starts fresh.
@@ -112,6 +121,21 @@ func (g *publishGate) graceDereferencedClustersLocked(
 			left = now
 			state.since[name] = left
 			delete(state.acked, name) // a new window is not acknowledged yet
+			if g.acks != nil {
+				if listenerRefs == nil {
+					listenerRefs = collectReferencedClusters(envoycache.Resources{}, envoycache.Resources{
+						Items: published.GetResourcesAndTTL(envoyresourcev3.ListenerType),
+					})
+				}
+				if _, named := listenerRefs[name]; named {
+					if state.viaListener == nil {
+						state.viaListener = make(map[string]struct{})
+					}
+					state.viaListener[name] = struct{}{}
+				} else {
+					delete(state.viaListener, name)
+				}
+			}
 			opened = append(opened, name)
 		}
 
@@ -200,9 +224,15 @@ func (g *publishGate) noteOpenedWindowsLocked(proxyKey string, state *dereferenc
 		if _, open := state.since[name]; !open {
 			delete(state.opened, name)
 			delete(state.acked, name)
+			delete(state.viaListener, name)
 		}
 	}
 	g.awaitAcksLocked(proxyKey)
+	if installed && len(opened) > 0 {
+		// ACKs of this install may have arrived before the windows were
+		// registered, when acksChanged dropped them.
+		go g.checkTransitionAcks(proxyKey)
+	}
 }
 
 // soonestDereferenceExpiryLocked returns the time from at until the soonest

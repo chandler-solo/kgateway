@@ -169,6 +169,9 @@ type publishGate struct {
 	// de-reference windows can still be confirmed by. Kept only with acks.
 	installSeq map[string]uint64
 	installs   map[string][]installRecord
+	// aheadOpened maps each client's clusters in open reference-ahead windows
+	// to the install that first carried them. Kept only with acks.
+	aheadOpened map[string]map[string]uint64
 }
 
 type pendingFirstPublish struct {
@@ -863,6 +866,7 @@ func (g *publishGate) forgetConnectionLocked(proxyKey string) {
 	delete(g.aheadSent, proxyKey)
 	delete(g.installSeq, proxyKey)
 	delete(g.installs, proxyKey)
+	delete(g.aheadOpened, proxyKey)
 	g.awaitingAcks.Delete(proxyKey)
 }
 
