@@ -251,9 +251,17 @@ func NewProxyTranslator(
 	checkSnapshotConsistency bool,
 	scoping clusterScoping,
 ) ProxyTranslator {
+	gate := newPublishGate(publishBudget, checkSnapshotConsistency, xdsClientState, scoping)
+	if scoping.TransitionAcks() {
+		if acks, ok := xdsCache.(transitionAcks); ok {
+			gate.useTransitionAcks(acks)
+		} else {
+			logger.Warn("KGW_CLUSTER_TRANSITION_ACKS is on, but the xDS cache does not report ACKs; transition windows close on elapsed time")
+		}
+	}
 	return ProxyTranslator{
 		xdsCache: xdsCache,
-		gate:     newPublishGate(publishBudget, checkSnapshotConsistency, xdsClientState, scoping),
+		gate:     gate,
 	}
 }
 

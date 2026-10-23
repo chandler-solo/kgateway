@@ -158,6 +158,17 @@ type publishGate struct {
 	// in an open reference-ahead window, timed before installation; sending is
 	// not observed. clientDeparted clears it.
 	aheadSent map[string]map[string]time.Time
+	// acks, when set (KGW_CLUSTER_TRANSITION_ACKS), ends transition windows on
+	// the proxy's ACKs, with their durations as bounds (transition_acks.go).
+	// Written before first use.
+	acks transitionAcks
+	// awaitingAcks holds the clients with a window an ACK could end. acksChanged
+	// reads it without g.mu, so ACKs from other clients never take the lock.
+	awaitingAcks sync.Map
+	// installSeq numbers each client's installs; installs keeps those its open
+	// de-reference windows can still be confirmed by. Kept only with acks.
+	installSeq map[string]uint64
+	installs   map[string][]installRecord
 }
 
 type pendingFirstPublish struct {
@@ -209,6 +220,9 @@ type pendingFlipRelease struct {
 	deadline time.Time
 	epoch    uint64
 	capped   bool
+	// releaseNow releases the hold as its timer would, for an ACK that ends it
+	// first. Set when the timer is armed; callers must hold g.mu.
+	releaseNow func()
 }
 
 func newPublishGate(budget time.Duration, checkConsistency bool, clientState krtcollections.XDSClientState, scoping clusterScoping) *publishGate {
@@ -302,6 +316,7 @@ func (g *publishGate) setSnapshot(ctx context.Context, cache envoycache.Snapshot
 		}
 		logger.Error("installed xds snapshot but failed to answer open watches", "proxy_key", proxyKey, "error", err)
 	}
+	g.recordInstallLocked(proxyKey, snap)
 	g.publishedEDS[proxyKey] = edsHashes
 	g.published[proxyKey] = struct{}{}
 	// A publish ends the first-publish and warm withhold episodes.
@@ -702,6 +717,11 @@ func (g *publishGate) publishHeldLocked(
 		return nil
 	}
 	g.armFlipReleaseLocked(ctx, cache, proxyKey, pf, deadline)
+	if len(ahead) > 0 && g.acks != nil {
+		g.awaitAcksLocked(proxyKey)
+		// The streams may have ACKed the new clusters already.
+		go g.checkTransitionAcks(proxyKey)
+	}
 	return nil
 }
 
@@ -744,6 +764,7 @@ func (g *publishGate) armFlipReleaseLocked(ctx context.Context, cache envoycache
 	pf.epoch++
 	epoch := pf.epoch
 	pf.deadline = deadline
+	pf.releaseNow = func() { g.releaseFlipLocked(ctx, cache, proxyKey, pf) }
 	pf.timer = time.AfterFunc(time.Until(deadline), func() {
 		g.mu.Lock()
 		defer g.mu.Unlock()
@@ -840,6 +861,9 @@ func (g *publishGate) forgetConnectionLocked(proxyKey string) {
 	delete(g.carriedSince, proxyKey)
 	delete(g.publishedEDS, proxyKey)
 	delete(g.aheadSent, proxyKey)
+	delete(g.installSeq, proxyKey)
+	delete(g.installs, proxyKey)
+	g.awaitingAcks.Delete(proxyKey)
 }
 
 // connectionStarted forgets the previous connection, as clientDeparted does,

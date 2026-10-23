@@ -21,6 +21,14 @@ type dereferenceState struct {
 	// epoch identifies the latest arming. Timer.Stop cannot recall a started
 	// callback, so a callback acts only if its state and epoch are current.
 	epoch uint64
+
+	// With transition ACKs on: opened maps each open window to the install
+	// that opened it, acked holds the windows every stream has acknowledged,
+	// which close as if expired, and pruneNow prunes as the timer would.
+	// pruneNow is set when the timer is armed; callers must hold g.mu.
+	opened   map[string]uint64
+	acked    map[string]struct{}
+	pruneNow func()
 }
 
 // graceDereferencedClustersLocked returns the published clusters this build
@@ -103,10 +111,14 @@ func (g *publishGate) graceDereferencedClustersLocked(
 			}
 			left = now
 			state.since[name] = left
+			delete(state.acked, name) // a new window is not acknowledged yet
 			opened = append(opened, name)
 		}
 
 		remaining := g.dereferenceGrace - now.Sub(left)
+		if _, acked := state.acked[name]; acked {
+			remaining = 0 // every stream applied the route update: the window has done its job
+		}
 		if remaining <= 0 {
 			if holding {
 				continue // the hold still carries it; the release removes it
@@ -165,7 +177,32 @@ func (g *publishGate) settleDereferenceWindowsLocked(
 		g.cancelDereferenceTimerLocked(proxyKey)
 		return
 	}
+	if g.acks != nil {
+		g.noteOpenedWindowsLocked(proxyKey, state, opened, installed)
+	}
 	g.armDereferenceTimerLocked(ctx, cache, proxyKey, wrap, g.soonestDereferenceExpiryLocked(proxyKey, at))
+}
+
+// noteOpenedWindowsLocked ties the windows a publish opened to the install
+// that opened them, so ACKs of it or a later one can end them, and forgets
+// windows that have closed. Callers must hold g.mu.
+func (g *publishGate) noteOpenedWindowsLocked(proxyKey string, state *dereferenceState, opened []string, installed bool) {
+	if state.opened == nil {
+		state.opened = make(map[string]uint64)
+	}
+	if installed {
+		for _, name := range opened {
+			state.opened[name] = g.installSeq[proxyKey]
+			delete(state.acked, name)
+		}
+	}
+	for name := range state.opened {
+		if _, open := state.since[name]; !open {
+			delete(state.opened, name)
+			delete(state.acked, name)
+		}
+	}
+	g.awaitAcksLocked(proxyKey)
 }
 
 // soonestDereferenceExpiryLocked returns the time from at until the soonest
@@ -196,15 +233,23 @@ func (g *publishGate) armDereferenceTimerLocked(
 	in time.Duration,
 ) {
 	state := g.dereferenced[proxyKey]
-	if state == nil || in <= 0 {
+	if state == nil {
 		return
 	}
+	// Record the latest build even when no window is still open. An
+	// installation that crossed a deadline leaves that deadline's prune queued
+	// on the gate lock, and the prune re-publishes state.wrap: an older build
+	// there would roll the client's routes back.
 	state.wrap = wrap
+	if in <= 0 {
+		return
+	}
 	if state.timer != nil {
 		state.timer.Stop()
 	}
 	state.epoch++
 	epoch := state.epoch
+	state.pruneNow = func() { g.pruneDereferencedLocked(ctx, cache, proxyKey, state) }
 	state.timer = time.AfterFunc(in, func() {
 		g.fireDereferencePrune(ctx, cache, proxyKey, state, epoch)
 	})
@@ -233,6 +278,13 @@ func (g *publishGate) fireDereferencePrune(ctx context.Context, cache envoycache
 	if g.dereferenced[proxyKey] != state || state.epoch != epoch {
 		return // superseded: re-armed, cancelled, or every graced cluster was re-referenced
 	}
+	g.pruneDereferencedLocked(ctx, cache, proxyKey, state)
+}
+
+// pruneDereferencedLocked re-publishes the client's latest build without the
+// clusters whose windows closed, by expiry or by every stream's ACK. Callers
+// must hold g.mu and pass the client's current state.
+func (g *publishGate) pruneDereferencedLocked(ctx context.Context, cache envoycache.SnapshotCache, proxyKey string, state *dereferenceState) {
 	if state.wrap.snap == nil {
 		// Defensive: every arming stores the build it re-publishes.
 		g.cancelDereferenceTimerLocked(proxyKey)
@@ -242,7 +294,7 @@ func (g *publishGate) fireDereferencePrune(ctx context.Context, cache envoycache
 		g.cancelDereferenceTimerLocked(proxyKey)
 		return
 	}
-	logger.Debug("de-reference grace elapsed; re-publishing the latest build without the expired clusters", "proxy_key", proxyKey)
+	logger.Debug("de-reference windows closed; re-publishing the latest build without their clusters", "proxy_key", proxyKey)
 	if err := g.publishBuildLocked(ctx, cache, state.wrap); err != nil {
 		logPublishFailure(proxyKey, err)
 	}

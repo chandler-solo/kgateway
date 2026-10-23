@@ -22,6 +22,9 @@ type clusterScoping struct {
 	// held. Read only through ReferenceAhead, which ignores it with scoping
 	// off.
 	referenceAhead time.Duration
+	// transitionAcks ends the transition windows on the proxy's ACKs, with
+	// their durations as bounds. Read it through TransitionAcks.
+	transitionAcks bool
 	// claims are plugins' declared destinations the configuration never names,
 	// collected once at startup.
 	claims emissionClaims
@@ -36,6 +39,7 @@ func clusterScopingFrom(s apisettings.Settings, policies sdk.ContributesPolicies
 		mode:             s.ClusterDiscoveryMode,
 		dereferenceGrace: s.ClusterDereferenceGrace,
 		referenceAhead:   s.ClusterReferenceAhead,
+		transitionAcks:   s.ClusterTransitionAcks,
 		claims:           collectEmissionClaims(policies),
 	}
 }
@@ -60,6 +64,13 @@ func (c clusterScoping) DereferenceGrace() time.Duration {
 		return 0
 	}
 	return c.dereferenceGrace
+}
+
+// TransitionAcks reports whether transition windows end when the proxy's
+// streams ACK the update, with their durations as bounds; false when CDS is not
+// scoped, where there are no windows.
+func (c clusterScoping) TransitionAcks() bool {
+	return c.ScopesClusters() && c.transitionAcks
 }
 
 // ScopesClusters reports whether CDS and EDS are scoped to referenced clusters.

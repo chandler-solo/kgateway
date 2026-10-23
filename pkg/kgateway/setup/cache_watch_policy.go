@@ -5,6 +5,7 @@ import (
 	"hash/maphash"
 	"maps"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	envoyclusterv3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -91,10 +92,16 @@ type watchPolicy struct {
 
 	mu      sync.Mutex
 	streams map[int64]*streamState
+	// byClient indexes streams by client, for the ACK queries.
+	byClient map[string]map[int64]*streamState
 	pending map[*discoveryv3.DiscoveryRequest]pendingNack
 	// rewarming associates an endpoint request with its stream while the stream
 	// has re-defined clusters to answer; consumed like pending.
 	rewarming map[*discoveryv3.DiscoveryRequest]*streamState
+
+	// ackNotify, once NotifyAcks sets it, turns on ACK tracking and runs after
+	// a stream ACKs or closes, outside mu.
+	ackNotify atomic.Pointer[func(client string)]
 }
 
 type (
@@ -117,6 +124,20 @@ type (
 		rewarmBy map[string]string
 		// rewarmRequest is this stream's entry in watchPolicy.rewarming.
 		rewarmRequest *discoveryv3.DiscoveryRequest
+
+		// client is the key the stream's snapshot is set under, from its
+		// latest response.
+		client string
+		// The rest is kept only while ACKs are tracked (NotifyAcks), so a
+		// stream that ACKed before then reports nothing acknowledged.
+		// acked is the version of each type the stream last ACKed.
+		acked map[string]string
+		// ackedClusters are the clusters of the last ACKed cluster response,
+		// shared with clusters, which each response replaces.
+		ackedClusters map[string]uint64
+		// sentEndpoints names the assignments in the last endpoint response sent,
+		// and ackedEndpoints those in the last one ACKed.
+		sentEndpoints, ackedEndpoints map[string]struct{}
 	}
 	nackRejections struct {
 		version string
@@ -156,6 +177,7 @@ func newWatchPolicy(inner envoycache.SnapshotCache, hasher envoycache.NodeHash, 
 		suppressNackResend: suppressNackResend,
 		respondOnReconnect: respondOnReconnect,
 		streams:            make(map[int64]*streamState),
+		byClient:           make(map[string]map[int64]*streamState),
 		pending:            make(map[*discoveryv3.DiscoveryRequest]pendingNack),
 		rewarming:          make(map[*discoveryv3.DiscoveryRequest]*streamState),
 	}
@@ -171,6 +193,15 @@ func (s *watchPolicy) callbacks() xdsserver.Callbacks {
 }
 
 func (s *watchPolicy) onStreamRequest(streamID int64, req *discoveryv3.DiscoveryRequest) error {
+	if client := s.noteRequest(streamID, req); client != "" {
+		s.notifyAcks(client)
+	}
+	return nil
+}
+
+// noteRequest records req on its stream and returns the stream's client if
+// req ACKs a response while ACKs are tracked, else "".
+func (s *watchPolicy) noteRequest(streamID int64, req *discoveryv3.DiscoveryRequest) (ackedBy string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := s.streams[streamID]
@@ -193,7 +224,11 @@ func (s *watchPolicy) onStreamRequest(streamID int64, req *discoveryv3.Discovery
 		delete(st.rejections, req.GetTypeUrl())
 	}
 	sent, ok := st.sent[req.GetTypeUrl()]
-	if req.GetErrorDetail() != nil && ok && sent.nonce != "" && sent.nonce == req.GetResponseNonce() && sent.node == s.hasher.ID(req.GetNode()) {
+	answers := ok && sent.nonce != "" && sent.nonce == req.GetResponseNonce() && sent.node == s.hasher.ID(req.GetNode())
+	if answers && req.GetErrorDetail() == nil && s.tracksAcks() {
+		ackedBy = st.noteAck(req.GetTypeUrl(), sent)
+	}
+	if req.GetErrorDetail() != nil && answers {
 		rejected := st.rejections[req.GetTypeUrl()]
 		if rejected.version != sent.version {
 			rejected = nackRejections{version: sent.version}
@@ -203,7 +238,23 @@ func (s *watchPolicy) onStreamRequest(streamID int64, req *discoveryv3.Discovery
 		st.pending = req
 		s.pending[req] = pendingNack{stream: st, response: sent, retryIn: nackRetryDelay(rejected.count)}
 	}
-	return nil
+	return ackedBy
+}
+
+// noteAck records that the stream accepted sent, the last response of typeURL
+// it was sent, and returns the stream's client.
+func (st *streamState) noteAck(typeURL string, sent sentNackResponse) string {
+	if st.acked == nil {
+		st.acked = make(map[string]string)
+	}
+	st.acked[typeURL] = sent.version
+	switch typeURL {
+	case envoyresource.ClusterType:
+		st.ackedClusters = st.clusters
+	case envoyresource.EndpointType:
+		st.ackedEndpoints = st.sentEndpoints
+	}
+	return st.client
 }
 
 func (s *watchPolicy) onStreamResponse(_ context.Context, streamID int64, req *discoveryv3.DiscoveryRequest, resp *discoveryv3.DiscoveryResponse) {
@@ -214,6 +265,15 @@ func (s *watchPolicy) onStreamResponse(_ context.Context, streamID int64, req *d
 		return
 	}
 	st.sent[resp.GetTypeUrl()] = sentNackResponse{node: s.hasher.ID(req.GetNode()), nonce: resp.GetNonce(), version: resp.GetVersionInfo()}
+	if client := st.sent[resp.GetTypeUrl()].node; client != st.client {
+		s.unindexLocked(streamID, st)
+		st.client = client
+		if s.byClient[client] == nil {
+			s.byClient[client] = make(map[int64]*streamState)
+		}
+		s.byClient[client][streamID] = st
+	}
+	tracking := s.tracksAcks()
 	// The server calls this before sending, on the goroutine that sends, so the
 	// order seen here is the order on the wire.
 	switch resp.GetTypeUrl() {
@@ -224,11 +284,19 @@ func (s *watchPolicy) onStreamResponse(_ context.Context, streamID int64, req *d
 		// it reaches the re-defined cluster. Only those it carries are done: a
 		// same-version response built before the cluster response went out
 		// carries only newly subscribed names.
+		var sent map[string]struct{}
+		if tracking {
+			sent = make(map[string]struct{}, len(resp.GetResources()))
+		}
 		for _, resource := range resp.GetResources() {
 			if name, ok := resourceName(resource.GetValue()); ok {
 				st.rewarmDone(name)
+				if tracking {
+					sent[name] = struct{}{}
+				}
 			}
 		}
+		st.sentEndpoints = sent
 	}
 }
 
@@ -333,12 +401,98 @@ func resourceName(encoded []byte) (string, bool) {
 
 func (s *watchPolicy) onStreamClosed(streamID int64, _ *envoycorev3.Node) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var client string
 	if st := s.streams[streamID]; st != nil {
 		delete(s.pending, st.pending)
 		delete(s.rewarming, st.rewarmRequest)
+		client = st.client
+		s.unindexLocked(streamID, st)
 	}
 	delete(s.streams, streamID)
+	s.mu.Unlock()
+	// A stream that leaves no longer has to ACK.
+	if client != "" {
+		s.notifyAcks(client)
+	}
+}
+
+// unindexLocked removes the stream from its client's index. Callers must hold
+// mu.
+func (s *watchPolicy) unindexLocked(streamID int64, st *streamState) {
+	if st.client == "" {
+		return
+	}
+	delete(s.byClient[st.client], streamID)
+	if len(s.byClient[st.client]) == 0 {
+		delete(s.byClient, st.client)
+	}
+}
+
+// NotifyAcks turns on ACK tracking and runs fn, outside the policy's lock,
+// after a stream ACKs a response or closes. client is the key the stream's
+// snapshot is set under. fn must not block. A later call replaces fn.
+func (s *watchPolicy) NotifyAcks(fn func(client string)) {
+	s.ackNotify.Store(&fn)
+}
+
+func (s *watchPolicy) tracksAcks() bool {
+	return s.ackNotify.Load() != nil
+}
+
+func (s *watchPolicy) notifyAcks(client string) {
+	if fn := s.ackNotify.Load(); fn != nil {
+		(*fn)(client)
+	}
+}
+
+// AckedResources reports whether every stream of client that has been sent a
+// typeURL response last ACKed one carrying every name in names, and at least
+// one stream has been sent one. Cluster and endpoint responses are tracked by
+// name; any other type reports false. A stream the client has not been sent
+// typeURL yet does not count: its first response carries the current snapshot.
+func (s *watchPolicy) AckedResources(client, typeURL string, names []string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	found := false
+	for _, st := range s.byClient[client] {
+		if _, sent := st.sent[typeURL]; !sent {
+			continue
+		}
+		found = true
+		var has func(string) bool
+		switch typeURL {
+		case envoyresource.ClusterType:
+			has = func(name string) bool { _, ok := st.ackedClusters[name]; return ok }
+		case envoyresource.EndpointType:
+			has = func(name string) bool { _, ok := st.ackedEndpoints[name]; return ok }
+		default:
+			return false
+		}
+		for _, name := range names {
+			if !has(name) {
+				return false
+			}
+		}
+	}
+	return found
+}
+
+// AckedVersions returns, for each stream of client that has been sent a
+// typeURL response, the version it last ACKed: "" if it has ACKed none.
+func (s *watchPolicy) AckedVersions(client, typeURL string) map[int64]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out map[int64]string
+	for id, st := range s.byClient[client] {
+		if _, sent := st.sent[typeURL]; !sent {
+			continue
+		}
+		if out == nil {
+			out = make(map[int64]string)
+		}
+		out[id] = st.acked[typeURL]
+	}
+	return out
 }
 
 // rewarmSubscription returns sub with the stream's re-defined clusters treated

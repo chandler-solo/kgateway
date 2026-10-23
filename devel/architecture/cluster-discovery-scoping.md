@@ -101,6 +101,19 @@ Both windows are elapsed time from publication, not acknowledgements: an update
 Envoy rejects, or one parked behind a slow stream, can outlast them, so neither
 makes a transition hitless. Size them above the fleet's worst-case propagation.
 
+`KGW_CLUSTER_TRANSITION_ACKS` ends each window on the proxy's acknowledgement
+instead, with the durations as bounds. The xDS cache's watch policy already
+pairs every request with the response it answers, per stream, to handle
+NACKs; with the setting on it also records what each stream ACKs: the clusters
+of the last cluster response, the assignments of the last endpoint response,
+and the version of every type. The gate asks it whether every connected stream
+of the client has the new cluster and its assignment (reference-ahead), or has
+ACKed route and listener versions installed since the window opened
+(de-reference grace; versions are hashes, so the gate numbers its installs
+rather than comparing versions). An ACK reaches the gate only for a client with
+a window an ACK could end, through a lock-free set, so ACKs from every other
+client never take the gate's lock.
+
 ## When scoping turns itself off
 
 A route can pick its destination at request time — from a header (on the route,
@@ -207,6 +220,7 @@ very cluster that makes the feature safe.
 | `KGW_CLUSTER_DISCOVERY_MODE` | `ALL` | `REFERENCED` scopes CDS/EDS to referenced clusters. `ALL` is the pre-existing behavior. |
 | `KGW_CLUSTER_DEREFERENCE_GRACE` | `5s` | How long a de-referenced cluster stays published. `0` or negative removes immediately and accepts the race. |
 | `KGW_CLUSTER_REFERENCE_AHEAD` | `2s` | How long configuration naming a cluster new to a proxy is held after the controller first publishes that cluster. `0` or negative publishes both together and accepts the blip. |
+| `KGW_CLUSTER_TRANSITION_ACKS` | `false` | `true` ends both windows when every connected stream of the proxy has ACKed the update, with the two durations as bounds. |
 
 Both windows are off in `ALL` mode, where every discovered backend is emitted,
 so a cluster enters or leaves CDS only with its backend, never because a route
@@ -229,7 +243,7 @@ one whose windows close first is not a bounded publish.
 | --- | --- | --- |
 | `kgateway_xds_cluster_scoping_dropped_clusters` | gauge | The most clusters any connected proxy group of a gateway has withheld because nothing references them. |
 | `kgateway_xds_cluster_scoping_disabled_gateways` | gauge | 1 while any connected proxy group of a gateway reverted to emit-all. Worth an alert. |
-| `kgateway_xds_cluster_scoping_transitions_total` | counter | Clusters whose emitted-set change needed a window, by `transition`; one per cluster per window it enters, for each proxy group. |
+| `kgateway_xds_cluster_scoping_transitions_total` | counter | Clusters whose emitted-set change needed a window, by `transition`; one per cluster per window it enters, for each proxy group. With `KGW_CLUSTER_TRANSITION_ACKS`, `reference_ahead_acked` and `dereference_acked` count the windows the proxy's ACKs ended before their duration did. |
 
 A proxy group is the proxies of a gateway that share labels and locality; they
 receive one snapshot, and each group keeps its own windows. A gateway whose

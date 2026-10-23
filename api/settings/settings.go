@@ -531,6 +531,18 @@ type Settings struct {
 	// keep arriving can extend it.
 	ClusterReferenceAhead time.Duration `split_words:"true" default:"2s"`
 
+	// ClusterTransitionAcks ends ClusterReferenceAhead and
+	// ClusterDereferenceGrace windows when the proxy has the update, in
+	// REFERENCED mode only. A reference-ahead hold is released once every
+	// connected stream of the proxy has ACKed a cluster response carrying the
+	// new cluster and, for an EDS cluster, an endpoint response carrying its
+	// assignment. A de-referenced cluster is removed once every connected stream
+	// has ACKed the route and listener versions that stopped naming it. The two
+	// durations still bound each window, so a proxy that is slow, stuck or
+	// rejecting the update is released, or has the cluster removed, when its
+	// window closes, as with this off. Off by default.
+	ClusterTransitionAcks bool `split_words:"true" default:"false"`
+
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
 	// Supported values are:
 	// - "OFF": No ReferenceGrant validation. All cross-namespace references are permitted.

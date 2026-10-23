@@ -70,6 +70,12 @@ const (
 	// transitionReferenceAheadHeld is a newly-emitted cluster sent ahead of the
 	// route update naming it; a retarget onto n new clusters counts n.
 	transitionReferenceAheadHeld = "reference_ahead_held"
+	// transitionReferenceAheadAcked is a held cluster whose hold every stream's
+	// ACK ended before the window closed (KGW_CLUSTER_TRANSITION_ACKS).
+	transitionReferenceAheadAcked = "reference_ahead_acked"
+	// transitionDereferenceAcked is a graced cluster every stream stopped
+	// routing to, by ACK, before its grace closed.
+	transitionDereferenceAcked = "dereference_acked"
 )
 
 // recordClusterScopingDropped records how many clusters scoping kept out of a

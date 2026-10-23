@@ -61,6 +61,7 @@ helm upgrade <release> <chart> --namespace <namespace> --reuse-values \
 | `KGW_CLUSTER_DISCOVERY_MODE` | `ALL` | `ALL`, `REFERENCED`, any case | `ALL`: no scoping and no transition windows. |
 | `KGW_CLUSTER_DEREFERENCE_GRACE` | `5s` | duration | A de-referenced cluster is removed at once. |
 | `KGW_CLUSTER_REFERENCE_AHEAD` | `2s` | duration | A new cluster and the configuration naming it publish together. |
+| `KGW_CLUSTER_TRANSITION_ACKS` | `false` | boolean | `false`: both windows close on elapsed time alone. |
 | `KGW_XDS_FIRST_CONNECT_DELAY` | `1s` | duration | No sleep on a new stream. |
 
 ## Publication
@@ -400,6 +401,27 @@ With `0` or a negative value, the cluster is removed in the same publication,
 which accepts that race. The metric is
 `kgateway_xds_cluster_scoping_transitions_total` with `transition` set to
 `dereference_graced` or `dereference_pruned`.
+
+#### `KGW_CLUSTER_TRANSITION_ACKS` (default `false`)
+
+With `true`, in `REFERENCED` mode, each window ends when the proxy has the
+update, and its duration becomes the longest it waits:
+
+- **Reference-ahead** ends once every connected stream of the proxy has ACKed a
+  cluster response carrying the new cluster and, for an EDS cluster, an
+  endpoint response carrying its assignment.
+- **De-reference grace** ends once every connected stream has ACKed route and
+  listener versions that no longer name the cluster.
+
+A proxy that is slow, stuck or rejecting the update gets the same treatment as
+with `false` when the window's duration runs out. A proxy whose route update is
+rejected keeps routing to the old cluster, so the grace keeps it until then
+rather than removing it under the old route. Since healthy proxies end the
+windows early, both durations can be raised to cover the slowest proxy without
+delaying the rest. Windows ended by ACKs are counted under the `transition`
+values `reference_ahead_acked` and `dereference_acked`, next to
+`reference_ahead_held` and `dereference_graced`, which count every window
+opened.
 
 ## Interactions
 
