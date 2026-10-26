@@ -94,7 +94,7 @@ func (g *publishGate) referenceAheadLocked(
 	}
 	// Counted where the window opens: once per cluster per window, whichever
 	// path held it.
-	recordClusterScopingTransition(proxyKey, transitionReferenceAheadHeld, opened)
+	recordXdsScopingTransition(proxyKey, transitionReferenceAheadHeld, opened)
 	slices.Sort(ahead)
 	return ahead, longest
 }

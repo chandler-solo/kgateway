@@ -125,7 +125,7 @@ func (g *publishGate) graceDereferencedClustersLocked(
 	if state != nil && len(state.since) == 0 {
 		g.cancelDereferenceTimerLocked(proxyKey)
 	}
-	recordClusterScopingTransition(proxyKey, transitionDereferencePruned, pruned)
+	recordXdsScopingTransition(proxyKey, transitionDereferencePruned, pruned)
 	return graced, opened
 }
 
@@ -161,7 +161,7 @@ func (g *publishGate) settleDereferenceWindowsLocked(
 	if installed {
 		// Counted when the window opens, so the counter measures
 		// de-references, not publish frequency.
-		recordClusterScopingTransition(proxyKey, transitionDereferenceGraced, len(opened))
+		recordXdsScopingTransition(proxyKey, transitionDereferenceGraced, len(opened))
 	}
 	if len(state.since) == 0 {
 		g.cancelDereferenceTimerLocked(proxyKey)

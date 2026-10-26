@@ -479,17 +479,17 @@ type Settings struct {
 	// REFERENCED shrinks config_dump and per-proxy stats where many Services
 	// are discovered and few are routed. It is experimental: Envoy does not
 	// necessarily apply CDS before RDS within a snapshot, so a cluster entering
-	// or leaving CDS could briefly 503 NC. ClusterReferenceAhead and
-	// ClusterDereferenceGrace narrow the two transitions. Both are elapsed time
-	// from publication, not acknowledgements, so each must exceed the fleet's
+	// or leaving CDS could briefly 503 NC. XdsScopingReferenceAhead and
+	// XdsScopingDereferenceGrace narrow the two transitions. Both are elapsed
+	// time from publication, not acknowledgements, so each must exceed the fleet's
 	// worst-case propagation, and neither makes a transition hitless. A gateway
 	// whose routes pick a destination at request time stays unscoped unless a
 	// valid claim accounts for each such selector (see
 	// XdsScopingReferenced).
 	XdsScopingMode XdsScopingMode `split_words:"true" default:"ALL"`
 
-	// ClusterDereferenceGrace is how long a cluster that left the emitted set stays
-	// published, in REFERENCED mode only. Removing it at once can let CDS remove it
+	// XdsScopingDereferenceGrace is how long a cluster that left the emitted set
+	// stays published, in REFERENCED mode only. Removing it at once can let CDS remove it
 	// before RDS updates the route still targeting it, causing 503 NC. The clock
 	// starts when the controller publishes the route update that stops naming the
 	// cluster, not when Envoy gets it. A build held for a new or unready cluster
@@ -500,9 +500,9 @@ type Settings struct {
 	// deleted or fails translation leaves at once, as it does in ALL mode.
 	// Negative values act as 0:
 	// 0 removes immediately and accepts the race.
-	ClusterDereferenceGrace time.Duration `split_words:"true" default:"5s"`
+	XdsScopingDereferenceGrace time.Duration `split_words:"true" default:"5s"`
 
-	// ClusterReferenceAhead is how long routes, listeners and secrets that name
+	// XdsScopingReferenceAhead is how long routes, listeners and secrets that name
 	// a cluster new to a proxy are held after the controller first publishes
 	// that cluster to it, in REFERENCED mode only. A cluster is new when the
 	// proxy's published snapshot lacks it. Clusters only a filter calls count
@@ -526,7 +526,7 @@ type Settings struct {
 	// a stream of new clusters cannot pin updates. With the budget at 0 or
 	// less, a hold still ends when its windows close, but new clusters that
 	// keep arriving can extend it.
-	ClusterReferenceAhead time.Duration `split_words:"true" default:"2s"`
+	XdsScopingReferenceAhead time.Duration `split_words:"true" default:"2s"`
 
 	// ReferenceGrantMode controls how cross-namespace references are validated via ReferenceGrant.
 	// Supported values are:

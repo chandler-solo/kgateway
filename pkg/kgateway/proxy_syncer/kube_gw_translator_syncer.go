@@ -151,7 +151,7 @@ func flipBlockingClusters(snapWrap XdsSnapWrapper, published envoycache.Resource
 		// left out of CDS; the client has no endpoints for that one.
 		_, wasReferenced := publishedRefs[name]
 		_, wasPublished := oldClusters[name]
-		if wasReferenced && (wasPublished || !snapWrap.scopesClusters) {
+		if wasReferenced && (wasPublished || !snapWrap.xdsScoped) {
 			continue
 		}
 		flipBlocking = append(flipBlocking, name)

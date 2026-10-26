@@ -104,7 +104,7 @@ func pickerGateway() emittedClusters {
 // TestClaimedClustersSurviveTheFilter: a scoped gateway keeps the plugin's
 // claimed candidates and placeholder though nothing names them.
 func TestClaimedClustersSurviveTheFilter(t *testing.T) {
-	scoping := scopedClusters()
+	scoping := scopedXds()
 	scoping.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
 		Selectors:    []string{"picker"},
 		Names:        []string{"picker-fallback"},
@@ -126,7 +126,7 @@ func TestClaimedClustersSurviveTheFilter(t *testing.T) {
 // TestClaimsKeepNothingInAGatewayWithoutTheirSelector: controller-wide claims
 // must not grow gateways that never use the plugin.
 func TestClaimsKeepNothingInAGatewayWithoutTheirSelector(t *testing.T) {
-	scoping := scopedClusters()
+	scoping := scopedXds()
 	scoping.claims = collectEmissionClaims(claimingPlugins(sdk.ClusterEmissionClaim{
 		Selectors:    []string{"picker"},
 		Names:        []string{"picker-fallback"},

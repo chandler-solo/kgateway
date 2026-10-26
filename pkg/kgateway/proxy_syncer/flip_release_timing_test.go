@@ -52,7 +52,7 @@ func (c *slowInstallCache) firstSlowInstallClusters(t *testing.T) map[string]env
 func TestFlipRelease_BudgetStartsAfterTheHeldSnapshotIsInstalled(t *testing.T) {
 	budget := 200 * time.Millisecond
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
-	translator := NewProxyTranslator(cache, stubPriorXDS{}, budget, true, clusterScoping{})
+	translator := NewProxyTranslator(cache, stubPriorXDS{}, budget, true, xdsScoping{})
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	_, flipWrap := flipHoldFixture(t, pt)
@@ -87,7 +87,7 @@ func TestFlipHold_WithoutBudgetKeepsNoRecord(t *testing.T) {
 // while that build publishes must then do nothing.
 func TestFlipHold_UnboundedHoldStopsAReleaseAlreadyFiring(t *testing.T) {
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 0, true,
-		scopedClustersWithReferenceAhead(20*time.Millisecond))
+		scopedXdsWithReferenceAhead(20*time.Millisecond))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -115,7 +115,7 @@ func TestFlipHold_UnboundedHoldStopsAReleaseAlreadyFiring(t *testing.T) {
 func TestDereferenceGraceStartsAfterASlowInstall(t *testing.T) {
 	grace := 300 * time.Millisecond
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
-	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedClustersWithGrace(grace))
+	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedXdsWithGrace(grace))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -135,7 +135,7 @@ func TestDereferenceGraceStartsAfterASlowInstall(t *testing.T) {
 func TestDereferenceGraceStartsAfterASlowFlipReleaseInstall(t *testing.T) {
 	grace := 300 * time.Millisecond
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
-	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, 100*time.Millisecond, true, scopedClustersWithGrace(grace))
+	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, 100*time.Millisecond, true, scopedXdsWithGrace(grace))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -162,7 +162,7 @@ func TestDereferenceGraceStartsAfterASlowFlipReleaseInstall(t *testing.T) {
 func TestDereferencePruneQueuedDuringASlowInstallKeepsTheNewerBuild(t *testing.T) {
 	grace := 200 * time.Millisecond
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
-	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedClustersWithGrace(grace))
+	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedXdsWithGrace(grace))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -186,7 +186,7 @@ func TestDereferencePruneQueuedDuringASlowInstallKeepsTheNewerBuild(t *testing.T
 func TestDereferenceWindowClosingDuringASlowInstallIsNotExtendedByALaterOne(t *testing.T) {
 	grace := 300 * time.Millisecond
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
-	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedClustersWithGrace(grace))
+	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scopedXdsWithGrace(grace))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -212,7 +212,7 @@ func TestDereferenceWindowClosingDuringASlowInstallIsNotExtendedByALaterOne(t *t
 // installation runs once, not on every publish it makes.
 func TestDereferenceWindowClosingDuringASlowHeldInstallIsPrunedOnce(t *testing.T) {
 	grace := 300 * time.Millisecond
-	scoping := scopedClustersWithReferenceAhead(time.Hour)
+	scoping := scopedXdsWithReferenceAhead(time.Hour)
 	scoping.dereferenceGrace = grace
 	cache := &slowInstallCache{SnapshotCache: newTestSnapshotCache(t)}
 	translator := NewProxyTranslator(cache, stubPriorXDS{has: true}, time.Hour, true, scoping)

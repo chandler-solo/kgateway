@@ -14,16 +14,16 @@ import (
 	sdk "github.com/kgateway-dev/kgateway/v2/pkg/pluginsdk"
 )
 
-// TestClusterScopingIsOffByDefault: an upgrade must not change what proxies are sent.
-func TestClusterScopingIsOffByDefault(t *testing.T) {
-	assert.False(t, clusterScopingFrom(apisettings.Settings{}, nil).ScopesClusters(),
+// TestXdsScopingIsOffByDefault: an upgrade must not change what proxies are sent.
+func TestXdsScopingIsOffByDefault(t *testing.T) {
+	assert.False(t, xdsScopingFrom(apisettings.Settings{}, nil).Scoped(),
 		"the zero Settings must not scope clusters")
-	assert.False(t, clusterScopingFrom(apisettings.Settings{
+	assert.False(t, xdsScopingFrom(apisettings.Settings{
 		XdsScopingMode: apisettings.XdsScopingAll,
-	}, nil).ScopesClusters())
-	assert.True(t, clusterScopingFrom(apisettings.Settings{
+	}, nil).Scoped())
+	assert.True(t, xdsScopingFrom(apisettings.Settings{
 		XdsScopingMode: apisettings.XdsScopingReferenced,
-	}, nil).ScopesClusters())
+	}, nil).Scoped())
 }
 
 // TestUnscopedModeRunsNoPluginClaims: without REFERENCED, no plugin's claim
@@ -40,12 +40,12 @@ func TestUnscopedModeRunsNoPluginClaims(t *testing.T) {
 	}
 	for name, mode := range map[string]apisettings.XdsScopingMode{"zero": "", "ALL": apisettings.XdsScopingAll} {
 		t.Run(name, func(t *testing.T) {
-			scoping := clusterScopingFrom(apisettings.Settings{
-				XdsScopingMode:          mode,
-				ClusterDereferenceGrace: time.Minute,
-				ClusterReferenceAhead:   time.Minute,
+			scoping := xdsScopingFrom(apisettings.Settings{
+				XdsScopingMode:             mode,
+				XdsScopingDereferenceGrace: time.Minute,
+				XdsScopingReferenceAhead:   time.Minute,
 			}, plugins)
-			assert.False(t, scoping.ScopesClusters())
+			assert.False(t, scoping.Scoped())
 			assert.Zero(t, scoping.DereferenceGrace())
 			assert.Zero(t, scoping.ReferenceAhead())
 			assert.Empty(t, scoping.Claims().bySelector)
@@ -71,11 +71,11 @@ func TestDisabledScopingSkipsTheEmissionWalkEntirely(t *testing.T) {
 	}})
 	listeners := sliceToResources([]*envoylistenerv3.Listener{httpListenerWithRDS(t, "listener", "route-config")})
 
-	disabled := emittedClustersFor(clusterScoping{}, routes, listeners)
+	disabled := emittedClustersFor(xdsScoping{}, routes, listeners)
 	assert.Empty(t, disabled.Names, "nothing is collected when xDS scoping is off")
 	assert.Empty(t, disabled.RequestTimeSelectors)
 
-	enabled := emittedClustersFor(scopedClusters(), routes, listeners)
+	enabled := emittedClustersFor(scopedXds(), routes, listeners)
 	require.Contains(t, enabled.Names, "routed",
 		"the same inputs must collect normally once scoping is on")
 }
@@ -86,7 +86,7 @@ func TestDisabledScopingFilterIsIdentity(t *testing.T) {
 	clusters, versions := clusterResourcesFor("routed", "unreferenced")
 
 	got, gotVersions, filtered := filterClustersToEmitted(
-		clusterScoping{}, emissionSet("routed"), clusters, versions)
+		xdsScoping{}, emissionSet("routed"), clusters, versions)
 
 	assert.False(t, filtered)
 	assert.Equal(t, clusters.Items, got.Items)
@@ -97,7 +97,7 @@ func TestDisabledScopingFilterIsIdentity(t *testing.T) {
 // stays zero, so it never affects the row's equality.
 func TestDisabledScopingLeavesTheGatewayProjectionEmpty(t *testing.T) {
 	assert.True(t,
-		emittedClustersFor(clusterScoping{}, envoycache.Resources{}, envoycache.Resources{}).
+		emittedClustersFor(xdsScoping{}, envoycache.Resources{}, envoycache.Resources{}).
 			Equals(emittedClusters{}),
 		"a disabled projection must equal the zero value, so it never invalidates the row")
 }
@@ -105,10 +105,10 @@ func TestDisabledScopingLeavesTheGatewayProjectionEmpty(t *testing.T) {
 // TestDisabledScopingHasNoTransitionWindows: unscoped xDS ignores both
 // configured windows, so coherent builds take the plain publish path.
 func TestDisabledScopingHasNoTransitionWindows(t *testing.T) {
-	configured := clusterScopingFrom(apisettings.Settings{
-		XdsScopingMode:          apisettings.XdsScopingAll,
-		ClusterDereferenceGrace: time.Hour,
-		ClusterReferenceAhead:   time.Hour,
+	configured := xdsScopingFrom(apisettings.Settings{
+		XdsScopingMode:             apisettings.XdsScopingAll,
+		XdsScopingDereferenceGrace: time.Hour,
+		XdsScopingReferenceAhead:   time.Hour,
 	}, nil)
 
 	assert.Zero(t, configured.DereferenceGrace(),
@@ -124,10 +124,10 @@ func TestDisabledScopingHasNoTransitionWindows(t *testing.T) {
 // TestScopedClustersUsesTheConfiguredWindows: with scoping on, the configured
 // durations must reach the gate.
 func TestScopedClustersUsesTheConfiguredWindows(t *testing.T) {
-	configured := clusterScopingFrom(apisettings.Settings{
-		XdsScopingMode:          apisettings.XdsScopingReferenced,
-		ClusterDereferenceGrace: 7 * time.Second,
-		ClusterReferenceAhead:   3 * time.Second,
+	configured := xdsScopingFrom(apisettings.Settings{
+		XdsScopingMode:             apisettings.XdsScopingReferenced,
+		XdsScopingDereferenceGrace: 7 * time.Second,
+		XdsScopingReferenceAhead:   3 * time.Second,
 	}, nil)
 
 	assert.Equal(t, 7*time.Second, configured.DereferenceGrace())

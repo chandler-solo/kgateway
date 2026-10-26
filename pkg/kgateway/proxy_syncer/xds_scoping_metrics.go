@@ -9,42 +9,42 @@ import (
 )
 
 const (
-	clusterScopingSubsystem = "xds_cluster_scoping"
-	transitionLabel         = "transition"
+	xdsScopingSubsystem = "xds_scoping"
+	transitionLabel     = "transition"
 )
 
 var (
-	// clusterScopingDroppedClusters is what scoping saves a gateway's proxies:
+	// xdsScopingDroppedClusters is what scoping saves a gateway's proxies:
 	// clusters translated for them and withheld because nothing references
 	// them. A gateway's proxy groups can differ (one that reverted to every
 	// cluster drops none), so it reports the most any connected group drops.
 	// xds_snapshot_resources{resource="Cluster"} already counts what they
 	// receive. Zero with scoping on means no connected group gains from the
 	// feature.
-	clusterScopingDroppedClusters = metrics.NewGauge(
+	xdsScopingDroppedClusters = metrics.NewGauge(
 		metrics.GaugeOpts{
-			Subsystem: clusterScopingSubsystem,
+			Subsystem: xdsScopingSubsystem,
 			Name:      "dropped_clusters",
 			Help:      "Most backend clusters withheld from any of a gateway's connected proxy groups because their configuration references none of them",
 		},
 		[]string{gatewayLabel, namespaceLabel},
 	)
-	// clusterScopingDisabledGateways counts gateways whose xDS scoping reverted
+	// xdsScopingDisabledGateways counts gateways whose xDS scoping reverted
 	// to every backend's CDS/EDS and backend-owned LDS/SDS resources because
 	// their configuration, or a kept backend's own listeners, pick a destination
 	// at request time. Alert on it: without the
 	// revert the failure is silent, since the selecting plugin falls back
 	// instead of returning 503. A nonzero value means scoping is off for at
 	// least one of the gateway's connected proxy groups.
-	clusterScopingDisabledGateways = metrics.NewGauge(
+	xdsScopingDisabledGateways = metrics.NewGauge(
 		metrics.GaugeOpts{
-			Subsystem: clusterScopingSubsystem,
+			Subsystem: xdsScopingSubsystem,
 			Name:      "disabled_gateways",
 			Help:      "Gateways with a connected proxy group whose CDS, EDS and backend-owned LDS/SDS resources are unscoped because its configuration selects a destination at request time",
 		},
 		[]string{gatewayLabel, namespaceLabel},
 	)
-	// clusterScopingTransitionsTotal counts clusters whose emitted-set change
+	// xdsScopingTransitionsTotal counts clusters whose emitted-set change
 	// needed a window, by window. Each cluster counts once per window it
 	// enters, not per publish. Windows are kept per client key (a gateway's
 	// proxies sharing labels and locality), so a gateway spanning three zones
@@ -53,9 +53,9 @@ var (
 	// These are expected during route churn. Watch the rate: route edits that
 	// keep landing on never-sent clusters pay reference-ahead latency, a reason
 	// to shorten the window.
-	clusterScopingTransitionsTotal = metrics.NewCounter(
+	xdsScopingTransitionsTotal = metrics.NewCounter(
 		metrics.CounterOpts{
-			Subsystem: clusterScopingSubsystem,
+			Subsystem: xdsScopingSubsystem,
 			Name:      "transitions_total",
 			Help:      "Clusters whose emitted-set change needed a grace window, per proxy group, by transition",
 		},
@@ -73,25 +73,25 @@ const (
 	transitionReferenceAheadHeld = "reference_ahead_held"
 )
 
-// recordClusterScopingDropped records how many clusters scoping kept out of a
+// recordXdsScopingDropped records how many clusters scoping kept out of a
 // client's CDS and sets its gateway's gauge to the most any connected group
 // drops. Called on every scoped build, so the gauge tracks the current state.
-func recordClusterScopingDropped(clientKey string, dropped int) {
+func recordXdsScopingDropped(clientKey string, dropped int) {
 	if !metrics.Active() {
 		return
 	}
 	cd := getDetailsFromXDSClientResourceName(clientKey)
-	clusterScopingDisabledState.Lock()
-	defer clusterScopingDisabledState.Unlock()
+	xdsScopingDisabledState.Lock()
+	defer xdsScopingDisabledState.Unlock()
 	state := gatewayScopingStateLocked(cd)
 	state.dropped[clientKey] = dropped
-	setClusterScopingDroppedGauge(cd, state)
+	setXdsScopingDroppedGauge(cd, state)
 }
 
-// setClusterScopingDroppedGauge sets cd's gauge to the most any of its groups
+// setXdsScopingDroppedGauge sets cd's gauge to the most any of its groups
 // drops, or removes it while none has reported. Callers hold
-// clusterScopingDisabledState.
-func setClusterScopingDroppedGauge(cd resourceNameDetails, state *gatewayScopingState) {
+// xdsScopingDisabledState.
+func setXdsScopingDroppedGauge(cd resourceNameDetails, state *gatewayScopingState) {
 	if !metrics.Active() {
 		return
 	}
@@ -100,23 +100,23 @@ func setClusterScopingDroppedGauge(cd resourceNameDetails, state *gatewayScoping
 		{Name: namespaceLabel, Value: cd.Namespace},
 	}
 	if len(state.dropped) == 0 {
-		clusterScopingDroppedClusters.DeletePartialMatch(labels...)
+		xdsScopingDroppedClusters.DeletePartialMatch(labels...)
 		return
 	}
 	most := 0
 	for _, dropped := range state.dropped {
 		most = max(most, dropped)
 	}
-	clusterScopingDroppedClusters.Set(float64(most), labels...)
+	xdsScopingDroppedClusters.Set(float64(most), labels...)
 }
 
-// clusterScopingDisabledState is each gateway's scoping state per connected
+// xdsScopingDisabledState is each gateway's scoping state per connected
 // client group. Groups of one gateway can differ, since a backend errored for
 // one client keeps or drops its listeners for that client alone, so a gateway
 // reads as unscoped while any group is, and one group's healthy build cannot
 // clear another's fallback. It also keeps each group's dropped count, for the
 // same reason.
-var clusterScopingDisabledState = struct {
+var xdsScopingDisabledState = struct {
 	sync.Mutex
 	gateways map[resourceNameDetails]*gatewayScopingState
 }{gateways: make(map[resourceNameDetails]*gatewayScopingState)}
@@ -131,13 +131,13 @@ type gatewayScopingState struct {
 }
 
 // gatewayScopingStateLocked returns cd's gateway state, creating it. Callers
-// hold clusterScopingDisabledState.
+// hold xdsScopingDisabledState.
 func gatewayScopingStateLocked(cd resourceNameDetails) *gatewayScopingState {
 	gateway := resourceNameDetails{Namespace: cd.Namespace, Gateway: cd.Gateway}
-	state := clusterScopingDisabledState.gateways[gateway]
+	state := xdsScopingDisabledState.gateways[gateway]
 	if state == nil {
 		state = &gatewayScopingState{clients: make(map[string]bool), dropped: make(map[string]int)}
-		clusterScopingDisabledState.gateways[gateway] = state
+		xdsScopingDisabledState.gateways[gateway] = state
 	}
 	return state
 }
@@ -154,26 +154,26 @@ func (g *gatewayScopingState) update() (turnedOn bool) {
 	return turnedOn
 }
 
-// reportClusterScopingDisabled records why clientKey's xDS is unscoped (no
+// reportXdsScopingDisabled records why clientKey's xDS is unscoped (no
 // reasons: it is scoped), sets its gateway's disabled gauge, and warns when the
 // gateway turns unscoped rather than on every build. Recording 0 keeps the
 // series present, so an alert fires on a change to 1 rather than on a new
 // label.
-func reportClusterScopingDisabled(log *slog.Logger, clientKey string, reasons []string) {
+func reportXdsScopingDisabled(log *slog.Logger, clientKey string, reasons []string) {
 	cd := getDetailsFromXDSClientResourceName(clientKey)
-	clusterScopingDisabledState.Lock()
-	defer clusterScopingDisabledState.Unlock()
+	xdsScopingDisabledState.Lock()
+	defer xdsScopingDisabledState.Unlock()
 	state := gatewayScopingStateLocked(cd)
 	state.clients[clientKey] = len(reasons) > 0
 	if state.update() {
-		log.Warn("cluster scoping disabled for this gateway: its configuration or a kept backend's listeners select a destination at request time that no claim accounts for",
+		log.Warn("xDS scoping disabled for this gateway: its configuration or a kept backend's listeners select a destination at request time that no claim accounts for",
 			"client", clientKey,
 			"reasons", reasons)
 	}
-	setClusterScopingDisabledGauge(cd, state.disabled)
+	setXdsScopingDisabledGauge(cd, state.disabled)
 }
 
-func setClusterScopingDisabledGauge(cd resourceNameDetails, disabled bool) {
+func setXdsScopingDisabledGauge(cd resourceNameDetails, disabled bool) {
 	if !metrics.Active() {
 		return
 	}
@@ -181,18 +181,18 @@ func setClusterScopingDisabledGauge(cd resourceNameDetails, disabled bool) {
 	if disabled {
 		value = 1.0
 	}
-	clusterScopingDisabledGateways.Set(value,
+	xdsScopingDisabledGateways.Set(value,
 		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
 	)
 }
 
-func recordClusterScopingTransition(clientKey, transition string, count int) {
+func recordXdsScopingTransition(clientKey, transition string, count int) {
 	if !metrics.Active() || count <= 0 {
 		return
 	}
 	cd := getDetailsFromXDSClientResourceName(clientKey)
-	clusterScopingTransitionsTotal.Add(float64(count),
+	xdsScopingTransitionsTotal.Add(float64(count),
 		metrics.Label{Name: gatewayLabel, Value: cd.Gateway},
 		metrics.Label{Name: namespaceLabel, Value: cd.Namespace},
 		metrics.Label{Name: transitionLabel, Value: transition},
@@ -212,25 +212,25 @@ func gatewayHasClients(clientKey string, clients []ir.UniquelyConnectedClient) b
 	return false
 }
 
-// forgetClusterScopingClient drops a departed client group's scoping state.
+// forgetXdsScopingClient drops a departed client group's scoping state.
 // While the gateway still has connected clients, its gauges are recomputed
 // without the group. Once none is connected, the gateway's gauges
 // and state go: nothing else removes them, so a deleted gateway would keep
 // exporting disabled_gateways=1 and firing alerts. A returning client
 // re-creates them on its first build.
-func forgetClusterScopingClient(clientKey string, gatewayConnected bool) {
+func forgetXdsScopingClient(clientKey string, gatewayConnected bool) {
 	cd := getDetailsFromXDSClientResourceName(clientKey)
 	gateway := resourceNameDetails{Namespace: cd.Namespace, Gateway: cd.Gateway}
-	clusterScopingDisabledState.Lock()
-	defer clusterScopingDisabledState.Unlock()
-	state := clusterScopingDisabledState.gateways[gateway]
+	xdsScopingDisabledState.Lock()
+	defer xdsScopingDisabledState.Unlock()
+	state := xdsScopingDisabledState.gateways[gateway]
 	if gatewayConnected {
 		if state != nil {
 			delete(state.clients, clientKey)
 			delete(state.dropped, clientKey)
 			state.update()
-			setClusterScopingDisabledGauge(cd, state.disabled)
-			setClusterScopingDroppedGauge(cd, state)
+			setXdsScopingDisabledGauge(cd, state.disabled)
+			setXdsScopingDroppedGauge(cd, state)
 		}
 		return
 	}
@@ -238,7 +238,7 @@ func forgetClusterScopingClient(clientKey string, gatewayConnected bool) {
 		{Name: gatewayLabel, Value: cd.Gateway},
 		{Name: namespaceLabel, Value: cd.Namespace},
 	}
-	clusterScopingDroppedClusters.DeletePartialMatch(labels...)
-	clusterScopingDisabledGateways.DeletePartialMatch(labels...)
-	delete(clusterScopingDisabledState.gateways, gateway)
+	xdsScopingDroppedClusters.DeletePartialMatch(labels...)
+	xdsScopingDisabledGateways.DeletePartialMatch(labels...)
+	delete(xdsScopingDisabledState.gateways, gateway)
 }

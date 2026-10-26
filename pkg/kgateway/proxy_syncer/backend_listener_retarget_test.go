@@ -71,7 +71,7 @@ func retargetOntoAClusterOnlyABackendListenerNames(t *testing.T, scoped bool) (s
 		snap:                       retarget,
 		proxyKey:                   publishGateTestClient,
 		missingEndpointsReferenced: []string{"proxy"},
-		scopesClusters:             scoped,
+		xdsScoped:                  scoped,
 	})
 
 	return servedSnapshot(t, pt), published

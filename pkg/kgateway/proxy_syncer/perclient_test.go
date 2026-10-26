@@ -369,7 +369,7 @@ func TestSnapshotPerClientDefersUntilAllReferencedClustersAreReady(t *testing.T)
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	// Built at once but deferred: cluster-b is referenced and missing.
@@ -451,7 +451,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSClustersHaveEndpoints(t *testi
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	// Deferred: the referenced cluster has no derived CLA. A placeholder keeps the
@@ -550,7 +550,7 @@ func TestSnapshotPerClientFiltersStaleEndpointResourcesWhenClusterRemoved(t *tes
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	g.Eventually(func() int {
@@ -623,7 +623,7 @@ func TestSnapshotPerClientFilteredEdsSnapshotRespondsToNamedADSRequestAfterClust
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -719,11 +719,11 @@ func TestSnapshotPerClientDefersMakeBeforeBreakRouteUntilNewEndpointReady(t *tes
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	cache := newTestSnapshotCache(t)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, clusterScoping{}))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, xdsScoping{}))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -819,11 +819,11 @@ func TestSnapshotPerClientRetargetToDerivedBackend(t *testing.T) {
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	cache := newTestSnapshotCache(t)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, clusterScoping{}))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, xdsScoping{}))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -916,11 +916,11 @@ func TestSnapshotPerClientDefersWeightedRouteUntilAllEndpointsReady(t *testing.T
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	cache := newTestSnapshotCache(t)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, clusterScoping{}))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, xdsScoping{}))
 	nodeID := ucc.ResourceName()
 
 	initialServed := eventuallyCacheSnapshot(t, cache, nodeID)
@@ -991,7 +991,7 @@ func TestSnapshotPerClientDefersUntilReferencedEDSServiceNameHasEndpoints(t *tes
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	// Deferred: a placeholder stands in under the underived service_name.
@@ -1044,7 +1044,7 @@ func TestSnapshotPerClientServiceNameEdsSnapshotRespondsToNamedADSRequestAfterCl
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -1138,7 +1138,7 @@ func TestSnapshotPerClientEndpointOnlyUpdateOnlyChangesEDSVersion(t *testing.T) 
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	initialSnap := eventuallySingleSnapshot(t, snapshots)
@@ -1202,11 +1202,11 @@ func TestSnapshotPerClientPartialUpdateForOneClientDoesNotPoisonAnotherClient(t 
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	cache := newTestSnapshotCache(t)
-	translator := NewProxyTranslator(cache, nil, 0, true, clusterScoping{})
+	translator := NewProxyTranslator(cache, nil, 0, true, xdsScoping{})
 	snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
 		for _, event := range events {
 			if event.Event == controllers.EventDelete {
@@ -1335,7 +1335,7 @@ func TestSnapshotPerClientStillPublishesWhenReferencedClusterErrored(t *testing.
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	g.Eventually(func() int {
@@ -1494,7 +1494,7 @@ func TestSnapshotPerClientPublishesEvenWithUnresolvableBackendRef(t *testing.T) 
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	g.Eventually(func() int {
@@ -1559,7 +1559,7 @@ func TestSnapshotPerClientKeepsPublishingWhenMisconfiguredBackendRefArrivesAtRun
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	g.Eventually(func() int {
@@ -1660,7 +1660,7 @@ func TestSnapshotPerClientPublishesWhenAllRoutesAreRedirectOnly(t *testing.T) {
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	g.Eventually(func() int {

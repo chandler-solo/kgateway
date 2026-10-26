@@ -48,7 +48,7 @@ func snapshotPerClient(
 	mostXdsSnapshots krt.Collection[GatewayXdsResources],
 	endpoints PerClientEnvoyEndpoints,
 	clusters PerClientEnvoyClusters,
-	scoping clusterScoping,
+	scoping xdsScoping,
 	extraEndpointCollections ...PerClientEnvoyEndpoints,
 ) krt.Collection[XdsSnapWrapper] {
 	// PerClientEnvoyClusters stores each client's assembled CDS payload (shared bases plus the client's overlays).
@@ -115,7 +115,7 @@ func snapshotPerClient(
 		// request-time selectors no claim accounts for, else those in a kept
 		// backend's listeners.
 		var unscopedBy []string
-		if scoping.ScopesClusters() {
+		if scoping.Scoped() {
 			unscopedBy = listenerRouteSnapshot.EmittedClusters.unaccountedSelectors(scoping.Claims())
 			if len(unscopedBy) == 0 {
 				clusterResources, clusterVersions, filtered, unscopedBy = keepBackendListenerTargets(
@@ -141,13 +141,13 @@ func snapshotPerClient(
 				"emitted", len(clusterResources.Items),
 				"translated", len(clustersForUcc.clusters.Items))
 		}
-		if scoping.ScopesClusters() {
+		if scoping.Scoped() {
 			// Recorded even when nothing was dropped: dropped_clusters at 0
 			// means scoping gains nothing, and disabled_gateways must read 0
 			// before it can go to 1.
-			recordClusterScopingDropped(ucc.ResourceName(),
+			recordXdsScopingDropped(ucc.ResourceName(),
 				len(clustersForUcc.clusters.Items)-len(clusterResources.Items))
-			reportClusterScopingDisabled(logger, ucc.ResourceName(), unscopedBy)
+			reportXdsScopingDisabled(logger, ucc.ResourceName(), unscopedBy)
 		}
 
 		snap := XdsSnapWrapper{translatedClusters: clustersForUcc.clusters.Items}
@@ -199,7 +199,7 @@ func snapshotPerClient(
 		slices.Sort(snap.synthesizedEndpoints)
 		snap.erroredClusters = slices.Sorted(slices.Values(clustersForUcc.erroredClusters))
 		snap.proxyKey = ucc.ResourceName()
-		snap.scopesClusters = scoping.ScopesClusters()
+		snap.xdsScoped = scoping.Scoped()
 		snap.endpointHashes = endpointHashes
 		snapshot := &envoycache.Snapshot{}
 		snapshot.Resources[envoycachetypes.Cluster] = clusterResources

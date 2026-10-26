@@ -253,7 +253,7 @@ func newErroredClusterFixture(t *testing.T) *erroredClusterFixture {
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	return f

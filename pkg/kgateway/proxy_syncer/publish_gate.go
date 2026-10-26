@@ -211,7 +211,7 @@ type pendingFlipRelease struct {
 	capped   bool
 }
 
-func newPublishGate(budget time.Duration, checkConsistency bool, clientState krtcollections.XDSClientState, scoping clusterScoping) *publishGate {
+func newPublishGate(budget time.Duration, checkConsistency bool, clientState krtcollections.XDSClientState, scoping xdsScoping) *publishGate {
 	return &publishGate{
 		budget:           budget,
 		checkConsistency: checkConsistency,

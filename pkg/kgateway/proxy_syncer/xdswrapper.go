@@ -50,10 +50,10 @@ type XdsSnapWrapper struct {
 	// (eds_set_version.go). Equals compares their folded EDS version.
 	// +noKrtEquals
 	endpointHashes map[string]uint64
-	// scopesClusters is set in REFERENCED mode, where a published listener can
+	// xdsScoped is set in REFERENCED mode, where a published listener can
 	// name a cluster scoping left out of CDS. The mode is fixed for the process.
 	// +noKrtEquals
-	scopesClusters bool
+	xdsScoped bool
 	// translatedClusters is the client's translated clusters before scoping
 	// filters them, shared read-only with the per-client cluster row. The
 	// de-reference grace keeps only clusters still in it: one that is no longer

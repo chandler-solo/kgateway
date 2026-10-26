@@ -16,13 +16,13 @@ import (
 // unfiltered: they scale with plugins, not Services, and the plugin vouches for
 // them.
 func filterClustersToEmitted(
-	scoping clusterScoping,
+	scoping xdsScoping,
 	emitted emittedClusters,
 	clusters envoycache.Resources,
 	clusterVersions map[string]uint64,
 ) (envoycache.Resources, map[string]uint64, bool) {
 	claims := scoping.Claims()
-	if !scoping.ScopesClusters() || !emitted.Filterable(claims) {
+	if !scoping.Scoped() || !emitted.Filterable(claims) {
 		return clusters, clusterVersions, false
 	}
 
@@ -51,7 +51,7 @@ func filterClustersToEmitted(
 // emits reports whether the filter keeps a cluster: one the configuration
 // names, or one a claimed use keeps though nothing names it, including the
 // plugin's placeholder, which stops being named once the feature is doing its
-// job. DecideClusterScoping reports the same decision.
+// job. DecideXdsScoping reports the same decision.
 func (e emittedClusters) emits(kept claimedSet, cluster string) bool {
 	if _, referenced := e.Names[cluster]; referenced {
 		return true

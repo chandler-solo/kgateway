@@ -51,7 +51,7 @@ func TestFilterClustersToEmittedIsInertInAllMode(t *testing.T) {
 	clusters, versions := clusterResourcesFor("routed", "unreferenced")
 
 	got, gotVersions, filtered := filterClustersToEmitted(
-		clusterScoping{}, emissionSet("routed"), clusters, versions)
+		xdsScoping{}, emissionSet("routed"), clusters, versions)
 
 	assert.False(t, filtered)
 	assert.Equal(t, clusters.Items, got.Items, "ALL must not drop anything")
@@ -64,7 +64,7 @@ func TestFilterClustersToEmittedDropsUnreferencedBackends(t *testing.T) {
 	clusters, versions := clusterResourcesFor("routed", "ancillary", "unreferenced-a", "unreferenced-b")
 
 	got, gotVersions, filtered := filterClustersToEmitted(
-		scopedClusters(), emissionSet("routed", "ancillary"), clusters, versions)
+		scopedXds(), emissionSet("routed", "ancillary"), clusters, versions)
 
 	require.True(t, filtered)
 	assert.ElementsMatch(t, []string{"routed", "ancillary"}, resourceNames(got))
@@ -78,7 +78,7 @@ func TestFilterClustersToEmittedVersionsOverWhatSurvives(t *testing.T) {
 	before := clusters.Version
 
 	_, gotVersions, filtered := filterClustersToEmitted(
-		scopedClusters(), emissionSet("routed"), clusters, versions)
+		scopedXds(), emissionSet("routed"), clusters, versions)
 
 	require.True(t, filtered)
 	after := strconv.FormatUint(emittedClustersHash(gotVersions), 10)
@@ -95,7 +95,7 @@ func TestFilterClustersToEmittedRevertsForRequestTimeSelectors(t *testing.T) {
 	unfilterable.RequestTimeSelectors = []requestTimeSelector{{selectorClusterHeader, "x-target"}}
 
 	got, gotVersions, filtered := filterClustersToEmitted(
-		scopedClusters(), unfilterable, clusters, versions)
+		scopedXds(), unfilterable, clusters, versions)
 
 	assert.False(t, filtered, "an unfilterable gateway must keep every cluster")
 	assert.Equal(t, clusters.Items, got.Items)
@@ -108,7 +108,7 @@ func TestFilterClustersToEmittedReportsNoChangeWhenEverythingIsReferenced(t *tes
 	clusters, versions := clusterResourcesFor("a", "b")
 
 	got, gotVersions, filtered := filterClustersToEmitted(
-		scopedClusters(), emissionSet("a", "b"), clusters, versions)
+		scopedXds(), emissionSet("a", "b"), clusters, versions)
 
 	assert.False(t, filtered)
 	assert.Equal(t, clusters.Items, got.Items)
@@ -124,7 +124,7 @@ func TestFilterClustersToEmittedKeepsBlackhole(t *testing.T) {
 	require.Contains(t, emission.Names, blackhole, "collector must supply the blackhole name this test filters on")
 
 	got, _, filtered := filterClustersToEmitted(
-		scopedClusters(), emission, clusters, versions)
+		scopedXds(), emission, clusters, versions)
 
 	require.True(t, filtered)
 	assert.Equal(t, []string{blackhole}, resourceNames(got))
@@ -136,17 +136,17 @@ func TestFilterClustersToEmittedKeepsBlackhole(t *testing.T) {
 func TestSnapshotPerClientEmitsOnlyReferencedClusters(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		scoping  clusterScoping
+		scoping  xdsScoping
 		expected []string
 	}{
 		{
 			name:     "all emits every translated backend",
-			scoping:  clusterScoping{},
+			scoping:  xdsScoping{},
 			expected: []string{"routed", "unreferenced-a", "unreferenced-b"},
 		},
 		{
 			name:     "referenced emits only what the config names",
-			scoping:  scopedClusters(),
+			scoping:  scopedXds(),
 			expected: []string{"routed"},
 		},
 	} {

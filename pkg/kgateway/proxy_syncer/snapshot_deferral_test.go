@@ -120,7 +120,7 @@ func TestSnapshotPerClientReportsDeferredClients(t *testing.T) {
 			}),
 		},
 		pcc,
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	require.Eventually(t, func() bool { return deferredGauge(t, "gw", "ns") == 1 }, 2*time.Second, 20*time.Millisecond,

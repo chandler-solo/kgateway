@@ -57,7 +57,7 @@ type ProxySyncer struct {
 	proxyTranslator ProxyTranslator
 	// scoping, including the plugins' emission claims, is resolved once at
 	// construction.
-	scoping clusterScoping
+	scoping xdsScoping
 
 	uniqueClients krt.Collection[ir.UniquelyConnectedClient]
 	// clientState is the synchronous state behind uniqueClients; the reclaimer
@@ -169,7 +169,7 @@ func sliceToResources[T proto.Message](slice []T) envoycache.Resources {
 
 // toTranslationOutput projects one gateway translation into published xDS and
 // status. scoping gates the emitted-set walk (emittedClustersFor).
-func toTranslationOutput(gw ir.Gateway, xdsSnap irtranslator.TranslationResult, r reports.ReportMap, scoping clusterScoping) *gatewayTranslationOutput {
+func toTranslationOutput(gw ir.Gateway, xdsSnap irtranslator.TranslationResult, r reports.ReportMap, scoping xdsScoping) *gatewayTranslationOutput {
 	c, ch := sliceToResourcesHash(xdsSnap.ExtraClusters)
 	routes := sliceToResources(xdsSnap.Routes)
 	listeners := sliceToResources(xdsSnap.Listeners)
@@ -218,7 +218,7 @@ func NewProxySyncer(
 		// StartConfig would lose this protection silently.
 		logger.Warn("no xDS client state wired; every reconnecting proxy is treated as a new one, so a deferred first publish to a proxy still serving config is not withheld past the first-publish budget, a returning proxy is answered from its previous connection's snapshot until the next publish to it, and departed proxies' snapshots are never reclaimed")
 	}
-	scoping := clusterScopingFrom(commonCols.Settings, mergedPlugins.ContributesPolicies)
+	scoping := xdsScopingFrom(commonCols.Settings, mergedPlugins.ContributesPolicies)
 	return &ProxySyncer{
 		controllerName: controllerName,
 		commonCols:     commonCols,
@@ -249,7 +249,7 @@ func NewProxyTranslator(
 	xdsClientState krtcollections.XDSClientState,
 	publishBudget time.Duration,
 	checkSnapshotConsistency bool,
-	scoping clusterScoping,
+	scoping xdsScoping,
 ) ProxyTranslator {
 	return ProxyTranslator{
 		xdsCache: xdsCache,
@@ -345,7 +345,7 @@ func (s *ProxySyncer) Init(ctx context.Context, krtopts krtutil.KrtOptions) {
 
 	s.translator.Init(ctx)
 
-	// Resolved at construction; every scoping path checks ScopesClusters() and
+	// Resolved at construction; every scoping path checks Scoped() and
 	// does nothing when it is false.
 	scoping := s.scoping
 	translationOutputs := krt.NewCollection(s.commonCols.GatewayIndex.Gateways, func(kctx krt.HandlerContext, gw ir.Gateway) *gatewayTranslationOutput {
@@ -488,7 +488,7 @@ func (s *ProxySyncer) Start(ctx context.Context) error {
 		for _, e := range events {
 			if name := e.Latest().ResourceName(); e.Event == controllers.EventDelete && s.uniqueClients.GetKey(name) == nil {
 				s.proxyTranslator.gate.clientDeparted(name)
-				forgetClusterScopingClient(name, gatewayHasClients(name, s.uniqueClients.List()))
+				forgetXdsScopingClient(name, gatewayHasClients(name, s.uniqueClients.List()))
 			}
 		}
 	}, false)

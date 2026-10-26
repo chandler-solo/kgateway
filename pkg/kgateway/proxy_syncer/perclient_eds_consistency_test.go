@@ -85,7 +85,7 @@ func TestSnapshotPerClientPublishesConsistentSnapshotForUnreferencedEDSClusterWi
 			}),
 		},
 		newTestPerClientClustersFromCol(clusterCol, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 
 	snap := eventuallySingleSnapshot(t, snapshots)

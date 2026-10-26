@@ -175,7 +175,7 @@ func TestKeepBackendListenerTargets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			translated, translatedVersions := clusterResourcesFor(tc.translated...)
 			kept, keptVersions, _ := filterClustersToEmitted(
-				scopedClusters(), emissionSet(tc.kept...), translated, translatedVersions)
+				scopedXds(), emissionSet(tc.kept...), translated, translatedVersions)
 
 			got, gotVersions, filtered, fallback := keepBackendListenerTargets(
 				translated, translatedVersions, kept, keptVersions, tc.listeners)
@@ -199,21 +199,21 @@ func TestKeepBackendListenerTargets(t *testing.T) {
 func TestSnapshotPerClientKeepsClustersBackendListenersName(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		scoping   clusterScoping
+		scoping   xdsScoping
 		expected  []string
 		listeners []string
 		secrets   []string
 	}{
 		{
 			name:      "all emits every translated backend",
-			scoping:   clusterScoping{},
+			scoping:   xdsScoping{},
 			expected:  []string{"tunneled", "proxy", "unreferenced"},
 			listeners: []string{"listener", "tunnel_tunneled", "tunnel_unreferenced"},
 			secrets:   []string{"tunneled-header", "unreferenced-header"},
 		},
 		{
 			name:      "referenced keeps the tunnel's proxy",
-			scoping:   scopedClusters(),
+			scoping:   scopedXds(),
 			expected:  []string{"tunneled", "proxy"},
 			listeners: []string{"listener", "tunnel_tunneled"},
 			secrets:   []string{"tunneled-header"},
@@ -282,7 +282,7 @@ func TestSnapshotPerClientReportsABackendListenerFallback(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gateway := "gw-fallback-" + strconv.Itoa(len(tc.routed)) + "-" + strconv.Itoa(len(tc.filters))
-			wrap := tunnelSnapshot(t, gateway, scopedClusters(), tc.routed, tc.filters...)
+			wrap := tunnelSnapshot(t, gateway, scopedXds(), tc.routed, tc.filters...)
 			assert.ElementsMatch(t, tc.expected, mapKeys(wrap.snap.Resources[envoycachetypes.Cluster].Items))
 
 			labels := []metrics.Label{
@@ -290,8 +290,8 @@ func TestSnapshotPerClientReportsABackendListenerFallback(t *testing.T) {
 				{Name: namespaceLabel, Value: "ns"},
 			}
 			gathered := metricstest.MustGatherMetrics(t)
-			assert.Equal(t, tc.dropped, gathered.MustGetMetricValueByLabels("kgateway_xds_cluster_scoping_dropped_clusters", labels))
-			assert.Equal(t, tc.disabled, gathered.MustGetMetricValueByLabels("kgateway_xds_cluster_scoping_disabled_gateways", labels))
+			assert.Equal(t, tc.dropped, gathered.MustGetMetricValueByLabels("kgateway_xds_scoping_dropped_clusters", labels))
+			assert.Equal(t, tc.disabled, gathered.MustGetMetricValueByLabels("kgateway_xds_scoping_disabled_gateways", labels))
 		})
 	}
 }
@@ -323,7 +323,7 @@ func TestClaimsDoNotCoverABackendListenersSelector(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"tunneled", "proxy", "unreferenced"}, mapKeys(wrap.snap.Resources[envoycachetypes.Cluster].Items))
 	assert.Equal(t, float64(1), metricstest.MustGatherMetrics(t).MustGetMetricValueByLabels(
-		"kgateway_xds_cluster_scoping_disabled_gateways", []metrics.Label{
+		"kgateway_xds_scoping_disabled_gateways", []metrics.Label{
 			{Name: gatewayLabel, Value: gateway},
 			{Name: namespaceLabel, Value: "ns"},
 		}))
@@ -332,11 +332,11 @@ func TestClaimsDoNotCoverABackendListenersSelector(t *testing.T) {
 // tunnelSnapshot builds one client's snapshot of gateway ns/gateway, whose
 // routes name routed, over three backends: "tunneled", whose listener is a
 // tunnel through "proxy" behind filters, "proxy", and "unreferenced".
-func tunnelSnapshot(t *testing.T, gateway string, scoping clusterScoping, routed []string, filters ...proto.Message) XdsSnapWrapper {
+func tunnelSnapshot(t *testing.T, gateway string, scoping xdsScoping, routed []string, filters ...proto.Message) XdsSnapWrapper {
 	t.Helper()
 	role := xds.OwnerNamespaceNameID(wellknown.GatewayApiProxyValue, "ns", gateway)
 	ucc := ir.NewUniquelyConnectedClient(role, "", nil, ir.PodLocality{})
-	t.Cleanup(func() { forgetClusterScopingClient(ucc.ResourceName(), false) })
+	t.Cleanup(func() { forgetXdsScopingClient(ucc.ResourceName(), false) })
 	uccs := krt.NewStaticCollection[ir.UniquelyConnectedClient](nil, []ir.UniquelyConnectedClient{ucc})
 
 	var vhRoutes []*envoyroutev3.Route

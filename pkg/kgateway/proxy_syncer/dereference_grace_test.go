@@ -56,7 +56,7 @@ func publishedEndpointNames(t *testing.T, pt *ProxyTranslator) []string {
 }
 
 func newGraceTestTranslator(t *testing.T, grace time.Duration) *ProxyTranslator {
-	pt := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 50*time.Millisecond, true, scopedClustersWithGrace(grace))
+	pt := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 50*time.Millisecond, true, scopedXdsWithGrace(grace))
 	return &pt
 }
 
@@ -184,7 +184,7 @@ func TestDereferenceGraceNeverResurrectsAnErroredCluster(t *testing.T) {
 // TestGraceDereferencedClustersReportsSoonestExpiry: a later de-reference must
 // not postpone an earlier window's removal.
 func TestGraceDereferencedClustersReportsSoonestExpiry(t *testing.T) {
-	g := newPublishGate(0, false, nil, scopedClustersWithGrace(time.Minute))
+	g := newPublishGate(0, false, nil, scopedXdsWithGrace(time.Minute))
 	published := &envoycache.Snapshot{}
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: edsClusterProto("first-out")},
@@ -212,7 +212,7 @@ func TestGraceDereferencedClustersReportsSoonestExpiry(t *testing.T) {
 // TestGraceDereferencedClustersDropsExpiredEntries: an expired cluster is no
 // longer graced, so the re-publish removes it.
 func TestGraceDereferencedClustersDropsExpiredEntries(t *testing.T) {
-	g := newPublishGate(0, false, nil, scopedClustersWithGrace(time.Second))
+	g := newPublishGate(0, false, nil, scopedXdsWithGrace(time.Second))
 	published := &envoycache.Snapshot{}
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: edsClusterProto("going-away")},
@@ -232,7 +232,7 @@ func TestGraceDereferencedClustersDropsExpiredEntries(t *testing.T) {
 // scoping stopped emitting is graced. One whose backend is gone leaves at once,
 // as with scoping off.
 func TestGraceDereferencedClustersSkipsClustersNoLongerTranslated(t *testing.T) {
-	g := newPublishGate(0, false, nil, scopedClustersWithGrace(time.Minute))
+	g := newPublishGate(0, false, nil, scopedXdsWithGrace(time.Minute))
 	published := &envoycache.Snapshot{}
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v1", []envoycachetypes.ResourceWithTTL{
 		{Resource: edsClusterProto("scoped-out")},
@@ -317,7 +317,7 @@ func TestDereferenceGraceGivesARecoveredClusterAFreshWindow(t *testing.T) {
 // or it later re-publishes the older held build with an empty placeholder CLA.
 func TestGracedCoherentPublishCancelsAPendingFlipRelease(t *testing.T) {
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 100*time.Millisecond, true,
-		scopedClustersWithGrace(time.Hour))
+		scopedXdsWithGrace(time.Hour))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -380,7 +380,7 @@ func TestGracePruneKeepsAHeldFlipHeld(t *testing.T) {
 	for _, budget := range []time.Duration{time.Hour, 0, -time.Second} {
 		t.Run(budget.String(), func(t *testing.T) {
 			translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, budget, true,
-				scopedClustersWithGrace(80*time.Millisecond))
+				scopedXdsWithGrace(80*time.Millisecond))
 			pt := &translator
 			t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 			ctx := context.Background()

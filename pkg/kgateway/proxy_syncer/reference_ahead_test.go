@@ -26,7 +26,7 @@ func routedClusterWrapperV(version string, clusters ...string) XdsSnapWrapper {
 }
 
 func newReferenceAheadTranslator(t *testing.T, ahead time.Duration) *ProxyTranslator {
-	pt := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true, scopedClustersWithReferenceAhead(ahead))
+	pt := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true, scopedXdsWithReferenceAhead(ahead))
 	return &pt
 }
 
@@ -94,7 +94,7 @@ func TestReferenceAheadDoesNotHoldARetargetOntoAnAlreadySentCluster(t *testing.T
 // TestReferenceAheadIgnoresTheBlackhole: holding on it would delay only routes
 // whose backends already failed resolution.
 func TestReferenceAheadIgnoresTheBlackhole(t *testing.T) {
-	g := newPublishGate(0, false, nil, scopedClustersWithReferenceAhead(time.Minute))
+	g := newPublishGate(0, false, nil, scopedXdsWithReferenceAhead(time.Minute))
 	published := &envoycache.Snapshot{}
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v0", nil)
 
@@ -106,7 +106,7 @@ func TestReferenceAheadIgnoresTheBlackhole(t *testing.T) {
 // from the publish that first carries it, even once the published snapshot has
 // it.
 func TestReferenceAheadWindowIsPerCluster(t *testing.T) {
-	g := newPublishGate(0, false, nil, scopedClustersWithReferenceAhead(time.Minute))
+	g := newPublishGate(0, false, nil, scopedXdsWithReferenceAhead(time.Minute))
 	published := &envoycache.Snapshot{}
 	published.Resources[envoycachetypes.Cluster] = envoycache.NewResourcesWithTTL("v0", []envoycachetypes.ResourceWithTTL{
 		{Resource: edsClusterProto("old")},
@@ -136,7 +136,7 @@ func TestReferenceAheadWindowIsPerCluster(t *testing.T) {
 // TestReferenceAheadHoldIsBoundedByTheBudget: a window longer than the budget
 // still releases at the budget.
 func TestReferenceAheadHoldIsBoundedByTheBudget(t *testing.T) {
-	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 60*time.Millisecond, true, scopedClustersWithReferenceAhead(time.Hour))
+	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 60*time.Millisecond, true, scopedXdsWithReferenceAhead(time.Hour))
 	pt := &translator
 	ctx := context.Background()
 
@@ -229,7 +229,7 @@ func TestReferenceAheadAppliesToDeferredBuilds(t *testing.T) {
 // reference-ahead hold waits for its budget, not the window.
 func TestHoldDeadlinePerReason_UnreadyFlipOutlastsTheAheadWindow(t *testing.T) {
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 600*time.Millisecond, true,
-		scopedClustersWithReferenceAhead(50*time.Millisecond))
+		scopedXdsWithReferenceAhead(50*time.Millisecond))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -253,7 +253,7 @@ func TestHoldDeadlinePerReason_UnreadyFlipOutlastsTheAheadWindow(t *testing.T) {
 // open window, not the unready budget.
 func TestHoldDeadlinePerReason_ReadyFlipReleasesAtTheAheadWindow(t *testing.T) {
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true,
-		scopedClustersWithReferenceAhead(100*time.Millisecond))
+		scopedXdsWithReferenceAhead(100*time.Millisecond))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -296,7 +296,7 @@ func TestReferenceAheadReleaseIsNotABudgetExpiry(t *testing.T) {
 	assert.Zero(t, bounded(boundedPublishReferenceAhead), "nor a budget expiry")
 
 	reset()
-	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 30*time.Millisecond, true, scopedClustersWithReferenceAhead(time.Hour))
+	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, 30*time.Millisecond, true, scopedXdsWithReferenceAhead(time.Hour))
 	capped := &translator
 	capped.syncXds(ctx, routedClusterWrapperV("v1", "old"))
 	capped.syncXds(ctx, routedClusterWrapperV("v2", "old", "new"))
@@ -308,7 +308,7 @@ func TestReferenceAheadReleaseIsNotABudgetExpiry(t *testing.T) {
 // A de-reference grace (20ms) closing during a reference-ahead hold (1h) must
 // not release the retarget: the prune repeats the full hold decision.
 func TestDereferencePruneKeepsAReferenceAheadHold(t *testing.T) {
-	scoping := scopedClustersWithReferenceAhead(time.Hour)
+	scoping := scopedXdsWithReferenceAhead(time.Hour)
 	scoping.dereferenceGrace = 20 * time.Millisecond
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true, scoping)
 	pt := &translator
@@ -339,7 +339,7 @@ func TestDereferencePruneKeepsAReferenceAheadHold(t *testing.T) {
 // from the held build, the grace (400ms) would leave old only 100ms after the
 // route update.
 func TestDereferenceGraceStartsWhenAReferenceAheadHoldReleases(t *testing.T) {
-	scoping := scopedClustersWithReferenceAhead(300 * time.Millisecond)
+	scoping := scopedXdsWithReferenceAhead(300 * time.Millisecond)
 	scoping.dereferenceGrace = 400 * time.Millisecond
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true, scoping)
 	pt := &translator
@@ -365,7 +365,7 @@ func TestDereferenceGraceStartsWhenAReferenceAheadHoldReleases(t *testing.T) {
 // the flip publishes, not when the held build dropped the cluster.
 func TestDereferenceGraceStartsWhenAHeldFlipPublishes(t *testing.T) {
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true,
-		scopedClustersWithGrace(400*time.Millisecond))
+		scopedXdsWithGrace(400*time.Millisecond))
 	pt := &translator
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
 	ctx := context.Background()
@@ -419,7 +419,7 @@ func TestReferenceAheadHoldPublishesTheListenersItsClustersNeed(t *testing.T) {
 // window: retarget onto b, revert, and retarget onto b again inside b's
 // window, and the second retarget waits for the rest of the window.
 func TestReferenceAheadWindowSurvivesARevertWhileTheClusterIsPublished(t *testing.T) {
-	scoping := scopedClustersWithReferenceAhead(500 * time.Millisecond)
+	scoping := scopedXdsWithReferenceAhead(500 * time.Millisecond)
 	scoping.dereferenceGrace = time.Hour
 	translator := NewProxyTranslator(newTestSnapshotCache(t), stubPriorXDS{has: true}, time.Hour, true, scoping)
 	pt := &translator

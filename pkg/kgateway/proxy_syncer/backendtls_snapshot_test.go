@@ -154,7 +154,7 @@ func TestPerClientSnapshotUpdatesWhenBackendTLSPolicyConflictsAddedLater(t *test
 		if xdsSnap == nil {
 			return nil
 		}
-		return &toTranslationOutput(gw, *xdsSnap, reportsMap, clusterScoping{}).Xds
+		return &toTranslationOutput(gw, *xdsSnap, reportsMap, xdsScoping{}).Xds
 	}, krtopts.ToOptions("MostXdsSnapshots")...)
 
 	epPerClient := NewPerClientEnvoyEndpoints(
@@ -171,7 +171,7 @@ func TestPerClientSnapshotUpdatesWhenBackendTLSPolicyConflictsAddedLater(t *test
 		finalBackends,
 		uccs,
 	)
-	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, clusterScoping{})
+	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, xdsScoping{})
 
 	fakeClient.RunAndWait(ctx.Done())
 
@@ -394,7 +394,7 @@ func TestPerClientSnapshotUsesSectionSpecificAndServiceWideBackendTLSPolicies(t 
 		if xdsSnap == nil {
 			return nil
 		}
-		return &toTranslationOutput(gw, *xdsSnap, reportsMap, clusterScoping{}).Xds
+		return &toTranslationOutput(gw, *xdsSnap, reportsMap, xdsScoping{}).Xds
 	}, krtopts.ToOptions("MostXdsSnapshots")...)
 
 	epPerClient := NewPerClientEnvoyEndpoints(
@@ -411,7 +411,7 @@ func TestPerClientSnapshotUsesSectionSpecificAndServiceWideBackendTLSPolicies(t 
 		finalBackends,
 		uccs,
 	)
-	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, clusterScoping{})
+	snapshots := snapshotPerClient(krtopts, uccs, mostXdsSnapshots, epPerClient, clustersPerClient, xdsScoping{})
 
 	fakeClient.RunAndWait(ctx.Done())
 

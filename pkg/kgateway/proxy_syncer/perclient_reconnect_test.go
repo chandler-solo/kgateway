@@ -114,9 +114,9 @@ func newReconnectFixture(t *testing.T, routeTargets []string, backendNames []str
 	}
 	f.endpoints = endpointRows
 
-	f.snapshots = snapshotPerClient(krtutil.KrtOptions{}, f.uccs, f.gateways, endpoints, PerClientEnvoyClusters{perClient: perClient}, clusterScoping{})
+	f.snapshots = snapshotPerClient(krtutil.KrtOptions{}, f.uccs, f.gateways, endpoints, PerClientEnvoyClusters{perClient: perClient}, xdsScoping{})
 	f.cache = &recordingCache{SnapshotCache: newTestSnapshotCache(t), node: f.ucc.ResourceName()}
-	translator := NewProxyTranslator(f.cache, stubPriorXDS{has: true}, 15*time.Second, true, clusterScoping{})
+	translator := NewProxyTranslator(f.cache, stubPriorXDS{has: true}, 15*time.Second, true, xdsScoping{})
 	// Mirror ProxySyncer.Start's current-row check and clientDeparted on Delete.
 	translator.gate.currentBuild = f.snapshots.GetKey
 	f.snapshots.RegisterBatch(func(events []krt.Event[XdsSnapWrapper]) {
@@ -290,10 +290,10 @@ func TestPublishedClientKeepsEndpointsWhenRowIsNotDerived(t *testing.T) {
 			index:     krtpkg.UnnamedIndex(endpointRows, func(ep UccWithEndpoints) []string { return []string{ep.Client.ResourceName()} }),
 		},
 		newTestPerClientClustersFromCol(clusterRows, uccs),
-		clusterScoping{},
+		xdsScoping{},
 	)
 	cache := newTestSnapshotCache(t)
-	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, clusterScoping{}))
+	registerSyncXds(snapshots, NewProxyTranslator(cache, nil, 0, true, xdsScoping{}))
 	node := ucc.ResourceName()
 	endpointsServed := func(cluster string) (int, bool) {
 		snap, err := cache.GetSnapshot(node)

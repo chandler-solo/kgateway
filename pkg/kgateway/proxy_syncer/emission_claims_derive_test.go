@@ -59,8 +59,8 @@ func destinationsFromMarker(use sdk.SelectorUse) sdk.ClaimedDestinations {
 	return sdk.ClaimedDestinations{}
 }
 
-func scopedWithClaims(claims emissionClaims) clusterScoping {
-	scoping := scopedClusters()
+func scopedWithClaims(claims emissionClaims) xdsScoping {
+	scoping := scopedXds()
 	scoping.claims = claims
 	return scoping
 }

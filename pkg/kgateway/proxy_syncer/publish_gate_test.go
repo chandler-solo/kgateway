@@ -35,7 +35,7 @@ func newPublishGateTestTranslator(t *testing.T, prior bool, budget time.Duration
 		stubPriorXDS{has: prior},
 		budget,
 		true,
-		clusterScoping{},
+		xdsScoping{},
 	)
 	// Stop timers at cleanup; a warm hold would otherwise re-arm forever.
 	t.Cleanup(func() { pt.gate.clientDeparted(publishGateTestClient) })
@@ -654,7 +654,7 @@ func (c installThenFailCache) SetSnapshot(ctx context.Context, node string, snap
 func TestSetSnapshotErrorAfterInstallKeepsBookkeeping(t *testing.T) {
 	ctx := context.Background()
 	newTranslator := func(budget time.Duration) *ProxyTranslator {
-		pt := NewProxyTranslator(installThenFailCache{newTestSnapshotCache(t)}, stubPriorXDS{}, budget, true, clusterScoping{})
+		pt := NewProxyTranslator(installThenFailCache{newTestSnapshotCache(t)}, stubPriorXDS{}, budget, true, xdsScoping{})
 		return &pt
 	}
 	t.Run("bounded first publish", func(t *testing.T) {
