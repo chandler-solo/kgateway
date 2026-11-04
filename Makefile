@@ -104,6 +104,27 @@ endif
 
 export ENVOY_IMAGE ?= envoyproxy/envoy:v1.39.6
 
+# Envoy version tag (e.g. v1.38.1) taken from ENVOY_IMAGE's tag, used to suffix the registry
+# layer-cache tags. The Envoy base is the layer that differs across release lines
+# (main/v2.3.x/v2.2.x each pin a different Envoy), so without this suffix every branch writes the
+# same `*-cache:<arch>` tag and main's frequent pushes constantly evict the release lines' cache
+# -- turning release-branch PR builds into full QEMU rebuilds. Scoping the cache tag per Envoy
+# version gives each release line a cache that survives main churn. The Rust module's cache is
+# scoped the same way: internal/envoy_modules/Cargo.toml pins the Envoy Rust SDK to this tag.
+#
+# The tag is parsed with make functions rather than `cut -d: -f2`, which breaks on valid refs:
+# any @digest is dropped first, and the tag is read from the last path segment only, so a
+# registry port (localhost:5000/envoy:v1.38.1) isn't mistaken for it. A digest-only ref falls
+# back to the digest (sha256-<hex>, a valid tag) and a bare repository to `latest`.
+#
+# The local *_CACHE_FROM targets read this as a make variable ($(ENVOY_VERSION_TAG)). The `export`
+# below hands it to recipes, but don't add a target-specific assignment to it anywhere: in GNU
+# Make 4.3 and older (the ubuntu-22.04 CI runner ships 4.3), one silently stops the global export.
+# The `release` target also passes it to goreleaser inline -- see the note there.
+ENVOY_IMAGE_DIGEST = $(word 2,$(subst @, ,$(ENVOY_IMAGE)))
+ENVOY_IMAGE_TAG = $(word 2,$(subst :, ,$(lastword $(subst /, ,$(firstword $(subst @, ,$(ENVOY_IMAGE)))))))
+export ENVOY_VERSION_TAG ?= $(or $(ENVOY_IMAGE_TAG),$(subst :,-,$(ENVOY_IMAGE_DIGEST)),latest)
+
 # ENVOY_IMAGE is used by some of the *-docker targets which are used by CI e2e tests, so figure out the correct image
 # to use base on GOARCH. This doesn't affect goreleaser
 ifeq ($(GOARCH), arm64)
@@ -779,9 +800,9 @@ CONTROLLER_OUTPUT_DIR=$(OUTPUT_DIR)/pkg/kgateway
 export CONTROLLER_IMAGE_REPO ?= kgateway
 
 # Registry cache repo for controller Docker build (set to enable, e.g., ghcr.io/kgateway-dev/kgateway-cache).
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 CONTROLLER_CACHE_REF ?=
-CONTROLLER_CACHE_FROM := $(if $(CONTROLLER_CACHE_REF),--cache-from type=registry$(comma)ref=$(CONTROLLER_CACHE_REF):$(GOARCH),)
+CONTROLLER_CACHE_FROM := $(if $(CONTROLLER_CACHE_REF),--cache-from type=registry$(comma)ref=$(CONTROLLER_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 # We include the files in K8S_GATEWAY_SOURCES as dependencies to the kgateway build
 # so changes in those directories cause the make target to rebuild
@@ -819,9 +840,9 @@ SDS_OUTPUT_DIR=$(OUTPUT_DIR)/$(SDS_DIR)
 export SDS_IMAGE_REPO ?= sds
 
 # Registry cache repo for sds Docker build (set to enable, e.g., ghcr.io/kgateway-dev/sds-cache).
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 SDS_CACHE_REF ?=
-SDS_CACHE_FROM := $(if $(SDS_CACHE_REF),--cache-from type=registry$(comma)ref=$(SDS_CACHE_REF):$(GOARCH),)
+SDS_CACHE_FROM := $(if $(SDS_CACHE_REF),--cache-from type=registry$(comma)ref=$(SDS_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 $(SDS_OUTPUT_DIR)/sds-linux-$(GOARCH): $(SDS_SOURCES)
 	$(GO_BUILD_FLAGS) GOOS=linux go build -ldflags='$(LDFLAGS)' -gcflags='$(GCFLAGS)' -o $@ ./cmd/sds/...
@@ -857,21 +878,19 @@ export ENVOYINIT_IMAGE_REPO ?= envoy-wrapper
 # Registry cache for envoyinit Docker build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-wrapper-cache)
 
 # Registry cache-from targets the image goreleaser publishes on main/release.
-# The arch tag is appended automatically as :$(GOARCH) to match what goreleaser publishes.
+# The cache tag is suffixed automatically as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match what goreleaser publishes.
 ENVOYINIT_CACHE_REF ?=
-ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH),)
-
-# Optional local BuildKit cache paths, typically wired to actions/cache in CI
-# so PR runs can read AND write layer cache without needing registry push auth.
-# Requires the docker-container buildx driver (docker/setup-buildx-action).
-# mode=max exports intermediate stages, which is what lets rust_build_deps and
-# rust_builder stay cached across runs even when the registry cache has gaps.
-ENVOYINIT_LOCAL_CACHE_FROM ?=
-ENVOYINIT_LOCAL_CACHE_TO ?=
-ENVOYINIT_LOCAL_CACHE_FROM_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_FROM),--cache-from type=local$(comma)src=$(ENVOYINIT_LOCAL_CACHE_FROM),)
-ENVOYINIT_LOCAL_CACHE_TO_ARG := $(if $(ENVOYINIT_LOCAL_CACHE_TO),--cache-to type=local$(comma)dest=$(ENVOYINIT_LOCAL_CACHE_TO)$(comma)mode=max,)
+ENVOYINIT_CACHE_FROM := $(if $(ENVOYINIT_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOYINIT_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 
 ENVOY_MODULES_DIR := internal/envoy_modules/
+
+# Registry cache for the Rust module build (set to enable, e.g., ghcr.io/kgateway-dev/envoy-modules-cache).
+# goreleaser writes it on main/release; the tag is suffixed as :$(GOARCH)-$(ENVOY_VERSION_TAG) to match.
+# goreleaser cross-compiles both arches on an amd64 host (no --platform), so only
+# linux/amd64 builds here can hit it; on an arm64 host the cargo-zigbuild base
+# resolves to a different digest and every layer misses.
+ENVOY_MODULES_CACHE_REF ?=
+ENVOY_MODULES_CACHE_FROM := $(if $(ENVOY_MODULES_CACHE_REF),--cache-from type=registry$(comma)ref=$(ENVOY_MODULES_CACHE_REF):$(GOARCH)-$(ENVOY_VERSION_TAG),)
 # find all the files under the envoy modules directory but exclude the target, vendor and pkg directory
 ENVOY_MODULES_SRC_FILES := $(shell find $(ENVOY_MODULES_DIR) \( -type d -name target -o -type d -name pkg -o -type d -name vendor \) -prune -o -type f -print)
 
@@ -891,6 +910,7 @@ $(ENVOY_MODULE_OUTPUT_DIR)/librust_module.so: $(ENVOY_MODULES_SRC_FILES) $(ENVOY
 		--output type=local,dest=$(ENVOY_MODULE_OUTPUT_DIR) \
 		--target export \
 		--build-arg RUST_BUILD_ARCH=$(RUST_BUILD_ARCH) \
+		$(ENVOY_MODULES_CACHE_FROM) \
 		-f $(ENVOY_MODULE_DOCKERFILE) \
 		$(ENVOY_MODULES_DIR)
 
@@ -909,8 +929,6 @@ $(ENVOYINIT_OUTPUT_DIR)/.docker-stamp-$(VERSION)-$(GOARCH): $(ENVOYINIT_OUTPUT_D
 		--build-arg ENVOY_IMAGE=$(ENVOY_IMAGE) \
 		--build-arg BASE_IMAGE=$(DISTROLESS_BASE_IMAGE) \
 		$(ENVOYINIT_CACHE_FROM) \
-		$(ENVOYINIT_LOCAL_CACHE_FROM_ARG) \
-		$(ENVOYINIT_LOCAL_CACHE_TO_ARG) \
 		-t $(IMAGE_REGISTRY)/$(ENVOYINIT_IMAGE_REPO):$(VERSION)
 	@touch $@
 
@@ -1055,9 +1073,15 @@ GORELEASER_ARGS ?= --snapshot --clean
 GORELEASER_TIMEOUT ?= 60m
 GORELEASER_CURRENT_TAG ?= $(VERSION)
 
+# ENVOY_VERSION_TAG is passed explicitly (not just via `export`) so goreleaser's
+# `.Env.ENVOY_VERSION_TAG` (used to scope the buildx cache tags in .goreleaser.yaml) is always set.
+# In GNU Make 4.3 and older (the ubuntu-22.04 CI runner ships 4.3), a target-specific assignment to
+# the same variable anywhere in the Makefile stops the global `export` from reaching recipes;
+# Release run 28414248341 failed that way with `map has no entry for key "ENVOY_VERSION_TAG"`.
+# An inline assignment on the command itself is unaffected.
 .PHONY: release
 release: ## Create a release using goreleaser
-	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
+	GORELEASER_CURRENT_TAG=$(GORELEASER_CURRENT_TAG) ENVOY_VERSION_TAG=$(ENVOY_VERSION_TAG) go tool -modfile=tools/go.mod goreleaser release $(GORELEASER_ARGS) --timeout $(GORELEASER_TIMEOUT)
 .PHONY: release-notes
 release-notes: ## Generate release notes (PREVIOUS_TAG required, CURRENT_TAG optional)
 	./hack/generate-release-notes.sh -p "$${PREVIOUS_TAG:-}" -c "$${CURRENT_TAG:-HEAD}"
@@ -1443,7 +1467,6 @@ bump-gtw: ## Bump Gateway API deps to $DEP_REF (or $DEP_VERSION). Example: make 
 #----------------------------------------------------------------------------
 
 .PHONY: envoyversion
-envoyversion: ENVOY_VERSION_TAG ?= $(shell echo $(ENVOY_IMAGE) | cut -d':' -f2)
 envoyversion:
 	echo "Version is $(ENVOY_VERSION_TAG)"
 	echo "Current ABI in envoy_modules can be found in the cargo.toml's envoy-proxy-dynamic-modules-rust-sdk"

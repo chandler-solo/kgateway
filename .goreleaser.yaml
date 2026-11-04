@@ -6,8 +6,12 @@ before:
     # Build the Rust dynamic module for amd64 and arm64 before any Docker images are built.
     # cargo zigbuild cross-compiles without needing QEMU; the container runs on the host
     # platform and targets the specified RUST_BUILD_ARCH.
-    - docker buildx build --output=type=local,dest=_output/rust/amd64 --target=export --build-arg=RUST_BUILD_ARCH=x86_64 -f internal/envoy_modules/Dockerfile internal/envoy_modules/
-    - docker buildx build --output=type=local,dest=_output/rust/arm64 --target=export --build-arg=RUST_BUILD_ARCH=aarch64 -f internal/envoy_modules/Dockerfile internal/envoy_modules/
+    # The registry cache lets the e2e image builds (ENVOY_MODULES_CACHE_REF) skip the
+    # Rust build when its sources are unchanged; writing it needs registry auth, so
+    # ignore-error keeps unauthenticated pull_request runs working. Like the image caches
+    # below, the tag is scoped by Envoy version (the Rust SDK is pinned to the same tag).
+    - docker buildx build --output=type=local,dest=_output/rust/amd64 --target=export --build-arg=RUST_BUILD_ARCH=x86_64 --cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-modules-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }} --cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-modules-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true {{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ end }} -f internal/envoy_modules/Dockerfile internal/envoy_modules/
+    - docker buildx build --output=type=local,dest=_output/rust/arm64 --target=export --build-arg=RUST_BUILD_ARCH=aarch64 --cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-modules-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }} --cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-modules-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true {{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ end }} -f internal/envoy_modules/Dockerfile internal/envoy_modules/
 builds:
   - id: controller
     main: ./cmd/kgateway
@@ -70,8 +74,8 @@ dockers:
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
       - "--build-arg=RUST_MODULE_DIR=_output/rust/arm64"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:arm64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:arm64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
   - image_templates:
@@ -88,8 +92,8 @@ dockers:
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
       - "--build-arg=RUST_MODULE_DIR=_output/rust/amd64"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:amd64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:amd64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/kgateway-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
   - image_templates:
@@ -102,8 +106,8 @@ dockers:
       - "--platform=linux/arm64"
       - "--build-arg=GOARCH=arm64"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:arm64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:arm64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
   - image_templates:
@@ -116,8 +120,8 @@ dockers:
       - "--platform=linux/amd64"
       - "--build-arg=GOARCH=amd64"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:amd64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:amd64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/sds-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
   - image_templates:
@@ -136,8 +140,8 @@ dockers:
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
       - "--build-arg=RUST_MODULE_DIR=_output/rust/arm64"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:arm64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
   - image_templates:
@@ -156,8 +160,8 @@ dockers:
       - "--build-arg=ENVOY_IMAGE={{ .Env.ENVOY_IMAGE }}"
       - "--build-arg=BASE_IMAGE={{ .Env.DISTROLESS_BASE_IMAGE }}"
       - "--build-arg=RUST_MODULE_DIR=_output/rust/amd64"
-      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64"
-      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64,mode=max,ignore-error=true"
+      - "--cache-from=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }}"
+      - "--cache-to=type=registry,ref={{ .Env.IMAGE_REGISTRY }}/envoy-wrapper-cache:amd64-{{ .Env.ENVOY_VERSION_TAG }},mode=max,ignore-error=true"
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--pull{{ else }}--progress=auto{{ end }}'
       - '{{ if isEnvSet "DOCKER_NO_CACHE" }}--no-cache{{ else }}--progress=auto{{ end }}'
 docker_manifests:
