@@ -19,12 +19,12 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	e2edefaults "github.com/kgateway-dev/kgateway/v2/test/e2e/defaults"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/matchers"
 	"github.com/kgateway-dev/kgateway/v2/test/gomega/transforms"
 	"github.com/kgateway-dev/kgateway/v2/test/helpers"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/curl"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/kubectl"
 )
 
 const (

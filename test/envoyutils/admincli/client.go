@@ -16,11 +16,11 @@ import (
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/cmdutils"
 	// import for side effects; this is needed so we can unmarshal envoy types
 	_ "github.com/kgateway-dev/kgateway/v2/pkg/utils/filter_types"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/portforward"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/protoutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/threadsafe"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/curl"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/kubectl"
 )
 
 const (

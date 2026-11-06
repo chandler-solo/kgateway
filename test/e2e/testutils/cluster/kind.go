@@ -14,8 +14,8 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/schemes"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/kubectl"
 )
 
 // MustKindContext returns the Context for a local cluster (kind or k3d) with the given name.

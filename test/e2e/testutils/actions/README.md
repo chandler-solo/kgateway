@@ -8,4 +8,4 @@ If you intend to introduce a new action, please follow this approach:
 
 **Example**:
 If you expanded the functionality that a user would perform via `kubectl`
-1. Introduce that logic into the [kubectl](/pkg/utils/kubeutils/kubectl) package
+1. Introduce that logic into the [kubectl](/test/testutils/kubectl) package

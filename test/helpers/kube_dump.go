@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/kubectl"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/portforward"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/threadsafe"
 	kgatewayAdminCli "github.com/kgateway-dev/kgateway/v2/test/controllerutils/admincli"
 	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/curl"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/kubectl"
 )
 
 // StandardKgatewayDumpOnFail creates a dump of the kubernetes state and certain envoy data from

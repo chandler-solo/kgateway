@@ -12,8 +12,8 @@ import (
 
 	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/kubeutils/portforward"
-	"github.com/kgateway-dev/kgateway/v2/pkg/utils/requestutils/curl"
 	"github.com/kgateway-dev/kgateway/v2/test/envoyutils/admincli"
+	"github.com/kgateway-dev/kgateway/v2/test/testutils/curl"
 )
 
 func (p *Provider) AssertEnvoyAdminApi(
