@@ -99,6 +99,8 @@ func TestRequestMirrorIRValidate(t *testing.T) {
 		{name: "nil IR"},
 		{name: "no literal", ir: requestMirrorIRWithValue(true)},
 		{name: "host and port", ir: requestMirrorIRWithLiteral("shadow.example:8080")},
+		// Admission rejects whitespace, but Envoy accepts it, so the IR check leaves it alone.
+		{name: "space is left to admission", ir: requestMirrorIRWithLiteral("bad internal")},
 		{name: "CRLF", ir: requestMirrorIRWithLiteral("bad.internal\r\nx-injected: pwned"), wantErr: true},
 		{name: "LF", ir: requestMirrorIRWithLiteral("bad.internal\n"), wantErr: true},
 		{name: "NUL", ir: requestMirrorIRWithLiteral("bad\x00.internal"), wantErr: true},
@@ -108,10 +110,10 @@ func TestRequestMirrorIRValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.ir.Validate()
 			if tt.wantErr {
-				assert.ErrorContains(t, err, "HostRewriteLiteral")
+				assert.ErrorContains(t, err, "HostRewriteLiteral", "Envoy rejects this literal, so the IR must too")
 				return
 			}
-			assert.NoError(t, err)
+			assert.NoError(t, err, "Envoy accepts this literal, so the IR must too")
 		})
 	}
 }

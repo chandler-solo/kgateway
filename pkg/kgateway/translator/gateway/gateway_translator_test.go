@@ -30,6 +30,7 @@ import (
 
 	apisettings "github.com/kgateway-dev/kgateway/v2/api/settings"
 	backendplugin "github.com/kgateway-dev/kgateway/v2/pkg/kgateway/extensions2/plugins/backend"
+	"github.com/kgateway-dev/kgateway/v2/pkg/kgateway/wellknown"
 	"github.com/kgateway-dev/kgateway/v2/pkg/utils/fsutils"
 	"github.com/kgateway-dev/kgateway/v2/pkg/version"
 	"github.com/kgateway-dev/kgateway/v2/test/testutils"
@@ -4266,6 +4267,9 @@ func TestValidation(t *testing.T) {
 		category  string
 		inputFile string
 		minMode   apisettings.ValidationMode
+		// schemas, when set, replaces the CRD schemas the fixture is validated against on load.
+		// Use it for objects the current schema rejects but an older one stored.
+		schemas func(t *testing.T) map[schema.GroupVersionKind]*apiserverschema.Structural
 	}
 
 	tt := []validationTest{
@@ -4292,6 +4296,13 @@ func TestValidation(t *testing.T) {
 			category:  "matcher",
 			inputFile: "matcher-header-regex-invalid.yaml",
 			minMode:   apisettings.ValidationStandard,
+		},
+		{
+			name:      "Request Mirror HostRewriteLiteral Invalid",
+			category:  "policy",
+			inputFile: "policy-request-mirror-host-rewrite-literal-invalid.yaml",
+			minMode:   apisettings.ValidationStandard,
+			schemas:   schemasWithoutHostRewriteLiteralPattern,
 		},
 		{
 			name:      "Extension Ref Invalid",
@@ -4480,7 +4491,11 @@ func TestValidation(t *testing.T) {
 			s.EnableExperimentalGatewayAPIFeatures = true
 			s.EnableAuthMetadata = true
 		}
-		translatortest.TestTranslation(t, ctx, []string{inputFile}, outputFile, gwNN, settingOpts)
+		var extra translatortest.ExtraConfig
+		if test.schemas != nil {
+			extra.GVKToStructuralSchema = test.schemas(t)
+		}
+		translatortest.TestTranslationWithExtraPlugins(t, ctx, []string{inputFile}, outputFile, gwNN, extra, settingOpts)
 	}
 
 	for _, mode := range []apisettings.ValidationMode{apisettings.ValidationStandard, apisettings.ValidationStrict} {
@@ -4737,4 +4752,29 @@ func TestDiscoveryNamespaceSelector(t *testing.T) {
   }
 ]`, "base.yaml", "base_select_infra.yaml")
 	})
+}
+
+// schemasWithoutHostRewriteLiteralPattern returns kgateway's CRD schemas with the admission
+// pattern on TrafficPolicy spec.requestMirror.hostRewriteLiteral removed, standing in for a
+// TrafficPolicy stored before that pattern existed. The cached schema is shared across
+// parallel tests, so the TrafficPolicy entry is deep-copied before it is changed.
+func schemasWithoutHostRewriteLiteralPattern(t *testing.T) map[schema.GroupVersionKind]*apiserverschema.Structural {
+	t.Helper()
+
+	schemas, err := testutils.GetStructuralSchemasForAllCharts()
+	require.NoError(t, err, "failed to load kgateway CRD schemas")
+
+	tp, ok := schemas[wellknown.TrafficPolicyGVK]
+	require.True(t, ok, "TrafficPolicy schema should be loaded")
+	tp = tp.DeepCopy()
+
+	field, ok := tp.Properties["spec"].Properties["requestMirror"].Properties["hostRewriteLiteral"]
+	require.True(t, ok, "TrafficPolicy schema should have spec.requestMirror.hostRewriteLiteral")
+	require.NotNil(t, field.ValueValidation, "hostRewriteLiteral should carry value validation")
+	require.NotEmpty(t, field.ValueValidation.Pattern, "hostRewriteLiteral should have an admission pattern to remove")
+	field.ValueValidation.Pattern = ""
+	tp.Properties["spec"].Properties["requestMirror"].Properties["hostRewriteLiteral"] = field
+
+	schemas[wellknown.TrafficPolicyGVK] = tp
+	return schemas
 }

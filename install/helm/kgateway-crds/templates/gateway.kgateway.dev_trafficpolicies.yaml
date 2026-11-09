@@ -2115,10 +2115,11 @@ spec:
                       disableShadowHostSuffixAppend.
 
                       The value must be a hostname or IP address, optionally followed by a port, for example
-                      `shadow.example`, `shadow.example:8080`, or `[2001:db8::1]:8080`.
-                    maxLength: 259
+                      `shadow.example`, `shadow.example:8080`, or `[2001:db8::1]:8080`. IPv6 addresses must be
+                      enclosed in brackets.
+                    maxLength: 260
                     minLength: 1
-                    pattern: ^(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9_]([a-zA-Z0-9_.-]*[a-zA-Z0-9_])?)(:[0-9]{1,5})?$
+                    pattern: ^(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9_]([a-zA-Z0-9_.-]*[a-zA-Z0-9_])?\.?)(:[0-9]{1,5})?$
                     type: string
                 type: object
               retry:
