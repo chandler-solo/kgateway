@@ -266,8 +266,13 @@ type RequestMirrorPolicy struct {
 	// value. The original port is not preserved, so include a port here if the mirror destination
 	// needs one. This implicitly disables appending the "-shadow" suffix, regardless of
 	// disableShadowHostSuffixAppend.
+	//
+	// The value must be a hostname or IP address, optionally followed by a port, for example
+	// `shadow.example`, `shadow.example:8080`, or `[2001:db8::1]:8080`.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=259
+	// +kubebuilder:validation:Pattern=`^(\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9_]([a-zA-Z0-9_.-]*[a-zA-Z0-9_])?)(:[0-9]{1,5})?$`
 	HostRewriteLiteral *string `json:"hostRewriteLiteral,omitempty"`
 }
 

@@ -26,9 +26,17 @@ func (r *requestMirrorIR) Equals(other PolicySubIR) bool {
 		ptr.Equal(r.hostRewriteLiteral, otherRequestMirror.hostRewriteLiteral)
 }
 
-// Validate performs validation on the request mirror component. The API schema
-// validates that at least one setting is present, so no IR validation is needed.
-func (r *requestMirrorIR) Validate() error { return nil }
+// Validate checks the host rewrite literal against Envoy's own constraints. The API schema
+// rejects these values at admission, but objects stored before that validation existed can
+// still carry them, and Envoy rejects the whole RouteConfiguration when it sees one.
+func (r *requestMirrorIR) Validate() error {
+	if r == nil || r.hostRewriteLiteral == nil {
+		return nil
+	}
+	return (&envoyroutev3.RouteAction_RequestMirrorPolicy{
+		HostRewriteLiteral: *r.hostRewriteLiteral,
+	}).Validate()
+}
 
 // constructRequestMirror constructs the request mirror policy IR from the policy specification.
 func constructRequestMirror(spec kgateway.TrafficPolicySpec, out *trafficPolicySpecIr) {

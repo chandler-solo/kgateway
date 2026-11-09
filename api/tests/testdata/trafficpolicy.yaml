@@ -321,3 +321,71 @@ spec:
       stage: AuthN
       predicate: Before
       weight: 1
+---
+# TrafficPolicy: requestMirror hostRewriteLiteral accepts host:port
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: request-mirror-host-port
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: test-route
+  requestMirror:
+    hostRewriteLiteral: "shadow.example:8080"
+---
+# TrafficPolicy: requestMirror hostRewriteLiteral accepts a bracketed IPv6 address with port
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: request-mirror-ipv6
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: test-route
+  requestMirror:
+    hostRewriteLiteral: "[2001:db8::1]:8080"
+---
+# TrafficPolicy: requestMirror hostRewriteLiteral rejects CRLF
+_err: spec.requestMirror.hostRewriteLiteral in body should match
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: request-mirror-crlf
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: test-route
+  requestMirror:
+    hostRewriteLiteral: "bad.internal\r\nx-injected: pwned"
+---
+# TrafficPolicy: requestMirror hostRewriteLiteral rejects whitespace
+_err: spec.requestMirror.hostRewriteLiteral in body should match
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: request-mirror-space
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: test-route
+  requestMirror:
+    hostRewriteLiteral: "bad internal"
+---
+# TrafficPolicy: requestMirror hostRewriteLiteral rejects a path
+_err: spec.requestMirror.hostRewriteLiteral in body should match
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: request-mirror-path
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: test-route
+  requestMirror:
+    hostRewriteLiteral: "shadow.example/path"

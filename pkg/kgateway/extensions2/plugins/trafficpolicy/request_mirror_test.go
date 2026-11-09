@@ -90,6 +90,32 @@ func TestRequestMirrorIREquals(t *testing.T) {
 	}
 }
 
+func TestRequestMirrorIRValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		ir      *requestMirrorIR
+		wantErr bool
+	}{
+		{name: "nil IR"},
+		{name: "no literal", ir: requestMirrorIRWithValue(true)},
+		{name: "host and port", ir: requestMirrorIRWithLiteral("shadow.example:8080")},
+		{name: "CRLF", ir: requestMirrorIRWithLiteral("bad.internal\r\nx-injected: pwned"), wantErr: true},
+		{name: "LF", ir: requestMirrorIRWithLiteral("bad.internal\n"), wantErr: true},
+		{name: "NUL", ir: requestMirrorIRWithLiteral("bad\x00.internal"), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.ir.Validate()
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "HostRewriteLiteral")
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestApplyRequestMirror(t *testing.T) {
 	t.Run("true updates a single mirror", func(t *testing.T) {
 		plugin := &trafficPolicyPluginGwPass{}
